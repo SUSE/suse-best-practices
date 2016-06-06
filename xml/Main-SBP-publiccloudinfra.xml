@@ -1,0 +1,1057 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+<article xmlns="http://docbook.org/ns/docbook"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+ xml:id="art.sbp.public.cloud" xml:lang="en">
+
+ <info>
+  <title>&suse; Public Cloud Infrastructure Setup Guide</title>
+  <subtitle>&productname; &productnumber;</subtitle>
+  <orgname>SUSE Best Practices</orgname>
+  <productname>&sle; &productname;</productname>
+  <productnumber>&productnumber;</productnumber>
+
+  <author>
+   <personname>
+    <firstname>Robert</firstname>
+    <surname>Schweikert</surname>
+   </personname>
+   <affiliation>
+    <jobtitle/>
+    <orgname>&suse;</orgname>
+   </affiliation>
+  </author>
+
+  <date>28 Apr 2016</date>
+ </info>
+
+ <sect1 xml:id="sec.intro">
+  <title>Introduction</title>
+  <para>Use of public cloud resources is one of the fastest growing
+   sections in the IT industry. In a large number of cases Infrastructure
+   as a Service (IaaS) is a leading use case of public cloud. The public
+   cloud brings with it a <quote>start and use</quote> expectation. This
+   poses a challenge for an Enterprise Linux distribution such as &sle;
+   to provide access to the update repositories without formal registration
+   of the OS installation.</para>
+  <para>In a traditional data center a &suse; customer will set up a
+   new machine (physical or virtual) and configure the system to connect to
+   a local SMT server, be managed by &suse; Manager, or connect to the
+   &scc; (SCC), for &sle; 12 based releases, or to the &ncc;
+   (NCC), for &sle; 11 based releases to obtain updates. In the public
+   cloud the data center workflow is not practical.</para>
+  <para>Generating registration entitlements for every instance for use
+   with SCC/NCC and providing these to the user would not meet the
+    <quote>fire up and use</quote> expectation. Automated generation of
+   entitlements and injection into instances, while possible, would provide
+   registration with SCC/NCC but may generate additional cost for the
+   customer as packages would have to be downloaded from outside the cloud
+   providers network for update purposes. Additionally a direct
+   registration of instances with SCC/NCC would put the burden of
+   verification concerning eligibility into the SCC/NCC code base. For NCC
+   this is not possible and for SCC this is undesirable. Therefore, in a
+   public cloud setting it is important that the update infrastructure be
+   operated inside the public cloud environment.</para>
+  <para>This guide describes the setup of the required infrastructure in
+   generic terms that scale from small to large cloud installations. The
+   implementation of this setup is a requirement to obtain SUSE Certified
+   Cloud Provider status. Additionally this setup can also be implemented
+   in a private cloud setup.</para>
+ </sect1>
+
+ <sect1 xml:id="sec.overview">
+  <title>High Level Overview</title>
+  <para>The update infrastructure consists of 2 major components:</para>
+  <itemizedlist>
+   <listitem>
+    <para>Region Servers</para>
+   </listitem>
+   <listitem>
+    <para> SMT Servers</para>
+   </listitem>
+  </itemizedlist>
+  <para>Both run as VMs within the cloud framework. All services run on
+   SUSE Linux Enterprise Server 12 SP1 or higher. These systems may be
+   registered directly to SCC or may be managed using SUSE Manager. In
+   addition to having the base repository the systems must also have the
+   Public Cloud Module repository configured.</para>
+  <sect2 xml:id="sec.region_server_s">
+   <title>Region Server(s)</title>
+   <para>The Region Server uses information provided in a configuration
+    file, <filename>/etc/regionService/regionData.cfg</filename> by
+    default, to associate SMT server information with a particular region
+    of the cloud framework. If the cloud service offered has only one
+    region it is still useful to use the region server to allow for easy
+    future expansion. The goal of the overall architecture is to always
+    deliver updates for &sle; guests region local. In general IP
+    addresses for guests are provided by a DHCP service that is part of the
+    cloud framework and various CIDR blocks are used in various regions.
+    This region association of IP addresses, IPv4 and/or IPv6, is part of
+    the cloud framework configuration and is captured in the configuration
+    file for the region server. For cases where the association of CIDR
+    blocks to specific regions is more dynamic the region server REST API
+    also accepts a <option>regionHint</option> argument that the guest may
+    send along to obtain information about the SMT servers in the
+    guest&#8217;s region.</para>
+   <para>&sls; guest instances connect to a Region Server to receive a
+    list of SMT Servers available in the region in which the guest instance
+    was launched. The information provided to the client is in XML format
+    and is sufficient for the client to automatically register with the
+    region local SMT Server.</para>
+   <para>Generally, multiple Region Server instances should be operated in
+    the cloud environment to ensure availability of the Region Service in
+    the event that any given Region Server is too distant (high latency),
+    down, or otherwise unavailable. Information about the region servers in
+    the cloud framework is encoded in the guest images by including the
+    region server&#8217;s public certificate in the
+     <filename>/var/lib/regionService/certs/</filename> directory. The name
+    of the certificate files is used to attempt to connect to the region
+    server via https.</para>
+  </sect2>
+  <sect2 xml:id="sec.smt_server_s">
+   <title>SMT Server(s)</title>
+   <para>The SMT (Subscription Management Tool) Server serves as cache for
+    the package repositories obtained from SCC (&scc;). The SMT Server
+    itself is registered with SCC, or managed via SUSE Manager, as it would
+    be in a traditional data center.</para>
+   <para>Given the data provided by a Region Server, the client proceeds
+    through a <quote>regular</quote> automated registration process. This
+    registration process is exactly the same as the process an
+    administrator in a data center would complete when registering a new
+    system against an SMT Server operated in a traditional data
+    center.</para>
+  </sect2>
+ </sect1>
+ <sect1 xml:id="detailed_setup_guide">
+  <title>Detailed Setup Guide</title>
+  <para>Although the Region Server is the first service used by a client,
+   its setup and configuration is dependent on the setup of SMT Servers.
+   Therefore, the setup guide will describe the setup in the reverse order
+   as listed in the previous section.</para>
+  <sect2 xml:id="sec.general_setup">
+   <title>General Setup</title>
+   <para>Before any of the servers are set up and configured some general
+    preparations should be completed. Access restriction to the servers is
+    a multi level process as described in more detail later. Generally
+    cloud frameworks provide a feature often called <quote>Security
+     Groups</quote>. This is a fire-walling mechanism that the cloud
+    framework network infrastructure provides.</para>
+   <para>Use this mechanism to set up 2 security groups, one used by the
+    SMT Servers and one used for the Region Service. The security group
+    (firewall rules) for the SMT Server (suggested name: smt-server) needs
+    to allow incoming traffic on ports 22, 80, and 443 from all addresses
+     (<systemitem class="ipaddress">0.0.0.0/0</systemitem>; <systemitem
+     class="ipaddress">::/0</systemitem>). All other ports should be
+    blocked. The security group (firewall rules) for the Region Service
+    (suggested name: region-server) needs to allow incoming traffic on
+    ports 22 and 443 from all addresses (<systemitem class="ipaddress"
+     >0.0.0.0/0</systemitem>; <systemitem class="ipaddress"
+     >::/0</systemitem>). If you so desire you can move ssh to run on a
+    different port and configure your firewall rules accordingly.</para>
+   <para>Allocate static IP addresses in the cloud framework. For each
+    region there should be at least 2 SMT Servers. Additionally there
+    should be at least 2 Region Servers. Depending on the footprint of the
+    cloud environment more Region Servers, with instances running in
+    different regions may be desired. Thus, allocate at least 2 static IPs
+    per region plus one or more static IPs in each region where a Region
+    Server will be set up.</para>
+   <para>The final preparatory step is to generate ssh key pairs for the
+    servers. Most cloud frameworks provide a way to generate keys or to
+    import keys. The SSH key does not need to be built into the image as in
+    general it will be injected by the cloud framework on instance launch.
+    It is recommended to use different keys for the SMT Server and the
+    Region Server.</para>
+   <screen>ssh-keygen -t rsa -f smt
+ssh-keygen -t rsa -f regionsrv</screen>
+  </sect2>
+  <sect2 xml:id="sec.smt_server_setup">
+   <title>SMT Server Setup</title>
+   <para>The SMT Server is a VM inside the cloud environment. For each
+    region at least 2 SMT Servers should be configured. The number of SMT
+    servers in a region depends on the bandwidth within the data center and
+    the number of expected simultaneous users. As a reference, SUSE
+    operates 2 SMT servers per region in AWS and is able to satisfy
+    throughput needs for registered clients. Thus, it is unlikely than more
+    then two SMT servers are needed in your set up. The setup of an SMT
+    server inside a virtual machine is no different than the setup SMT
+    server on a physical machine. Therefore you can refer to the <link
+     xlink:href="https://www.suse.com/documentation/sles-12/book_smt/data/book_smt.html"
+    /> SMT documentation for guidance. Alternatively you can build an image
+    with kiwi; a template used to build SUSE operated SMT Servers is
+    attached in appendix A.</para>
+   <para>The SMT Server functions as a cache for all packages SUSE releases
+    as updates for all enabled products. Therefore, it potentially requires
+    a large amount of disk space. It is recommended that a 1TB virtual disk
+    (or larger) be created inside the cloud environment and attached to the
+    SMT Server VM. This storage device will be used to store the
+    repositories. In addition it is recommended to store the database on an
+    attached virtual disk, a size of 40GB or more is suggested for the DB
+    storage device.</para>
+   <para>Having the storage of the repositories on a separate device
+    preserves the data should the SMT server VM need need to be rebuilt.
+    This improves the recovery time since the repositories do not need to
+    be repopulated from SCC. Keeping the DB on a separate device ensures
+    that the existing registrations do not get lost if the SMT VM needs to
+    be rebuilt.</para>
+   <para>After the installation of the SMT Server package
+     (<emphasis>smt</emphasis>) the directory structure required by SMT is
+    setup in <filename>/srv/www/htdocs/repo</filename>. We want to use this
+    directory as the mount point for the external virtual disk that is
+    supposed to hold the repositories. The following process outlines the
+    steps necessary to set the external device up to hold the
+    repositories:</para>
+   <orderedlist>
+    <listitem>
+     <para> In the cloud framework, either via the customary web-UI, or the
+      available command line tools create a virtual disk of 1 TB or larger.
+     </para>
+    </listitem>
+    <listitem>
+     <para> After the virtual disk creation is complete attach the device
+      to the running SMT instance. </para>
+    </listitem>
+    <listitem>
+     <para> Once the disk is attached log into the SMT Server as root, or
+      become root after logging in. </para>
+    </listitem>
+    <listitem>
+     <para> Use <command>fdisk -l</command> to list the available block
+      devices. </para>
+    </listitem>
+    <listitem>
+     <para> Create a partition table (using YaST, gparted, or fdisk) and
+      create 1 partition on the device. </para>
+    </listitem>
+    <listitem>
+     <para> Create a file system on the newly created partition, XFS is the
+      recommended file system for this storage device. </para>
+    </listitem>
+    <listitem>
+     <para> Copy the content of the SMT directory to a <quote>safe</quote>
+      place: </para>
+     <screen>mkdir /tmp/smtData; rsync -av /srv/www/htdocs/repo/ /tmp/smtData</screen>
+    </listitem>
+    <listitem>
+     <para> Mount the storage partition: </para>
+     <screen>mount /dev/sd? /srv/www/htdocs/repo/</screen>
+    </listitem>
+    <listitem>
+     <para> Restore the content of the repo directory: </para>
+     <screen>rsync -av /tmp/smtData/ /srv/www/htdocs/repo; rm -rf /tmp/smtData</screen>
+    </listitem>
+   </orderedlist>
+   <para>Note that <filename>/srv/www/htdocs/repo</filename> and its
+    content must be owned by the <systemitem class="username"
+     >smt</systemitem> user and have <systemitem class="groupname"
+     >www</systemitem> group ownership. The procedure for placing the DB
+    data onto a separate device is basically the same.</para>
+   <orderedlist>
+    <listitem>
+     <para> In the cloud framework, either via the customary web-UI, or the
+      available command line tools create a virtual disk of 40 GB. </para>
+    </listitem>
+    <listitem>
+     <para> After the virtual disk creation is complete attach the device
+      to the running SMT instance. </para>
+    </listitem>
+    <listitem>
+     <para> Once the disk is attached log into the SMT Server as root, or
+      become root after logging in. </para>
+    </listitem>
+    <listitem>
+     <para> Use <command>fdisk -l</command> to list the available block
+      devices. </para>
+    </listitem>
+    <listitem>
+     <para> Create a partition table (using YaST, gparted, or fdisk) and
+      create 1 partition on the device. </para>
+    </listitem>
+    <listitem>
+     <para> Create a file system on the newly created partition, XFS is the
+      recommended file system for this storage device. </para>
+    </listitem>
+    <listitem>
+     <para> Copy the content of the DB directory to a <quote>safe</quote>
+      place: </para>
+     <screen>mkdir /tmp/dbData; rsync -av /var/lib/mysql/ /tmp/dbData</screen>
+    </listitem>
+    <listitem>
+     <para> Mount the storage partition: </para>
+     <screen>mount /dev/sd? /var/lib/mysql</screen>
+    </listitem>
+    <listitem>
+     <para> Restore the content of the repo directory: </para>
+     <screen>rsync -av /tmp/dbData/ /var/lib/mysql; rm -rf /tmp/dbData</screen>
+    </listitem>
+   </orderedlist>
+   <para>The process of mounting the external devices upon instance start
+    up is cloud framework specific and thus it depends on the cloud
+    framework whether or not you want to create entries for the mount
+    points in <filename>/etc/fstab</filename>.</para>
+   <para>At the protocol level a number of functions of SMT for the client
+    registration use https, i.e. these are SSL dependent. Therefore,
+    certificate handling is important. In general the assumption is that an
+    SMT Server uses a self signed certificate. If you choose to follow the
+    path of using a self signed certificate you should use the integrated
+    certificate creation step included in the SMT setup process in
+    &yast;. This process will be followed later after some more
+    preliminary settings are complete. However, at your choice you may use
+    a certificate signed by a public CA. In this case you need to handle
+    certificate placement manually. In cases where SUSE operates an
+    infrastructure self signed certificates are used.</para>
+   <para>If you choose to use a certificate that is signed by a public CA
+    and is thus acceptable by using the known trust chain, it is still
+    necessary that the <filename>/srv/www/htdocs/smt.crt</filename> file
+    exists. This file, in a self signed certificate setup, represents the
+    root CA and is imported into the trust chain on the guest that is
+    registering with the SMT server. The registration automation downloads
+    this file and registration will fail if it does not exist. Thus, even
+    for certificates signed by a public CA the root CA must be made
+    available via <filename>/srv/www/htdocs/smt.crt</filename>.</para>
+   <para>The next step for the SMT server configuration is to set up
+    registration sharing. Registration sharing is enabled by the
+    installation of the <emphasis>smt-ha</emphasis> package and is used to
+    configure the SMT servers in an active HA configuration. Registration
+    sharing can be configured between 2 or more SMT Servers. The
+    certificate setup has an implication on the configuration of
+    registration sharing between multiple SMT Servers as well. Registration
+    sharing is configured in the SMT configuration file
+     <filename>/etc/smt.conf</filename>. In the <literal>[LOCAL]</literal>
+    section add the following configuration entries:</para>
+   <screen>#
+# This string is used to verify that any sender trying to share a
+# registration is allowed to do so. Provide a comma separated list of
+# names or IP addresses.
+acceptRegistrationSharing=
+#
+# This string is used to set the host names and or IP addresses of sibling
+# SMT servers to which the registration data should be sent. For multiple
+# siblings provide a comma separated list.
+shareRegistrations=
+#
+# This string provides information for SSL verification of the siblings.
+# Certificates for the siblings should reside in the given directory.
+# If not defined siblings are assumed to have the same CA as this server
+siblingCertDir=</screen>
+   <para>When a client system registers with the SMT server the SMT
+    implementation will send a <quote>share registration request</quote> to
+    all the servers configured with the
+     <emphasis>shareRegistrations</emphasis> option. The value is a comma
+    separated list of IP addresses or host names. Note that the entries
+    must match the way the certificate was set up as the <quote>share
+     registration request</quote> is sent to the other SMT server(s) via
+    https. So if you encoded the FQDN of the sibling SMT servers in the
+    certificate this name must be used as a value of the
+     <emphasis>shareRegistration</emphasis> configuration option. If the
+    certificate of the sibling server(s) is not imported into the default
+    trust chain you may set the <emphasis>siblingCertDir</emphasis> option
+    to point the verification code to the directory where the sibling
+    server certificates are located.</para>
+   <para>When a <quote>share registration request</quote> is received by an
+    SMT Server the list of IP addresses and/or host names (comma separated
+    string) provided with the <option>acceptRegistrationSharing</option>
+    setting is consulted to verify that the sending system is authorized to
+    share a registration. This share request is not propagated to any SMT
+    Servers that may be listed in the <option>shareRegistration</option>
+    option. Only registration requests received from clients using the
+     <command>suse_register</command> or <command>SUSEConnect</command>
+    commands are shared with SMT Servers listed the with
+     <emphasis>shareRegistrations</emphasis> setting.</para>
+   <para>Sharing of registration information is important to provide
+    failover capabilities for the update infrastructure.</para>
+   <para>Before proceeding with the configuration for repository mirroring
+    access control to the SMT server(s) needs to be configured. The SMT
+    Server in a public cloud is by definition public, or it could not be
+    accessed by the instances of &sle; that run within the cloud
+    framework. Therefore, access to the SMT Server must be restricted to
+    eligible &sle; installations. Eligible &sle; installations are
+    defined to be those for which the cloud provider can account and report
+    accurate usage hours to SUSE. The level of access control behind the
+    security group setting described earlier (which is considered level 1)
+    occurs on two levels:</para>
+   <itemizedlist>
+    <listitem>
+     <para>http and https traffic access</para>
+    </listitem>
+    <listitem>
+     <para>repository access verification</para>
+    </listitem>
+   </itemizedlist>
+
+   <para>Depending on the offering of &sle; in the cloud framework
+    repository access verification may not be necessary.</para>
+   <para>Access to the server on the protocol level needs to be restricted
+    to IP addresses (IPv4 and/or IPv6) that are handed out by the cloud
+    framework DHCP server(s). This process can be automated using the
+    utility provided by the <systemitem class="resource"
+     >python-serviceAccessConfig</systemitem> package. The service provided
+    with this package generates ACL information for Apache. More details
+    about the configuration of this service are provided in the
+     <emphasis>Server Access Control</emphasis> section below. You may also
+    consult the man page,<literal>man serviceAccessConfig</literal> for
+    details about the configuration. The file
+     <filename>/etc/smt.d/nu_server.conf</filename> can be used as a target
+    for the ACL generation to control access to the SMT functionality.
+    However a higher level Apache file can be used to block access from
+    outside IP addresses to Apache all together.</para>
+   <para>If only on demand images of &sle; are offered in the cloud
+    framework it is not necessary to implement a repository access
+    verification mechanism. However, if BYOS (Bring Your Own Subscription)
+    is offered within the cloud framework a repository access mechanism
+    needs to be implemented. This is accomplished by adding</para>
+   <screen>#
+# This string is used to load a cloud specific verification module to verify
+# the guest issuing the registration request is eligible to access the
+# repositories. The value none indicates that no verification should
+# take place
+cloudGuestVerify=PERL_PLUGIN_NAME</screen>
+   <para>to the <filename>/etc/smt.conf</filename> file in the
+     <literal>[LOCAL]</literal> section. The PERL_PLUGIN_NAME in the above
+    example is a place holder for a Perl module that needs to be
+    implemented to verify that the guest is eligible to access the
+    repositories. This plugin may perform verification based on accessing a
+    cloud framework API or by verifying metadata sent by the guest, or a
+    combination therof.</para>
+   <para>The verification module must implement 2 interfaces,
+     <emphasis>verifyGuest</emphasis> and
+     <emphasis>verifySCCGuest</emphasis>. The
+     <emphasis>verifyGuest</emphasis> implementation is called when a
+    client accesses the SMT Server via <emphasis>suse_register</emphasis>
+    for the first time and the <emphasis>verifySCCGuest</emphasis>
+    implementation is used when the client uses
+     <emphasis>SUSEConnect</emphasis> for registration purposes.</para>
+   <para><emphasis>suse_register</emphasis> is the implementation shipped
+    with &sle; 11 to register a &sle; installation with NCC (Novell
+    Customer Center) or SMT. <command>SUSEConnect</command> was developed
+    to interface with SCC (&scc;) and SMT and is shipped with &sle;
+    12.</para>
+   <para>The implementation of the access verification plugin is placed in
+    a file named to match the configuration option, PERL_PLUGIN_NAME.pm for
+    the example above, that is placed in the
+     <filename>/srv/www/perl-lib/SMT/Client</filename> directory. The
+    following example shows a stub implementation of the verification
+    module that also dumps the received data</para>
+   <example>
+    <title>
+     <filename>/srv/www/perl-lib/SMT/Client/exampleVerify.pm</filename>
+    </title>
+    <screen>use strict;
+use warnings;
+
+use Apache2::RequestRec ();
+use Apache2::RequestIO ();
+
+use Data::Dumper;
+
+sub verifyGuest {
+
+    my $self    = shift;
+    my $r       = shift;
+    my $regroot = shift;
+    # Insert code to connect to cloud framework and verify the guest
+    # return 1 for successful verification, undef for verification failure
+    # $r       -&gt; the request, i.e an Apache request object
+    #             http://perl.apache.org/docs/2.0/api/Apache2/RequestRec.html
+    # $regroot -&gt; HASHREF containing information sent by the client.
+    open(my $DBGOUT, '&gt;', '/tmp/verifyGuest.txt');
+    print $DBGOUT "The client information\n\n";
+    my $dumper = Data::Dumper-&gt;new([$regroot]);
+    print $DBGOUT $dumper-&gt;Dump();
+    return 1;
+}
+
+sub verifySCCGuest {
+
+    my $self     = shift;
+    my $r        = shift;
+    my $clntData = shift;
+    my $result   = shift;
+    # Insert code to connect to cloud framework and verify the guest
+    # return the result HASHREF for successful verification, undef for
+    # verification failure
+    # $r        -&gt; the request, i.e an Apache request object
+    #              http://perl.apache.org/docs/2.0/api/Apache2/RequestRec.html
+    # $clntData -&gt; data received from the client
+    # $result   -&gt; HASHREF of results of various previous operations
+    open(my $DBGOUT, '&gt;', '/tmp/sccVerifyGuest.txt');
+    print $DBGOUT "The client information\n\n";
+    my $dumper = Data::Dumper-&gt;new([$clntData]);
+    print $DBGOUT $dumper-&gt;Dump();
+    my $dd = Data::Dumper-&gt;new([$result]);
+    print $DBGOUT $dd-&gt;Dump();
+    return $result;
+}
+
+1;</screen>
+   </example>
+   <para>A similar file is provided as part of the
+     <emphasis>smt-ha</emphasis> package.</para>
+   <para>This completes the configuration of the access control of the SMT
+    server. In summary the access control of the SMT server occurs on
+    potentially 3 levels:</para>
+
+   <variablelist>
+    <varlistentry>
+     <term>Level 1</term>
+     <listitem>
+      <para>Access control at the cloud framework level, via firewall
+       opening port 22, 80, and 443.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Level 2</term>
+     <listitem>
+      <para>Access control at he protocol level allowing only systems with
+       IP addresses used by the cloud framework to access the server. This
+       can be accomplished using the <option>serviceAccessConfig</option>
+       tool.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>Level 3</term>
+     <listitem>
+      <para>Repository access verification via SMT plugin. This is only
+       necessary if BYOS images are supported in the cloud
+       framework.</para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+
+   <para>The final modifications to the <filename>etc/smt.conf</filename>
+    file prior to registering SMT with SCC and configuring the repositories
+    are to set the authentication and the forwarding information. In
+     <filename>etc/smt.conf</filename> set the
+     <option>forwardRegistration</option> setting to
+     <literal>false</literal> and set the <option>requiredAuthType</option>
+    to <literal>lazy</literal>.</para>
+   <para>You are now ready to complete the higher level SMT setup and
+    eventually sync the repository content from SCC. Use &yast; to
+    configure the remaining settings of SMT following the SMT setup
+    documentation. As part of this process, if you are using a self signed
+    certificate, the certificate creation workflow can be invoked.</para>
+   <para>The final step is to set up the repositories that should be
+    mirrored. This can be completed with YaST or the
+     <command>smt-repos</command> command. Mirror the repositories
+     <literal>Pool</literal>, and <literal>Update</literal> for the base
+    distributions SLES 11 and SLES 12 as well as the
+     <literal>Debuginfo</literal> and <literal>SDK</literal> repositories.
+    In addition both SLES 11 and SLES 12 offer specific module repositories
+    that are considered to be part of SLES but are delivered as separate
+    repositories. These should also be enabled for mirroring.</para>
+   <para>You only need to mirror the repositories for the architecture of
+    interest to you. In most cases this will be only x86_64. There is
+    generally no advantage in a cloud environment to run 32 bit instances
+    as the underlying hardware is generally 64 bit capable and 64 bit
+    instances are fully capable of running 32 bit applications. If you need
+    to mirror more than 1 architecture you may need to increase the size of
+    the storage that holds the packages.</para>
+   <para>The final step in the SMT setup is to mirror the repositories from
+    SCC using the <emphasis>smt-mirror</emphasis> command as root. This
+    will download all the packages for the configured repositories and
+    takes some time. In most cases the sync will complete over
+    night.</para>
+  </sect2>
+  <sect2 xml:id="region_server_setup">
+   <title>Region Server Setup</title>
+   <para>The function of the Region Server is to provide information about
+    the SMT Servers in a given region to the connecting guest. The Region
+    Server runs as a Python script using the Flask framework in Apache. The
+    Region Server is provided with the
+     <systemitem>cloud-regionsrv</systemitem> package. As with the SMT
+    server the region server should be access restricted to the IP address
+    ranges for the cloud framework. More on this access control in the
+    section <xref linkend="sec.server_access_control"/>.</para>
+   <para>The service itself uses 2 configuration files, one file,
+     <filename>/etc/regionService/regionInfo.cfg</filename> is used to
+    configure the service, the other,
+     <filename>/etc/regionService/regionData.cfg</filename> provides the
+    data the Region Server will provide to the connecting client, both
+    files are in the ini format.</para>
+   <para>The <filename>regionInfo.cfg</filename> file is used to configure
+    the location of the log file and the location of the
+     <filename>regionData.cfg</filename> file with the
+     <option>logFile</option> and <option>regionConfig</option> options,
+    respectively. The default settings for the config file are shown below
+    and should suffice for most installations.</para>
+   <screen>[server]
+logFile = /var/log/regionService/regionInfo.log
+regionConfig = /etc/regionService/regionData.cfg</screen>
+   <para>The default <filename>regionData.cfg</filename> file provides a
+    template for the configuration file. This file can be maintained
+    manually or be auto-generated, depending on your setup for IP address
+    allocation within your cloud framework. The
+     <filename>regionData.cfg</filename> file needs to contain one
+    configuration section per region. Often regions in a given cloud setup
+    are named by geographic location, such as <quote>us-east-1</quote> for
+    the Amazon cloud set up in the eastern geography of the United States.
+    This location indicator is also often available through querying of
+    metdata in the guest image. It is therefore recommended that the
+    section name in the <filename>regionData.cfg</filename> file match the
+    names of the region names available through the meta data of the
+    framework. In cases where IP addresses are not stable in their
+    association with regions the region metdata can be queried in the guest
+    and passed to the Region Server as a hint to obtain the SMT Server
+    information for the given region. The hint is processed with string
+    matching and thus having section names match the configured region
+    names is important. The server implementation has no option of name
+    mapping. For each region all options in the section must be
+    configured.</para>
+   <para>The section options are as follows:</para>
+   <variablelist>
+    <varlistentry>
+     <term> public-ips </term>
+     <listitem>
+      <para> The value for this option is a comma separated list of IP
+       ranges in CIDR format, for example: </para>
+      <screen>public-ips = 62.135.16.0/18,56.56.130.0/16</screen>
+      <para>These are the ranges the DHCP server in the given region is
+       configured to use. If the access configuration utility
+        <command>python-serviceAccessConfig</command> is used and pointed
+       at this file it will use the <option>public-ips</option> entry to
+       generate the ACL.</para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> smt-server-ip </term>
+     <listitem>
+      <para> The value for this option is a comma separated list of the SMT
+       Server IP addresses in the region being configured. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> smt-server-name </term>
+     <listitem>
+      <para> The value for this option sets the host name of the SMT Server
+       that was encoded into the certificate during the setup of the SMT
+       Server. If only 1 value is supplied it will be used for all IP
+       addresses provided by the <option>smt-server-ip</option> setting. If
+       more than one value is supplied the number of names must match the
+       number of IP addresses given with the <option>smt-server-ip</option>
+       option. The order of the names and IP addresses must match as well.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> smt-fingerprint </term>
+     <listitem>
+      <para> The value for this option is the fingerprint of the root CA
+       created during the SMT Server setup. On the SMT Server in
+        <filename>/srv/www/htdocs</filename> exists the
+        <filename>smt.crt</filename> file which is the root CA transferred
+       to the client and verified prior to accepting the repositories from
+       the SMT Server. Obtain the fingerprint with the command: </para>
+      <screen>openssl x509 -in smt.crt -noout -fingerprint | /usr/bin/cut -d= -f2</screen>
+      <para>Use this fingerprint for the <option>smt-fingerprint</option>
+       value. As with the <option>smt-server-name</option> supplying one
+       value is sufficient if all SMT Servers have the same root CA. If
+       each server has its own CA supply a comma separated list. The order
+       must match the order of the IP addresses or certificate acceptance
+       will fail and the guest will not be able to register with the SMT
+       Server.</para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>The following shows an example of a completed section for a region
+    in a cloud setup.</para>
+   <screen>[nor-north]
+public-ips = 62.135.16.0/18,56.56.130.0/16
+smt-server-ip = 62.153.16.20,56.56.130.253
+smt-server-name = smt-nor.supertuxcloud.com
+smt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+   <para>In the example above both SMT Servers share the same certificate.
+    If this were not the case another value for the
+     <option>smt-server-name</option> and for the
+     <option>smt-fingerprint</option> options would need to be
+    configured.</para>
+   <screen>[mid-north]
+public-ips = 62.135.16.0/18,56.56.130.0/16
+smt-server-ip = 62.153.16.20,56.56.130.253
+smt-server-name = smt-mid-a.supertuxcloud.com, smt-mid-b.supertuxcloud.com
+smt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+   <para>In this example the servers share the same certificate, but have
+    different names. The certificate in this case would contain a
+    wildcard.</para>
+   <para>The Region Server reads the <filename>regionData.cfg</filename>
+    file as configured in the <filename>regionInfo.cfg</filename> file at
+    start up and creates a hash table from the information provided in the
+     <filename>regionData.cfg</filename> file. Depending on the number of
+    IP address ranges this may result in a relatively large requirement of
+    memory. For estimation purposes one can use a requirement of 20 MB per
+    octet (254 IP addresses.) The Region Service also creates a secondary
+    hash table that relates the region names to the SMT Server information.
+    The secondary hash table is consulted if the Region Server receives a
+    region hint from the client.</para>
+   <para>The Region Server provides the <option>regionInfo</option> REST
+    API, i.e. to obtain SMT information the client image will access the
+    Region Server via: <link
+     xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo"/>
+   </para>
+   <para>The knowledge of the IP addresses of the Region Servers as well as
+    the certificates for the Region Servers are built into the guest image.
+    It is recommended to create a package for the Region Service client,
+    for more details see the section concerning the guest image.</para>
+   <para>As mentioned previously, for environments where the IP address
+    assignment per region is not stable or accessible via API the option
+    exists to let the client pass a region hint to the Region Server. If
+    the region hint is passed the Region Server will first try to provide
+    SMT information to the client based on the region name given in the
+    hint. If this fails the Region Server will fall back to using the IP
+    address. A request using the region hint option provides the region
+    hint as an argument with the URL: <link
+     xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo?regionHint=REGION_NAME"
+    />
+   </para>
+   <para>In this case <emphasis>REGION_NAME</emphasis> must match a name of
+    one of the sections in the <filename>regionData.cfg</filename> file as
+    indicated previously.</para>
+   <para>Instead of using IP addresses directly for the Region Servers in
+    the client it is also possible to use name resolution via DNS. One
+    potential advantage of using DNS for the Region Server is that no new
+    package would need to be released if a Region Server has to move out of
+    a given region and into a new region where a new IP address would have
+    to be allocated. However, this implies that an entire cloud region
+    would be shut down, which is a very unlikely scenario. The Region
+    Server package (<systemitem>cloud-regionsrv</systemitem>) provides a
+    convenience executable to generate the server certificate. After the
+    region server instance is booted run:</para>
+   <screen>genRegionServerCert -c COUNTRY -d DEPARTMENT --host IP_ADDRESS_OR_HOSTNAME -l LOCATION -o ORGANIZATION -s STATE</screen>
+   <para>This will generate the server certificate and place the public
+    cert into <filename>/root/regionServCert/</filename> . This certificate
+    needs to be included in the &sle; guest image. The details about
+    the Region Server certificate are described in the guest image creation
+    section. The cert generation script will restart the Apache web
+    server.</para>
+   <para>With the configuration in place and the certificate generated the
+    Region Server setup is complete.</para>
+  </sect2>
+  <sect2 xml:id="sec.server_access_control">
+   <title>Server Access Control</title>
+   <para>Both the Region Server and the SMT server should be configured to
+    have ACL level control to allow access to the services only from the IP
+    ranges that are used by the DHCP servers of the cloud framework. This
+    configuration can be setup manually or it can be automated using the
+     <systemitem>python-serviceAccessConfig</systemitem> tool.</para>
+   <para>For both the SMT server and the Region Server access control has
+    two layers, the firewall rule and the ACL rules as described earlier.
+    The SMT server may also implement a 3rd layer. The
+     <systemitem>python-serviceAccessConfig</systemitem> generates ACL
+    rules for Apache and can be pointed to the
+     <literal>regionData.cfg</literal> file to collect all the public IP
+    addresses use by the cloud framework. This set of CIDR blocks is used
+    to generate the access control rules for Apache. Therefore, it is
+    recommended that the same
+     <filename>/etc/regionService/regionData.cfg</filename> exist on SMT
+    and Region servers.</para>
+   <para>The <option>serviceAccessConfig</option> process monitors the
+     <filename>/etc/regionServer/regionData.cfg</filename> file and
+    generates new access rules when changes are detected. It is therefore
+    possible to fully automate the access rule generation by implementing a
+    generator for <filename>regionData.cfg</filename> that may parse the
+    DHCP rules and then push out a new file to all servers when the rules
+    change, for example.</para>
+   <para>The <option>serviceAccessConfig</option> process is configured
+    with the <filename>/etc/cloudServiceAccess/srvAccess.cfg</filename>
+    configuration file, please consult the man page for detailed
+    information.</para>
+  </sect2>
+  <sect2 xml:id="sec.guest_image">
+   <title>Guest Image</title>
+   <para>The content of the guest image, i.e. the image that provides the
+    basis for the instances CSP customers use is customizable to the
+    desires of the cloud framework provider.</para>
+   <para>For an image to be considered supportable the image must have at
+    least the so called <systemitem>Minimal Pattern</systemitem> installed.
+    In addition to this a cloud image generally requires some
+    initialization code that handles ssh key injection, account creation,
+    and other house keeping tasks. This initialization code can be
+     <emphasis>cloud-init</emphasis>, an open source solution found in the
+    Public Cloud Module repository, or some other initialization
+    implementation.</para>
+   <para>The package <systemitem>cloud-regionsrv-client</systemitem>
+    provides the necessary executable to handle automated guest image
+    registration with the update infrastructure. The client code is
+    configured with the <filename>/etc/regionserverclnt.cfg</filename>
+    file. The configuration file has two sections with the options shown
+    below:</para>
+   <screen>[server]
+api = regionInfo
+certLocation = /var/lib/regionService/certs
+regionsrv = COMMA_SEP_LIST_OF_CLOUD_SPECIFIC_REGION_SERVER
+
+[instance]
+dataProvider = none
+instanceArgs = none</screen>
+   <para>The <literal>[server]</literal> section and all options are
+    mandatory</para>
+   <variablelist>
+    <varlistentry>
+     <term> api </term>
+     <listitem>
+      <para> The value of the api determines the API the client should
+       call. In a <quote>standard</quote> setup this will be set to
+        <option>regionInfo</option> (as shown in the example above.)
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> certLocation </term>
+     <listitem>
+      <para> The value of this option indicates the location of the server
+       certificates for the Region Server(s). These are the public certs
+       that were generated with the <command>genRegionServerCert</command>
+       command shown earlier during Region Server setup. All certificates
+       from the region servers are collected in the specified location.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> regionsrv </term>
+     <listitem>
+      <para> The value is a comma separated list of the names or IP
+       addresses of the Region Servers. The names listed here must match
+       with the certificate names, without the .pem extension. The client
+       code will randomize the list to distribute the access load across
+       the Region Servers and will then try to obtain the SMT information
+       in the order the list randomization produced. Generally it is
+       expected that SMT information is provided by the first region server
+       contacted. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>The <literal>[instance]</literal> configuration section is
+    optional.</para>
+   <variablelist>
+    <varlistentry>
+     <term> dataProvider </term>
+     <listitem>
+      <para> Specifies a command that generates data passed to the SMT
+       Server. For verification purposes it may be necessary to collect
+       information from the instance and pass it to the SMT Server. This
+       command must produce data in the format expected by the repository
+       access verification plugin discussed in <xref
+        linkend="sec.smt_server_s"/>. </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term> instanceArgs </term>
+     <listitem>
+      <para> The value of this option specifies the name of a plugin to
+       load that will provide the information for the
+        <option>regionHint</option> passed to the Region Server. The name
+       provided must match the file name without the
+        <filename>.py</filename> extension. </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>The <systemitem>instanceArgs</systemitem> plugin needs to be
+    implemented in Python and be located in the
+     <filename>python-sitelib</filename> path in the
+     <filename>cloudregister</filename> directory. The plugin must
+    implement the <literal>generateRegionSrvArgs</literal> function. No
+    arguments are passed to the function and the return value is expected
+    to be a string that will match a section in the
+     <filename>regionData.cfg</filename> file. The return value of the
+     <literal>generateRegionSrvArgs</literal> is expected to be a string
+    and provides the value for the <option>regionHint</option> argument the
+    region server accepts.</para>
+   <para>The format of the guest image is cloud framework dependent and
+    dictated by the hypervisor used by the cloud framework. <link
+     xlink:href="https://doc.opensuse.org/projects/kiwi/doc/">KIWI</link>,
+    the open source, SUSE sponsored image build tool can produce images in
+    almost any format required by the known hypervisors. KIWI can also
+    produce so called OEM images that can be used for bare metal
+    deployment. Images can also be created with <link
+     xlink:href="https://susestudio.com">SUSE Studio</link>. Other means of
+    image creation are possible and feasible, ultimately it is the
+    CSP&#8217;s responsibility to create images that boot and perform
+    within the CSP&#8217;s cloud framework.</para>
+  </sect2>
+  <sect2 xml:id="sec.appendix_a">
+   <title>Appendix A</title>
+   <screen>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;image schemaversion="6.2" name="SMTServer" displayname="SMTServer"&gt;
+    &lt;description type="system"&gt;
+        &lt;author&gt;Public Cloud Team&lt;/author&gt;
+        &lt;contact&gt;&lt;/contact&gt;
+        &lt;specification&gt;SUSE Linux Enterprise Server 12 SPX SMT Server image&lt;/specification&gt;
+    &lt;/description&gt;
+    &lt;preferences&gt;
+        &lt;type image="oem" boot="oemboot/suse-SLES12" filesystem="ext4" boottimeout="1" bootloader="grub2"&gt;
+            &lt;size unit="M"&gt;8192&lt;/size&gt;
+            &lt;oemconfig&gt;
+                &lt;oem-swap&gt;false&lt;/oem-swap&gt;
+            &lt;/oemconfig&gt;
+        &lt;/type&gt;
+        &lt;version&gt;0.1.4&lt;/version&gt;
+        &lt;packagemanager&gt;zypper&lt;/packagemanager&gt;
+        &lt;rpm-check-signatures&gt;false&lt;/rpm-check-signatures&gt;
+        &lt;locale&gt;en_US&lt;/locale&gt;
+        &lt;keytable&gt;us.map.gz&lt;/keytable&gt;
+        &lt;hwclock&gt;utc&lt;/hwclock&gt;
+        &lt;timezone&gt;utc&lt;/timezone&gt;
+    &lt;/preferences&gt;
+    &lt;users group="root"&gt;
+        &lt;user password="linux" pwdformat="plain" home="/root" name="root"/&gt;
+    &lt;/users&gt;
+    &lt;!-- Repository definition goes here --&gt;
+    &lt;packages type="image"&gt;
+        &lt;!-- jeos server --&gt;
+        &lt;package name="patterns-sles-Minimal"/&gt;
+        &lt;package name="dhcp-client"/&gt;
+        &lt;package name="fontconfig"/&gt;
+        &lt;package name="fonts-config"/&gt;
+        &lt;package name="grub2"/&gt;
+        &lt;package name="iproute2"/&gt;
+        &lt;package name="iputils"/&gt;
+        &lt;package name="lvm2"/&gt;
+        &lt;package name="openssh"/&gt;
+        &lt;package name="parted"/&gt;
+        &lt;package name="psmisc"/&gt;
+        &lt;package name="rsync"/&gt;
+        &lt;package name="syslinux"/&gt;
+        &lt;package name="systemd"/&gt;
+        &lt;package name="systemd-sysvinit"/&gt;
+        &lt;package name="sudo"/&gt;
+        &lt;package name="tar"/&gt;
+        &lt;package name="vim"/&gt;
+        &lt;package name="which"/&gt;
+        &lt;!-- end jeos server --&gt;
+        &lt;!-- basic functionality --&gt;
+        &lt;package name="at"/&gt;
+        &lt;package name="attr"/&gt;
+        &lt;package name="audit"/&gt;
+        &lt;package name="autofs"/&gt;
+        &lt;package name="bc"/&gt;
+        &lt;package name="binutils"/&gt;
+        &lt;package name="blktrace"/&gt;
+        &lt;package name="command-not-found"/&gt;
+        &lt;package name="crash"/&gt;
+        &lt;package name="cryptconfig"/&gt;
+        &lt;package name="curl"/&gt;
+        &lt;!-- Authentication functionality --&gt;
+        &lt;package name="cyrus-sasl"/&gt;
+        &lt;package name="cyrus-sasl-digestmd5"/&gt;
+        &lt;package name="cyrus-sasl-gssapi"/&gt;
+        &lt;package name="cyrus-sasl-plain"/&gt;
+        &lt;package name="cyrus-sasl-saslauthd"/&gt;
+        &lt;!-- Authentication functionality end --&gt;
+        &lt;package name="deltarpm"/&gt;
+        &lt;package name="dos2unix"/&gt;
+        &lt;package name="dosfstools"/&gt;
+        &lt;package name="ethtool"/&gt;
+        &lt;package name="expect"/&gt;
+        &lt;package name="fping"/&gt;
+        &lt;package name="glibc-i18ndata"/&gt;
+        &lt;package name="haveged"/&gt;
+        &lt;package name="icmpinfo"/&gt;
+        &lt;package name="irqbalance"/&gt;
+        &lt;package name="kernel-default"/&gt;
+        &lt;package name="klogd"/&gt;
+        &lt;package name="ksh"/&gt;
+        &lt;package name="libnl1"/&gt;
+        &lt;!-- netlink protocol support --&gt;
+        &lt;package name="libnettle4"/&gt;
+        &lt;!-- used by gpg --&gt;
+        &lt;package name="lockdev"/&gt;
+        &lt;package name="man"/&gt;
+        &lt;package name="man-pages"/&gt;
+        &lt;package name="mozilla-nss-certs"/&gt;
+        &lt;package name="netcat-openbsd"/&gt;
+        &lt;package name="nfsidmap"/&gt;
+        &lt;package name="nscd"/&gt;
+        &lt;package name="ntp"/&gt;
+        &lt;package name="openldap2-client"/&gt;
+        &lt;package name="opie"/&gt;
+        &lt;package name="pam-modules"/&gt;
+        &lt;package name="polkit-default-privs"/&gt;
+        &lt;package name="prctl"/&gt;
+        &lt;package name="procinfo"/&gt;
+        &lt;package name="quota"/&gt;
+        &lt;package name="recode"/&gt;
+        &lt;package name="rsh"/&gt;
+        &lt;package name="screen"/&gt;
+        &lt;package name="strace"/&gt;
+        &lt;package name="supportutils"/&gt;
+        &lt;package name="SUSEConnect"/&gt;
+        &lt;package name="SuSEfirewall2"/&gt;
+        &lt;package name="suse-build-key"/&gt;
+        &lt;package name="tcpd"/&gt;
+        &lt;package name="tcpdump"/&gt;
+        &lt;package name="tcsh"/&gt;
+        &lt;package name="telnet"/&gt;
+        &lt;package name="terminfo"/&gt;
+        &lt;package name="vlock"/&gt;
+        &lt;package name="wget"/&gt;
+        &lt;package name="x86info"/&gt;
+        &lt;package name="xfsprogs"/&gt;
+        &lt;package name="xinetd"/&gt;
+        &lt;package name="zip"/&gt;
+        &lt;package name="zsh"/&gt;
+        &lt;!-- packages needed for resolution in OBS --&gt;
+        &lt;package name="acl"/&gt;
+        &lt;package name="fipscheck"/&gt;
+        &lt;package name="ncurses-utils"/&gt;
+        &lt;package name="sg3_utils"/&gt;
+        &lt;package name="pkg-config"/&gt;
+        &lt;package name="elfutils"/&gt;
+        &lt;!-- end packages needed for resolution in OBS --&gt;
+        &lt;!-- end basic functionality --&gt;
+        &lt;!-- user configuration tools --&gt;
+        &lt;package name="libyui-ncurses-pkg7"/&gt;
+        &lt;package name="yast2"/&gt;
+        &lt;package name="yast2-ntp-client"/&gt;
+        &lt;package name="yast2-pam"/&gt;
+        &lt;package name="yast2-perl-bindings"/&gt;
+        &lt;package name="yast2-pkg-bindings"/&gt;
+        &lt;package name="yast2-registration"/&gt;
+        &lt;package name="yast2-schema"/&gt;
+        &lt;package name="yast2-security"/&gt;
+        &lt;package name="yast2-sudo"/&gt;
+        &lt;package name="yast2-support"/&gt;
+        &lt;package name="yast2-sysconfig"/&gt;
+        &lt;package name="yast2-update"/&gt;
+        &lt;package name="yast2-users"/&gt;
+        &lt;package name="yast2-xml"/&gt;
+        &lt;package name="yast2-ycp-ui-bindings"/&gt;
+        &lt;!-- end user configuration tools --&gt;
+        &lt;!-- framework specific packages --&gt;
+        &lt;!-- instance initialization --&gt;
+        &lt;!-- SMT server and framework specific --&gt;
+        &lt;!-- End SMT server and framework specific --&gt;
+        &lt;!-- end framework specific packages --&gt;
+        &lt;!-- SMT server specific --&gt;
+        &lt;package name="apache2"/&gt;
+        &lt;package name="apache2-mod_perl"/&gt;
+        &lt;package name="apache2-prefork"/&gt;
+        &lt;package name="apache2-utils"/&gt;
+        &lt;package name="python-serviceAccessConfig"/&gt;
+        &lt;package name="smt"/&gt;
+        &lt;package name="smt-ha"/&gt;
+        &lt;package name="smt-support"/&gt;
+        &lt;!-- end SMT server specific --&gt;
+        &lt;!-- Infrastructure server monitoring --&gt;
+    &lt;/packages&gt;
+    &lt;packages type="bootstrap"&gt;
+        &lt;!-- products --&gt;
+        &lt;package name="sles-release"/&gt;
+        &lt;package name="sles-release-POOL"/&gt;
+        &lt;package name="filesystem"/&gt;
+        &lt;package name="glibc-locale"/&gt;
+    &lt;/packages&gt;
+&lt;/image&gt;</screen>
+  </sect2>
+ </sect1>
+ 
+ 
+ <?pdfpagebreak style="suse2013" formatter="fop"?>
+ 
+ <xi:include href="license-gfdl.xml"/>
+
+</article>

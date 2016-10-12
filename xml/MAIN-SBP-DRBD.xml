@@ -9,144 +9,143 @@
     xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
     xml:id="art.sbp.suma.life" xml:lang="en">
     <info>
-        <title>Advanced Patch Lifecycle Management with SUSE
-            Manager</title>
+        <title>Data Replication across Geo-clusters via DRBD included with
+            SUSE Linux Enterprise High Availability Extension</title>
         <subtitle>Methods and approaches for managing updates using SUSE
             Manager in multi-landscape environments</subtitle>
         <orgname>SUSE Best Practices</orgname>
-        <productname>SUSE Manager</productname>
+        <productname>SUSE Linux Enterprise High Availability
+            Extension</productname>
         <productnumber>2.1 and 3.0</productnumber>
-
 
         <author>
             <personname>
-                <firstname>Jeff</firstname>
-                <surname>Price</surname>
+                <firstname>Matt</firstname>
+                <surname>Kereczman</surname>
             </personname>
             <affiliation>
-                <jobtitle>Principal Architect</jobtitle>
+                <jobtitle>Cluster Engineer</jobtitle>
+                <orgname>LINBIT</orgname>
+            </affiliation>
+        </author>
+
+        <author>
+            <personname>
+                <firstname>Philipp</firstname>
+                <surname>Marek</surname>
+            </personname>
+            <affiliation>
+                <jobtitle>Senior Software Developer</jobtitle>
+                <orgname>LINBIT</orgname>
+            </affiliation>
+        </author>
+
+        <author>
+            <personname>
+                <firstname>Kristoffer</firstname>
+                <surname>Groenlund</surname>
+            </personname>
+            <affiliation>
+                <jobtitle>Architect High Availability</jobtitle>
                 <orgname>&suse;</orgname>
             </affiliation>
         </author>
 
-        <date>June 13, 2016</date>
+        <date>October 12, 2016</date>
 
         <abstract>
-            <para>This document describes how to set up and configure a
-                SUSE Manager implementation to enable companies in the
-                delivery of often requested features. Covered are the
-                automatic creation and archive of patch sets by a defined
-                time period, a consistent method of patch promotion and
-                delivery through numerous landscapes and environments, and
-                the exception process for handling patches that need to be
-                excluded from a patch cycle. Also explained are the
-                creation of an environment with historical patch sets, the
-                minimal need for host channel subscription manipulation
-                from cradle to grave, and the support for service pack
-                migration with custom child channels.</para>
+            <para>This technical setup describes the setup of a geo cluster
+                using Distributed Replicated Block Device (DRBD)as
+                delivered with the SUSE Linux Enterprise High Availability
+                Extension.</para>
         </abstract>
     </info>
 
 
-    <sect1 xml:id="sec.overview">
-        <title>Overview</title>
-        <para>For many organizations today, keeping systems patched and
-            secure is one of the biggest ongoing challenges that systems
-            administrators can face. Both proprietary and open source
-            software companies are constantly at work providing updates
-            that fix flaws discovered in their software products.</para>
-        <para>Adding to the pressures are the requirements imposed by
-            compliance initiatives like PCI-DSS (Payment Card Industry Data
-            Security Standard), SOX (Sarbanes-Oxley), HIPAA (Health
-            Insurance Portability and Accountability Act), FIPS 140
-            (Federal Information Processing Standard), etc. Included in
-            most of these <quote>standards</quote> are rules that dictate
-            the frequency or time frames for patching and often these
-            schedules are modified because of the severity level of a
-            specific patch.</para>
-        <para>Businesses large and small are depending on an ever-changing
-            landscape of applications on a wide range of computer
-            infrastructure. These can include physical and virtual hosts
-            and may have complicated application stacks. These applications
-            may have specific kernel version dependencies, have strict
-            uptime requirements or be tied to a specific runtime
-            environment (like Java). They may only be certified on a
-            specific Linux OS release, or have a particular set of
-            configuration requirements. There might be extra hardening or
-            platform requirements that set these hosts apart from the
-            rest.</para>
-        <para>Additionally, many companies have created duplicate host
-            environments like <quote>development</quote> or
-                <quote>QA</quote> landscapes that mirror
-                <quote>production</quote> to allow for testing or
-            validation of changes. This means at least one more complete
-            set of hosts to manage, patch, and report on. This increases
-            the challenges of meeting a rigorous patch schedule that often
-            requires patching all hosts on a quarterly basis (or more
-            frequently for critical vulnerabilities).</para>
-        <para>Is there any way to address all of the issues and regain
-            control of a complicated enterprise Linux environment?</para>
+    <sect1 xml:id="sec.background">
+        <title>Background</title>
 
+        <sect2 xml:id="sec.drbd">
+            <title>About DRBD</title>
 
-        <sect2 xml:id="sec.susesol">
-            <title>A SUSE Solution</title>
-            <para>SUSE Manager delivers best-in-class Linux server
-                management features like automated software management,
-                system provisioning, and monitoring. It provides a unified
-                Linux management infrastructure by standardizing and
-                automating server patching and management. These tasks can
-                be performed faster and with fewer errors, which improves
-                IT staff productivity while reducing server
-                downtime.</para>
+            <para>DRBD is a Linux-kernel block-level replication facility
+                that is widely used as an shared-nothing cluster building
+                block. It is included in vanilla kernels since 2.6.33, and
+                most distributions ship the necessary userspace utilities.
+                Furthermore, many distributions have newer DRBD versions
+                than the one included in the kernel package in extra
+                packages.</para>
 
-            <sect3 xml:id="sec.defin">
-                <title>Definitions</title>
-                <para>This document uses the word <emphasis role="strong"
-                        >landscape</emphasis> to describe one of several
-                    groups of Linux hosts. This is commonly used with
-                    enterprise software deployments as a way to define the
-                    role/quality of a host. Examples include production
-                    (PROD), development (DEV), quality assurance (QA), user
-                    acceptance/testing (UAT), etc.</para>
-                <para>The word <emphasis role="strong"
-                        >environment</emphasis> is also used. In this
-                    document, environment is defined as a physical
-                    separation of Linux hosts, like Corporate (CORP), Store
-                    (STORE), or NPE (Non-Production Environment).</para>
-                <para>Lastly, the word <emphasis role="strong"
-                        >organization</emphasis> is used. SUSE Manager has
-                    a concept of organizations and defines them as a
-                    separate management environment placed under the
-                    default organization that is created during initial
-                    installation of a SUSE Manager Server. This is a single
-                    parent (like an LDAP <quote>O</quote>) with many child
-                    placements (like an LDAP <quote>OU</quote>–restricted
-                    to a flat OU structure with no nesting). Organizations
-                    in SUSE Manager will typically have separate
-                    credentials required to administer them via the Web
-                    UI–and any Linux hosts managed by SUSE Manager will be
-                    registered into a single organization and only visible
-                    there. Keep these definitions in mind as you
-                    read.</para>
+            <para>DRBD can replicate across multiple network protocols, and
+                in (currently) three modes - from synchro- nous for local
+                HA clusters, to asynchronous for pushing data to a disaster
+                recovery site.</para>
 
-            </sect3>
+            <para>DRBD is developed and supported world-wide by LINBIT
+                http://www.linbit.com; that includes most distributions and
+                archi- tectures, with SLA levels up to 24/7 email and phone
+                availability.</para>
 
         </sect2>
 
+        <sect2 xml:id="sec.sleshae">
+            <title>About SUSE Linux Enterprise High Availability
+                Extension</title>
+
+            <para>SUSE Linux Enterprise High Availability Extension is an
+                integrated suite of open source clustering technologies
+                that enables you to implement highly available physical and
+                virtual Linux clusters, and to eliminate single points of
+                failure. It ensures the high availability and manageability
+                of critical network resources including data, applications,
+                and services. Thus, it helps you maintain business
+                continuity, protect data integrity, and reduce unplanned
+                downtime for your mission-critical Linux workloads.</para>
+
+            <para>It ships with essential monitoring, messaging, and
+                cluster resource management functionality (supporting
+                failover, failback, and migration (load balancing) of
+                individually managed cluster resources).</para>
+
+            <para>The SUSE Linux Enterprise High Availability Extension
+                includes DRBD.</para>
+        </sect2>
+
+    </sect1>
+
+    <sect1>
+        <title>Introduction</title>
+
+        <para>This tech-guide describes a setup consisting of two highly
+            available Pacemaker clusters in two sites, with a routed IPv4
+            or IPv6 connection in between that can range from a few
+            Mbit/sec up to 10GBit/ sec, depending on the IO load imposed on
+            the cluster nodes.</para>
+
+        <para>Various services can be distributed across the clusters;
+            because of latency between the datacenters you won’t be able to
+            drive a cluster filesystem across them, but simply replicating
+            the data to have a quick failover in case one site goes down is
+            possible.</para>
+
+        <para>Failover between the two sites is managed using the Booth
+            Cluster Ticket Manager, which is included in the Geo Clustering
+            for SUSE Linux Enterprise High Availability Extension. In
+            addition to the two cluster sites, a third site is needed to
+            run a booth Arbitrator. Arbitrators are single machines that
+            run a booth instance in a special mode. As all booth instances
+            communicate with each other, arbitrators help to make more
+            reliable decisions about granting or revoking tickets.
+            Arbitrators cannot hold any tickets. </para>
+
+        <para>Lots of details will be skimmed; for example, for this TG it
+            won’t matter (much) whether the application driving IO is SAP,
+            an NFS server, a PostgreSQL instance, VMs via KVM, Apache,
+            MySQL, or whatever else you may have in use.</para>
+
         <sect2 xml:id="sec.example">
             <title>Example Scenario</title>
-            <para>The Chameleon Corporation is the world’s largest reptile
-                and amphibian pet store, and has its headquarters in Yemen.
-                It has more than 1500 stores operating under the names
-                LizardsRUs, UnVeiledInc and Chameleo-rama in five different
-                countries.</para>
-            <para>The Chameleon Corporation has the following requirements
-                for managing patch and security updates to their Linux
-                hosts. Because of compliance constraints, their patch
-                lifecycle (the timing and delivery) is based on their
-                corporate security policies, the host
-                environments/landscapes, and their future management
-                needs.</para>
+
             <para>Here is a high-level summary of the requirements:</para>
 
             <orderedlist>
@@ -164,55 +163,10 @@
                         October 1<superscript>st</superscript> through
                         December 31<superscript>st</superscript>.</para>
                 </listitem>
-                <listitem>
-                    <para>The published Security Policy also states the
-                        need to patch all Linux systems with
-                            <quote>critical</quote> security updates (CVSS
-                        score of 7 or greater) within one month of release
-                        of the patch. This introduces a second schedule
-                        that may overlap any existing patch rollout.</para>
-                </listitem>
-                <listitem>
-                    <para>The company has three different host
-                        environments: Corporate, Store, and NPE. These host
-                        environments are partitioned using SUSE Manager
-                        organizations. Each SUSE Manager organization has
-                        visibility into the default SUSE Manager
-                        organization’s software channels because of trusts,
-                        yet the managed hosts are naturally grouped and
-                        managed by their environment.</para>
-                </listitem>
-                <listitem>
-                    <para>There are at least three landscapes in each
-                        environment: DEV, UAT, and PROD. There are
-                        additional landscapes for some environments (for
-                        example, SIT, DIT, etc.) but these are handled
-                        similarly to the aforementioned landscapes. Patch
-                        lifecycle promotion simply accounts for moving
-                        patches into additional stages as needed.</para>
-                </listitem>
-                <listitem>
-                    <para>A <quote>patch exceptions</quote> process exists,
-                        as there is often a need to account for the removal
-                        of patches (for example kernel updates) from a
-                        rollout. Some hosts might have hardware drivers or
-                        third party software that depends on specific
-                        kernel versions. This exception process would be
-                        handled on a case-by-case basis.</para>
-                </listitem>
+
             </orderedlist>
-            <para>In summary, these requirements highlight the need for two
-                patch schedules, across three (or more) landscapes, in
-                three SUSE Manager organizations, with a way to handle a
-                storage location for patches that cannot be rolled out
-                (exceptions), yet need to be tracked, remediated and
-                reintroduced to ensure compliance.</para>
-            <para>SUSE Manager can handle these complexities very well and
-                can be set up to allow flexible delivery of these
-                requirements. Automation can even be applied to assist with
-                some facets, and procedures can be developed to ensure the
-                consistent delivery of patches that meet the published
-                company policies.</para>
+
+
         </sect2>
 
         <sect2 xml:id="sec.features">
@@ -230,34 +184,8 @@
                         delivery through numerous landscapes and
                         environments</para>
                 </listitem>
-                <listitem>
-                    <para>An exception process for handling patches that
-                        need to be excluded from a patch cycle</para>
-                </listitem>
-                <listitem>
-                    <para>Environment creation with historical patch
-                        sets</para>
-                </listitem>
-                <listitem>
-                    <para>Minimal need for host channel subscription
-                        manipulation from cradle to grave</para>
-                </listitem>
-                <listitem>
-                    <para>Support for service pack migration with custom
-                        child channels</para>
-                </listitem>
             </itemizedlist>
-            <para>Many of these features can be tuned to meet a change in
-                requirements, like an increase in, or a reduction of, the
-                number of landscapes (DEV and PROD or Sandbox, DEV, QA,
-                UAT, PRE-PROD, PROD, etc.), or a more, or less frequent
-                delivery calendar. Keep this in mind as you read. SUSE
-                Manager is a very flexible product that has helped many
-                customers create and deploy solid systems and patch
-                management frameworks. Your requirements may differ from
-                the ones described here, but the flexibility of SUSE
-                Manager enables you to meet your ongoing and changing
-                needs.</para>
+
         </sect2>
 
         <sect2 xml:id="sec.guidance">
@@ -268,19 +196,6 @@
                 channel organizations and patch manipulation are handled
                 here.</para>
 
-            <para>A fresh installation is not necessary, but some
-                assumption is made that you have a working SUSE Manager
-                environment, with some registered hosts, and a decent
-                knowledge of the terms and capabilities. The SUSE Manager
-                documentation at <link
-                    xlink:href="https://www.suse.com/documentation/suse_manager/"
-                /> is an excellent source of information that is often
-                updated. Refer to the documentation for clarification of
-                any process that seems confusing. Many of the
-                implementation steps detailed in this document are enhanced
-                examples based on procedures, capabilities, or step-by-step
-                    <quote>how-tos</quote> in our product
-                documentation.</para>
             <note>
                 <title>Test Your Implementation</title>
                 <para>Some advanced features (like using the
@@ -296,294 +211,7 @@
                     particular implementation before any production
                     usage.</para>
             </note>
-            <para>The next section will describe the setup of SUSE Manager
-                to meet the requirements defined in the <emphasis
-                    role="strong">Scenario</emphasis> section. We will
-                start with a description of the architecture (and
-                components) developed to meet the requirements, and then
-                proceed with steps to create it yourself. Each component
-                within this guide is used together with the others to
-                deliver a comprehensive solution in the specific scenario
-                described herein, but might be used individually to help
-                you meet your own solution requirements.</para>
-        </sect2>
 
-    </sect1>
-    <sect1 xml:id="sec.implement">
-        <title>Implementation</title>
-        <para>Let’s review. We need to set up SUSE Manager and create a set
-            of procedures, processes, and/or tools (scripts) to help us
-            with our patch lifecycle management. This will include the
-            creation (and optimally an <quote>automatic</quote> creation)
-            of patch archive channels from the SUSE provided
-                <quote>updates</quote> channels for the versions of SUSE
-            Linux Enterprise Server we use. These patch archives will be
-            the sources for our patch promotions, but can also be a source
-            to set up testing environments based on a patch set rolled out
-            in the past. This could be used to troubleshoot an error
-            condition for example, by creating a lab full of hosts patched
-            up to any previous patch set. We can also demonstrate and
-            visualize a clear view of compliance defined by a time-stamped
-            set of patches.</para>
-        <para>We also need to create a set of software channels that will
-            get our updates when <emphasis role="strong">we</emphasis>
-            decide to roll them out. Each landscape needs to receive them
-            from the previous <quote>validated</quote> landscape <emphasis
-                role="strong">only</emphasis>. This means they will first
-            get put into DEV, and are tested on the machines there. Then
-            they move into QA and get tested there. Finally they get moved
-            into PROD. The whole thing will start over every quarter, and
-            we will handle exceptions if and when they occur. Every
-            exception will be tracked by another established process with
-            the constant goal of remediating any exception and making sure
-            the patch is reintroduced as quickly as possible to ensure our
-            clear view of compliance.</para>
-        <para>Other interruptions to a quarterly rollout might be the
-            release of a <quote>critical</quote> security patch that needs
-            to be deployed more rapidly than once-a-quarter. To handle this
-            extra schedule, we should create an addition channel for any
-            critical patches to track them and their rollout. Patches that
-            should be considered as critical patches are any CVE that has a
-            CVSS score of 7.1 or greater, or otherwise that is mandated by
-            our corporate security organization. We have two different SUSE
-            Linux Enterprise Server versions that we currently manage: SUSE
-            Linux Enterprise Server 11 SP3 and SUSE Linux Enterprise Server
-            12. We want to plan for using SUSE Manager to assist with
-            service pack migrations, so setting up to account for SUSE
-            Linux Enterprise Server 11 SP4 initially would be ideal. We
-            also maintain both 32-bit and 64-bit Intel/AMD architecture
-            versions of SUSE Linux Enterprise Server 11 SP3 so we will need
-            to account for both of them.</para>
-        <para>There are two different environments we need to manage:
-            Corporate (CORP) and Store (STORE). We have created separate
-            SUSE Manager organizations to allow our systems administrators
-            an exclusive view of the hosts they are responsible for. Each
-            SUSE Manager organization has the three landscapes (DEV, QA,
-            and PROD) that they use for patch testing/promotion.</para>
-        <para>Activation keys and bootstraps should be created for each
-            SUSE Manager organization (each environment) and each landscape
-            so that hosts can be registered into their appropriate, and
-            most likely, permanent role. For example, a bootstrap script
-            will register a SUSE Linux Enterprise Server 11 SP3 (64-bit)
-            DEV host into the correct organization and will add the
-            appropriate base and child channels that should never have to
-            be manipulated again. Automation is preferred. As mentioned,
-            the use of scripts or scheduled jobs would greatly enhance the
-            solution and provide relief to the administration staff.</para>
-
-        <sect2 xml:id="sec.arch">
-            <title>Architecture</title>
-            <para>Here is a high-level outline of the architecture and
-                channels:</para>
-            <note>
-                <title>Use of Prefixes</title>
-                <para>For any <emphasis role="strong">Base</emphasis>
-                    channel listed here–this can be a clone tree of the
-                    SUSE vendor channels–as such it would include a
-                        <emphasis role="italic">prefix-</emphasis> in the
-                    name. This can aid the handling of service pack
-                    migrations described in the channel creation sections
-                    that follow.</para>
-            </note>
-
-            <itemizedlist>
-                <listitem>
-                    <para>SUSE Manager Organization</para>
-                    <itemizedlist>
-                        <listitem>
-                            <para>Default (Main) - 1</para>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>32-bit Archive Channels
-                                     (Public)</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>Q2 - 06-30-2015 - SLES 11 SP3
-                                     Updates for i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Q3 - 09-30-2015 - SLES 11 SP3
-                                     Updates for i586</para>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>64-bit Archive Channels
-                                     (Public)</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>Q2 - 06-30-2015 - SLES 11 SP3
-                                     Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Q3 - 09-30-2015 - SLES 11 SP3
-                                     Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Q2 - 06-30-2015 - SLES 12
-                                     Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Q3 - 09-30-2015 - SLES 12
-                                     Updates for x86_64</para>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Clone Sets or Child Channels
-                                     within SUSE Base Channels</para>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Base : SLES 11 SP3 Pool for
-                                     i586</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>DEV - Current Patch Set - SLES
-                                     11 SP3 Updates for i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>QA - Current Patch Set - SLES 11
-                                     SP3 Updates for i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>PROD - Current Patch Set - SLES
-                                     11 SP3 Updates for i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Patch Exceptions (DO NOT
-                                     SUBSCRIBE) - SLES 11 SP3 i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Security ASAP Exceptions - SLES
-                                     11 SP3 i586</para>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Base : SLES 11 SP3 Pool for
-                                     x86_64</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>DEV - Current Patch Set - SLES
-                                     11 SP3 Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>QA - Current Patch Set - SLES 11
-                                     SP3 Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>PROD - Current Patch Set - SLES
-                                     11 SP3 Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Patch Exceptions (DO NOT
-                                     SUBSCRIBE) - SLES 11 SP3 x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Security ASAP Exceptions - SLES
-                                     11 SP3 x86_64</para>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Base : SLES 12 SP3 Pool for
-                                     x86_64</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>DEV - Current Patch Set - SLES
-                                     12 Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>QA - Current Patch Set - SLES 12
-                                     Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>PROD - Current Patch Set - SLES
-                                     12 Updates for x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Patch Exceptions (DO NOT
-                                     SUBSCRIBE) - SLES 12 x86_64</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Security ASAP Exceptions - SLES
-                                     12 x86_64</para>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Patch Exceptions Channels (as
-                                     above)</para>
-                                    <itemizedlist>
-                                     <listitem>
-                                     <para>Per Base Channel - 1 channel for
-                                     each <quote>Updates</quote>
-                                     channel:</para>
-                                     <itemizedlist>
-                                     <listitem>
-                                     <para>Examples:</para>
-                                     <itemizedlist>
-                                     <listitem>
-                                     <para>Patch Exceptions (DO NOT
-                                     SUBSCRIBE) - SLES 11 SP3 i586</para>
-                                     </listitem>
-                                     <listitem>
-                                     <para>Security ASAP Exceptions - SLES
-                                     11 SP3 i586</para>
-                                     </listitem>
-                                     </itemizedlist>
-                                     </listitem>
-                                     </itemizedlist>
-                                     </listitem>
-                                    </itemizedlist>
-                                </listitem>
-                            </itemizedlist>
-                        </listitem>
-                    </itemizedlist>
-                    <itemizedlist>
-                        <listitem>
-                            <para>Corporate (CORP) - 2</para>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Any public channel will be
-                                     visible here</para>
-                                </listitem>
-                                <listitem>
-                                    <para>Private channels can be shared
-                                     per organization</para>
-                                </listitem>
-                            </itemizedlist>
-                        </listitem>
-                    </itemizedlist>
-                    <itemizedlist>
-                        <listitem>
-                            <para>Store (STORE) - 3</para>
-                            <itemizedlist>
-                                <listitem>
-                                    <para>Any public channel will be
-                                     visible here</para>
-                                </listitem>
-                                <listitem>
-                                    <para>Private channels can be shared
-                                     per organization</para>
-                                </listitem>
-                            </itemizedlist>
-                        </listitem>
-                    </itemizedlist>
-                </listitem>
-            </itemizedlist>
         </sect2>
 
         <sect2 xml:id="sec.design">

@@ -268,7 +268,7 @@
             <para>If you do not have csync2, or if you do not want to use it, you will need to copy
                 the DRBD configuration files manually to the other node.</para>
 
-            <sect3>
+            <sect3 xml:id="sec.drbd_site_1">
                 <title>DRBD on Site 1</title>
 
                 <para>To configure DRBD on Site 1, you should be aware of the following
@@ -298,33 +298,26 @@
 
 
                 <screen>resource nfs-lower-rz1 {
-                        disk
-                        /dev/volgroup/lv-nfs;
-                        meta-disk
-                        internal;
-                        device
-                        /dev/drbd0;
-                        protocol
-                        C;
-                        net {
-                        shared-secret
-                        "2a9702a6-8747-11e3-9ebb-782bcbd0c11c";
-                        }
-                        on geo-rz1-a {
-                        address
-                        }
-                        on geo-rz1-b {
-                        address
-                        }
-                        192.168.201.111:7900;
-                        192.168.201.112:7900;
-                        }
-                        }
-</screen>
+        disk            /dev/volgroup/lv-nfs;
+        meta-disk       internal;
+        device          /dev/drbd0;
+        protocol        C;
+
+        net {
+                shared-secret   "2a9702a6-8747-11e3-9ebb-782bcbd0c11c";
+        }
+        
+        on geo-rz1-a {
+                address          192.168.201.111:7900;
+        }
+        on geo-rz1-b {
+                address          192.168.201.112:7900;
+        }
+}</screen>
 
             </sect3>
 
-            <sect3>
+            <sect3 xml:id="sec.drbd_site_2">
                 <title>DRBD on Site 2</title>
 
                 <para>Even if Site 2 is nearly identical to Site 1, you should notice the following
@@ -349,27 +342,26 @@
                 </itemizedlist>
 
                 <screen>resource nfs-lower-rz2 {
-                    disk 		/dev/volgroup/lv-nfs;
-                    meta-disk 	internal;
-                    device 		/dev/drbd0;
-                    protocol 	C;
+        disk            /dev/volgroup/lv-nfs;
+        meta-disk       internal;
+        device          /dev/drbd0;
+        protocol        C;
+        
+        net {
+                shared-secret   "cd9d857d-72ef-4d10-a1de-6450d1797a2c";
+        }
                     
-                    net {
-                    shared-secret 	"cd9d857d-72ef-4d10-a1de-6450d1797a2c";
-                    }
-                    
-                    on geo-rz2-a {
-                    address 	192.168.202.111:7900;
-                    } 
-                    on geo-rz2-b {
-                    address 	192.168.202.112:7900;
-                    } 
-}    
-</screen>
+        on geo-rz2-a {
+                address          192.168.202.111:7900;
+        } 
+        on geo-rz2-b {
+                address          192.168.202.112:7900;
+        } 
+}</screen>
 
             </sect3>
 
-            <sect3>
+            <sect3 xml:id="sec.drbd_across_sites">
                 <title>DRBD Connection Across Sites</title>
                 <para>To configure a DRBD conneciton accross sites, you should be aware of the
                     following:</para>
@@ -408,29 +400,23 @@
                 </itemizedlist>
 
                 <screen>resource nfs-upper {
-                    disk
-                    meta-disk
-                    device
-                    protocol
-                    /dev/drbd0;
-                    internal;
-                    /dev/drbd10;
-                    A;
-                    net {
-                    shared-secret
-                    ping-timeout
-                    "e0fbd1fe-6b0b-47db-829a-2c4ba638bf1e";
-                    20;
-                    }
-                    stacked-on-top-of nfs-lower-rz1 {
-                    address
-                    192.168.201.151:7910;
-                    }
-                    stacked-on-top-of nfs-lower-rz2 {
-                    address
-                    192.168.202.151:7910;
-                    }
-                    }</screen>
+        disk             /dev/drbd0;
+        meta-disk        internal;
+        device           /dev/drbd10;
+        protocol         A;
+        
+        net {
+                shared-secret    "e0fbd1fe-6b0b-47db-829a-2c4ba638bf1e";
+                ping-timeout     20;
+        }
+
+        stacked-on-top-of nfs-lower-rz1 {
+                address          192.168.201.151:7910;
+        }
+        stacked-on-top-of nfs-lower-rz2 {
+                address          192.168.202.151:7910;
+        }
+}</screen>
 
                 <para>Using a DRBD Proxy would involve inserting proxy on ... sections into
                     stacked-on-top-of above, as well as a proxy { ... } section inside of resource.
@@ -442,6 +428,85 @@
             </sect3>
 
         </sect2>
+
+        <sect2 xml:id="sec.pacemaker_resources">
+            <title>Pacemaker Resources (in crm-shell syntax)</title>
+
+            <para>For a more in-depth look on how to configure the NFS server, see the Highly
+                Available NFS Storage with DRBD and Pacemaker document included in the SUSE Linux
+                Enterprise High Availability Extension documentation. To configure the necessary
+                resources, use the crm shell commands as outlined in the following chapters. </para>
+
+            <sect3 xml:id="sec.basic_primitives">
+                <title>Basic Primitives</title>
+
+                <para>Setting up the basic primitives is fairly straightforward. You need a service
+                    IP, the filesystem, and the NFS server.</para>
+
+                <note>
+                    <title>exportfs</title>
+                    <para>It is also possible to use the <emphasis role="italic">exportfs</emphasis>
+                        resource agents instead, and just keep the NFS server running all the time.
+                        This is necessary if there are multiple NFS exports that must migrate
+                        independently.</para>
+                </note>
+
+                <screen>crm configure
+    primitive p-ip-nfs IPaddr2 ip=192.168.202.151 iflabel=nfs nic=eth1 cidr_netmask=24
+    primitive p-nfs-fs Filessystem device=/dev/drbd/by-res/nfs/0 directory=/mnt/nfs fstype=ext4
+    primitive p-nfs-service systemd:nfs-server</screen>
+
+            </sect3>
+
+            <sect3 xml:id="sec.multi_state_resources">
+                <title>DRBD Pacemaker Resources, Multi-State Resources</title>
+
+                <para>Multi-state resources, previously called <emphasis role="italic"
+                        >Master-Slave</emphasis> resources, allow the instances to be in one of two
+                    operating modes (called roles). The roles are called <emphasis role="italic"
+                        >master</emphasis> and <emphasis role="italic">slave</emphasis>.</para>
+
+                <screen>crm script run drbd id=drbd-nfs drbd_resource=nfs-upper
+crm script run drbd id=drbd-nfs-lower drbd_resource=nfs-lower-rz2</screen>
+
+            </sect3>
+
+            <sect3 xml:id="sec.group_primitives">
+                <title>Group and Basic Primitives</title>
+
+                <para>This is mostly what you would expect from the earlier picture: the multi-state
+                    equivalent of having a group consisting of <emphasis role="italic"
+                        >ms_drbd_nfs_lower:Master</emphasis>, <emphasis role="italic"
+                        >p_ip_nfs</emphasis>, and <emphasis role="italic"
+                        >ms_drbd_nfs:Master</emphasis>.</para>
+
+                <screen>crm configure
+    
+group g-nfs p-nfs-fs p-nfs-service
+    
+colocation co-nfs-ip-with-lower inf: p-ip-nfs:Started ms-drbd-nfs-lower:Master
+colocation co-nfs-g-with-upper inf: g-nfs:Started ms-drbd-nfs:Master
+colocation co-nfs-upper-with-ip inf: ms-drbd-nfs:Master p-ip-nfs:Started
+    
+order o-lower-drbd-before-ip-nfs inf: ms-drbd-nfs-lower:promote p-ip-nfs:start
+order o-ip-nfs-before-drbd inf: p-ip-nfs:start ms-drbd-nfs:promote
+order o-drbd-nfs-before-svc inf: ms-drbd-nfs:promote g-nfs:start</screen>
+
+            </sect3>
+
+        </sect2>
+
+        <sect2 xml:id="sec.interop_booth">
+            <title>Interoperability with Booth</title>
+
+            <para>In the following sections, you find the example configurations for the Booth
+                cluster ticket manager. Use <emphasis role="italic">csync2</emphasis> to synchronize
+                the configurations for Booth across all cluster nodes.</para>
+            
+            
+        </sect2>
+
+
 
 
 

@@ -452,9 +452,9 @@
                 </note>
 
                 <screen>crm configure
-    primitive p-ip-nfs IPaddr2 ip=192.168.202.151 iflabel=nfs nic=eth1 cidr_netmask=24
-    primitive p-nfs-fs Filessystem device=/dev/drbd/by-res/nfs/0 directory=/mnt/nfs fstype=ext4
-    primitive p-nfs-service systemd:nfs-server</screen>
+primitive p-ip-nfs IPaddr2 ip=192.168.202.151 iflabel=nfs nic=eth1 cidr_netmask=24
+primitive p-nfs-fs Filessystem device=/dev/drbd/by-res/nfs/0 directory=/mnt/nfs fstype=ext4
+primitive p-nfs-service systemd:nfs-server</screen>
 
             </sect3>
 
@@ -495,21 +495,184 @@ order o-drbd-nfs-before-svc inf: ms-drbd-nfs:promote g-nfs:start</screen>
             </sect3>
 
         </sect2>
+    </sect1>
 
-        <sect2 xml:id="sec.interop_booth">
-            <title>Interoperability with Booth</title>
+    <sect1 xml:id="sec.interop_booth">
+        <title>Interoperability with Booth</title>
 
-            <para>In the following sections, you find the example configurations for the Booth
-                cluster ticket manager. Use <emphasis role="italic">csync2</emphasis> to synchronize
-                the configurations for Booth across all cluster nodes.</para>
-            
-            
+        <para>In the following sections, you find the example configurations for the Booth cluster
+            ticket manager. Use <emphasis role="italic">csync2</emphasis> to synchronize the
+            configurations for Booth across all cluster nodes.</para>
+
+        <sect2 xml:id="sec.booth_config">
+            <title>Booth Configuration</title>
+
+            <para>In the booth configuration, you need to specify the following components:</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para>A UDP port to use</para>
+                </listitem>
+                <listitem>
+                    <para>Three IP addresses</para>
+                    <note>
+                        <para>You need one distinct service IP for each site, and a third one for
+                            the arbitrator. Separate addresses are preferred, so that booth can be
+                            managed independently.</para>
+                    </note>
+                </listitem>
+                <listitem>
+                    <para>The Pacemaker ticket name (here <emphasis role="italic"
+                            >ticket-nfs</emphasis>)</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>The configuration file might be stored as
+                <filename>/etc/booth/nfs.conf</filename>.</para>
+
+            <screen>transport = udp   
+port      = "9929"
+    
+site       = "192.168.201.100"
+site       = "192.168.202.100"
+arbitrator = "192.168.203.100"
+    
+ticket = "ticket-nfs"
+        expire  = 600
+        timeout =   5
+        acquire-after = 60</screen>
+
         </sect2>
 
+        <sect2 xml:id="sec.pacemaker_integration">
+            <title>Pacemaker Integration</title>
 
+            <para>Follow the recommendations below to integrate booth into Pacemaker:</para>
 
+            <itemizedlist>
+                <listitem>
+                    <para>This example is again valid for site 2 (service IP address subnet).</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="italic">booth</emphasis> automatically uses the default
+                        directory and suffix if the configuration name doesn’t specify any.</para>
+                </listitem>
+                <listitem>
+                    <para>As the DRBD replication should be running even if a site does not have the
+                        ticket, the correct <emphasis role="italic">loss- policy</emphasis> is
+                            <emphasis role="italic">demote</emphasis>. This will put DRBD into
+                        Secondary mode.</para>
+                </listitem>
+                <listitem>
+                    <para>As described in the <emphasis role="strong">OpenSUSE Multi-Site Cluster
+                            Documentation</emphasis> at <link
+                            xlink:href="https://www.suse.com/documentation/sle_ha/book_sleha/data/sec_ha_geo_setup.html"
+                        />, there should be a an order constraint that makes sure that Booth could
+                        fetch the ticket before trying to start the service.</para>
+                </listitem>
+            </itemizedlist>
 
+            <screen>crm configure
+    
+primitive p-booth ocf:pacemaker:booth-site config=nfs
+primitive p-ip-booth IPaddr2 ip=192.168.202.100 iflabel=ha nic=eth1 cidr-netmask=24
+    
+group g-booth p-ip-booth p-booth
+    
+rsc-ticket nfs-req-ticket ticket-nfs: ms-drbd-nfs:Master loss-policy=demote
+    
+order o-booth-before-nfs inf: g-booth ms-drbd-nfs:promote</screen>
 
+        </sect2>
+
+    </sect1>
+
+    <sect1 xml:id="sec.testing">
+        <title>Testing Failovers and Recovery</title>
+
+        <para>After you have configured everything as described, you should check that your set-up
+            is working as expected.</para>
+
+        <para>The following command from any node running the booth daemon will tell you which
+            tickets it knows about, which site currently holds the ticket, and when that ticket will
+            expire if it is not renewed:</para>
+
+        <screen># booth list
+ticket: ticket-nfs, leader: 192.168.201.100, expires: 2016-04-14 07:50:48</screen>
+
+        <sect2 xml:id="sec.failover">
+            <title>Failover</title>
+
+            <para>There are many ways to test that failovers will work as expected. An easy way to
+                test is to sever network communications between sites using IPtables. You only need
+                to cut communication on the Booth ports to see a ticket expire and services
+                failover.</para>
+
+            <para>On the node currently running services, issue the following IPtables commands to
+                sever Booth’s com- munications with its peers:</para>
+
+            <screen>/usr/sbin/iptables -I INPUT -p udp --dport 9929 -j DROP
+/usr/sbin/iptables -I OUTPUT -p udp --dport 9929 -j DROP</screen>
+
+            <para>After the ticket's <emphasis role="italic">expire</emphasis> time has lapsed, you
+                should see services begin to demote at the current Pri- mary site. After the
+                    <emphasis role="italic">expire</emphasis> plus <emphasis role="italic"
+                    >acquire-after</emphasis> time lapses, you should see services begin to start at
+                the Secondary site.</para>
+
+            <para>Remove the IPtables rules you inserted before continuing:</para>
+
+            <screen># /usr/sbin/iptables -D INPUT 1
+# /usr/sbin/iptables -D OUTPUT 1</screen>
+
+        </sect2>
+
+        <sect2 xml:id="sec.failback">
+            <title>Failback</title>
+
+            <para>To failback to the original Primary site you need to manually revoke the ticket
+                from the site currently running services, and grant the ticket to the original
+                Primary site.</para>
+
+            <para>You can issue the following commands from any of the nodes currently running the
+                Booth daemon:</para>
+
+            <screen># booth revoke -s 192.168.202.100 ticket-nfs
+  booth[30268]: 2016/04/14_08:21:05 info: revoke request sent, waiting for the result ...
+  booth[30268]: 2016/04/14_08:21:09 info: revoke succeeded!
+# booth grant -s 192.168.201.100 ticket-nfs
+  booth[30269]: 2016/04/14_08:21:17 info: grant request sent, waiting for the result ...
+  booth[30269]: 2016/04/14_08:21:28 info: grant succeeded</screen>
+
+        </sect2>
+
+    </sect1>
+
+    <sect1 xml:id="sec.further_documentation">
+        <title>Further Documentation</title>
+
+        <para><emphasis role="strong">SUSE Linux Enterprise High Availability Extension
+                Guide</emphasis>: A comprehensive documentation about nearly every part of the Linux
+            Cluster stack. See <link
+                xlink:href="https://www.suse.com/documenta-
+            tion/sle_ha/singlehtml/book_sleha/book_sleha.html"
+            />.</para>
+
+        <para><emphasis role="strong">DRBD Project Page</emphasis>: Located at <link xlink:href=""
+                >https://www.drbd.org</link>, it provides lots of informations, including a detailed
+            Users' Guide - one of the most extensive project documentations in the Open Source
+            world.</para>
+
+        <para><emphasis role="strong">LINBIT Home Page</emphasis>: At <link
+                xlink:href="https://www.linbit.com"/> , you find answers to all questions about paid
+            support from the developers. An overview about supported platforms, SLAs, and price
+            quotes is available at <link xlink:href="https://www.linbit.com/en/p/services/support"
+            />.</para>
+
+        <para><emphasis role="strong">SUSE Geo Clustering Documentation</emphasis>: This describes
+            the general challenges for Geo-clustering, as well as typical solutions. The HTML
+            version is hosted at <link xlink:href="https://www.suse.com/documenta-
+                tion/sle-ha-geo-12/singlehtml/art_ha_geo_quick/art_ha_geo_quick.html#sec.ha.geo.challenges"/>.</para>
     </sect1>
 
 

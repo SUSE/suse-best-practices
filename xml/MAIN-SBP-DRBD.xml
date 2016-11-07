@@ -4,18 +4,14 @@
 <!ENTITY % entity SYSTEM "entity-decl.ent">
 %entity;
 ]>
-<article xmlns="http://docbook.org/ns/docbook"
-    xmlns:xi="http://www.w3.org/2001/XInclude"
-    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
-    xml:id="art.sbp.geo.drbd" xml:lang="en">
+<article xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art.sbp.geo.drbd" xml:lang="en">
 
     <info>
         <title>Data Replication across Geo Clusters via DRBD </title>
-        <subtitle>Included with SUSE Linux Enterprise High Availability
-            Extension</subtitle>
+        <subtitle>Included with SUSE Linux Enterprise High Availability Extension</subtitle>
         <orgname>SUSE Best Practices</orgname>
-        <productname>SUSE Linux Enterprise High Availability
-            Extension</productname>
+        <productname>SUSE Linux Enterprise High Availability Extension</productname>
         <productnumber>12 SP1, SP2</productnumber>
 
 
@@ -56,9 +52,8 @@
         <date>November 7, 2016</date>
 
         <abstract>
-            <para>This technical guide describes the setup of a geo cluster
-                using DRBD as delivered with the SUSE Linux Enterprise High
-                Availability Extension.</para>
+            <para>This technical guide describes the setup of a geo cluster using DRBD as delivered
+                with the SUSE Linux Enterprise High Availability Extension.</para>
         </abstract>
     </info>
 
@@ -66,193 +61,158 @@
     <sect1 xml:id="sec.background">
         <title>Background</title>
 
-        <para>The following sections provide you with important background
-            information about DRBD and the SUSE Linux Enterprise High
-            Availability Extension.</para>
+        <para>The following sections provide you with important background information about DRBD
+            and the SUSE Linux Enterprise High Availability Extension.</para>
 
         <sect2 xml:id="sec.drbd">
             <title>About DRBD</title>
 
-            <para>DRBD is a Linux-kernel block-level replication facility
-                that is widely used as a shared-nothing cluster building
-                block. It is included in vanilla kernels since 2.6.33, and
-                most distributions ship the necessary userspace utilities.
-                Furthermore, many distributions have newer DRBD versions
-                than the one included in the kernel in extra
-                packages.</para>
+            <para>DRBD is a Linux-kernel block-level replication facility that is widely used as a
+                shared-nothing cluster building block. It is included in vanilla kernels since
+                2.6.33, and most distributions ship the necessary userspace utilities. Furthermore,
+                many distributions have newer DRBD versions than the one included in the kernel in
+                extra packages.</para>
 
-            <para>DRBD can replicate across multiple network protocols, and
-                in (currently) three modes, from synchronous for local HA
-                clusters, to asynchronous for pushing data to a disaster
-                recovery site.</para>
+            <para>DRBD can replicate across multiple network protocols, and in (currently) three
+                modes, from synchronous for local HA clusters, to asynchronous for pushing data to a
+                disaster recovery site.</para>
 
             <para>DRBD is developed and supported worldwide by LINBIT <link
-                    xlink:href="http://www.linbit.com"/>. That includes
-                most distributions and architectures, with Service Level
-                Agreement (SLA) levels up to 24/7 e-mail and phone
+                    xlink:href="http://www.linbit.com"/>. That includes most distributions and
+                architectures, with Service Level Agreement (SLA) levels up to 24/7 e-mail and phone
                 availability.</para>
         </sect2>
 
         <sect2 xml:id="sec.sleshae">
-            <title>About SUSE Linux Enterprise High Availability
-                Extension</title>
+            <title>About SUSE Linux Enterprise High Availability Extension</title>
 
-            <para>SUSE Linux Enterprise High Availability Extension is an
-                integrated suite of open source clustering technologies
-                that enables you to implement highly available physical and
-                virtual Linux clusters, and to eliminate single points of
-                failure. It ensures the availability and manageability of
-                critical networked resources including data, applications,
-                and services. Thus, it helps you maintain business
-                continuity, protect data integrity, and reduce unplanned
-                downtime for your mission-critical Linux workloads.</para>
+            <para>SUSE Linux Enterprise High Availability Extension is an integrated suite of open
+                source clustering technologies that enables you to implement highly available
+                physical and virtual Linux clusters, and to eliminate single points of failure. It
+                ensures the availability and manageability of critical networked resources including
+                data, applications, and services. Thus, it helps you maintain business continuity,
+                protect data integrity, and reduce unplanned downtime for your mission-critical
+                Linux workloads.</para>
 
-            <para>SUSE Linux Enterprise High Availability Extension ships
-                with essential monitoring, messaging, and cluster resource
-                management functionality (supporting failover, failback,
-                and migration (load balancing) of individually managed
-                cluster resources).</para>
+            <para>SUSE Linux Enterprise High Availability Extension ships with essential monitoring,
+                messaging, and cluster resource management functionality (supporting failover,
+                failback, and migration (load balancing) of individually managed cluster
+                resources).</para>
 
-            <para>SUSE Linux Enterprise High Availability Extension
-                includes DRBD.</para>
+            <para>SUSE Linux Enterprise High Availability Extension includes DRBD.</para>
         </sect2>
     </sect1>
 
     <sect1 xml:id="sec.introduction">
         <title>Introduction</title>
 
-        <para>This technical guide describes a setup consisting of two
-            highly available Pacemaker clusters in two sites, with a routed
-            IPv4 or IPv6 connection in between. The connection can range
-            from a few Mbit/sec up to 10 GBit/sec, depending on the IO load
-            imposed on the cluster nodes.</para>
+        <para>This technical guide describes a setup consisting of two highly available Pacemaker
+            clusters in two sites, with a routed IPv4 or IPv6 connection in between. The connection
+            can range from a few Mbit/sec up to 10 GBit/sec, depending on the IO load imposed on the
+            cluster nodes.</para>
 
-        <para>Various services can be distributed across the clusters.
-            Because of latency between the data centers you cannot drive a
-            cluster file system across them. But simply replicating the
-            data to have a quick failover in case one site goes down is
+        <para>Various services can be distributed across the clusters. Because of latency between
+            the data centers you cannot drive a cluster file system across them. But simply
+            replicating the data to have a quick failover in case one site goes down is
             possible.</para>
 
-        <para>Failover between the two sites is managed using the <emphasis
-                role="italic">Booth Cluster Ticket Manager</emphasis>,
-            which is included in the Geo Clustering for SUSE Linux
-            Enterprise High Availability Extension and the LINBIT HA
-            Cluster Stack. In addition to the two cluster sites, a third
-            site is needed to run a booth Arbitrator. Arbitrators are
-            single machines that run a booth instance in a special mode. As
-            all booth instances communicate with each other, arbitrators
-            help to make more reliable decisions about granting or revoking
-            tickets.</para>
+        <para>Failover between the two sites is managed using the <emphasis role="italic">Booth
+                Cluster Ticket Manager</emphasis>, which is included in the Geo Clustering for SUSE
+            Linux Enterprise High Availability Extension and the LINBIT HA Cluster Stack. In
+            addition to the two cluster sites, a third site is needed to run a booth Arbitrator.
+            Arbitrators are single machines that run a booth instance in a special mode. As all
+            booth instances communicate with each other, arbitrators help to make more reliable
+            decisions about granting or revoking tickets.</para>
 
-        <para>Lots of details will be skimmed. For example, for this
-            technical guide it does not matter whether the application
-            driving IO is SAP, an NFS server, a PostgreSQL instance, VMs
-            via KVM, Apache, MySQL, or whatever else you may have in
-            use.</para>
+        <para>Lots of details will be skimmed. For example, for this technical guide it does not
+            matter whether the application driving IO is SAP, an NFS server, a PostgreSQL instance,
+            VMs via KVM, Apache, MySQL, or whatever else you may have in use.</para>
 
     </sect1>
 
     <sect1 xml:id="sec.installation">
         <title>Installation Requirements</title>
 
-        <para>You need to have the Geo Clustering for SUSE Linux Enterprise
-            High Availability Extension installed on both pairs of nodes,
-            and on the Arbitrator node. For a detailed description on how
-            to configure the geo cluster nodes, see the Geo Clustering
-            Quick Start document included in the Geo Clustering for SUSE
-            Linux Enterprise High Availability Extension documentation at
-                <link
+        <para>You need to have the Geo Clustering for SUSE Linux Enterprise High Availability
+            Extension installed on both pairs of nodes, and on the Arbitrator node. For a detailed
+            description on how to configure the geo cluster nodes, see the Geo Clustering Quick
+            Start document included in the Geo Clustering for SUSE Linux Enterprise High
+            Availability Extension documentation at <link
                 xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/art_ha_geo_quick/data/art_ha_geo_quick.html"
             />.</para>
 
-        <para>It is good practice and recommended to use LVM as storage
-            layer below DRBD. This allows for quick and easy creation and
-            online enlarging of DRBD devices.</para>
+        <para>It is good practice and recommended to use LVM as storage layer below DRBD. This
+            allows for quick and easy creation and online enlarging of DRBD devices.</para>
 
-        <para>You also need to install all the software including
-            dependencies for the services you want to run on all four
-            nodes. In case you replicate Virtual Machines (VMs), these are
-            typically self-contained, so you will just need the KVM
-            environment <emphasis role="italic">libvirt</emphasis> with
-                <emphasis role="italic">virsh</emphasis> on the cluster
-            nodes.</para>
+        <para>You also need to install all the software including dependencies for the services you
+            want to run on all four nodes. In case you replicate Virtual Machines (VMs), these are
+            typically self-contained, so you will just need the KVM environment <emphasis
+                role="italic">libvirt</emphasis> with <emphasis role="italic">virsh</emphasis> on
+            the cluster nodes.</para>
 
     </sect1>
 
     <sect1 xml:id="sec.architecture">
         <title>Cluster Architecture Overview</title>
 
-        <para>The following image depicts a two-site, four-node cluster
-            with arrows showing the direction of replication, and blocks in
-            orange showing that a DRBD device is Primary. There are two
-            nodes in the local site, <emphasis role="italic"
-                >alice</emphasis> and <emphasis role="italic"
-                >bob</emphasis>, and two nodes in the remote site,
-                <emphasis role="italic">charlie</emphasis> and <emphasis
-                role="italic">daisy</emphasis>.</para>
+        <para>The following image depicts a two-site, four-node cluster with arrows showing the
+            direction of replication, and blocks in orange showing that a DRBD device is Primary.
+            There are two nodes in the local site, <emphasis role="italic">alice</emphasis> and
+                <emphasis role="italic">bob</emphasis>, and two nodes in the remote site, <emphasis
+                role="italic">charlie</emphasis> and <emphasis role="italic"
+            >daisy</emphasis>.</para>
 
-        <para>Each site will have its own DRBD resource stack and service
-            IP to allow independent migration across the cluster
-            nodes.</para>
+        <para>Each site will have its own DRBD resource stack and service IP to allow independent
+            migration across the cluster nodes.</para>
 
         <figure>
             <title>Stacked Four-Node Cluster</title>
             <mediaobject>
                 <imageobject role="fo">
-                    <imagedata fileref="drbd-resource-stacking-4nodes.png"
-                        width="70%" format="PNG"/>
+                    <imagedata fileref="drbd-resource-stacking-4nodes.png" width="70%" format="PNG"
+                    />
                 </imageobject>
                 <imageobject role="html">
-                    <imagedata fileref="drbd-resource-stacking-4nodes.png"
-                        width="70%" format="PNG"/>
+                    <imagedata fileref="drbd-resource-stacking-4nodes.png" width="70%" format="PNG"
+                    />
                 </imageobject>
             </mediaobject>
         </figure>
 
-        <para>The most important details of the cluster architecture are
-            the following:</para>
+        <para>The most important details of the cluster architecture are the following:</para>
 
         <itemizedlist>
             <listitem>
-                <para>The local high availability setup: DRBD running in
-                    Protocol C, using IP addresses in a LAN respective a
-                    cross-over connection.</para>
+                <para>The local high availability setup: DRBD running in Protocol C, using IP
+                    addresses in a LAN respective a cross-over connection.</para>
             </listitem>
             <listitem>
-                <para>Just after activating the lower DRBD devices on one
-                    node, the dedicated service IP address is
-                    started.</para>
-                <para>This is not only used for the service as such, but
-                    also as a fixed point that can be accessed by the upper
-                    DRBD device (in Secondary state) for
+                <para>Just after activating the lower DRBD devices on one node, the dedicated
+                    service IP address is started.</para>
+                <para>This is not only used for the service as such, but also as a fixed point that
+                    can be accessed by the upper DRBD device (in Secondary state) for
                     replication.</para>
             </listitem>
             <listitem>
-                <para>The upper layer DRBD runs on one node per site, and
-                    is responsible for replicating the data to the other
-                    replication site. This connection runs in protocol A,
-                    and might have a DRBD Proxy setup in between.</para>
+                <para>The upper layer DRBD runs on one node per site, and is responsible for
+                    replicating the data to the other replication site. This connection runs in
+                    protocol A, and might have a DRBD Proxy setup in between.</para>
 
                 <note>
                     <title>Data Compression</title>
-                    <para>The DRBD Proxy buffers and optionally compresses
-                        data, from one or multiple DRBD resources.
-                        Compression helps if the site interconnect is
-                        slower than the summed average I/O rate of the
-                        resources. The ratio is about 1:4 for <emphasis
-                            role="strong">zlib</emphasis>, and up to 1:50
-                        for <emphasis role="strong">lzma</emphasis>
-                        compression. See the <quote>DRBD Proxy 3
-                            Compression Considerations</quote> whitepaper
-                        on <link
-                            xlink:href="https://links.linbit.com/tech_guides"
-                        /> for more details.</para>
+                    <para>The DRBD Proxy buffers and optionally compresses data, from one or
+                        multiple DRBD resources. Compression helps if the site interconnect is
+                        slower than the summed average I/O rate of the resources. The ratio is about
+                        1:4 for <emphasis role="strong">zlib</emphasis>, and up to 1:50 for
+                            <emphasis role="strong">lzma</emphasis> compression. See the <quote>DRBD
+                            Proxy 3 Compression Considerations</quote> whitepaper on <link
+                            xlink:href="https://links.linbit.com/tech_guides"/> for more
+                        details.</para>
                 </note>
             </listitem>
             <listitem>
-                <para>On the site that should actually run the service, the
-                    upper layer DRBD gets set as Primary, so that the file
-                    system therein can be mounted and used by the
+                <para>On the site that should actually run the service, the upper layer DRBD gets
+                    set as Primary, so that the file system therein can be mounted and used by the
                     application.</para>
             </listitem>
         </itemizedlist>
@@ -261,100 +221,84 @@
     <sect1 xml:id="sec.example_config">
         <title>Example Configurations for a Single Service</title>
 
-        <para>The example configurations below are using the following
-            premises:</para>
+        <para>The example configurations below are using the following premises:</para>
 
         <itemizedlist>
             <listitem>
-                <para>Two sites, called <emphasis role="strong"
-                        >RZ1</emphasis> and <emphasis role="strong"
-                        >RZ2</emphasis>, with two private networks
-                        <emphasis role="strong">192.168.201.x</emphasis>
-                    and <emphasis role="strong">192.168.202.x</emphasis>,
-                    routed to the other site</para>
+                <para>Two sites, called <emphasis role="strong">RZ1</emphasis> and <emphasis
+                        role="strong">RZ2</emphasis>, with two private networks <emphasis
+                        role="strong">192.168.201.x</emphasis> and <emphasis role="strong"
+                        >192.168.202.x</emphasis>, routed to the other site</para>
             </listitem>
             <listitem>
-                <para>Four nodes, called <emphasis role="strong"
-                        >geo_rzN-M</emphasis> in four combinations:
-                        <emphasis role="strong">geo-rz1-a</emphasis> to
-                        <emphasis role="strong">geo-rz2-b</emphasis></para>
+                <para>Four nodes, called <emphasis role="strong">geo_rzN-M</emphasis> in four
+                    combinations: <emphasis role="strong">geo-rz1-a</emphasis> to <emphasis
+                        role="strong">geo-rz2-b</emphasis></para>
             </listitem>
             <listitem>
-                <para>NFS is to be served; but there’s not much difference
-                    for other services</para>
+                <para>NFS is to be served; but there’s not much difference for other services</para>
             </listitem>
             <listitem>
-                <para>Nodes are using LVM, VG name is <emphasis
-                        role="strong">volgroup</emphasis></para>
+                <para>Nodes are using LVM, VG name is <emphasis role="strong"
+                    >volgroup</emphasis></para>
             </listitem>
             <listitem>
-                <para>The lower DRBD layer (for the HA-clusters) uses minor
-                    0; minor 10 is used for DR replication</para>
+                <para>The lower DRBD layer (for the HA-clusters) uses minor 0; minor 10 is used for
+                    DR replication</para>
             </listitem>
         </itemizedlist>
 
         <sect2 xml:id="sec.drbd_config">
             <title>DRBD Configuration</title>
 
-            <para>The following snippets show a basic DRBD configuration.
-                These are bare-bones; performance-tuning options are not
-                included here.</para>
+            <para>The following snippets show a basic DRBD configuration. These are bare-bones;
+                performance-tuning options are not included here.</para>
 
-            <para>All three snippets can be contained in a single resource
-                file, for example in <filename role="italic"
-                    >/etc/drbd.d/nfs.res</filename>. This is the
-                recommended configuration, because keeping a single file
-                synchronized across the four cluster nodes is easier. You
-                can also consult <emphasis role="strong">csync2</emphasis>
-                at <link xlink:href="http://oss.linbit.com/csync2/"
-                />.</para>
+            <para>All three snippets can be contained in a single resource file, for example in
+                    <filename role="italic">/etc/drbd.d/nfs.res</filename>. This is the recommended
+                configuration, because keeping a single file synchronized across the four cluster
+                nodes is easier. You can also consult <emphasis role="strong">csync2</emphasis> at
+                    <link xlink:href="http://oss.linbit.com/csync2/"/>.</para>
 
-            <para>If you have used the Geo Clustering Quick Start Guide at
-                    <link
+            <para>If you have used the Geo Clustering Quick Start Guide at <link
                     xlink:href="https://www.suse.com/documentation/sle-ha-geo-12/art_ha_geo_quick/data/art_ha_geo_quick.html"
-                />to perform the basic configuration of the cluster nodes,
-                the DRBD configuration files are already included in the
-                list of files to be synchronized.</para>
+                />to perform the basic configuration of the cluster nodes, the DRBD configuration
+                files are already included in the list of files to be synchronized.</para>
 
-            <para>To synchronize any changes to the configuration files
-                across both cluster nodes, use the following
-                command:</para>
+            <para>To synchronize any changes to the configuration files across both cluster nodes,
+                use the following command:</para>
 
             <para>
                 <command>root # csync2 -xv /etc/drbd.d/</command>
             </para>
 
-            <para>If you do not have csync2, or if you do not want to use
-                it, you will need to copy the DRBD configuration files
-                manually to all the other nodes.</para>
+            <para>If you do not have csync2, or if you do not want to use it, you will need to copy
+                the DRBD configuration files manually to all the other nodes.</para>
 
             <sect3 xml:id="sec.drbd_site_1">
                 <title>DRBD on Site 1</title>
 
-                <para>To configure DRBD on Site 1, you should be aware of
-                    the following details:</para>
+                <para>To configure DRBD on Site 1, you should be aware of the following
+                    details:</para>
 
                 <itemizedlist>
                     <listitem>
-                        <para>The resource-name has the site in it, so that
-                            the complete configuration can be kept in
-                            syncronization across both clusters without
+                        <para>The resource-name has the site in it, so that the complete
+                            configuration can be kept in syncronization across both clusters without
                             naming conflicts</para>
                     </listitem>
                     <listitem>
-                        <para>The nodes' <emphasis role="strong"
-                                >local</emphasis> per-node IP addresses are
-                            used</para>
+                        <para>The nodes' <emphasis role="strong">local</emphasis> per-node IP
+                            addresses are used</para>
                     </listitem>
                     <listitem>
-                        <para>A <emphasis role="italic"
-                                >shared-secret</emphasis> is used to avoid
+                        <para>A <emphasis role="italic">shared-secret</emphasis> is used to avoid
                             inadvertent wrong connections</para>
 
                         <note>
                             <title>uuid Program</title>
-                            <para>The <package>uuid</package> program is an
-                                easy way to get unique values.</para>
+                            <para>The <package>uuid</package> program is an easy way to get unique
+                                values.</para>
                         </note>
                     </listitem>
                 </itemizedlist>
@@ -383,26 +327,24 @@
             <sect3 xml:id="sec.drbd_site_2">
                 <title>DRBD on Site 2</title>
 
-                <para>Even if Site 2 is nearly identical to Site 1, you
-                    should notice the following differences:</para>
+                <para>Even if Site 2 is nearly identical to Site 1, you should notice the following
+                    differences:</para>
 
                 <itemizedlist>
                     <listitem>
                         <para>The resource name has changed</para>
                     </listitem>
                     <listitem>
-                        <para>The node names and IP addresses are
-                            different</para>
+                        <para>The node names and IP addresses are different</para>
                     </listitem>
                     <listitem>
-                        <para>Another <emphasis role="italic"
-                                >shared-secret</emphasis> has been
+                        <para>Another <emphasis role="italic">shared-secret</emphasis> has been
                             generated</para>
                     </listitem>
                     <listitem>
-                        <para>The volume group and LV name can be kept in
-                            the <emphasis role="italic">resource</emphasis>
-                            section if identical on both nodes</para>
+                        <para>The volume group and LV name can be kept in the <emphasis
+                                role="italic">resource</emphasis> section if identical on both
+                            nodes</para>
                     </listitem>
                 </itemizedlist>
 
@@ -428,47 +370,40 @@
 
             <sect3 xml:id="sec.drbd_across_sites">
                 <title>DRBD Connection across Sites</title>
-                <para>To configure a DRBD connection across sites, you
-                    should be aware of the following:</para>
+                <para>To configure a DRBD connection across sites, you should be aware of the
+                    following:</para>
 
                 <itemizedlist>
                     <listitem>
-                        <para>The storage disk is the HA-cluster DRBD
-                            device <emphasis role="italic"
+                        <para>The storage disk is the HA-cluster DRBD device <emphasis role="italic"
                                 >/dev/drbd0</emphasis></para>
                         <itemizedlist>
                             <listitem>
-                                <para>You could also use <emphasis
-                                     role="italic">/dev/drbd/by-
-                                     res/nfs-lower-rzN/0</emphasis>, but
-                                    that would be site-specific, and so
-                                    would need to be moved into the
-                                    per-site configuration (stacked on top
-                                    of <emphasis role="italic"
-                                     >nfs-lower-rzN</emphasis>)</para>
+                                <para>You could also use <emphasis role="italic">/dev/drbd/by-
+                                        res/nfs-lower-rzN/0</emphasis>, but that would be
+                                    site-specific, and so would need to be moved into the per-site
+                                    configuration (stacked on top of <emphasis role="italic"
+                                        >nfs-lower-rzN</emphasis>)</para>
                             </listitem>
                         </itemizedlist>
                     </listitem>
                     <listitem>
-                        <para>The DRBD device drbd10 says to use minor
-                            number 10</para>
+                        <para>The DRBD device drbd10 says to use minor number 10</para>
                     </listitem>
                     <listitem>
-                        <para>Protocol A, and a higher ping-timeout are
-                            needed because of the higher latency</para>
+                        <para>Protocol A, and a higher ping-timeout are needed because of the higher
+                            latency</para>
                     </listitem>
                     <listitem>
                         <para>A different shared-secret is used</para>
                     </listitem>
                     <listitem>
-                        <para>Do not pass any host names, but tell DRBD to
-                            stack upon its lower device; that implies that
-                            this must be Primary</para>
+                        <para>Do not pass any host names, but tell DRBD to stack upon its lower
+                            device; that implies that this must be Primary</para>
                     </listitem>
                     <listitem>
-                        <para>To allow TCP/IP connections to the other site
-                            without knowing which cluster node has the
-                            lower DRBD device Primary, we are using a (the)
+                        <para>To allow TCP/IP connections to the other site without knowing which
+                            cluster node has the lower DRBD device Primary, we are using a (the)
                             service IP address</para>
                     </listitem>
                 </itemizedlist>
@@ -492,13 +427,12 @@
         }
 }</screen>
 
-                <para>Using a DRBD Proxy would involve inserting <emphasis role="italic">proxy on ...</emphasis>
-                    sections into <emphasis role="italic">stacked-on-top-of</emphasis> above, and a <emphasis role=""></emphasis>proxy
-                    { ... } section inside of resource. See LINBIT's DRBD
-                    Proxy guide at <link
-                        xlink:href="http://links.linbit.com/DRBD-Proxy-Conf"
-                    /> for more details regarding configuring DRBD
-                    Proxy.</para>
+                <para>Using a DRBD Proxy would involve inserting <emphasis role="italic">proxy on
+                        ...</emphasis> sections into <emphasis role="italic"
+                        >stacked-on-top-of</emphasis> above, and a <emphasis role=""/>proxy { ... }
+                    section inside of resource. See LINBIT's DRBD Proxy guide at <link
+                        xlink:href="http://links.linbit.com/DRBD-Proxy-Conf"/> for more details
+                    regarding configuring DRBD Proxy.</para>
 
             </sect3>
 
@@ -507,51 +441,43 @@
         <sect2 xml:id="sec.pacemaker_resources">
             <title>Pacemaker Resources (in crm-shell syntax)</title>
 
-            <para>For a more in-depth look at how to configure the NFS
-                server, see the Highly Available NFS Storage with DRBD and
-                Pacemaker document included in the SUSE Linux Enterprise
-                High Availability Extension documentation. To configure the
-                necessary resources, use the crm shell commands as outlined
-                in the following chapters. </para>
+            <para>For a more in-depth look at how to configure the NFS server, see the Highly
+                Available NFS Storage with DRBD and Pacemaker document included in the SUSE Linux
+                Enterprise High Availability Extension documentation. To configure the necessary
+                resources, use the <emphasis role="strong">crm</emphasis>crm shell commands as
+                outlined in the following chapters. </para>
 
             <sect3 xml:id="sec.basic_primitives">
                 <title>Basic Primitives</title>
 
-                <para>Setting up the basic primitives is fairly
-                    straightforward. You need a service IP, the file
-                    system, and the NFS server.</para>
+                <para>Setting up the basic primitives is fairly straightforward. You need a service
+                    IP, the file system, and the NFS server.</para>
 
                 <note>
                     <title>exportfs</title>
-                    <para>It is also possible to use the <emphasis
-                            role="italic">exportfs</emphasis> resource
-                        agents instead, and keep the NFS server running all
-                        the time. This is necessary if there are multiple
-                        NFS exports that must migrate independently.</para>
+                    <para>It is also possible to use the <emphasis role="italic">exportfs</emphasis>
+                        resource agents instead, and keep the NFS server running all the time. This
+                        is necessary if there are multiple NFS exports that must migrate
+                        independently.</para>
                 </note>
 
                 <screen>crm configure
 primitive p-ip-nfs IPaddr2 ip=192.168.202.151 iflabel=nfs nic=eth1 cidr_netmask=24
-primitive p-nfs-fs Filessystem device=/dev/drbd/by-res/nfs/0 directory=/mnt/nfs fstype=ext4
+primitive p-nfs-fs Filesystem device=/dev/drbd/by-res/nfs/0 directory=/mnt/nfs fstype=ext4
 primitive p-nfs-service systemd:nfs-server</screen>
 
             </sect3>
 
             <sect3 xml:id="sec.multi_state_resources">
-                <title>DRBD Pacemaker Resources, Multi-State
-                    Resources</title>
+                <title>DRBD Pacemaker Resources, Multi-State Resources</title>
 
-                <para>To configure the cluster resources for DRBD, it is
-                    possible to use the drbd cluster script. This script
-                    will create a base resource for DRBD, as well as a
-                    multi-state resource that ensures that DRBD only runs
-                    in Primary mode on a single node. Multi-state
-                    resources, previously called <emphasis role="italic"
-                        >Master-Slave</emphasis> resources, allow the
-                    instances to be in one of two operating modes (called
-                    roles). The roles are called <emphasis role="italic"
-                        >master</emphasis> and <emphasis role="italic"
-                        >slave</emphasis>.</para>
+                <para>To configure the cluster resources for DRBD, it is possible to use the drbd
+                    cluster script. This script will create a base resource for DRBD, as well as a
+                    multi-state resource that ensures that DRBD only runs in Primary mode on a
+                    single node. Multi-state resources, previously called <emphasis role="italic"
+                        >Master-Slave</emphasis> resources, allow the instances to be in one of two
+                    operating modes (called roles). The roles are called <emphasis role="italic"
+                        >master</emphasis> and <emphasis role="italic">slave</emphasis>.</para>
 
                 <screen>crm script run drbd id=drbd-nfs drbd_resource=nfs-upper
 crm script run drbd id=drbd-nfs-lower drbd_resource=nfs-lower-rz2</screen>
@@ -561,12 +487,11 @@ crm script run drbd id=drbd-nfs-lower drbd_resource=nfs-lower-rz2</screen>
             <sect3 xml:id="sec.group_primitives">
                 <title>Group and Basic Primitives</title>
 
-                <para>This is mostly what you would expect from the earlier
-                    picture: the multi-state equivalent of having a group
-                    consisting of <emphasis role="italic"
-                        >ms-drbd-nfs-lower:Master</emphasis>, <emphasis
-                        role="italic">p-ip-nfs</emphasis>, and <emphasis
-                        role="italic">ms-drbd-nfs:Master</emphasis>.</para>
+                <para>This is mostly what you would expect from the earlier picture: the multi-state
+                    equivalent of having a group consisting of <emphasis role="italic"
+                        >ms-drbd-nfs-lower:Master</emphasis>, <emphasis role="italic"
+                        >p-ip-nfs</emphasis>, and <emphasis role="italic"
+                        >ms-drbd-nfs:Master</emphasis>.</para>
 
                 <screen>crm configure
     
@@ -588,16 +513,14 @@ order o-drbd-nfs-before-svc inf: ms-drbd-nfs:promote g-nfs:start</screen>
     <sect1 xml:id="sec.interop_booth">
         <title>Interoperability with Booth</title>
 
-        <para>In the following sections, you find the example
-            configurations for the booth cluster ticket manager. Use
-                <emphasis role="italic">csync2</emphasis> to synchronize
-            the configurations for booth across all cluster nodes.</para>
+        <para>In the following sections, you can find the example configurations for the booth
+            cluster ticket manager. Use <emphasis role="italic">csync2</emphasis> to synchronize the
+            configurations for booth across all cluster nodes.</para>
 
         <sect2 xml:id="sec.booth_config">
             <title>Booth Configuration</title>
 
-            <para>In the booth configuration, you need to specify the
-                following components:</para>
+            <para>In the booth configuration, you need to specify the following components:</para>
 
             <itemizedlist>
                 <listitem>
@@ -606,20 +529,19 @@ order o-drbd-nfs-before-svc inf: ms-drbd-nfs:promote g-nfs:start</screen>
                 <listitem>
                     <para>Three IP addresses</para>
                     <note>
-                        <para>You need one distinct service IP for each
-                            site, and a third one for the arbitrator.
-                            Separate addresses are preferred, so that booth
-                            can be managed independently.</para>
+                        <para>You need one distinct service IP for each site, and a third one for
+                            the arbitrator. Separate addresses are preferred, so that booth can be
+                            managed independently.</para>
                     </note>
                 </listitem>
                 <listitem>
-                    <para>The Pacemaker ticket name (here <emphasis
-                            role="italic">ticket-nfs</emphasis>)</para>
+                    <para>The Pacemaker ticket name (here <emphasis role="italic"
+                            >ticket-nfs</emphasis>)</para>
                 </listitem>
             </itemizedlist>
 
             <para>The configuration file might be stored as
-                    <filename>/etc/booth/nfs.conf</filename>.</para>
+                <filename>/etc/booth/nfs.conf</filename>.</para>
 
             <screen>transport = udp   
 port      = "9929"
@@ -638,35 +560,28 @@ ticket = "ticket-nfs"
         <sect2 xml:id="sec.pacemaker_integration">
             <title>Pacemaker Integration</title>
 
-            <para>Follow the recommendations below to integrate booth into
-                Pacemaker:</para>
+            <para>Follow the recommendations below to integrate booth into Pacemaker:</para>
 
             <itemizedlist>
                 <listitem>
-                    <para>This example is again valid for site 2 (service
-                        IP address subnet).</para>
+                    <para>This example is again valid for site 2 (service IP address subnet).</para>
                 </listitem>
                 <listitem>
-                    <para><emphasis role="italic">booth</emphasis>
-                        automatically uses the default directory and suffix
-                        if the configuration name does not specify
-                        any.</para>
+                    <para><emphasis role="italic">booth</emphasis> automatically uses the default
+                        directory and suffix if the configuration name does not specify any.</para>
                 </listitem>
                 <listitem>
-                    <para>As the DRBD replication should be running even if
-                        a site does not have the ticket, the correct
-                            <emphasis role="italic">loss- policy</emphasis>
-                        is <emphasis role="italic">demote</emphasis>. This
-                        will put DRBD into Secondary mode.</para>
+                    <para>As the DRBD replication should be running even if a site does not have the
+                        ticket, the correct <emphasis role="italic">loss-policy</emphasis> is
+                            <emphasis role="italic">demote</emphasis>. This will put DRBD into
+                        Secondary mode.</para>
                 </listitem>
                 <listitem>
-                    <para>As described in the <emphasis role="strong">SUSE
-                            Multi-Site Cluster Documentation</emphasis> at
-                            <link
+                    <para>As described in the <emphasis role="strong">SUSE Multi-Site Cluster
+                            Documentation</emphasis> at <link
                             xlink:href="https://www.suse.com/documentation/sle_ha/book_sleha/data/sec_ha_geo_setup.html"
-                        />, there should be an order constraint that makes
-                        sure that Booth can fetch the ticket before trying
-                        to start the service.</para>
+                        />, there should be an order constraint that makes sure that Booth can fetch
+                        the ticket before trying to start the service.</para>
                 </listitem>
             </itemizedlist>
 
@@ -688,13 +603,12 @@ order o-booth-before-nfs inf: g-booth ms-drbd-nfs:promote</screen>
     <sect1 xml:id="sec.testing">
         <title>Testing Failovers and Recovery</title>
 
-        <para>After you have configured everything as described, you should
-            check that your setup is working as expected.</para>
+        <para>After you have configured everything as described, you should check that your setup is
+            working as expected.</para>
 
-        <para>The following command from any node running the booth daemon
-            will tell you which tickets it knows about, which site
-            currently holds the ticket, and when that ticket will expire if
-            it is not renewed:</para>
+        <para>The following command from any node running the booth daemon will tell you which
+            tickets it knows about, which site currently holds the ticket, and when that ticket will
+            expire if it is not renewed:</para>
 
         <screen># booth list
 ticket: ticket-nfs, leader: 192.168.201.100, expires: 2016-04-14 07:50:48</screen>
@@ -702,45 +616,39 @@ ticket: ticket-nfs, leader: 192.168.201.100, expires: 2016-04-14 07:50:48</scree
         <sect2 xml:id="sec.failover">
             <title>Failover</title>
 
-            <para>There are many ways to test that failovers will work as
-                expected. An easy way to test is to sever network
-                communications between sites using IPtables. You only need
-                to cut communication on the Booth ports to see a ticket
-                expire and services failover.</para>
+            <para>There are many ways to test that failovers will work as expected. An easy way to
+                test is to sever network communications between sites using IPtables. You only need
+                to cut communication on the Booth ports to see a ticket expire and services
+                failover.</para>
 
-            <para>On the node currently running services, issue the
-                following IPtables commands to sever Booth’s communications
-                with its peers:</para>
+            <para>On the node currently running the booth daemon, issue the following IPtables
+                commands to sever Booth’s communications with its peers:</para>
 
             <screen>/usr/sbin/iptables -I INPUT -p udp --dport 9929 -j DROP
 /usr/sbin/iptables -I OUTPUT -p udp --dport 9929 -j DROP</screen>
 
-            <para>After the ticket's <emphasis role="italic"
-                    >expire</emphasis> time has lapsed, you should see
-                services begin to demote at the current Primary site. After
-                the <emphasis role="italic">expire</emphasis> plus
-                    <emphasis role="italic">acquire-after</emphasis> time
-                lapses, you should see services begin to start at the
-                Secondary site.</para>
+            <para>After the ticket's <emphasis role="italic">expire</emphasis> time has lapsed, you
+                should see services begin to demote at the current Primary site. After the <emphasis
+                    role="italic">expire</emphasis> plus <emphasis role="italic"
+                    >acquire-after</emphasis> time lapses, you should see services begin to start at
+                the Secondary site.</para>
 
-            <para>Remove the IPtables rules you inserted before
-                continuing:</para>
+            <para>Remove the IPtables rules you inserted before continuing:</para>
 
-            <screen># /usr/sbin/iptables -D INPUT 1
-# /usr/sbin/iptables -D OUTPUT 1</screen>
+            <screen># /usr/sbin/iptables -D INPUT -p udp --dport 9929 -j DROP
+# /usr/sbin/iptables -D OUTPUT -p udp --dport 9929 -j DROP</screen>
 
         </sect2>
 
         <sect2 xml:id="sec.failback">
             <title>Failback</title>
 
-            <para>To failback to the original Primary site you need to
-                manually revoke the ticket from the site currently running
-                services, and grant the ticket to the original Primary
-                site.</para>
+            <para>To failback to the original Primary site you need to manually revoke the ticket
+                from the site currently running services, and grant the ticket to the original
+                Primary site.</para>
 
-            <para>You can issue the following commands from any of the
-                nodes currently running the Booth daemon:</para>
+            <para>You can issue the following commands from any of the nodes currently running the
+                Booth daemon:</para>
 
             <screen># booth revoke -s 192.168.202.100 ticket-nfs
   booth[30268]: 2016/04/14_08:21:05 info: revoke request sent, waiting for the result ...
@@ -756,63 +664,81 @@ ticket: ticket-nfs, leader: 192.168.201.100, expires: 2016-04-14 07:50:48</scree
     <sect1 xml:id="sec.further_documentation">
         <title>Further Documentation</title>
 
-        <para><emphasis role="strong">SUSE Linux Enterprise High
-                Availability Extension Guide</emphasis>: A comprehensive
-            documentation about nearly every part of the Linux Cluster
-            stack. See <link
+        <para><emphasis role="strong">SUSE Linux Enterprise High Availability Extension
+                Guide</emphasis>: A comprehensive documentation about nearly every part of the Linux
+            Cluster stack. See <link
                 xlink:href="https://www.suse.com/documenta-
             tion/sle_ha/singlehtml/book_sleha/book_sleha.html"
             />.</para>
 
-        <para><emphasis role="strong">DRBD Project Page</emphasis>: Located
-            at <link xlink:href="https://www.drbd.org"/>, it provides lots
-            of information, including a detailed Users' Guide, one of the
-            most extensive project documentations in the Open Source
-            world.</para>
+        <para><emphasis role="strong">DRBD Project Page</emphasis>: Located at <link
+                xlink:href="https://www.drbd.org"/>, it provides lots of information, including a
+            detailed Users' Guide, one of the most extensive project documentations in the Open
+            Source world.</para>
 
         <para><emphasis role="strong">LINBIT Home Page</emphasis>: At <link
-                xlink:href="https://www.linbit.com"/> , you can find
-            answers to all questions about paid support from the
-            developers. An overview about supported platforms, SLAs, and
-            price quotes is available at <link
-                xlink:href="https://www.linbit.com/en/p/services/support"
+                xlink:href="https://www.linbit.com"/> , you can find answers to all questions about
+            paid support from the developers. An overview about supported platforms, SLAs, and price
+            quotes is available at <link xlink:href="https://www.linbit.com/en/p/services/support"
             />.</para>
 
-        <para><emphasis role="strong">SUSE Geo Clustering
-                Documentation</emphasis>: This describes the general
-            challenges for Geo-clustering, and typical solutions. The HTML
-            version is hosted at <link
+        <para><emphasis role="strong">SUSE Geo Clustering Documentation</emphasis>: This describes
+            the general challenges for Geo-clustering, and typical solutions. The HTML version is
+            hosted at <link
                 xlink:href="https://www.suse.com/documenta-
                 tion/sle-ha-geo-12/singlehtml/art_ha_geo_quick/art_ha_geo_quick.html#sec.ha.geo.challenges"
             />.</para>
     </sect1>
 
-    <sect1>
+   <!-- <sect1>
         <title>Trademark Notice</title>
         <itemizedlist>
             <listitem>
-                <para>SUSE, the SUSE logo and YaST are registered
-                    trademarks of SUSE LLC in the United States and other
-                    countries</para>
+                <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the
+                    United States and other countries</para>
             </listitem>
             <listitem>
-                <para>DRBD and LINBIT are trademarks or registered
-                    trademarks of LINBIT in Austria, the United States, and
-                    other countries</para>
+                <para>DRBD and LINBIT are trademarks or registered trademarks of LINBIT in Austria,
+                    the United States, and other countries</para>
             </listitem>
             <listitem>
-                <para>Linux is a registered trademark of Linus
-                    Torvalds</para>
+                <para>Linux is a registered trademark of Linus Torvalds</para>
             </listitem>
             <listitem>
-                <para>Other names mentioned in this document may be
-                    trademarks or registered trademarks of their respective
-                    owners</para>
+                <para>Other names mentioned in this document may be trademarks or registered
+                    trademarks of their respective owners</para>
             </listitem>
         </itemizedlist>
 
+    </sect1>-->
+    
+    <sect1 xml:id="sec.legal_notice">
+        <title>Legal Notice</title>
+        
+        <para>Copyright &copy;2006– 2016 SUSE LLC and contributors. All rights reserved. </para>
+        
+        <para>Permission is granted to copy, distribute and/or modify this document under the terms of
+            the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with the
+            Invariant Section being this copyright notice and license. A copy of the license version 1.2
+            is included in the section entitled <quote>GNU Free Documentation License</quote>.</para>
+        
+        <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United States
+            and other countries. For SUSE trademarks, see <link
+                xlink:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>.</para>
+           
+           <para>Linux is a registered trademark of Linus Torvalds. Other names or trademarks mentioned in this
+            document may be trademarks or registered trademarks of their respective owners.</para>
+        
+        <para>DRBD and LINBIT are trademarks or registered trademarks of LINBIT in Austria,
+            the United States, and other countries</para>
+        
+        <para>All information found in this book has been compiled with utmost attention to detail.
+            However, this does not guarantee complete accuracy. Neither SUSE LLC, its affiliates, the
+            authors, nor the translators shall be held liable for possible errors or the consequences
+            thereof.</para>
+        
     </sect1>
-
+    
 
     <?pdfpagebreak style="suse2013" formatter="fop"?>
 

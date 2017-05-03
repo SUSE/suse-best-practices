@@ -682,13 +682,286 @@ Supplements: modalias(kernel-default:pci:v000010B7d00006000sv*sd*bc*sc*i*)</scre
             </sect3>
         </sect2>
     </sect1>
-    
-    <sect1>
-        <title></title>
-        
-        <para></para>
+
+    <sect1 xml:id="sec.creating_packages">
+        <title>Creating packages</title>
+
+        <para>When packages are created they provide a so called <filename>.spec</filename> file. A
+            spec file defines the attributes of the package, explicit dependencies (others are
+            injected as already mentioned), and how the content of the package is created. A very
+            simple spec file would be:</para>
+
+        <screen>Name:           mypackage
+Version:        1.0
+Release:        0
+License:        MIT
+Summary:        Dummy package
+BuildRoot:      %{_tmppath}/%{name}-%{version}-build
+            
+%description
+Dummy text
+            
+%install
+mkdir -p %{buildroot}%{_datadir}/%{name}
+touch %{buildroot}%{_datadir}/%{name}/CONTENT
+            
+%files
+%defattr(-,root,root)
+%{_datadir}/%{name}/CONTENT
+            
+%changelog</screen>
+
+        <para>This spec file just creates a directory <filename>/usr/share/mypackage</filename> and
+            puts a dummy <filename>CONTENT</filename> file in it.</para>
+
+        <para>spec files are heavily defined by macros that make sure that paths and values are
+            specified by the distribution. Those macros are shipped by the base distribution and are
+            located in <filename>/usr/lib/rpm</filename> and <filename>/etc/rpm</filename>. Other
+            packages may contribute more macros. For example the macros defined in
+                <filename>/usr/lib/rpm/golang-macros.rb</filename> are provided by the
+                <package>golang-packaging</package> package and are useful to create packages that
+            use the <emphasis role="strong">Go</emphasis> language.</para>
+
+        <sect2 xml:id="sec.common_macros">
+            <title>Common Macros</title>
+
+            <para>When building spec files, you should be familiar with macros like <emphasis
+                    role="strong">%{_prefix}</emphasis>, <emphasis role="strong"
+                    >%{_datadir}</emphasis>, <emphasis role="strong">%{_mandir}</emphasis>,
+                    <emphasis role="strong">%{_libdir}</emphasis>, <emphasis role="strong"
+                    >%{_bindir}</emphasis>, etc... You can evaluate a macro as follows:</para>
+
+            <screen>$ rpm --eval "%{_libdir}"
+/usr/lib64</screen>
+        </sect2>
+
+        <sect2>
+            <title>Sub-packages</title>
+
+            <para>Sometimes you will build multiple components from a single source that are
+                independent of each other.</para>
+
+            <para>The sources for a package <package>Office Suite</package> may result in:</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para>A Word Processor</para>
+                </listitem>
+                <listitem>
+                    <para>A Spreadsheet</para>
+                </listitem>
+                <listitem>
+                    <para>Common libraries</para>
+                </listitem>
+                <listitem>
+                    <para>Development files</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>For this, you can declare <package>subpackages</package>, independent description
+                and attributes sections for each component. The build section is common to all
+                subpackages, and then again in the <filename>%files</filename> section, you will
+                declare which files go to each subpackage. In this example, the subpackages could
+                be:</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para>
+                        <package>office-wordprocessor</package>
+                    </para>
+                </listitem>
+                <listitem>
+                    <para>
+                        <package>office-spreadsheet</package>
+                    </para>
+                </listitem>
+                <listitem>
+                    <para>
+                        <package>liboffice</package>
+                    </para>
+                </listitem>
+                <listitem>
+                    <para>
+                        <package>office-devel</package>
+                    </para>
+                </listitem>
+            </itemizedlist>
+        </sect2>
+
+        <sect2 xml:id="sec.building_rpmbuild">
+            <title>Building with rpmbuild</title>
+
+            <para>You can build a package with the <application>rpmbuild</application> tool. It
+                requires the spec file to be in a specific location. You can tweak the standard
+                configuration to search spec files in the current directory:</para>
+
+            <screen>$ cat ~/.rpmmacros
+%topdir /space/packages
+%_builddir %{topdir}/build
+%_rpmdir %{topdir}/rpms
+%_sourcedir %(echo $PWD)
+%_specdir %(echo $PWD)
+%_srcrpmdir %{topdir}/rpms</screen>
+
+            <para>You can configure it so that built packages are saved in
+                    <filename>/space/packages</filename>. Make the tweaks according to your own
+                preferences.</para>
+
+            <para>When this is set up, enter the following command:</para>
+
+            <screen>$ rpmbuild -bb mypackage.spec
+Executing(%install): /bin/sh -e /var/tmp/rpm-tmp.lVzwnj
++ umask 022
++ cd /space/packages/build
++ mkdir -p /home/duncan/rpmbuild/BUILDROOT/mypackage-1.0-0.x86_64/usr/share/mypackage
++ touch /home/duncan/rpmbuild/BUILDROOT/mypackage-1.0-0.x86_64/usr/share/mypackage/CONTENT
++ /usr/lib/rpm/brp-compress
++ /usr/lib/rpm/brp-suse
+Processing files: mypackage-1.0-0.x86_64
+Provides: mypackage = 1.0-0 mypackage(x86-64) = 1.0-0
+Requires(rpmlib): rpmlib(CompressedFileNames) &lt;= 3.0.4-1 rpmlib(PayloadFilesHavePrefix) &lt;= 4.0-1
+Checking for unpackaged file(s): /usr/lib/rpm/check-files /home/duncan/rpmbuild/BUILDROOT/mypackage-1.0-0.x86_64
+Wrote: /space/packages/rpms/x86_64/mypackage-1.0-0.x86_64.rpm
+Executing(%clean): /bin/sh -e /var/tmp/rpm-tmp.0xLGri
++ umask 022
++ cd /space/packages/build
++ /usr/bin/rm -rf /home/duncan/rpmbuild/BUILDROOT/mypackage-1.0-0.x86_64
++ rm -rf filelists</screen>
+
+            <para>Now you can verify the content of the package:</para>
+
+            <screen>% rpm -qpl /space/packages/rpms/x86_64/mypackage-1.0-0.x86_64.rpm
+/usr/share/mypackage/CONTENT</screen>
+
+            <para>Everything that you put into the <emphasis role="strong">%{buildroot}</emphasis>
+                did end up as content of the package.</para>
+
+            <para>The term <quote>building a package</quote> can have two meanings. One is
+                assembling the package from existing content. You could build your application in
+                Jenkins, take the built artifacts and use the spec file to package it.</para>
+
+            <para>However, where <application>rpm</application> excels is that you can build the
+                application in the spec file itself, and use the distribution and dependencies to
+                set up the build environment.</para>
+
+            <para>A common use case to illustrate this is the typical Linux application built with
+                    <command> configure &amp;&amp; make &amp;&amp; make
+                    install</command>. In the next example you build a package for gqlplus (see
+                    <link xlink:href="http://gqlplus.sourceforge.net/"/>, an alternative client for
+                Oracle databases.</para>
+
+            <para>Provided that you have readline and ncurses development headers, you can build
+                this application by unpacking the tarball and performing the commands mentioned
+                above. Some programs require an extra step with <command>autoconf</command> in order
+                to generate the <command>configure</command> script. This is specific to building
+                software and has nothing to do with packaging.</para>
+
+            <para>When you do <command>./configure</command> you need to pass the right
+                    <command>--prefix</command>. Macros can help here. You could use the command
+                    <command>configure --prefix=%{_prefix}</command>, however, there is a better
+                macro called <emphasis role="strong">%configure</emphasis> which takes care and sets
+                most of the configuration options (You can also try expanding it with <command>echo
+                    $(rpm --eval '%configure')</command>).</para>
+
+            <para>The package cannot build if some libraries are not present. A C compiler is there,
+                but the basic build tools (<application>make</application>) are not available. That
+                is what <emphasis role="strong">BuildRequires</emphasis> are for. They define what
+                packages are needed for building - but not necessarily at runtime.</para>
+
+            <para>On the other hand, the original <package>oracle-instantclient-sqlplus</package>
+                package is required at runtime, but you do not need it to build your package.</para>
+
+            <screen>Name:           gqlplus
+Version:            1.15
+Release:            0
+License:            GPL-2.0
+Summary:            A drop-in replacement for sqlplus, an Oracle SQL client
+Url:                http://gqlplus.sourceforge.net/
+Group:              Productivity/Databases/Clients
+Source0:            %{name}-%{version}.tar.bz2
+BuildRequires:  readline-devel
+BuildRequires:  ncurses-devel
+BuildRequires:  gcc make autoconf automake
+BuildRoot:      %{_tmppath}/%{name}-%{version}-build
+Requires:       oracle-instantclient-sqlplus
+%description
+GQLPlus is a drop-in replacement for sqlplus, an Oracle SQL client, for UNIX and UNIX-like platforms. The difference between GQLPlus and sqlplus is command-line editing and history, plus table-name and column-name completion.
+
+%prep
+%setup -q
+                
+%build
+aclocal &amp;&amp; autoconf
+automake --add-missing
+%configure
+make %{?_smp_mflags}
+                
+%install
+%makeinstall
+                
+%files
+%defattr(-,root,root)
+%doc ChangeLog README LICENSE
+%{_bindir}/gqlplus
+                
+%changelog</screen>
+
+            <para>The <emphasis role="strong">Source0</emphasis> section specifies a source that you
+                can refer later using the <emphasis role="strong">%SOURCE0</emphasis> or <emphasis
+                    role="strong">%{S:0}</emphasis> macros. You can have more than one source
+                    (<emphasis role="strong">Source1</emphasis>, etc).</para>
+
+            <para>The <emphasis role="strong">prep</emphasis> section uses the <emphasis
+                    role="strong">%setup</emphasis> macro (see <link
+                    xlink:href="http://ftp.rpm.org/max-rpm/s1-rpm-inside-macros.html#S2-RPM-INSIDE-SETUP-MACRO"
+                />to unpack the sources. You could as well operate directly on the source files if
+                you need to do something unconventional. </para>
+
+            <para>As we need <command>make install</command> to install the files inside <emphasis
+                    role="strong">%{buildroot}</emphasis>, we should call <command>make install
+                    DESTDIR=%{buildroot}</command>, but <emphasis role="strong"
+                    >%makeinstall</emphasis> is just a macro for that. </para>
+
+            <para>The <emphasis role="strong">files</emphasis> section list the files
+                    <package>rpmbuild</package> should expect to find inside the <emphasis
+                    role="strong">%{buildroot}</emphasis> macro that will be the content of the
+                package. </para>
+
+            <note>
+                <title>Not Needed at Runtime</title>
+                <para>You do not need to add a runtime <emphasis role="strong">Requires</emphasis>
+                    to the readline and ncurses libraries. Because the executable is linked against
+                    the ones installed by the <package>-devel</package> packages, it will be scanned
+                    and the right <emphasis role="strong">Requires</emphasis> will be
+                    injected:</para>
+            </note>
+
+            <screen>$ rpm -qp --requires gqlplus-1.15-0.x86_64.rpm
+libc.so.6()(64bit)
+...
+libncurses.so.6()(64bit)
+libreadline.so.7()(64bit)
+oracle-instantclient-sqlplus
+...</screen>
+
+            <para>These symbols are provided by the right package, thus the solver will match
+                them:</para>
+
+            <screen>rpm -q --whatprovides 'libncurses.so.6()(64bit)'
+libncurses6-6.0-19.1.x86_64</screen>
+
+            <para>For more information on how to build packages for various types of software, visit
+                the <emphasis role="strong">openSUSE Packaging Guidelines</emphasis> at <link
+                    xlink:href="https://en.opensuse.org/openSUSE:Packaging_guidelines"/>.</para>
+
+
+
+
+        </sect2>
+
+
     </sect1>
-    
+
 
     <sect1 xml:id="sec.legal_notice">
         <title>Legal Notice</title>

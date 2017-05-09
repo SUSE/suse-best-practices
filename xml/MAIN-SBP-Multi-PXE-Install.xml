@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+<article xmlns="http://docbook.org/ns/docbook"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+    xml:id="art.sbp.rpm.packaging" xml:lang="en">
+    <info>
+        <title>How to Set Up a Multi-PXE Install Server</title>
+        <subtitle/>
+        <orgname>SUSE Best Practices</orgname>
+        <productname>SUSE Linux Enterprise Server</productname>
+        <productnumber/>
+        <author>
+            <!--<personname>
+                <firstname>David</firstname>
+                <surname>Byte, Senior Technology Strategist, SUSE</surname>
+            </personname>-->
+            <personname>
+                <firstname>David</firstname>
+                <surname>Byte</surname>
+            </personname>
+            <affiliation>
+                <jobtitle>Senior Technology Strategist</jobtitle>
+                <orgname>SUSE</orgname>
+            </affiliation>
+        </author>
+        <date><?dbtimestamp format="B d, Y" ?></date>
+
+        <abstract>
+            <para>This SUSE Best Practices document explains how to set up
+                a multi-architecture PXE environment for the installation
+                of the SUSE Linux Enterprise Server operating system on
+                x86_64 and ARMv8 platforms with both BIOS and EFI. </para>
+
+            <para>Components that usually should be hosted on the
+                installation server are also included. This helps improving
+                deployment times in multi-architecture environments.</para>
+
+        </abstract>
+    </info>
+
+    <sect1 xml:id="sec.sys_requirements">
+        <title>System Requirements</title>
+
+        <para>For a reasonable install server, you need:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>200 GB drive space</para>
+            </listitem>
+            <listitem>
+                <para>5 GB RAM</para>
+            </listitem>
+            <listitem>
+                <para>Two network connections</para>
+            </listitem>
+        </itemizedlist>
+
+
+        <para>The relatively huge drive space is needed if your install
+            server should also serve as your Subscription Management (SMT)
+            server. Your deployment will use the SMT server in an ongoing
+            manner for mirroring updates for the architectures in question
+            in addition to hosting the installation repositories.</para>
+
+    </sect1>
+
+    <sect1 xml:id="sec.os_installation">
+        <title>Installing the Operating System</title>
+
+        <para>First, install SUSE Linux Enterprise Server 12 SP2 on a
+            virtual or a physical system.</para>
+        <para>On the registration screen, click the <quote>Network
+                Configuration</quote> button at the upper right and
+            configure the network. You can use two different interfaces:
+            one for the public network with access to the Internet, and one
+            for the cluster network. Deploying using the cluster network
+            has several advantages:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>It is a private network just for the storage systems
+                    and thus there will be no conflict with other DHCP
+                    servers or PXE servers</para>
+            </listitem>
+            <listitem>
+                <para>Generally it is faster than the public network</para>
+            </listitem>
+        </itemizedlist>
+
+
+        <para>Use the <emphasis role="strong">Installation
+                Settings</emphasis> screen to review and change several
+            proposed installation settings. Clicking <emphasis
+                role="strong">Software</emphasis> opens the <emphasis
+                role="strong">Software Selection and System
+                Tasks</emphasis> screen, where you can change the software
+            selection by selecting or deselecting patterns.</para>
+
+
+        <para>The default scope of software includes the base system and X
+            Window with the GNOME desktop. Deselect <quote>X Window with
+                the GNOME desktop</quote>. For this, you are also safe
+            deselecting 32-bit compatibility libraries. </para>
+
+    </sect1>
+
+    <sect1 xml:id="sec.setup_ntp">
+        <title>Setup NTP Server</title>
+
+        <para>The NTP server is used to act as an authoritative time
+            source. Start YaST, select <emphasis role="strong">NTP
+                Server</emphasis> and configure it to start at boot time.
+            Under security settings, select <emphasis role="strong">Open
+                Port in Firewall</emphasis> and click <emphasis
+                role="strong">OK</emphasis>. When you use the install
+            server, you can point the systems being deployed back to it for
+            time synchronization.</para>
+
+    </sect1>
+
+    <sect1 xml:id="sec.setup_dhcp">
+        <title>Setup DHCP Services</title>
+
+        <para>Go into YaST and select <emphasis role="strong">DHCP
+                Server</emphasis> from network services. Configure the IP
+            range you want to use. After that, it is your choice on whether
+            you use YaST or edit the configuration file
+                (<filename>/etc/dhcpd.conf</filename>) manually. As with
+            the other services, be sure to open the ports in the firewall.
+            The end result needs to be a file that looks like the
+            below:</para>
+
+        <screen>option domain-name "my.lab";
+option domain-name-servers 172.16.253.5;
+option routers 192.168.124.1;
+option ntp-servers 192.168.124.3;
+option arch code 93 = unsigned integer 16; # RFC4578
+default-lease-time 3600;
+ddns-update-style none;
+subnet 192.168.124.0 netmask 255.255.255.0 {
+  range 192.168.124.100 192.168.124.199;
+  next-server 192.168.124.3;
+  default-lease-time 3600;
+  max-lease-time 3600;
+  if option arch = 00:07 or option arch = 00:09 {
+   filename "/EFI/x86/bootx64.efi";
+    } else if option arch = 00:0b {
+   filename "/EFI/armv8/bootaa64.efi";
+    } else {
+   filename "/bios/x86/pxelinux.0";
+    }
+}</screen>
+
+        <note>
+            <title>If Option Arch</title>
+            <para>The <code>if option arch</code> sections allow the DHCP
+                server to make the correct decision on which file to use
+                for booting.</para>
+        </note>
+    </sect1>
+
+    <sect1 xml:id="sec.setup_repositories">
+        <title>Setup Repositories</title>
+
+        <para>The next step is to create the installation source
+            directories. Use a structure similar to
+                <filename>/srv/install/arch/product/version</filename>.</para>
+
+        <screen>/srv/install/x86/sles12/sp2/cd1
+/srv/install/armv8/sles12/sp2/cd1</screen>
+
+        <para>Copy the contents of the install media into the appropriate
+            location.  If you are using an ISO file, mount it, then copy
+            the contents to the appropriate cd1 directory.</para>
+
+        <screen>mount -o loop /root/sles12sp2.iso /mnt
+cp -rp /mnt/* /srv/install/x86/sles12/sp2/cd1/</screen>
+
+        <para>Do the same for each architecture’s boot media.</para>
+
+        <para>The final part of setting up the repositories is to export
+            them. Although there are other supported methods such as HTTP,
+            FTP, etc., use NFS for this scenario.  First, enable the NFS
+            server through Yast and select <emphasis role="strong">Open
+                Port in Firewall</emphasis>.  In this instance, export the
+            entire <filename>/srv/install</filename> structure as seen in
+            the sample <filename>/etc/exports</filename> entry
+            below.</para>
+
+        <screen>/srv/install  *(ro,root_squash,sync,no_subtree_check)</screen>
+    </sect1>
+
+    <sect1 xml:id="sec.setup_tftp">
+        <title>Setup TFTP</title>
+
+        <para>Now you need to enable the TFTP server. To do so, start Yast
+            and select <emphasis role="strong">TFTP Server</emphasis> from
+                <emphasis role="strong">Network Services</emphasis>. The
+            system then prompts to <quote>install tftp</quote>. Select <emphasis
+                role="strong">Enable</emphasis>, leave the image directory
+            at <filename>/srv/tftpboot</filename>, select <emphasis
+                role="strong">Open Port in Firewall</emphasis>, and click
+            <emphasis role="strong">OK</emphasis>.</para>
+
+    </sect1>
+
+
+
+    <sect1 xml:id="sec.legal_notice">
+        <title>Legal Notice</title>
+        <para>Copyright &copy;2006– 2017 SUSE LLC and contributors. All
+            rights reserved. </para>
+        <para>Permission is granted to copy, distribute and/or modify this
+            document under the terms of the GNU Free Documentation License,
+            Version 1.2 or (at your option) version 1.3; with the Invariant
+            Section being this copyright notice and license. A copy of the
+            license version 1.2 is included in the section entitled
+                <quote>GNU Free Documentation License</quote>.</para>
+        <para>SUSE, the SUSE logo and YaST are registered trademarks of
+            SUSE LLC in the United States and other countries. For SUSE
+            trademarks, see <link
+                xlink:href="http://www.suse.com/company/legal/"
+                >http://www.suse.com/company/legal/</link>. Linux is a
+            registered trademark of Linus Torvalds. All other names or
+            trademarks mentioned in this document may be trademarks or
+            registered trademarks of their respective owners.</para>
+        <para>This article is part of a series of documents called "SUSE
+            Best Practices". The individual documents in the series were
+            contributed voluntarily by SUSE's employees and by third
+            parties.</para>
+        <para>The articles are intended only to be one example of how a
+            particular action could be taken. They should not be understood
+            to be the only action and certainly not to be the action
+            recommended by SUSE. Also, SUSE cannot verify either that the
+            actions described in the articles do what they claim to do or
+            that they don't have unintended consequences.</para>
+        <para>Therefore, we need to specifically state that neither SUSE
+            LLC, its affiliates, the authors, nor the translators may be
+            held liable for possible errors or the consequences thereof.
+            Below we draw your attention to the license under which the
+            articles are published.</para>
+    </sect1>
+    <?pdfpagebreak style="suse2013" formatter="fop"?>
+    <xi:include href="license-gfdl.xml"/>
+</article>

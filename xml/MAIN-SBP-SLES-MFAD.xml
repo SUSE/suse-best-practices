@@ -4,12 +4,13 @@
 <!ENTITY % entity SYSTEM "entity-decl.ent">
 %entity;
 ]>
-<article xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
-    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art.sbp.rpm.packaging"
-    xml:lang="en">
+<article xmlns="http://docbook.org/ns/docbook"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+    xml:id="art.sbp.rpm.packaging" xml:lang="en">
     <info>
-        <title>How to Join a SUSE Linux Enterprise Server to a Microsoft Azure AD Domain Services
-            Managed Domain</title>
+        <title>How to Join a SUSE Linux Enterprise Server to a Microsoft
+            Azure Active Directory Domain Services Managed Domain</title>
         <subtitle/>
         <!--<orgname>SUSE Best Practices</orgname>-->
         <productname>SUSE Linux Enterprise Server</productname>
@@ -18,7 +19,8 @@
         <author>
             <personname>
                 <firstname>Kirk</firstname>
-                <surname>Evans, Prinicpal Program Manager AzureCAT, Microsoft</surname>
+                <surname>Evans, Prinicpal Program Manager AzureCAT,
+                    Microsoft</surname>
             </personname>
             <!--<personname>
                 <firstname>Kirk</firstname>
@@ -34,170 +36,356 @@
 
         <abstract>
 
-            <para>This SUSE Best Practices document explains how to set up a multi-architecture PXE
-                environment for the installation of the SUSE Linux Enterprise Server operating
-                system on x86_64 and ARMv8 platforms with both BIOS and EFI. </para>
-
-            <para>Components that usually should be hosted on the installation server are also
-                included. This helps improving deployment times in multi-architecture
-                environments.</para>
+            <para>This SUSE Best Practices document shows how to use Azure
+                AD Domain Services (AAD-DS) with SUSE Linux Enterprise
+                Server (SLES).</para>
 
         </abstract>
     </info>
 
 
-    <sect1 xml:id="sec.sys_requirements">
+    <sect1 xml:id="sec.background">
 
-        <title>System Requirements</title>
+        <title>Background</title>
 
-        <para>For a reasonable install server, you need:</para>
+        <para>If you want to use Microsoft Azure AD Domain Services with
+            Linux to test your product, there seems to be no easy
+            documentation that shows how to walk through this end to end.
+            There is no general step-by-step explanation for Linux
+            distributions available, as the package management systems for
+            the different Linux distributions differ from each other. SUSE
+            Linux Enterprise Server uses <application>zypper</application>,
+            Red Hat Enterprise Linux uses <application>yum</application>,
+            Ubuntu uses <application>apt-get</application>. </para>
 
-        <itemizedlist>
-            <listitem>
-                <para>200 GB drive space</para>
-            </listitem>
-            <listitem>
-                <para>5 GB RAM</para>
-            </listitem>
-            <listitem>
-                <para>Two network connections</para>
-            </listitem>
-        </itemizedlist>
+        <para>In addition, the packages to use and the instructions for
+            configuring often are hard to understand. However, it turns out
+            it is quite easy to domain join a machine using SUSE Linux
+            Enterprise Server.</para>
 
-        <para>The relatively huge drive space is needed if your installation server should also
-            serve as your Subscription Management (SMT) server. Your deployment will use the SMT
-            server in an ongoing manner for mirroring updates for the architectures in question in
-            addition to hosting the installation repositories.</para>
     </sect1>
 
 
-    <sect1 xml:id="sec.os_installation">
+    <sect1 xml:id="sec.azure_ad_domain_services">
 
-        <title>Installing the Operating System</title>
+        <title>What is Microsoft Azure Active Directory Domain
+            Services</title>
 
-        <para>First, install SUSE Linux Enterprise Server 12 SP2 on a virtual or a physical
-            system.</para>
+        <para>The Azure Active Directory service does not directly provide
+            NTLM, Kerberos, or LDAP services, while by default it provides
+            WS-Trust, OpenID Connect, and OAuth capabilities. Applications
+            hosted in Azure virtual machines however may need these
+            authentication capabilities but cannot afford the latency of
+            communicating back to on-premises infrastructure, requiring
+            domain controllers to be hosted in the cloud. Many customers do
+            not want to install their own domain controllers in
+            cloud-hosted virtual machines, configure a VPN or ExpressRoute,
+            and manage AD replication to on-premises domain
+            controllers.</para>
 
-        <para>On the registration screen, click the <quote>Network Configuration</quote> button at
-            the upper right and configure the network. You can use two different interfaces: one for
-            the public network with access to the Internet, and one for the cluster network.
-            Deploying using the cluster network has several advantages:</para>
+        <para>This is exactly what Azure AD Domain Services (AAD-DS)
+            provides: a managed domain controller with the same users and
+            groups as you have in your Azure Active Directory (AAD). 
+            AAD-DS makes it easy to join a virtual machine to the managed
+            domain so that your application can use NTLM, Kerberos, or LDAP
+            with the same credentials that they use to log into Office 365
+            or Azure services. </para>
 
-        <itemizedlist>
-            <listitem>
-                <para>It is a private network for the storage systems only and thus there will be no
-                    conflict with other DHCP servers or PXE servers</para>
-            </listitem>
-            <listitem>
-                <para>Generally it is faster than the public network</para>
-            </listitem>
-        </itemizedlist>
+        <para>Azure AD Domain Services will provision managed domain
+            controllers into the Azure Virtual Network that you specify. In
+            the image below, the managed domain controller virtual machines
+            are greyed out. This indicates they are there but you cannot
+            access them or do anything with the virtual machine directly.
+            You simply use the familiar Windows Active Directory Domain
+            Services (ADDS) as a service.</para>
 
-        <para>Use the <emphasis role="strong">Installation Settings</emphasis> screen to review and
-            change several proposed installation settings. Clicking <emphasis role="strong"
-                >Software</emphasis> opens the <emphasis role="strong">Software Selection and System
-                Tasks</emphasis> screen, where you can change the software selection by selecting or
-            deselecting patterns.</para>
 
-        <para>The default scope of software includes the base system and X Window with the GNOME
-            desktop. Deselect <quote>X Window with the GNOME desktop</quote>. For this, you are also
-            safe deselecting 32-bit compatibility libraries. </para>
+        <figure>
+            <title>Microsoft Azure AAD-DS Overview </title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-aad-ds-overview.png"
+                        width="70%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-aad-ds-overview.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>In this picture, you see that AAD-DS is enabled for the
+            directory, creating two virtual machines in the subnet of
+            choice. The application server can now communicate with those
+            domain controllers to domain join the machine and enable
+            authentication and authorization. Azure AD Domain Services
+            works with either cloud-only or hybrid directories. If there is
+            an existing ADDS infrastructure on-premises, you synchronize
+            users to the AAD directory using HTTPS to enable single sign on
+            to cloud resources such as Microsoft Office 365. </para>
+
     </sect1>
 
 
-    <sect1 xml:id="sec.setup_ntp">
+    <sect1 xml:id="sec.getting_started">
 
-        <title>Setting Up NTP Server</title>
+        <title>Getting Started</title>
 
-        <para>The NTP server is used to act as an authoritative time source. Start YaST, select
-                <emphasis role="strong">NTP Server</emphasis> and configure it to start at boot
-            time. Under security settings, select <emphasis role="strong">Open Port in
-                Firewall</emphasis> and click <emphasis role="strong">OK</emphasis>. When you use
-            the install server, you can point the systems being deployed back to it for time
-            synchronization.</para>
-    </sect1>
+        <para>The documentation how to set up Azure AD Domain Services is
+            easy to follow. You do not need to install any software on your
+            machine, and you do not need to perform any local
+            configuration. Go to the Azure portal and follow the directions
+            given in the article <quote>Enable Azure Active Directory
+                Domain Services using the Azure portal</quote> at <link
+                xlink:href="https://docs.microsoft.com/en-us/azure/active-directory-domain-services/active-directory-ds-getting-started"
+            /></para>
 
+        <para>As result, you get an Azure classic virtual network with the
+            settings you chose.</para>
 
-    <sect1 xml:id="sec.setup_dhcp">
-
-        <title>Setting Up DHCP Services</title>
-
-        <para>Go into YaST and select <emphasis role="strong">DHCP Server</emphasis> from network
-            services. Configure the IP range you want to use. After that, it is your choice on
-            whether you use YaST or edit the configuration file
-                (<filename>/etc/dhcpd.conf</filename>) manually. As with the other services, be sure
-            to open the ports in the firewall. The end result needs to be a file that looks like the
-            below:</para>
-
-        <screen>option domain-name "my.lab";
-option domain-name-servers 172.16.253.5;
-option routers 192.168.124.1;
-option ntp-servers 192.168.124.3;
-option arch code 93 = unsigned integer 16; # RFC4578
-default-lease-time 3600;
-ddns-update-style none;
-subnet 192.168.124.0 netmask 255.255.255.0 {
-  range 192.168.124.100 192.168.124.199;
-  next-server 192.168.124.3;
-  default-lease-time 3600;
-  max-lease-time 3600;
-  if option arch = 00:07 or option arch = 00:09 {
-   filename "/EFI/x86/bootx64.efi";
-    } else if option arch = 00:0b {
-   filename "/EFI/armv8/bootaa64.efi";
-    } else {
-   filename "/bios/x86/pxelinux.0";
-    }
-}</screen>
+        <figure>
+            <title>Azure Classic Virtual Network Settings</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-cvn-settings.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-cvn-settings.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
 
         <note>
-            <title>
-                <code>if option arch</code>
-            </title>
-            <para>The <code>if option arch</code> sections allow the DHCP server to make the correct
-                decision on which file to use for booting.</para>
+            <title>Classic VNets</title>
+            <para>At the time of writing this document, AAD-DS only
+                supports classic VNets.</para>
         </note>
+
+        <para>If you need to add users or groups, do this using Azure
+            Active Directory.</para>
+
+        <figure>
+            <title>Microsoft Azure AD - Adding Users</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-add-users.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-add-users.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>You can also create a group that contains the users who are
+            administrators of the AAD-DS domain, enabling them to configure
+            tasks like service principals and constrained
+            delegation.</para>
+
+        <figure>
+            <title>Microsoft Azure AD - Adding Groups</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-configure-groups.png"
+                        width="70%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-configure-groups.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Now you can add a Windows virtual machine to the same virtual
+            network and join the machine to the domain
+            blueskyabove.onmicrosoft.com. </para>
+
+        <para>Keep in mind that the example at hand is using a cloud-only
+            directory. There are no users sourced from on-premises. When
+            you are prompted by Windows for the credentials to join a
+            machine to the domain, use your cloud-only account
+            abc@blueskyabove.onmicrosoft.com, and when you connect to your
+            new Windows VM using Remote Desktop Connection (RDC), use the
+            same credentials:</para>
+
+        <figure>
+            <title>Windows Virtual Machine - Enter Credentials</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-credentials.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-credentials.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>When you are logged in, open PowerShell and run the
+            command:</para>
+
+        <screen>Add-WindowsFeature -Name RSAT-ADDS-Tools</screen>
+
+        <para>This command will add the Active Directory tools such as
+                <quote>Users and Computers</quote>. Now you can view the
+            domain information from your new Windows virtual
+            machine.</para>
+
+        <figure>
+            <title>Active Directory Users and Computers</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-domain-info.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-domain-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Your Windows environment is now prepared and ready. The next
+            chapter explains how to create your Linux virtual machine. </para>
+
     </sect1>
 
 
-    <sect1 xml:id="sec.setup_repositories">
+    <sect1 xml:id="sec.create_sles_vm">
 
-        <title>Setting Up Repositories</title>
+        <title>Create a SUSE Linux Enterprise Server Virtual
+            Machine</title>
 
-        <para>The next step is to create the installation source directories. Use a structure
-            similar to <filename>/srv/install/arch/product/version</filename>.</para>
+        <para>In the Azure portal, create a new SUSE Linux Enterprise
+            Server virtual machine in the same VNet that you used
+            previously. Filter for <quote>SUSE</quote> and choose your
+            starting ISO image. In this example, SLES 11 SP4 has been
+            chosen. </para>
 
-        <screen>/srv/install/x86/sles12/sp2/cd1
-/srv/install/armv8/sles12/sp2/cd1</screen>
+        <figure>
+            <title>Select SUSE Linux Enterprise Server ISO Image</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-create-slesvm.png"
+                        width="70%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-create-slesvm.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
 
-        <para>Now mount the install media into the appropriate location. Be sure to add it to
-                <filename>/etc/fstab</filename> for persistance between reboots.</para>
+        <important>
+            <title>Classic Deployment</title>
+            <para>Make sure to create a VM using the <quote>Classic</quote>
+                deployment model so that it can be placed in the same
+                Vnet!</para>
 
-        <screen>mount -o loop /root/sles12sp2.iso /srv/install/x86/sles12/sp2/cd1/</screen>
+            <figure>
+                <title>Select Deployment Model</title>
+                <mediaobject>
+                    <imageobject role="fo">
+                        <imagedata fileref="azure-create-classic.png"
+                            width="70%" format="PNG"/>
+                    </imageobject>
+                    <imageobject role="html">
+                        <imagedata fileref="azure-create-classic.png"
+                            width="80%" format="PNG"/>
+                    </imageobject>
+                </mediaobject>
+            </figure>
 
-        <para>Do the same for each architecture’s boot media.</para>
+        </important>
 
-        <para>The final part of setting up the repositories is to export them. Although there are
-            other supported methods such as HTTP, FTP, etc., use NFS for this scenario.  First,
-            enable the NFS server through YaST and select <emphasis role="strong">Open Port in
-                Firewall</emphasis>.  In this instance, export the entire
-                <filename>/srv/install</filename> structure as seen in the sample
-                <filename>/etc/exports</filename> entry below.</para>
+        <para>The next step enables you to provide your SSH login
+            information and SSH public key. For more information about SSH
+            keys, refer to the article <quote>How to create and use an SSH
+                public and private key pair for Linux VMs in Azure</quote>
+            at <link
+                xlink:href="https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mac-create-ssh-keys"
+                >https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mac-create-ssh-keys</link>.</para>
 
-        <screen>/srv/install  *(ro,root_squash,sync,no_subtree_check)</screen>
+        <figure>
+            <title>Add SSH Public Key</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ssh-info.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ssh-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Choose a size for the Virtual Machine. For the example at
+            hand, a DS1_v2 machine is big enough.</para>
+
+        <figure>
+            <title>Virtual Machine Size</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ds1-v2-demo.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ds1-v2-demo.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Now create or choose a storage account and cloud service. For
+            the example at hand, the same cloud service is used as with the
+            Windows Virtual machine above. </para>
+
+        <important>
+            <title>Virtual Network</title>
+            <para>Use the same virtual network that is configured for Azure
+                AD Domain Services.</para>
+        </important>
+
+        <figure>
+            <title>Storage and Network Settings </title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-storage-account.png"
+                        width="70%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-storage-account.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>After a few minutes, the VM is created and you can connect to
+            it via SSH. Use the Windows Subsystem for Linux, open a command
+            prompt and type <command>bash</command> to open the bash shell.
+            Then you can run your SSH commands.</para>
     </sect1>
+
+
 
 
     <sect1 xml:id="sec.setup_tftp">
 
         <title>Setting Up TFTP</title>
 
-        <para>Now you need to enable the TFTP server. To do so, start YaST and select <emphasis
-                role="strong">TFTP Server</emphasis> from <emphasis role="strong">Network
-                Services</emphasis>. The system then prompts to <quote>install tftp</quote>. Select
-                <emphasis role="strong">Enable</emphasis>, leave the image directory at
-                <filename>/srv/tftpboot</filename>, select <emphasis role="strong">Open Port in
-                Firewall</emphasis>, and click <emphasis role="strong">OK</emphasis>.</para>
+        <para>Now you need to enable the TFTP server. To do so, start YaST
+            and select <emphasis role="strong">TFTP Server</emphasis> from
+                <emphasis role="strong">Network Services</emphasis>. The
+            system then prompts to <quote>install tftp</quote>. Select
+                <emphasis role="strong">Enable</emphasis>, leave the image
+            directory at <filename>/srv/tftpboot</filename>, select
+                <emphasis role="strong">Open Port in Firewall</emphasis>,
+            and click <emphasis role="strong">OK</emphasis>.</para>
     </sect1>
 
 
@@ -205,13 +393,14 @@ subnet 192.168.124.0 netmask 255.255.255.0 {
 
         <title>Setting Up PXE Boot</title>
 
-        <para>To ensure you set up your install server correctly, read carefully through the
-            following sections. Proceed as described and double check your entries to avoid typos.
-            Getting all the right files in the right places allows you to add more architectures,
-            operating system install options, etc.  </para>
+        <para>To ensure you set up your install server correctly, read
+            carefully through the following sections. Proceed as described
+            and double check your entries to avoid typos. Getting all the
+            right files in the right places allows you to add more
+            architectures, operating system install options, etc.  </para>
 
-        <para>Create a structure in <filename>/srv/tftpboot</filename> to support the various
-            options:</para>
+        <para>Create a structure in <filename>/srv/tftpboot</filename> to
+            support the various options:</para>
 
         <screen>mkdir /srv/tftpboot/bios
 mkdir /srv/tftpboot/bios/x86
@@ -226,27 +415,30 @@ mkdir /srv/tftpboot/EFI/armv8/boot</screen>
 
             <title>Setting Up the x86 BIOS Boot Environment</title>
 
-            <para>At this point, you need to copy the necessary boot files for the x86 BIOS
-                environment to the appropriate boot location. To do so, navigate to the appropriate
-                directory as shown below:</para>
+            <para>At this point, you need to copy the necessary boot files
+                for the x86 BIOS environment to the appropriate boot
+                location. To do so, navigate to the appropriate directory
+                as shown below:</para>
 
             <screen>cd /srv/install/x86/sles12/sp2/cd1/boot/x86_64/loader/
 cp -a linux initrd message /srv/tftpboot/bios/x86/</screen>
 
-            <para>While still in the loader directory, create the directory for the configuration
-                file and copy it in:</para>
+            <para>While still in the loader directory, create the directory
+                for the configuration file and copy it in:</para>
 
             <screen>mkdir /srv/tftpboot/bios/x86/pxelinux.cfg
 cp -a isolinux.cfg /srv/tftpboot/bios/x86/pxelinux.cfg/default</screen>
 
-            <para>Copy <filename>pxelinux.0</filename> to the same structure:</para>
+            <para>Copy <filename>pxelinux.0</filename> to the same
+                structure:</para>
 
             <screen>cp /usr/share/syslinux/pxelinux.0 /srv/tftpboot/bios/x86/</screen>
 
-            <para>Now that the files are all in place, edit the configuration to ensure all the
-                correct boot options are also in place.  Start with
-                    editing <filename>/srv/tftpboot/bios/x86/pxelinux.cfg/default</filename>. See
-                the example below:</para>
+            <para>Now that the files are all in place, edit the
+                configuration to ensure all the correct boot options are
+                also in place.  Start with
+                    editing <filename>/srv/tftpboot/bios/x86/pxelinux.cfg/default</filename>.
+                See the example below:</para>
 
             <screen>default harddisk
                 
@@ -263,8 +455,10 @@ implicit 0
 prompt 1
 timeout 600</screen>
 
-            <para>Now edit <filename>/srv/tftpboot/bios/x86/message</filename> to reflect the
-                default file you edited before. See the example below:</para>
+            <para>Now edit
+                    <filename>/srv/tftpboot/bios/x86/message</filename> to
+                reflect the default file you edited before. See the example
+                below:</para>
 
             <screen>              Welcome to the Installer Environment! 
             
@@ -280,20 +474,23 @@ Have a lot of fun...</screen>
         <sect2 xml:id="sec.setup_x86_efi">
             <title>Setting Up the x86 EFI Boot Environment</title>
 
-            <para>Start by copying the files required for UEFI booting of a <emphasis role="strong"
-                    >grub2-efi</emphasis> environment.</para>
+            <para>Start by copying the files required for UEFI booting of a
+                    <emphasis role="strong">grub2-efi</emphasis>
+                environment.</para>
 
             <screen>cd /srv/install/x86/sles12/sp2/cd1/EFI/BOOT
 cp -a bootx64.efi grub.efi MokManager.efi /srv/tftpboot/EFI/x86/</screen>
 
-            <para>Copy the kernel and initrd to the directory structure.</para>
+            <para>Copy the kernel and initrd to the directory
+                structure.</para>
 
             <screen>cd /srv/install/x86/sles12/sp2/cd1/boot/x86_64/loader/
 cp -a linux initrd /srv/tftpboot/EFI/x86/boot</screen>
 
-            <para>Now you need to create a <filename>grub.cfg</filename> file. This file goes in
-                    <filename>/srv/tftpboot/EFI</filename> and should have contents similar to the
-                below example:</para>
+            <para>Now you need to create a <filename>grub.cfg</filename>
+                file. This file goes in
+                    <filename>/srv/tftpboot/EFI</filename> and should have
+                contents similar to the below example:</para>
 
             <screen><?dbsuse-fo font-size="0.7em"?>set timeout=5
 menuentry 'Install SLES12 SP2 for x86_64' {
@@ -307,22 +504,24 @@ menuentry 'Install SLES12 SP2 for x86_64' {
 
             <title>Setting Up the ARMv8 EFI Boot Environment</title>
 
-            <para>Setting up the ARMv8 EFI boot environment is done in a way very similar to the
-                x86_64 EFI environment. Start by copying the files required for UEFI booting of a
-                    <emphasis role="strong">grub2-efi</emphasis> environment:</para>
+            <para>Setting up the ARMv8 EFI boot environment is done in a
+                way very similar to the x86_64 EFI environment. Start by
+                copying the files required for UEFI booting of a <emphasis
+                    role="strong">grub2-efi</emphasis> environment:</para>
 
             <screen>cd /srv/install/armv8/sles12/sp2/cd1/EFI/BOOT
 cp -a bootaa64.efi /srv/tftpboot/EFI/armv8/</screen>
 
-            <para>Copy the kernel and initrd to the directory structure:</para>
+            <para>Copy the kernel and initrd to the directory
+                structure:</para>
 
             <screen>cd /srv/install/armv8/sles12/sp2/cd1/boot/aarch64
 cp -a linux initrd /srv/tftpboot/EFI/armv8/boot</screen>
 
-            <para>Next you need to edit the  <filename>grub.cfg</filename> file and add a new
-                section.  This file is located in the directory
-                    <filename>/srv/tftpboot/EFI</filename>.  You should add contents similar to the
-                example below.</para>
+            <para>Next you need to edit the  <filename>grub.cfg</filename>
+                file and add a new section.  This file is located in the
+                directory <filename>/srv/tftpboot/EFI</filename>.  You
+                should add contents similar to the example below.</para>
 
             <screen>menuentry 'Install SLES12 SP2 for SoftIron OverDrive' {
  linux /EFI/armv8/boot/linux network=1 usessh=1 sshpassword="suse" \
@@ -331,14 +530,16 @@ cp -a linux initrd /srv/tftpboot/EFI/armv8/boot</screen>
  initrd /EFI/armv8/boot/initrd
 }</screen>
 
-            <para>This addition to the configuration file contains a few other options to enable the
-                serial console and to allow installation via <application>ssh</application>. This is
-                helpful for systems that do not have a standard KVM console interface.</para>
+            <para>This addition to the configuration file contains a few
+                other options to enable the serial console and to allow
+                installation via <application>ssh</application>. This is
+                helpful for systems that do not have a standard KVM console
+                interface.</para>
 
             <note>
                 <title>ARM Platforms</title>
-                <para>Be aware that this configuration is specifically set up only for a specific
-                    ARM platform.</para>
+                <para>Be aware that this configuration is specifically set
+                    up only for a specific ARM platform.</para>
             </note>
 
         </sect2>
@@ -349,50 +550,61 @@ cp -a linux initrd /srv/tftpboot/EFI/armv8/boot</screen>
 
         <title>Setting Up SMT</title>
 
-        <para>The SMT service provides a local repository mirror for updates to your software.
-             Follow the instructions in the Subscription Management Tool Guide at <link
+        <para>The SMT service provides a local repository mirror for
+            updates to your software.  Follow the instructions in the
+            Subscription Management Tool Guide at <link
                 xlink:href="https://www.suse.com/documentation/sles-12/book_smt/data/smt_installation.html"
-            /> to install and configure SMT.  Be sure to select both the pool and update
-            repositories for each product you are supporting with this server.</para>
+            /> to install and configure SMT.  Be sure to select both the
+            pool and update repositories for each product you are
+            supporting with this server.</para>
 
     </sect1>
 
     <sect1 xml:id="sec.install_server_completed">
         <title>Installation Server Completed</title>
-        <para>At this point, you are ready to use the installation server for BIOS and EFI on x86
-            and EFI on ARMv8. Be sure to select the SMT server as the registration server during
-            installation. You can gain further value by building custom AutoYaST files as well.
-            These files can enable a streamlined installation process and even an unattended process
-            if everything is well defined.</para>
+        <para>At this point, you are ready to use the installation server
+            for BIOS and EFI on x86 and EFI on ARMv8. Be sure to select the
+            SMT server as the registration server during installation. You
+            can gain further value by building custom AutoYaST files as
+            well. These files can enable a streamlined installation process
+            and even an unattended process if everything is well
+            defined.</para>
     </sect1>
 
 
     <sect1 xml:id="sec.legal_notice">
         <title>Legal Notice</title>
-        <para>Copyright &copy;2006– 2017 SUSE LLC and contributors. All rights reserved. </para>
-        <para>Permission is granted to copy, distribute and/or modify this document under the terms
-            of the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with
-            the Invariant Section being this copyright notice and license. A copy of the license
-            version 1.2 is included in the section entitled <quote>GNU Free Documentation
-                License</quote>.</para>
-        <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United
-            States and other countries. For SUSE trademarks, see <link
+        <para>Copyright &copy;2006– 2017 SUSE LLC and contributors. All
+            rights reserved. </para>
+        <para>Permission is granted to copy, distribute and/or modify this
+            document under the terms of the GNU Free Documentation License,
+            Version 1.2 or (at your option) version 1.3; with the Invariant
+            Section being this copyright notice and license. A copy of the
+            license version 1.2 is included in the section entitled
+                <quote>GNU Free Documentation License</quote>.</para>
+        <para>SUSE, the SUSE logo and YaST are registered trademarks of
+            SUSE LLC in the United States and other countries. For SUSE
+            trademarks, see <link
                 xlink:href="http://www.suse.com/company/legal/"
-                >http://www.suse.com/company/legal/</link>. Linux is a registered trademark of Linus
-            Torvalds. All other names or trademarks mentioned in this document may be trademarks or
+                >http://www.suse.com/company/legal/</link>. Linux is a
+            registered trademark of Linus Torvalds. All other names or
+            trademarks mentioned in this document may be trademarks or
             registered trademarks of their respective owners.</para>
-        <para>This article is part of a series of documents called "SUSE Best Practices". The
-            individual documents in the series were contributed voluntarily by SUSE's employees and
-            by third parties.</para>
-        <para>The articles are intended only to be one example of how a particular action could be
-            taken. They should not be understood to be the only action and certainly not to be the
-            action recommended by SUSE. Also, SUSE cannot verify either that the actions described
-            in the articles do what they claim to do or that they don't have unintended
-            consequences.</para>
-        <para>Therefore, we need to specifically state that neither SUSE LLC, its affiliates, the
-            authors, nor the translators may be held liable for possible errors or the consequences
-            thereof. Below we draw your attention to the license under which the articles are
-            published.</para>
+        <para>This article is part of a series of documents called "SUSE
+            Best Practices". The individual documents in the series were
+            contributed voluntarily by SUSE's employees and by third
+            parties.</para>
+        <para>The articles are intended only to be one example of how a
+            particular action could be taken. They should not be understood
+            to be the only action and certainly not to be the action
+            recommended by SUSE. Also, SUSE cannot verify either that the
+            actions described in the articles do what they claim to do or
+            that they don't have unintended consequences.</para>
+        <para>Therefore, we need to specifically state that neither SUSE
+            LLC, its affiliates, the authors, nor the translators may be
+            held liable for possible errors or the consequences thereof.
+            Below we draw your attention to the license under which the
+            articles are published.</para>
     </sect1>
     <?pdfpagebreak style="suse2013" formatter="fop"?>
     <xi:include href="license-gfdl.xml"/>

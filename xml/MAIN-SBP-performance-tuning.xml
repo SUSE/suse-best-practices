@@ -1,0 +1,671 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+<article xmlns="http://docbook.org/ns/docbook"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+    xml:id="art.sbp.perf.tuning" xml:lang="en">
+    <info>
+        <title>Performance Analysis, Tuning and Tools on SUSE Linux Enterprise Products</title>
+        <subtitle/>
+        <orgname>SUSE Best Practices</orgname>
+        <productname>SUSE Linux Enterprise</productname>
+        <!--<productname>SUSE Linux Enterprise Server</productname>-->
+        <productnumber/>
+        <author>
+           <!-- <personname>
+                <firstname>Marco</firstname>
+                <surname>Varlese, Software Engineer,
+                    SUSE</surname>
+            </personname>-->
+            <personname>
+                <firstname>Marco</firstname>
+                <surname>Varlese</surname>
+            </personname>
+            <affiliation>
+                <jobtitle>Software Engineer</jobtitle>
+                <orgname>SUSE</orgname>
+            </affiliation>
+        </author>
+        <date><?dbtimestamp format="B d, Y" ?></date>
+
+
+        <abstract>
+
+            <para>This article will show how to use Azure Active Directory
+                Domain Services, providing Active Directory capabilities as
+                a managed service in Microsoft Azure to enable NTLM,
+                Kerberos, and LDAP capabilities with SUSE Linux Enterprise
+                Server .</para>
+        </abstract>
+    </info>
+
+
+    <sect1 xml:id="sec.background">
+
+        <title>Background</title>
+
+        <para>If you want to use Microsoft Azure AD Domain Services with
+            Linux to test your product, you will struggle to find
+            easy-to-use documentation. Documentation that shows how to walk
+            through this end to end does not exist. And there is no general
+            step-by-step explanation for Linux distributions available, as
+            the package management systems for the different Linux
+            distributions differ from each other. SUSE Linux Enterprise
+            Server uses <application>zypper</application>, Red Hat
+            Enterprise Linux uses <application>yum</application>, Ubuntu
+            uses <application>apt-get</application>. </para>
+
+        <para>In addition, the packages to use and the instructions for
+            configuring are often hard to understand. However, it turns out
+            it is quite easy to domain join a machine using SUSE Linux
+            Enterprise Server.</para>
+
+    </sect1>
+
+
+    <sect1 xml:id="sec.azure_ad_domain_services">
+
+        <title>What is Microsoft Azure Active Directory Domain
+            Services</title>
+
+        <para>The Azure Active Directory service does not directly provide
+            NTLM, Kerberos, or LDAP services, while by default it provides
+            WS-Trust, OpenID Connect, and OAuth capabilities. Applications
+            hosted in Azure virtual machines however may need these
+            authentication capabilities but cannot afford the latency of
+            communicating back to on-premises infrastructure, requiring
+            domain controllers to be hosted in the cloud. Many customers do
+            not want to install their own domain controllers in
+            cloud-hosted virtual machines, configure a VPN or ExpressRoute,
+            and manage AD replication to on-premises domain
+            controllers.</para>
+
+        <para>This is exactly what Azure AD Domain Services (AAD-DS)
+            provides: a managed domain controller with the same users and
+            groups as you have in your Azure Active Directory (AAD). 
+            AAD-DS makes it easy to join a virtual machine to the managed
+            domain so that your application can use NTLM, Kerberos, or LDAP
+            with the same credentials that they use to log in to Office 365
+            or Azure services. </para>
+
+        <para>Azure AD Domain Services will provision managed domain
+            controllers into the Azure Virtual Network that you specify. In
+            the image below, the managed domain controller virtual machines
+            are greyed out. This indicates they are there but you cannot
+            access them or do anything with the virtual machine directly.
+            You simply use the familiar Windows Active Directory Domain
+            Services (ADDS) as a service.</para>
+
+
+        <figure>
+            <title>Microsoft Azure AAD-DS Overview </title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-aad-ds-overview.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-aad-ds-overview.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>In this picture, you see that AAD-DS is enabled for the
+            directory, creating two virtual machines in the subnet of
+            choice. The application server can now communicate with those
+            domain controllers to domain join the machine and enable
+            authentication and authorization. Azure AD Domain Services
+            works with either cloud-only or hybrid directories. If there is
+            an existing ADDS infrastructure on-premises, you synchronize
+            users to the AAD directory using HTTPS to enable single sign on
+            to cloud resources such as Microsoft Office 365. </para>
+
+    </sect1>
+
+
+    <sect1 xml:id="sec.getting_started">
+
+        <title>Getting Started</title>
+
+        <para>The documentation how to set up Azure AD Domain Services is
+            easy to follow. You do not need to install any software on your
+            machine, and you do not need to perform any local
+            configuration. Go to the Azure portal and follow the directions
+            given in the article <quote>Enable Azure Active Directory
+                Domain Services using the Azure portal</quote> at <link
+                xlink:href="https://docs.microsoft.com/en-us/azure/active-directory-domain-services/active-directory-ds-getting-started"
+            /></para>
+
+        <para>As result, you get an Azure classic virtual network with the
+            settings you chose.</para>
+
+        <figure>
+            <title>Azure Classic Virtual Network Settings</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-cvn-settings.png" width="70%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-cvn-settings.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <note>
+            <title>Classic VNets</title>
+            <para>At the time of writing this document, AAD-DS only
+                supports classic VNets.</para>
+        </note>
+
+        <para>If you need to add users or groups, do this using Azure
+            Active Directory.</para>
+
+        <figure>
+            <title>Microsoft Azure AD - Adding Users</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-add-users.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-add-users.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>You can also create a group that contains the users who are
+            administrators of the AAD-DS domain, enabling them to configure
+            tasks like service principals and constrained
+            delegation.</para>
+
+        <figure>
+            <title>Microsoft Azure AD - Adding Groups</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-configure-groups.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-configure-groups.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Now you can add a Windows virtual machine to the same virtual
+            network and join the machine to the domain
+            blueskyabove.onmicrosoft.com. </para>
+
+        <para>Keep in mind that the example at hand is using a cloud-only
+            directory. There are no users sourced from on-premises. When
+            you are prompted by Windows for the credentials to join a
+            machine to the domain, use your cloud-only account
+            abc@blueskyabove.onmicrosoft.com. When you connect to your new
+            Windows VM using Remote Desktop Connection (RDC), use the same
+            credentials:</para>
+
+        <figure>
+            <title>Windows Virtual Machine - Enter Credentials</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-credentials.png" width="40%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-credentials.png" width="40%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>When you are logged in, open PowerShell and run the
+            command:</para>
+
+        <screen>Add-WindowsFeature -Name RSAT-ADDS-Tools</screen>
+
+        <para>This command will add the Active Directory tools such as
+                <quote>Users and Computers</quote>. Now you can view the
+            domain information from your new Windows virtual
+            machine.</para>
+
+        <figure>
+            <title>Active Directory Users and Computers</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-domain-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-domain-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Your Windows environment is now prepared and ready. The next
+            chapter explains how to create your Linux virtual machine. </para>
+
+    </sect1>
+
+
+    <sect1 xml:id="sec.create_sles_vm">
+
+        <title>Create a SUSE Linux Enterprise Server Virtual
+            Machine</title>
+
+        <para>In the Azure portal, create a new SUSE Linux Enterprise
+            Server virtual machine in the same VNet that you used
+            previously. Filter for <quote>SUSE</quote> and choose your
+            starting ISO image. In this example, SLES 11 SP4 has been
+            chosen. </para>
+
+        <figure>
+            <title>Select SUSE Linux Enterprise Server ISO Image</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-create-slesvm.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-create-slesvm.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <important>
+            <title>Classic Deployment</title>
+            <para>Make sure to create a VM using the <quote>Classic</quote>
+                deployment model so that it can be placed in the same
+                Vnet!</para>
+
+            <figure>
+                <title>Select Deployment Model</title>
+                <mediaobject>
+                    <imageobject role="fo">
+                        <imagedata fileref="azure-create-classic.png"
+                            width="50%" format="PNG"/>
+                    </imageobject>
+                    <imageobject role="html">
+                        <imagedata fileref="azure-create-classic.png"
+                            width="50%" format="PNG"/>
+                    </imageobject>
+                </mediaobject>
+            </figure>
+
+        </important>
+
+        <para>The next step enables you to provide your SSH login
+            information and SSH public key. For more information about SSH
+            keys, refer to the article <quote>How to create and use an SSH
+                public and private key pair for Linux VMs in Azure</quote>
+            at <link
+                xlink:href="https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mac-create-ssh-keys"
+                >https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mac-create-ssh-keys</link>.</para>
+
+        <figure>
+            <title>Add SSH Public Key</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ssh-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ssh-info.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Choose a size for the Virtual Machine. For the example at
+            hand, a DS1_v2 machine is big enough.</para>
+
+        <figure>
+            <title>Virtual Machine Size</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ds1-v2-demo.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ds1-v2-demo.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Now create or choose a storage account and cloud service. For
+            the example at hand, the same cloud service is used as with the
+            Windows Virtual machine above. </para>
+
+        <important>
+            <title>Virtual Network</title>
+            <para>Use the same virtual network that is configured for Azure
+                AD Domain Services.</para>
+        </important>
+
+        <figure>
+            <title>Storage and Network Settings </title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-storage-account.png"
+                        width="40%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-storage-account.png"
+                        width="40%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>After a few minutes, the VM is created and you can connect to
+            it via SSH. Use the Windows Subsystem for Linux, open a command
+            prompt and type <command>bash</command> to open the bash shell.
+            Then you can run your SSH commands.</para>
+    </sect1>
+
+
+
+
+    <sect1 xml:id="sec.ssh_certificate">
+
+        <title>Connect Via SSH Using Your Certificate</title>
+
+        <para>You have not yet joined the new SUSE Linux Enterprise Server
+            VM to the domain. To do so, connect to it via SSH using the
+            details you provided when creating the Azure VM.</para>
+
+        <para>When the VM is created, open the VM to see its public IP
+            address.</para>
+
+        <figure>
+            <title>Virtual Machine Overview</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-public-ip.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-public-ip.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <note>
+            <title>Public IP</title>
+            <para>The public IP can change if you restart the Azure virtual
+                machine.</para>
+        </note>
+
+        <para>Go to the <quote>Endpoints</quote> property of the VM to see
+            which port to use for SSH.</para>
+
+        <figure>
+            <title>Virtual Machine Endpoints</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ssh-port.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ssh-port.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Now type the following SSH command to access your virtual
+            machine:</para>
+
+        <screen>ssh -i azure_ssh myadmin@52.173.77.97 -p 60252</screen>
+
+        <figure>
+            <title>Connect Via SSH</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ssh.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ssh.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+    </sect1>
+
+
+    <sect1 xml:id="sec.join_sles_yast">
+
+        <title>Domain Join SUSE Linux Enterprise Server Using YaST</title>
+
+        <para>Now that you can access the SUSE Linux Enterprise Server
+            virtual machine, you need to join to the domain controller that
+            Azure AD Domain Services provides. Since the VM is in the same
+            VNet and you have updated the DNS settings for the VNet, the
+            new Linux machine can locate the domain controller by name
+            without any further configuration with the command
+                <command>sudo /sbin/yast</command>:</para>
+
+        <screen>myadmin@kirke-suse-aad:~> sudo /sbin/yast</screen>
+
+        <para>This command opens the YaST Control Center. Choose
+                <quote>Network Services</quote> and <quote>Windows Domain
+                Membership</quote>.</para>
+
+
+        <figure>
+            <title>YaST Control Center - Overview</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-yast-control.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-yast-control.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>You are prompted to install the Samba client packages.</para>
+
+        <figure>
+            <title>YaST Control Center - Samba Client Packages</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-samba-client.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-samba-client.png" width="80%"
+                        format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>Next, provide your domain as all capital letters, and enable
+            the settings in the top section to enable users to SSH to the
+            machine using their credentials from Azure AD. </para>
+
+        <note>
+            <title>Custom Domain</title>
+            <para>For the example at hand, a cloud-only directory without a
+                custom domain is used. If you added and verified a custom
+                domain, and have users from that custom domain in your AAD
+                directory from a synchronization, then you should use your
+                custom domain.</para>
+        </note>
+
+        <figure>
+            <title>YaST Control Center - Windows Domain Membership</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata
+                        fileref="azure-windows-domain-membership.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata
+                        fileref="azure-windows-domain-membership.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <note>
+            <title>Backspace</title>
+            <para>If <quote>Backspace</quote> does not work, use <emphasis
+                    role="strong">CTRL+H</emphasis> to backspace.</para>
+        </note>
+
+        <para>When you are done, exit and reboot the VM.</para>
+
+        <note>
+            <title>YaST</title>
+            <para>If you want to understand in detail what the YaST tool
+                did in the background, read the article <quote>How to
+                    integrate SUSE Linux Enterprise 11 with Windows Active
+                    Directory</quote> at <link
+                    xlink:href="https://jreypo.wordpress.com/2012/02/01/how-to-integrate-suse-linux-enterprise-11-with-windows-active-directory/"
+                    >https://jreypo.wordpress.com/2012/02/01/how-to-integrate-suse-linux-enterprise-11-with-windows-active-directory/</link>
+                />.This article provides a comprehensive look at the files
+                it edited and the values it used.</para>
+        </note>
+
+        <para>You can now log in using the same credentials that you use to
+            log in to Azure AD:</para>
+
+        <screen>ssh blueskyabove\\kirkevans@52.173.77.97 -p 62075</screen>
+
+        <para>Connect via SSH using your credentials from Azure AD. A home
+            directory has been created for the user. </para>
+
+        <figure>
+            <title>Connect from Azure AD Via SSH</title>
+            <mediaobject>
+                <imageobject role="fo">
+                    <imagedata fileref="azure-ssh-home-directory.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+                <imageobject role="html">
+                    <imagedata fileref="azure-ssh-home-directory.png"
+                        width="80%" format="PNG"/>
+                </imageobject>
+            </mediaobject>
+        </figure>
+
+        <para>The user is not contained in the <quote>sudo-ers</quote>
+            group. It is possible to enable users from a particular Active
+            Directory group to use <command>sudo</command>. For more
+            information regarding this topic, read the article
+                <quote>Adding AD domain groups to /etc/sudoers</quote> at
+                <link
+                xlink:href="https://derflounder.wordpress.com/2012/12/14/adding-ad-domain-groups-to-etcsudoers/"
+                >https://derflounder.wordpress.com/2012/12/14/adding-ad-domain-groups-to-etcsudoers/</link>
+            .</para>
+
+    </sect1>
+
+
+
+
+    <sect1 xml:id="sec.more_info">
+
+        <title>More Information</title>
+
+        <para>For more detailed information, have a look at the following
+            articles:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://docs.microsoft.com/en-us/azure/active-directory-domain-services/active-directory-ds-getting-started"
+                        >Enable Azure Active Directory Domain Services
+                        Using the Azure Portal</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mac-create-ssh-keys"
+                        >How to create and use an SSH public and private
+                        key pair for Linux VMs in Azure</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://docs.microsoft.com/en-us/azure/active-directory-domain-services/active-directory-ds-admin-guide-join-rhel-linux-vm"
+                        >Join a Red Hat Enterprise Linux 7 virtual machine
+                        to a managed domain</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://jreypo.wordpress.com/2012/02/01/how-to-integrate-suse-linux-enterprise-11-with-windows-active-directory/"
+                        >How to integrate SUSE Linux Enterprise 11 with
+                        Windows Active Directory</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://derflounder.wordpress.com/2012/12/14/adding-ad-domain-groups-to-etcsudoers/"
+                        >Adding AD Domain Groups to /etc/sudoers</link>
+                </para>
+            </listitem>
+        </itemizedlist>
+
+    </sect1>
+
+
+
+    <sect1 xml:id="sec.legal_notice">
+        <title>Legal Notice</title>
+        <para>Copyright &copy;2006– 2017 SUSE LLC and contributors. All
+            rights reserved. </para>
+        <para>Permission is granted to copy, distribute and/or modify this
+            document under the terms of the GNU Free Documentation License,
+            Version 1.2 or (at your option) version 1.3; with the Invariant
+            Section being this copyright notice and license. A copy of the
+            license version 1.2 is included in the section entitled
+                <quote>GNU Free Documentation License</quote>.</para>
+        <para>SUSE, the SUSE logo and YaST are registered trademarks of
+            SUSE LLC in the United States and other countries. For SUSE
+            trademarks, see <link
+                xlink:href="http://www.suse.com/company/legal/"
+                >http://www.suse.com/company/legal/</link>. Linux is a
+            registered trademark of Linus Torvalds. All other names or
+            trademarks mentioned in this document may be trademarks or
+            registered trademarks of their respective owners.</para>
+        <para>This article is part of a series of documents called "SUSE
+            Best Practices". The individual documents in the series were
+            contributed voluntarily by SUSE's employees and by third
+            parties.</para>
+        <para>The articles are intended only to be one example of how a
+            particular action could be taken. They should not be understood
+            to be the only action and certainly not to be the action
+            recommended by SUSE. Also, SUSE cannot verify either that the
+            actions described in the articles do what they claim to do or
+            that they don't have unintended consequences.</para>
+        <para>Therefore, we need to specifically state that neither SUSE
+            LLC, its affiliates, the authors, nor the translators may be
+            held liable for possible errors or the consequences thereof.
+            Below we draw your attention to the license under which the
+            articles are published.</para>
+    </sect1>
+    <?pdfpagebreak style="suse2013" formatter="fop"?>
+    <xi:include href="license-gfdl.xml"/>
+</article>

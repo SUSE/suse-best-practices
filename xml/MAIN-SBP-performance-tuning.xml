@@ -9,14 +9,15 @@
     xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
     xml:id="art.sbp.perf.tuning" xml:lang="en">
     <info>
-        <title>Performance Analysis, Tuning and Tools on SUSE Linux Enterprise Products</title>
+        <title>Performance Analysis, Tuning and Tools on SUSE Linux
+            Enterprise Products</title>
         <subtitle/>
         <orgname>SUSE Best Practices</orgname>
         <productname>SUSE Linux Enterprise</productname>
         <!--<productname>SUSE Linux Enterprise Server</productname>-->
         <productnumber/>
         <author>
-           <!-- <personname>
+            <!-- <personname>
                 <firstname>Marco</firstname>
                 <surname>Varlese, Software Engineer,
                     SUSE</surname>
@@ -35,95 +36,130 @@
 
         <abstract>
 
-            <para>This article will show how to use Azure Active Directory
-                Domain Services, providing Active Directory capabilities as
-                a managed service in Microsoft Azure to enable NTLM,
-                Kerberos, and LDAP capabilities with SUSE Linux Enterprise
-                Server .</para>
+            <para>This document describes how to configure and tune a SUSE
+                Linux Enterprise based system to get the best possible
+                performance out of it. We will go through different layers,
+                from BIOS settings to kernel parameters to show you what
+                can be changed and how. </para>
+
+            <para>On the other hand, this document does not describe the
+                networking solutions to reach very high throughput on Linux
+                systems (for example DPDK) by-passing the Linux kernel
+                stack entirely. This document focuses solely on the
+                standard Linux kernel infrastructure.</para>
+
         </abstract>
+
     </info>
 
 
-    <sect1 xml:id="sec.background">
+    <sect1 xml:id="sec.intro">
 
-        <title>Background</title>
+        <title>Introduction</title>
 
-        <para>If you want to use Microsoft Azure AD Domain Services with
-            Linux to test your product, you will struggle to find
-            easy-to-use documentation. Documentation that shows how to walk
-            through this end to end does not exist. And there is no general
-            step-by-step explanation for Linux distributions available, as
-            the package management systems for the different Linux
-            distributions differ from each other. SUSE Linux Enterprise
-            Server uses <application>zypper</application>, Red Hat
-            Enterprise Linux uses <application>yum</application>, Ubuntu
-            uses <application>apt-get</application>. </para>
+        <para>With the evolution of computer architecture, performance has
+            reached results which were unimaginable just a few years ago.
+            However, the complexity of modern computer architectures
+            requires end-users and developers to know how to write code,
+            and how to configure and deploy software for a specific
+            architecture to get the most out of it.</para>
 
-        <para>In addition, the packages to use and the instructions for
-            configuring are often hard to understand. However, it turns out
-            it is quite easy to domain join a machine using SUSE Linux
-            Enterprise Server.</para>
+        <para>This document focuses on fine tuning a SUSE Linux Enterprise
+            system. It covers settings and parameters configurable on SUSE
+            Linux Enterprise software offerings, NIC settings and some BIOS
+            settings which are common to most hardware vendors.</para>
+
+        <para>Performance tuning is hard and general recommendations are
+            tricky. This document tries to provide an insight on the knobs
+            which the Linux kernel allows to configure and which can have
+            an impact on the overall system performance (throughput vs
+            latency). While various settings are described, some examples
+            of potential values to be usedn are provided. However, those
+            values need to be considered relatively to the others for the
+            different profiles and not necessarily as absolute values to be
+            used. </para>
+
+        <para>This document does not and cannot provide a generic
+            rule-of-thumb (or values) to be used for performance tuning
+            since eventually, the finest tuning of those parameters
+            requires a thorough understanding of the workloads and the
+            hardware it runs on.</para>
 
     </sect1>
 
 
-    <sect1 xml:id="sec.azure_ad_domain_services">
+    <sect1 xml:id="sec.bios_setup">
 
-        <title>What is Microsoft Azure Active Directory Domain
-            Services</title>
+        <title>BIOS Setup</title>
 
-        <para>The Azure Active Directory service does not directly provide
-            NTLM, Kerberos, or LDAP services, while by default it provides
-            WS-Trust, OpenID Connect, and OAuth capabilities. Applications
-            hosted in Azure virtual machines however may need these
-            authentication capabilities but cannot afford the latency of
-            communicating back to on-premises infrastructure, requiring
-            domain controllers to be hosted in the cloud. Many customers do
-            not want to install their own domain controllers in
-            cloud-hosted virtual machines, configure a VPN or ExpressRoute,
-            and manage AD replication to on-premises domain
-            controllers.</para>
+        <para>The BIOS is the foundation and the first level of tuning
+            which can have an impact on the performance of your overall
+            system. </para>
 
-        <para>This is exactly what Azure AD Domain Services (AAD-DS)
-            provides: a managed domain controller with the same users and
-            groups as you have in your Azure Active Directory (AAD). 
-            AAD-DS makes it easy to join a virtual machine to the managed
-            domain so that your application can use NTLM, Kerberos, or LDAP
-            with the same credentials that they use to log in to Office 365
-            or Azure services. </para>
+        <para>The BIOS controls the voltage (and hence frequency) which
+            components like CPU and RAM run at, and it allows you to enable
+            or disable specific CPU features which can have a profound
+            impact not only on system performance but also on power
+            usage.</para>
 
-        <para>Azure AD Domain Services will provision managed domain
-            controllers into the Azure Virtual Network that you specify. In
-            the image below, the managed domain controller virtual machines
-            are greyed out. This indicates they are there but you cannot
-            access them or do anything with the virtual machine directly.
-            You simply use the familiar Windows Active Directory Domain
-            Services (ADDS) as a service.</para>
+        <para>The first things to be known are the states at which a CPU
+            can be in when performing its duties.</para>
 
+        <para>There are two sets of states (or modes): the C-states and
+            P-states. C-states are idle states while P-states are
+            operational states.</para>
 
-        <figure>
-            <title>Microsoft Azure AAD-DS Overview </title>
-            <mediaobject>
-                <imageobject role="fo">
-                    <imagedata fileref="azure-aad-ds-overview.png"
-                        width="80%" format="PNG"/>
-                </imageobject>
-                <imageobject role="html">
-                    <imagedata fileref="azure-aad-ds-overview.png"
-                        width="80%" format="PNG"/>
-                </imageobject>
-            </mediaobject>
-        </figure>
+        <para>Aside from the C0 state, which is the only one where the CPU
+            is actually busy doing work, all other C-states are idle
+            states. The basic idea behind C-states is that when a CPU is
+            not doing any useful work it is better to “shut it down”. This
+            helps reducing power usage which for an electrical component
+            like the CPU means extending its life-time expectancy,
+            too.</para>
 
-        <para>In this picture, you see that AAD-DS is enabled for the
-            directory, creating two virtual machines in the subnet of
-            choice. The application server can now communicate with those
-            domain controllers to domain join the machine and enable
-            authentication and authorization. Azure AD Domain Services
-            works with either cloud-only or hybrid directories. If there is
-            an existing ADDS infrastructure on-premises, you synchronize
-            users to the AAD directory using HTTPS to enable single sign on
-            to cloud resources such as Microsoft Office 365. </para>
+        <para>On the other hand, P-states control the operational state of
+            the CPU when it is doing some useful work. For instance, even
+            if the CPU / core is in C0 state that does not mean it has to
+            run at its maximum speed. A very basic example is when using
+            the laptop in battery mode: the CPU will enter a higher P-state
+            hence reducing the frequency at which the CPU / core runs at to
+            minimize power consumption.</para>
+
+        <para>This document does not go into the details of each C/P-state,
+            but some very thorough explanation can be found at:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>http://www.hardwaresecrets.com/everything-you-need-to-know-about-the-cpu-c-states-power-saving-modes/</para>
+            </listitem>
+            <listitem>
+                <para>https://software.intel.com/en-us/blogs/2008/03/12/c-states-and-p-states-are-very-different</para>
+            </listitem>
+            <listitem>
+                <para>https://haypo.github.io/intel-cpus.html</para>
+            </listitem>
+            <listitem>
+                <para>https://github.com/HewlettPackard/LinuxKI/wiki/Power-vs-Performance</para>
+            </listitem>
+            <listitem>
+                <para>https://people.cs.pitt.edu/~kirk/cs3150spring2010/ShiminChen.pptx</para>
+            </listitem>
+
+        </itemizedlist>
+
+        <para>Whether to enable or disable C/P-states for greater
+            throughput or lower latency depends a lot on the use case. For
+            instance, in some ultra-low latency applications it is very
+            beneficial to disable the CPU C-states since being always in
+            C0-state there is no overhead to resume to start doing real
+            work. </para>
+
+        <para>Similarly, for certain use cases where you want to predict
+            the amount of work performed by the CPU in a given amount of
+            time, it is beneficial to set the CPU frequency to always run
+            at a certain speed (for example 3Ghz) and still allow Turbo
+            Boost.</para>
+
 
     </sect1>
 

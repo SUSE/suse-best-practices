@@ -1,0 +1,2195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+<article role="sbp" xmlns="http://docbook.org/ns/docbook"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+    xml:id="art.sbp.quilting.osc" xml:lang="en">
+    <info>
+        <title>Quilting with OSC</title>
+        <subtitle/>
+        <productname>SUSE Linux Enterprise Server</productname>
+        <!--<productname>SUSE Linux Enterprise Server</productname>-->
+        <productnumber/>
+        <author>
+            <personname>
+                <firstname>Josef</firstname>
+                <surname>Moellers, Senior Developer SUSE Linux Enterprise
+                    Network Services, SUSE</surname>
+            </personname>
+            <!--<personname>
+                <firstname>Josef</firstname>
+                <surname>Moellers</surname>
+            </personname>
+            <affiliation>
+                <jobtitle>Senior Developer SUSE Linux Enterprise Network Services</jobtitle>
+                <orgname>SUSE</orgname>
+            </affiliation>-->
+        </author>
+        <date><?dbtimestamp format="B d, Y" ?></date>
+
+
+        <abstract>
+
+            <para>This document leads you through the process of modifying
+                a package using the <command>osc</command> and
+                    <command>quilt</command> tools. It also discusses
+                simple error cases, based upon the author’s own
+                experiences, but it does not attempt to be a full manual or
+                to cover all options. The steps described here should work
+                well, but if you encounter any difficulties, you should
+                consult the manuals or ask an expert for help. </para>
+
+            <para>This document does not intend to provide a guide for the
+                Open Build Service (OBS). If you want to learn more about
+                OBS, visit the project’s web page at
+                http://openbuildservice.org/ and read the specific
+                documentation there http://openbuildservice.org/help/ </para>
+
+        </abstract>
+
+    </info>
+
+
+    <sect1 xml:id="sec.intro">
+
+        <title>Introduction</title>
+
+        <para>With the evolution of computer architecture, performance has
+            reached results which were unimaginable a few years ago.
+            However, the complexity of modern computer architectures
+            requires end users and developers to know how to write code. It
+            also requires them to know how to configure and deploy software
+            for a specific architecture to get the most out of it.</para>
+
+        <para>This document focuses on fine-tuning a SUSE Linux Enterprise
+            system. It covers settings and parameters configurable on SUSE
+            Linux Enterprise software offerings, Network Interface Card
+            (NIC) settings and some BIOS settings which are common to most
+            hardware vendors.</para>
+
+        <para>Performance tuning is hard and general recommendations are
+            tricky. This document tries to provide an insight on
+            configurations in the Linux kernel which have an impact on the
+            overall system performance (throughput versus latency). While
+            various settings are described, some examples of potential
+            values to be used are provided. However, those values need to
+            be considered relatively to the others for the different
+            profiles and not necessarily as absolute values to be used. </para>
+
+        <para>This document does not intend to provide a generic
+            rule-of-thumb (or values) to be used for performance tuning.
+            The finest tuning of those parameters described still requires
+            a thorough understanding of the workloads and the hardware they
+            run on.</para>
+
+    </sect1>
+
+
+    <sect1 xml:id="sec.bios_setup">
+
+        <title>BIOS Setup</title>
+
+        <para>The BIOS is the foundation and the first level of tuning
+            which can have an impact on the performance of your overall
+            system. </para>
+
+        <para>The BIOS controls the voltage (and hence frequency) which
+            components like CPU and RAM run at. In addition, it allows you
+            to enable or disable specific CPU features which can have a
+            profound impact not only on system performance, but also on
+            power usage.</para>
+
+        <para>The first things to know are the states at which a CPU can be
+            in when performing its duties.</para>
+
+        <para>There are two sets of states (or modes): the C-states and
+            P-states. C-states are idle states while P-states are
+            operational states.</para>
+
+        <para>Aside from the C0 state, which is the only one where the CPU
+            is actually busy doing work, all other C-states are idle
+            states. The basic idea behind C-states is that when a CPU is
+            not doing any useful work it is better to <quote>shut it
+                down</quote>. This helps reduce power usage which for an
+            electrical component like the CPU means also extending its
+            life-time expectancy.</para>
+
+        <para>P-states control the operational state of the CPU when it is
+            doing some useful work. For instance, even if the CPU/core is
+            in C0 state that does not mean it needs to run at its maximum
+            speed. A very basic example is when using the laptop in battery
+            mode: the CPU will enter a higher P-state hence reducing the
+            frequency at which the CPU/core runs at to minimize power
+            consumption.</para>
+
+        <para>This document does not go into the details of each C/P-state.
+            The following links provide detailed references:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="http://www.hardwaresecrets.com/everything-you-need-to-know-about-the-cpu-c-states-power-saving-modes/"
+                        >http://www.hardwaresecrets.com/everything-you-need-to-know-about-the-cpu-c-states-power-saving-modes/</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://software.intel.com/en-us/blogs/2008/03/12/c-states-and-p-states-are-very-different"
+                        >https://software.intel.com/en-us/blogs/2008/03/12/c-states-and-p-states-are-very-different</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link xlink:href="haypo.github.io/intel-cpus.html"
+                        >https://haypo.github.io/intel-cpus.html</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://github.com/HewlettPackard/LinuxKI/wiki/Power-vs-Performance"
+                        >https://github.com/HewlettPackard/LinuxKI/wiki/Power-vs-Performance</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://people.cs.pitt.edu/~kirk/cs3150spring2010/ShiminChen.pptx"
+                        >https://people.cs.pitt.edu/~kirk/cs3150spring2010/ShiminChen.pptx</link>
+                </para>
+            </listitem>
+
+        </itemizedlist>
+
+        <para>Whether to enable or disable C/P-states for greater
+            throughput or lower latency depends a lot on the use case. For
+            instance, in some ultra-low latency applications it is
+            beneficial to disable the CPU C-states, because when the CPU is
+            always in C0 state, there is no overhead to resume
+            working.</para>
+
+        <para>Similarly, for certain use cases where you want to predict
+            the amount of work performed by the CPU in a given amount of
+            time, it is beneficial to set the CPU frequency to always run
+            at a certain speed (for example 3 Ghz) and still allow Turbo
+            Boost.</para>
+
+        <sect2 xml:id="sec.cpupower_tool">
+            <title>Cpupower Tool</title>
+
+            <para>Use the <emphasis role="bold">cpupower</emphasis> tool to
+                read your supported CPU frequencies, and to set them. To
+                install the tool run the command <command>zypper in
+                    cpupower</command>.</para>
+
+            <para>As an example, if you run the command <command># cpupower
+                    frequency-info</command>, you can read some important
+                information from the output:</para>
+
+            <screen>hardware limits: 1.20 GHz - 2.20 GHz</screen>
+
+            <para>This represents the frequency range supported by the
+                CPU.</para>
+
+            <screen>available frequency steps:  2.20 GHz, 2.10 GHz, 2.00 GHz, 1.90 GHz, 1.80 GHz, 
+1.70 GHz, 1.60 GHz, 1.50 GHz, 1.40 GHz, 1.30 GHz, 1.20 GHz</screen>
+
+            <para>This represents the values which the frequency can be set
+                to if manually set.</para>
+
+            <screen>available cpufreq governors: userspace ondemand performance</screen>
+
+            <para>This represent the available <emphasis role="bold"
+                    >governors</emphasis> supported by the kernel:</para>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="bold">userspace</emphasis> allows
+                        the frequency to be set manually,</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">ondemand</emphasis> allows
+                        the CPU to run at different speed depending on the
+                        workloads</para>
+                </listitem>
+                <listitem>
+                    <para>and <emphasis role="bold">performance</emphasis>
+                        sets the CPU frequency to the maximum
+                        allowed.</para>
+                </listitem>
+            </itemizedlist>
+
+            <screen>current CPU frequency: 1.70 GHz (asserted by call to hardware)</screen>
+
+            <para>This shows the frequency at which the CPU is currently
+                running.</para>
+
+            <screen>boost state support:
+       Supported: yes
+       Active: no/</screen>
+
+            <para>This shows whether Turbo Boost is supported by your CPU
+                and if it is enabled or disabled.</para>
+
+            <note>
+                <title>Disabled P-states</title>
+
+                <para>If P-states are disabled then automatically Turbo
+                    Boost is not supported. This means the row <emphasis
+                        role="bold">Supported:</emphasis> above will always
+                    show <emphasis role="bold">no</emphasis> and
+                    consequentially it will not be possible to enable it. </para>
+
+                <para>Similarly, when P-states are enabled and managed by
+                    the <emphasis role="bold">intel_pstate</emphasis>
+                    driver (Intel CPUs), then the <emphasis role="bold"
+                        >userspace</emphasis> governor is not supported.
+                    This means it is not possible to manually set a
+                    specific frequency. Currently, the only two governors
+                    supported by the <emphasis role="bold"
+                        >intel_pstate</emphasis> driver are <emphasis
+                        role="bold">performance</emphasis> and <emphasis
+                        role="bold">ondemand</emphasis>.</para>
+
+                <para>To disable P-states on Intel platform it is
+                    sufficient to append <emphasis role="bold"
+                        >intel_pstate=disable</emphasis> to the kernel boot
+                    parameters.</para>
+            </note>
+
+            <para>Where Turbo Boost is supported, you can enable it by
+                running this command:</para>
+            <para>
+                <command># echo 0 >
+                    /sys/devices/system/cpu/intel_pstate/no_turbo</command>
+            </para>
+
+            <para>or disable it by running this command:</para>
+            <para>
+                <command># echo 1 >
+                    /sys/devices/system/cpu/intel_pstate/no_turbo</command>
+            </para>
+
+            <para>To set a specific governor run one of these
+                commands:</para>
+            <para>
+                <command># cpupower frequency-set -g userspace</command>
+            </para>
+            <para>(set the governor to <emphasis role="bold"
+                    >userspace</emphasis>)</para>
+            <para>
+                <command># cpupower frequency-set -g ondemand</command>
+            </para>
+            <para>(set the governor to <emphasis role="bold"
+                    >ondemand</emphasis>)</para>
+            <para>
+                <command># cpupower frequency-set -g performance</command>
+            </para>
+            <para>(set the governor to <emphasis role="bold"
+                    >performance</emphasis>)</para>
+
+            <para>If you want to set the CPU frequency to a particular
+                speed, run the command:</para>
+            <para>
+                <command># cpupower frequency-set -f [FREQUENCY]</command>
+            </para>
+
+            <para>Replace [FREQUENCY] with one of the values returned by
+                    <emphasis role="bold">cpupower
+                    frequency-info</emphasis> in the row <emphasis
+                    role="bold">available frequency
+                steps</emphasis>.</para>
+
+        </sect2>
+    </sect1>
+
+    <sect1 xml:id="sec.kernel_tuning">
+        <title>Kernel Tuning</title>
+
+        <para>The Linux Kernel provides many parameters to be tuned via the
+                <emphasis role="bold">sysctl</emphasis> interface or the
+                <emphasis role="bold">proc</emphasis> file system. The
+            following chapters describe those settings which can have a
+            direct impact on overall system performance hence the values
+            which can be used for specific profiles (for example
+                <quote>high-throughput</quote> versus
+                <quote>low-latency</quote>).</para>
+
+        <sect2 xml:id="sec.io_scheduler_tuning">
+            <title>I/O Scheduler Tuning</title>
+
+            <para>The first setting which has a direct impact on I/O
+                performance is the I/O scheduler chosen for your device.
+                The I/O scheduler can be defined for each device. This
+                means the Linux kernel allows you to use different
+                scheduling policies for different devices. This can be very
+                convenient on systems where different hard-drives perform
+                different duties, thus different policies among them may
+                make sense.</para>
+
+            <para>To retrieve or change the value of the I/O scheduler you
+                can access the file at
+                    <filename>/sys/block/sda/queue/scheduler</filename>.</para>
+
+            <para>On SUSE Linux Enterprise-based distributions you can
+                chose among three different scheduling algorithms to be
+                assigned to each device: <emphasis role="bold"
+                    >noop</emphasis>, <emphasis role="bold">cfq</emphasis>
+                and <emphasis role="bold">deadline</emphasis>.</para>
+
+            <para>The Complete Fair Queuing (CFQ) is a fairness-oriented
+                scheduler and is the default algorithm used by the kernel.
+                The algorithm is based on the use of a time slice in which
+                it is allowed to perform I/O on the disk.</para>
+
+            <para>To enable the CFQ scheduler, run the command:</para>
+            <para>
+                <command>echo cfq >
+                    /sys/block/sda/queue/scheduler</command>
+            </para>
+
+            <para>The DEADLINE algorithm is a latency-oriented I/O
+                scheduler where each request is assigned a target deadline.
+                In all those cases where several threads are performing
+                reads or writes this algorithm offers greater throughput as
+                long as fairness is not a requirement.</para>
+
+            <para>To enable the DEADLINE scheduler, run the command:</para>
+            <para>
+                <command>echo deadline >
+                    /sys/block/sda/queue/scheduler</command>
+            </para>
+
+            <para>The NOOP algorithm is the simplest of the three. It
+                performs any I/O which is sent to the scheduler without any
+                complex scheduling. We recommend to use it on those systems
+                where storage devices can perform scheduling themselves
+                hence this algorithm avoids competition between the storage
+                device and the CPU which is trying to perform any
+                scheduling. It is also recommended in virtual machines
+                which do not have a direct access to the storage device as
+                they are virtualized by the hypervisor.</para>
+
+            <para>To enable the NOOP scheduler, run the command:</para>
+            <para>
+                <command>echo noop >
+                    /sys/block/sda/queue/scheduler</command>
+            </para>
+
+        </sect2>
+
+        <sect2 xml:id="sec.task_sched_tuning">
+            <title>Task Scheduler Tuning</title>
+
+            <para>Basic aspects and configuration of the Linux kernel task
+                scheduler are performed during the kernel configuration and
+                compilation. This document does not cover those details. It
+                rather covers some <emphasis role="bold">sysctl</emphasis>
+                settings which can have an impact on throughput or latency
+                of the system involved with packet processing.</para>
+
+            <para>The default Linux kernel scheduler is the Complete Fair
+                Scheduler (CFS) which accumulates a <quote>virtual
+                    runtime</quote> (vruntime). When a new task needs to be
+                selected it is always the task with the minimum accumulated
+                    <emphasis role="bold">vruntime</emphasis>.</para>
+
+            <para>There are few scheduling policies to be assigned to
+                running processes:</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_OTHER</emphasis> is
+                        the default Linux scheduling policy.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_FIFO</emphasis> uses
+                        the <quote>First In First Out</quote> algorithm and
+                        is usually used for some time-critical
+                        applications.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_RR</emphasis> is
+                        similar to the <emphasis role="bold"
+                            >SCHED_FIFO</emphasis> policy but it is
+                        implemented using a Round Robin algorithm.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_BATCH</emphasis> is
+                        designed for CPU-intensive applications which may
+                        require to get hold of the CPU for longer time to
+                        complete.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_IDLE</emphasis> is
+                        designed for low priority tasks which may run
+                        seldom or that are not time-critical.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="bold">SCHED_DEADLINE</emphasis>
+                        is designed to make a task complete within a given
+                        deadline very similarly to the I/O deadline
+                        scheduler.</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>It is possible to assign processes with different
+                policies using the tool <emphasis role="bold"
+                    >chrt</emphasis> (shipped with the <package>util-linux
+                    package</package>). The same tool can be used to
+                retrieve information about running processes and priorities
+                supported for each of the policy supported.</para>
+
+            <para>In the example below, you can retrieve valid priorities
+                for the various scheduling policies:</para>
+
+            <screen>
+# chrt -m
+SCHED_SCHED_OTHER min/max priority	: 0/0
+SCHED_SCHED_FIFO min/max priority	: 1/99
+SCHED_SCHED_RR min/max priority	: 1/99
+SCHED_SCHED_BATCH min/max priority	: 0/0
+SCHED_SCHED_IDLE min/max priority	: 0/0
+SCHED_SCHED_DEADLINE min/max priority	: 0/0   
+</screen>
+
+            <para>Based on the above priorities you can set – for example –
+                a process with the SCHED_FIFO policy and a priority of
+                1:</para>
+
+            <screen># chrt -f -p 1 &lt;PID></screen>
+
+            <para>Or you can set a SCHED_BATCH policy with a priority of
+                0:</para>
+
+            <screen># chrt -b -p 0 &lt;PID></screen>
+
+            <para>The following <emphasis role="bold">sysctl</emphasis>
+                settings can have a direct impact on throughput and
+                latency:</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >kernel.sched_min_granularity_ns</emphasis>
+                        represents the minimal preemption granularity for
+                        CPU bound tasks. See <emphasis role="bold"
+                            >sched_latency_ns</emphasis> for details. The
+                        default value is 4000000 nanoseconds.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >kernel.sched_wakeup_granularity_ns</emphasis>
+                        represents the wake-up preemption granularity.
+                        Increasing this variable reduces wake-up
+                        preemption, reducing disturbance of compute bound
+                        tasks. Lowering it improves wake-up latency and
+                        throughput for latency critical tasks, particularly
+                        when a short duty cycle load component must compete
+                        with CPU bound components. The default value is
+                        2500000 nanoseconds.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >kernel.sched_migration_cost_ns</emphasis> is
+                        the amount of time after the last execution that a
+                        task is considered to be <quote>cache hot</quote>
+                        in migration decisions. A <quote>hot</quote> task
+                        is less likely to be migrated to another CPU, so
+                        increasing this variable reduces task migrations.
+                        The default value is 500000 nanoseconds. If the CPU
+                        idle time is higher than expected when there are
+                        runnable processes, try reducing this value. If
+                        tasks bounce between CPUs or nodes too often, try
+                        increasing it.</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >kernel.numa_balancing</emphasis> is a boolean
+                        flag which enables or disables automatic NUMA
+                        balacing of processes / threads. Automatic NUMA
+                        balancing uses several algorithms and data
+                        structures, which are only active and allocated if
+                        automatic NUMA balancing is active on the
+                        system.</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>Find below examples for a possible comparison for the
+                three values across different performance profiles.</para>
+
+
+            <table>
+                <title>Kernel Tuning - Comparison</title>
+                <tgroup cols="4">
+                    <colspec colwidth="3.3*"/>
+                    <colspec colwidth="1.0*"/>
+                    <colspec colwidth="2.0*"/>
+                    <colspec colwidth="1.5*"/>
+                    <thead>
+                        <row>
+                            <entry/>
+                            <entry>Balanced</entry>
+                            <entry>Higher Throughput</entry>
+                            <entry>Lower Latency</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >kernel.sched_min_granularity_ns</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>2,250,000</para>
+                            </entry>
+                            <entry>
+                                <para>10,000,000</para>
+                            </entry>
+                            <entry>
+                                <para>10,000,000</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >kernel.sched_wakeup_granularity_ns</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>3,000,000</para>
+                            </entry>
+                            <entry>
+                                <para>15,000,000</para>
+                            </entry>
+                            <entry>
+                                <para>1,000,000</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >kernel.sched_migration_cost_ns</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>500,000</para>
+                            </entry>
+                            <entry>
+                                <para>250,000</para>
+                            </entry>
+                            <entry>
+                                <para>5,000,000</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >kernel.numa_balancing</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>1</para>
+                            </entry>
+                            <entry>
+                                <para>0</para>
+                            </entry>
+                            <entry>
+                                <para>0</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >kernel.pid_max</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>32,768</para>
+                            </entry>
+                            <entry>
+                                <para>1024 * NUMBER_OF_CPUS</para>
+                            </entry>
+                            <entry>
+                                <para>32,768</para>
+                            </entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+
+        </sect2>
+
+        <sect2 xml:id="sec.memory_man_tuning">
+            <title>Memory Manager Tuning</title>
+
+            <para>The Linux kernel stages disk writes into cache, and over
+                time asynchronously flushes them to disk. In addition,
+                there is the chance that a lot of I/O will overwhelm the
+                cache. The Linux kernel allows you – via the <emphasis
+                    role="bold">sysctl</emphasis> command – to tune how
+                much data to keep in RAM before swapping it out to disk. It
+                also allows you to tune various other settings as described
+                below.</para>
+
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic">vm.dirty_ratio</emphasis>
+                        is the absolute maximum amount of system memory
+                        (here expressed as a percentage) that can be filled
+                        with dirty pages before everything must get
+                        committed to disk. When the system gets to this
+                        point, all new I/O operations are blocked until
+                        dirty pages have been written to disk. This is
+                        often the source of long I/O pauses, but is a
+                        safeguard against too much data being cached
+                        unsafely in memory. (<emphasis role="italic"
+                            >vm.dirty_bytes</emphasis> is
+                        preferable).</para>
+                </listitem>
+            </itemizedlist>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic">vm.dirty_bytes</emphasis>
+                        is the amount of dirty memory at which a process
+                        generating disk writes will itself start
+                        write-back. </para>
+                    <note>
+                        <title><emphasis role="italic"
+                                >dirty_bytes</emphasis> and <emphasis
+                                role="italic"
+                            >dirty_ratio</emphasis></title>
+                        <para><emphasis role="italic"
+                                >dirty_bytes</emphasis> is the counterpart
+                            of <emphasis role="italic"
+                                >dirty_ratio</emphasis>. Only one of them
+                            may be specified at a time. When one <emphasis
+                                role="bold">sysctl</emphasis> is written it
+                            is immediately taken into account to evaluate
+                            the dirty memory limits and the other appears
+                            as 0 when read. The minimum value allowed for
+                                <emphasis role="italic"
+                                >dirty_bytes</emphasis> is two pages (in
+                            bytes). Any value lower than this limit will be
+                            ignored and the old configuration will be
+                            retained.</para>
+                    </note>
+
+                </listitem>
+            </itemizedlist>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >vm.dirty_background_ratio</emphasis> is the
+                        percentage of system memory that can be filled with
+                            <quote>dirty</quote> pages before the <emphasis
+                            role="bold">pdflush</emphasis>/<emphasis
+                            role="bold">flush</emphasis>/<emphasis
+                            role="bold">kdmflush</emphasis> background
+                        processes kick in to write it to disk.
+                            <quote>Dirty</quote> pages are memory pages
+                        that still need to be written to disk. As an
+                        example, if you set this value to 10 (it means
+                        10%), and your server has 256 GB of memory, then
+                        25.6 GB of data could be sitting in RAM before
+                        something is done (<emphasis role="italic"
+                            >vm.dirty_background_bytes is
+                            preferable</emphasis>).</para>
+                </listitem>
+            </itemizedlist>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic"
+                            >vm.dirty_background_bytes</emphasis> is the
+                        amount of dirty memory at which the background
+                        kernel flusher threads will start write-back. This
+                        setting is the counterpart of <emphasis
+                            role="italic"
+                        >dirty_background_ratio</emphasis>. Only one of
+                        them may be specified at a time. When one <emphasis
+                            role="bold">sysctl</emphasis> is written it is
+                        immediately taken into account to evaluate the
+                        dirty memory limits and the other appears as 0 when
+                        read. In some scenarios this is a better and safer
+                        setting to be used since it provides a finer tuning
+                        on the amount of memory (for example, 1% of 256 GB
+                        = 2.56 GB might already be too much for some
+                        scenarios).</para>
+                </listitem>
+            </itemizedlist>
+            <itemizedlist>
+                <listitem>
+                    <para><emphasis role="italic">vm.swappiness</emphasis>:
+                        The kernel buffers always stay in main memory,
+                        because they have to. Applications and cache
+                        however do not need to stay in RAM. The cache can
+                        be dropped, and the applications can be paged out
+                        to the swap file. Dropping cache means a potential
+                        performance hit. Likewise with paging applications
+                        out. This parameter helps the kernel decide what to
+                        do. By setting it to the maximum of 100 the kernel
+                        will swap very aggressively. By setting it to 0 the
+                        kernel will only swap to protect against an
+                        out-of-memory condition. The default is 60 which
+                        means that some swapping will occur.</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>Find below examples for a possible comparison for the
+                three values across different performance profiles.</para>
+
+
+            <table>
+                <title>Memory Manager Tuning - Comparison</title>
+                <tgroup cols="4">
+                    <colspec colwidth="2.8*"/>
+                    <colspec colwidth="1.5*"/>
+                    <colspec colwidth="2.0*"/>
+                    <colspec colwidth="1.5*"/>
+                    <thead>
+                        <row>
+                            <entry/>
+                            <entry>Balanced</entry>
+                            <entry>Higher Throughput</entry>
+                            <entry>Lower Latency</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >vm.dirty_ratio</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>20</para>
+                            </entry>
+                            <entry>
+                                <para>40</para>
+                            </entry>
+                            <entry>
+                                <para>10</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >vm.dirty_background_ratio</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>10</para>
+                            </entry>
+                            <entry>
+                                <para>10</para>
+                            </entry>
+                            <entry>
+                                <para>3</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >vm.dirty_bytes</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>16,384</para>
+                            </entry>
+                            <entry>
+                                <para>32,768</para>
+                            </entry>
+                            <entry>
+                                <para>8,192</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic"
+                                     >vm.dirty_background_bytes</emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>78,643,200</para>
+                            </entry>
+                            <entry>
+                                <para>104,857,600</para>
+                            </entry>
+                            <entry>
+                                <para>52,428,800</para>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>
+                                <para>
+                                    <emphasis role="italic">vm.swappiness
+                                    </emphasis>
+                                </para>
+                            </entry>
+                            <entry>
+                                <para>60</para>
+                            </entry>
+                            <entry>
+                                <para>10</para>
+                            </entry>
+                            <entry>
+                                <para>10</para>
+                            </entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+
+        </sect2>
+
+        <sect2 xml:id="sec.net_stack_tuning">
+            <title>Networking Stack Tuning</title>
+
+            <para>The Linux kernel allows the modification of several
+                parameters affecting the networking stack. Since kernel
+                2.6.17 the networking stack supports full TCP auto-tuning,
+                allowing the resizing of buffers automatically between a
+                minimum and maximum value.</para>
+
+            <para>This chapter goes through some settings which can enhance
+                throughput and latency of the Linux kernel networking
+                stack. These settings are configurable via the <emphasis
+                    role="bold">sysctl</emphasis> interface.</para>
+
+            <sect3 xml:id="sec.net_ipv4">
+                <title>net.ipv4.</title>
+
+                <itemizedlist>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_fastopen</emphasis> is the setting
+                            that enables or disables the RFC7413 which
+                            allows sending and receiving data in the
+                            opening SYN packet. Enabling this option has
+                            the positive effect of not losing the initial
+                            handshake packets for payload transmission.
+                            Thus it maximizes network bandwidth
+                            usage.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_lowlatency</emphasis> when enabled
+                            (value set to 1) instructs the Linux kernel to
+                            make decisions that prefer low-latency to
+                            high-throughput. By default this setting is
+                            disabled (value set to 0). It is recommended to
+                            enable this option in profiles preferring lower
+                            latency to higher throughput.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">tcp_sack</emphasis>
+                            when enabled allows selecting acknowledgments.
+                            By default it is disabled (value set to 0). It
+                            is recommended to enable this option to enhance
+                            performance.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">tcp_rmem</emphasis>
+                            is a tuple of three values, representing the
+                            minimum, the default and the maximum size of
+                            the receive buffer used by the TCP sockets. It
+                            is guaranteed to each TCP socket also under
+                            moderate memory pressure. The default value in
+                            this tuple overrides the value set by the
+                            parameter <emphasis role="italic"
+                                >net.core.rmem_default</emphasis>.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">tcp_wmem</emphasis>
+                            is a tuple of three values, representing the
+                            minimum, the default and the maximum size of
+                            the send buffer used by the TCP sockets. Each
+                            TCP socket has the right to use it. The default
+                            value in this tuple overrides the value set by
+                            the parameter <emphasis role="italic"
+                                >net.core.wmem_default</emphasis>.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >ip_local_port_range</emphasis> defines the
+                            local port range that is used by TCP and UDP to
+                            choose the local port. The first number is the
+                            first local port number, and the second the
+                            last local port number.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_max_syn_backlog</emphasis> represents
+                            the maximum number of remembered connection
+                            requests, which have not received an
+                            acknowledgment from the connecting client. The
+                            minimal value is 128 for low memory machines,
+                            and it will increase in proportion to the
+                            memory of machine. If the server suffers from
+                            overload, try increasing this number.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_syn_retries</emphasis> is the number
+                            of times a SYN is retried if no response is
+                            received. A lower value means less memory usage
+                            and reduces the impact of SYN flood attacks but
+                            on lossy networks a 5+ value might be
+                            worthwhile.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_tw_reuse</emphasis> allows reusing
+                            sockets in the TIME_WAIT state for new
+                            connections when it is safe from the protocol
+                            viewpoint. It is generally a safer alternative
+                            to <emphasis role="italic"
+                                >tcp_tw_recycle</emphasis>, however it is
+                            disabled by default (value set to 0). It is an
+                            interesting setting for servers running
+                            services like Web servers or Database servers
+                            (for example MySQL), because it allows the
+                            servers to scale faster on accepting new
+                            connections (for example TCP SOCKET ACCEPT).
+                            Reusing the sockets can be very effective in
+                            reducing server load. Because this setting is
+                            very use case centric it should be used
+                            (enabled) with caution.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_tw_recycle</emphasis> enables the
+                                <quote>fast recycling</quote> of TIME_WAIT
+                            sockets. The default value is 0 (disabled).
+                            Some <emphasis role="bold">sysctl</emphasis>
+                            documentation incorrectly states the default as
+                            enabled. It is known to cause some issues with
+                            scenarios of load balancing and fail over when
+                            enabled (value set to 1). The problem mostly
+                            effects scenarios where the machine configured
+                            with this setting enabled is a server behind a
+                            device performing natting. When <emphasis
+                                role="italic">recycle</emphasis> is
+                            enabled, the server cannot distinguish new
+                            incoming connections from different clients
+                            behind the same NAT device. Because this
+                            setting is very use case centric it should be
+                            used (enabled) with caution.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >tcp_timestamps</emphasis> enables time
+                            stamps as defined in RFC1323. It is enabled by
+                            default (value set to 1). Use random offset for
+                            each connection rather than only using current
+                            time.</para>
+                    </listitem>
+                </itemizedlist>
+
+            </sect3>
+
+            <sect3 xml:id="sec.net_core">
+                <title>net.core.</title>
+
+                <itemizedlist>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >netdev_max_backlog</emphasis> sets the
+                            maximum number of packets queued on the INPUT
+                            side when the interface receives packets faster
+                            than the kernel can process them.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >netdev_budget</emphasis>: if SoftIRQs do
+                            not run for long enough, the rate of incoming
+                            data could exceed the kernel's capability to
+                            consume the buffer fast enough. As a result,
+                            the NIC buffers will overflow and traffic will
+                            be lost. Occasionally, it is necessary to
+                            increase the time that SoftIRQs are allowed to
+                            run on the CPU and this parameters allows that.
+                            The default value of the budget is 300. This
+                            will cause the SoftIRQ process to consume 300
+                            messages from the NIC before getting off the
+                            CPU.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">somaxconn</emphasis>
+                            describes the limits of socket listen()
+                            backlog, known in userspace as SOMAXCONN. The
+                            default value is set to 128. See also <emphasis
+                                role="italic"
+                                >tcp_max_syn_backlog</emphasis> for
+                            additional tuning for TCP sockets.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">busy_poll</emphasis>
+                            represents the low latency busy poll timeout
+                            for poll and select. Approximate time in
+                            microseconds to busy loop waiting for events.
+                            The recommended value depends on the number of
+                            sockets you poll on. For several sockets use
+                            the value 50, for several hundreds use 100. For
+                            more than that you probably want to use
+                            epoll.</para>
+                        <note>
+                            <title>Sockets</title>
+                            <para>Only sockets with SO_BUSY_POLL set will
+                                be busy polled. This means you can either
+                                selectively set SO_BUSY_POLL on those
+                                sockets or set <emphasis role="italic"
+                                    >net.busy_read</emphasis> globally.
+                                This will increase power usage. It is
+                                disabled by default (value set to
+                                0).</para>
+                        </note>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">busy_read</emphasis>
+                            represents the low latency busy poll timeout
+                            for socket reads. Approximate time in
+                            microseconds to busy loop waiting for packets
+                            on the device queue. This sets the default
+                            value of the SO_BUSY_POLL socket option. Can be
+                            set or overridden per socket by setting socket
+                            option SO_BUSY_POLL, which is the preferred
+                            method of enabling. If you need to enable the
+                            feature globally via <emphasis role="bold"
+                                >sysctl</emphasis>, a value of 50 is
+                            recommended. This will increase power usage. It
+                            is disabled by default (value set to 0).</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">rmem_max</emphasis>
+                            represents the maximum receive socket buffer
+                            size in bytes.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic">wmem_max</emphasis>
+                            represents the maximum transmit socket buffer
+                            size in bytes.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >rmem_default</emphasis> represents the
+                            default setting of the socket receive buffer in
+                            bytes.</para>
+                    </listitem>
+                    <listitem>
+                        <para><emphasis role="italic"
+                                >wmem_default</emphasis> represents the
+                            default setting of the socket transmit buffer
+                            in bytes.</para>
+                    </listitem>
+                </itemizedlist>
+
+                <para>Find below a possible configuration comparison for
+                    the above parameters across different performance
+                    profiles.</para>
+
+                <table>
+                    <title>Networking Stack Tuning - Comparison</title>
+                    <tgroup cols="4">
+                        <colspec colwidth="2.4*"/>
+                        <colspec colwidth="1.4*"/>
+                        <colspec colwidth="2.1*"/>
+                        <colspec colwidth="2.1*"/>
+                        <thead>
+                            <row>
+                                <entry/>
+                                <entry>Balanced</entry>
+                                <entry>Higher Throughput</entry>
+                                <entry>Lower Latency</entry>
+                            </row>
+                        </thead>
+                        <tbody>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.netdev_max_backlog</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>1000</para>
+                                </entry>
+                                <entry>
+                                    <para>250,000</para>
+                                </entry>
+                                <entry>
+                                    <para>1000</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.netdev_budget</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>300</para>
+                                </entry>
+                                <entry>
+                                    <para>600</para>
+                                </entry>
+                                <entry>
+                                    <para>300</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.somaxconn</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>128</para>
+                                </entry>
+                                <entry>
+                                    <para>4,096</para>
+                                </entry>
+                                <entry>
+                                    <para>128</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.busy_poll</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>50</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.busy_read</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>50</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.rmem_max</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>212992</para>
+                                </entry>
+                                <entry>
+                                    <para>TOTAL_RAM_MEMORY</para>
+                                </entry>
+                                <entry>
+                                    <para>TOTAL_RAM_MEMORY</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.wmem_max</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>212992</para>
+                                </entry>
+                                <entry>
+                                    <para>TOTAL_RAM_MEMORY</para>
+                                </entry>
+                                <entry>
+                                    <para>TOTAL_RAM_MEMORY</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.rmem_default</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>212992</para>
+                                </entry>
+                                <entry>
+                                    <para>67108864</para>
+                                </entry>
+                                <entry>
+                                    <para>67108864</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >net.core.wmem_default</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>212992</para>
+                                </entry>
+                                <entry>
+                                    <para>67108864</para>
+                                </entry>
+                                <entry>
+                                    <para>67108864</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_fastopen</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_lowlatency</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_sack</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_rmem</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>4096 87380 6291456</para>
+                                </entry>
+                                <entry>
+                                    <para>10240 87380 67108864</para>
+                                </entry>
+                                <entry>
+                                    <para>10240 87380 67108864</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_wmem</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>4096 87380 6291456</para>
+                                </entry>
+                                <entry>
+                                    <para>10240 87380 67108864</para>
+                                </entry>
+                                <entry>
+                                    <para>10240 87380 67108864</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >ip_local_port_range</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>32768 60999</para>
+                                </entry>
+                                <entry>
+                                    <para>1024 64999</para>
+                                </entry>
+                                <entry>
+                                    <para>32768 60999</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_max_syn_backlog</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>256</para>
+                                </entry>
+                                <entry>
+                                    <para>8192</para>
+                                </entry>
+                                <entry>
+                                    <para>1024</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_tw_reuse</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0 (1 is better but depends on use
+                                     case)</para>
+                                </entry>
+                                <entry>
+                                    <para>0 (1 is better but depends on use
+                                     case)</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_tw_recycle</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0 (1 is better but depends on use
+                                     case)</para>
+                                </entry>
+                                <entry>
+                                    <para>0 (1 is better but depends on use
+                                     case)</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_timestamps</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>1</para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                                <entry>
+                                    <para>0</para>
+                                </entry>
+                            </row>
+                            <row>
+                                <entry>
+                                    <para>
+                                     <emphasis role="italic"
+                                     >tcp_syn_retries</emphasis>
+                                    </para>
+                                </entry>
+                                <entry>
+                                    <para>6</para>
+                                </entry>
+                                <entry>
+                                    <para>8</para>
+                                </entry>
+                                <entry>
+                                    <para>5</para>
+                                </entry>
+                            </row>
+                        </tbody>
+                    </tgroup>
+                </table>
+
+            </sect3>
+        </sect2>
+    </sect1>
+
+    <sect1 xml:id="sec.irq_config">
+        <title>IRQ Configuration</title>
+
+        <para>A correct IRQ configuration – above all in multi-core
+            architecture and multi-thread applications – can have a
+            profound impact on throughput and latency performance. </para>
+
+        <para>To verify the IRQ affinitization, read the output of
+                <filename>/proc/interrupts</filename>. You can identify the
+            hardware you are interested in, all its interrupts and which
+            CPU is handling them.</para>
+
+        <para>Different hardware vendors provide their own supported
+            scripts to configure IRQ affinitization efficiently, taking
+            into account also NUMA architectures.</para>
+
+        <para>Whether you use a vendor script or proceed manually to the
+            IRQ-core affinitization, the first step to perform on Linux is
+            to stop and disable the <emphasis role="bold"
+                >irqbalance</emphasis> service by running these
+            commands:</para>
+
+        <para>
+            <command># systemctl disable irqbalance</command>
+        </para>
+        <para>
+            <command># systemctl stop irqbalance</command>
+        </para>
+
+        <para>Using the scripts provided by the NIC vendor is recommended.
+            However, if you cannot use them or want to proceed manually,
+            then perform the following steps:</para>
+
+        <procedure>
+            <step>
+                <para>Find the processors attached to your port:</para>
+                <screen># numactl --cpubind netdev:eth1 -s</screen>
+                <para>In this example, it is:</para>
+                <screen>physcpubind: 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71
+cpubind: 2
+nodebind: 2 </screen>
+
+                <para>These values tell you that the port is managed by the
+                    node #2 in your NUMA architecture and the physical
+                    cores involved are numbers 48 to 71.</para>
+            </step>
+            <step>
+                <para>Find the bitmask for each processor:</para>
+                <para>Math: <emphasis role="italic">2^CORE_ID</emphasis>
+                    and then convert the result to <emphasis role="italic"
+                        >HEX</emphasis></para>
+            </step>
+            <step>
+                <para>Find the IRQs assigned to the port:</para>
+                <screen># grep eth1 /proc/interrupts</screen>
+                <para>In this case – for the 64 queues available – the
+                    interrupt range is 52 to 115.</para>
+            </step>
+            <step>
+                <para>Echo the SMP affinity (calculated at step 2) value
+                    into the corresponding IRQ entry by:</para>
+                <screen># echo 10000 > /proc/irq/52/smp_affinity
+# echo 20000 > /proc/irq/53/smp_affinity
+[…]
+# echo 40000000 > /proc/irq/114/smp_affinity</screen>
+                <para>
+                    <command/>
+                </para>
+            </step>
+        </procedure>
+
+    </sect1>
+
+    <sect1 xml:id="sec.nic_settings">
+        <title>NIC settings setup</title>
+
+        <para>Different Network Interface Cards (NIC) provide different
+            features which can enhance the throughput and reduce the
+            latency of the networking traffic handled by a compute
+            host.</para>
+
+        <para>Use the <emphasis role="bold">ethtool</emphasis> utility to
+            enable and configure these offload capabilities.</para>
+
+        <para>Together with more advanced features, there are other
+            capabilities which are common to all NICs and which – for
+            example – allow a bigger or smaller buffer to store packets
+            received by or transmitted from the NIC itself.</para>
+
+        <para>The next paragraphs will go through the common parameters
+            first, and then cover the more advanced features.</para>
+
+        <sect2 xml:id="sec.ring_buffers">
+            <title>Ring buffers</title>
+
+            <para>Each NIC is equipped with memory to store network packets
+                received or to be transmitted.</para>
+
+            <para>A bigger buffer allows the NIC to store more packets,
+                before issuing an interrupt, thus reducing the number of
+                packets dropped at a specific rate.</para>
+
+            <para>It is possible to tune the number of packets to be
+                received by the NIC (either read from the network or to be
+                transmitted to the network) before triggering an interrupt.
+                You can also control how long the NIC should wait after the
+                configured amount is received before triggering the
+                interrupt. </para>
+
+            <para>For the example at hand, the following values are
+                set:</para>
+
+            <screen>Ethernet Link @ 10Gb/s
+Minimum frame size: 84 bytes (worst case scenario)
+Packet rate:
+       10,000,000,000 b/s / (84 B * 8 b/B) = 14,880,960 packets/s (maximum rate)
+       ~14,880 packets/ms (millisecond) 
+       ~14 packets/us (microsecond)
+Interrupt rate: 100us (microseconds)
+Receive buffer size required: 1400 entries</screen>
+
+            <para>The <emphasis role="bold">ethtool</emphasis> option to
+                query the value set for the RX (receive) and TX (transmit)
+                ring buffer is <emphasis role="bold">-g</emphasis>. This
+                option will show the current configured values and the
+                maximum ones allowed by the NIC.</para>
+
+            <para>Example:</para>
+
+            <screen># ethtool -g eth1
+Ring parameters for eth1:
+Pre-set maximums:
+RX:		4096
+RX Mini:	0
+RX Jumbo:	0
+TX:		4096
+Current hardware settings:
+RX:		64
+RX Mini:	0
+RX Jumbo:	0
+TX:		64</screen>
+
+            <para>In the example above you can see that the NIC supports up
+                to 4096 entries for both the RX and TX rings, but both
+                settings are currently set to 64.</para>
+
+            <para>To modify the values used by the system, use <emphasis
+                    role="bold">ethtool</emphasis> with the <emphasis
+                    role="strong">-G</emphasis> option.</para>
+
+            <para>Example:</para>
+
+            <screen># ethtool -G eth1 rx 4096
+# ethtool -G eth1 tx 4096
+# ethtool -g eth1
+Ring parameters for eth1:
+Pre-set maximums:
+RX:		4096
+RX Mini:	0
+RX Jumbo:	0
+TX:		4096
+Current hardware settings:
+RX:		4096
+RX Mini:	0
+RX Jumbo:	0
+TX:		4096</screen>
+
+            <para>Increasing the ring buffer sizes to a bigger value allows
+                the NIC to receive or send more packets at a given rate,
+                thus increasing networking throughput. While increasing the
+                ring buffer size has a positive effect on the throughput,
+                it has a counter-effect on packets latency. This is because
+                a packet will stay longer in the NIC memory before being
+                processed by the networking stack. </para>
+
+            <para>To not sacrifice latency too much while still increasing
+                your network throughput you can use the statistics provided
+                by <emphasis role="bold">ethtool</emphasis> (option
+                    <emphasis role="bold">-S</emphasis>) to balance
+                throughput and latency.</para>
+
+            <para>To accomplish this task, start with the default ring size
+                for both receive and transmit rings while handling your
+                target packets rate (for example 10Gb/s). Then look at
+                rx_dropped/tx_dropped counters provided by the
+                    <command>ethtool -S</command> command and increase (by
+                a power of 2) the ring buffers until the rx_dropped /
+                tx_dropped counters stop or reach the value which is
+                considered acceptable for your use case. Note that not all
+                scenarios impose a 0-packet-drop requirement.</para>
+        </sect2>
+
+        <sect2 xml:id="sec.interrupt_coalescing">
+            <title>Interrupt Coalescing</title>
+
+            <para>As mentioned before, NICs also allow configuring:</para>
+            <itemizedlist>
+                <listitem>
+                    <para>how many packets to be queued in the receive
+                        (rx-frames) or transmit (tx-frames) ring before
+                        triggering an interrupt</para>
+                </listitem>
+                <listitem>
+                    <para>how long to wait after the value of rx-frames /
+                        tx-frames has been reached before triggering an
+                        interrupt (rx-usecs/tx-usecs)</para>
+                </listitem>
+            </itemizedlist>
+
+            <para>To fine-tune these parameters you can still use the
+                statistics provided by the <command>ethtool -S</command>
+                command.</para>
+
+            <para>However, when higher throughput is required and NAPI is
+                being used by the NIC driver, a value of 64 for the
+                rx-frames parameter can help to boost throughput, because
+                at each poll the driver would consume in polling a maximum
+                of 64 packets anyway.</para>
+
+            <para>To configure the above settings use the following
+                commands:</para>
+
+            <para>
+                <command># ethtool -C eth1 rx-frames 64</command>
+            </para>
+            <para>
+                <command># ethtool -C eth1 tx-frames 64</command>
+            </para>
+            <para>
+                <command># ethtool -C eth1 tx-usecs 8</command>
+            </para>
+            <para>
+                <command># ethtool -C eth1 rx-usecs 8</command>
+            </para>
+
+            <para>To verify that the new values have been set use the
+                following command:</para>
+            <para>
+                <command># ethtool -c eth1</command>
+            </para>
+
+            <para>To use custom value for the rx-frames/tx-frames and
+                rx-usecs/tx-usecs the Dynamic Interrupt Adaptation (DIA)
+                needs to be turned off. DIA is the features allowing the
+                NIC to auto-tune these settings based on network load. Not
+                all NICs implement such a feature; some require a specific
+                kernel and driver versions to support it. </para>
+
+            <para>To configure the DIA for both RX and TX use the two
+                following commands:</para>
+            <para>
+                <command># ethtool -C eth1 adaptive-rx on</command>
+            </para>
+            <para>
+                <command># ethtool -C eth1 adaptive-tx on</command>
+            </para>
+
+        </sect2>
+
+        <sect2 xml:id="sec.offload_capabilities">
+            <title>Offload Capabilities</title>
+
+            <para>Various NIC vendors offer different offload capabilities.
+                To check which features your NIC supports, use the command
+                    <command>ethtool -k DEVICE</command>. The features
+                which are marked with a <emphasis role="italic"
+                    >[fixed]</emphasis> cannot be changed since possibly
+                your NIC (or driver) does not implement that feature (for
+                example <emphasis role="italic">off [fixed])</emphasis>, or
+                they are required for the NIC to work correctly (for
+                example <emphasis role="italic">on
+                [fixed]</emphasis>).</para>
+
+            <para>Example output:</para>
+
+            <screen># ethtool -k eth1
+Features for eth1:
+rx-checksumming: on
+tx-checksumming: on
+       tx-checksum-ipv4: on
+       tx-checksum-ip-generic: off [fixed]
+       tx-checksum-ipv6: on
+       tx-checksum-fcoe-crc: on [fixed]
+       tx-checksum-sctp: on
+scatter-gather: on
+       tx-scatter-gather: on
+       tx-scatter-gather-fraglist: off [fixed]
+tcp-segmentation-offload: on
+       tx-tcp-segmentation: on
+       tx-tcp-ecn-segmentation: off [fixed]
+       tx-tcp6-segmentation: on
+udp-fragmentation-offload: off [fixed]
+generic-segmentation-offload: on
+generic-receive-offload: on
+large-receive-offload: on
+rx-vlan-offload: on
+tx-vlan-offload: on
+ntuple-filters: off
+receive-hashing: on
+highdma: on [fixed]
+rx-vlan-filter: on [fixed]
+vlan-challenged: off [fixed]
+tx-lockless: off [fixed]
+netns-local: off [fixed]
+tx-gso-robust: off [fixed]
+tx-fcoe-segmentation: on [fixed]
+tx-gre-segmentation: off [fixed]
+tx-ipip-segmentation: off [fixed]
+tx-sit-segmentation: off [fixed]
+tx-udp_tnl-segmentation: off [fixed]
+fcoe-mtu: off [fixed]
+tx-nocache-copy: off
+loopback: off [fixed]
+rx-fcs: off [fixed]
+rx-all: off
+tx-vlan-stag-hw-insert: off [fixed]
+rx-vlan-stag-hw-parse: off [fixed]
+rx-vlan-stag-filter: off [fixed]
+l2-fwd-offload: off
+busy-poll: on [fixed]
+hw-tc-offload: off</screen>
+
+            <sect3 xml:id="sec.checksum_offload">
+                <title>Checksum offload</title>
+
+                <para>The Linux kernel allows configuring the receive and
+                    transmit checksum offload on NICs.</para>
+
+                <para>The parameter identifying the receive checksum
+                    offload is called <emphasis role="italic"
+                        >rx-checksumming</emphasis> and it can be set to
+                    either <emphasis role="italic">on</emphasis> or
+                        <emphasis role="italic">off</emphasis>.</para>
+
+                <para>Below you can see a full list of the
+                    sub-features:</para>
+
+                <screen>tx-checksumming: on
+       tx-checksum-ipv4: on
+       tx-checksum-ip-generic: off
+       tx-checksum-ipv6: on
+       tx-checksum-fcoe-crc: on 
+       tx-checksum-sctp: on</screen>
+
+                <para>To enable or disable any of the allowed
+                    sub-parameters, it is sufficient to pass the
+                    sub-parameter name to the <emphasis role="bold"
+                        >-K</emphasis> option. Find an example in the
+                    following command:</para>
+
+                <para>
+                    <command># ethtool -K eth1 tx-checksum-ipv4
+                        off</command>
+                </para>
+
+            </sect3>
+
+            <sect3 xml:id="sec.segmentation_offload">
+                <title>Segmentation Offload</title>
+
+                <para>To send a packet over a specific network, it is
+                    necessary to be compliant with the MSS and MTU of that
+                    network. Any application should be abstracted from the
+                    actual network it runs on. This increases portability
+                    and ease of maintenance so the kernel takes care of
+                    segmenting data into multiple packets before sending it
+                    over the network.</para>
+
+                <para>To free up CPU cycles from this duty and allow the
+                    kernel to use buffers as big as possible, most NICs
+                    implement what is called GSO (Generic Segmentation
+                    Offload) and TSO (TCP Segmentation Offload) hence
+                    performing the resizing and repackaging by
+                    itself.</para>
+
+                <para>To enable or disable GSO or TSO, use the following
+                    commands:</para>
+                <para>
+                    <command># ethtool -K eth1 gso on</command>
+                </para>
+                <para>
+                    <command># ethtool -K eth1 gso off</command>
+                </para>
+                <para>
+                    <command># ethtool -K eth1 tso on</command>
+                </para>
+                <para>
+                    <command># ethtool -K eth1 tso off</command>
+                </para>
+
+                <para>To disable TCP Segmentation Offload, you need to also
+                    disable the Generic Segmentation Offload. Otherwise any
+                    TCP traffic will be treated as generic.</para>
+
+                <para>On the other hand, you can have TSO enabled while the
+                    GSO is disabled. In this case, only TCP traffic will be
+                    offloaded to the NIC for segmentation. Any other
+                    protocol will be handled (for segmentation) by the
+                    Linux kernel networking stack.</para>
+
+            </sect3>
+
+            <sect3 xml:id="sec.receive_offload">
+                <title>Receive Offload</title>
+
+                <para>To minimize the per packet overhead, the Linux kernel
+                    implements what is called Large Receive Offload (LRO)
+                    and Generic Receive Offload (GRO). Unfortunately, it
+                    has been proved that LRO is broken in some use cases so
+                    it is recommended to disable it.</para>
+
+                <para>GRO, however, implements a better technique to merge
+                    received packets: the MAC headers must be identical and
+                    only a few TCP or IP headers can differ. The set of
+                    headers which can differ is severely restricted:
+                    checksums are necessarily different, and the IP ID
+                    field is allowed to increment. Even the TCP time stamps
+                    must be identical, which is less of a restriction than
+                    it may seem; the time stamp is a relatively
+                    low-resolution field, so it is not uncommon for lots of
+                    packets to have the same time stamp. Because of these
+                    restrictions, merged packets can be resegmented
+                    losslessly. As an added benefit, the GSO code can be
+                    used to perform resegmentation. Another important
+                    aspect of GRO is that LRO is not limited to TCP/IPv4.
+                    GRO was merged since kernel 2.6.29 and is supported by
+                    a variety of 10G drivers (see also
+                    https://lwn.net/Articles/358910/]</para>
+
+                <para>To enable or disable GRO, use the following
+                    commands:</para>
+                <para>
+                    <command># ethtool -K eth1 gro on</command>
+                </para>
+                <para>
+                    <command># ethtool -K eth1 gro off</command>
+                </para>
+
+            </sect3>
+
+            <sect3 xml:id="sec.vlan_offload">
+                <title>VLAN Offload</title>
+
+                <para>Most NICs these days support the VLAN offload for
+                    both receive and transmit path. This feature allows
+                    adding or stripping a VLAN tag from the packet when
+                    received or transmitted.</para>
+
+                <para>By default, most drivers enable this feature but in
+                    case it needs to be disabled the commands are:</para>
+
+                <para>
+                    <command># ethtool -K [DEVICE] rxvlan off</command>
+                </para>
+                <para>
+                    <command># ethtool -K [DEVICE] txvlan off</command>
+                </para>
+
+            </sect3>
+
+            <sect3 xml:id="sec.tunnels_offload">
+                <title>Tunnels (Stateless) Offload</title>
+
+                <para>Each of the tunneling protocols for virtual network
+                    wraps a UDP header around the original packet (for
+                    example VxLAN packet) hence adding an additional layer.
+                    Because of this extra layer which needs to be added and
+                    removed for each packet, the CPU needs to perform more
+                    work to simply receive and send each packet. Because
+                    the CPU is busy with these <quote>new</quote> steps,
+                    the throughput and latency of the system for overlay
+                    networks is worse than for flat networks.</para>
+
+                <para>Newer NICs implement a tunnel segmentation offload,
+                    implementing for an overlay network the same concept
+                    available for TCP (TCP Segmentation Offload). </para>
+
+                <para>This feature offloads the segmentation of large
+                    transmit packets to NIC hardware. For instance you may
+                    have an inner payload of 9000 bytes while you still
+                    need to comply with the maximum MTU of 1500. The
+                    operation of segmenting the payload in multiple packets
+                    (VXLAN encapsulated for instance) is performed by the
+                    NIC before transmitting the packet to the
+                    network.</para>
+
+                <para>To enable or disable this feature, run the
+                    command:</para>
+                <para>
+                    <command># ethtool -K [DEVICE] tx-udp_tnl-segmentation
+                        &lt;off></command>
+                </para>
+                <para>
+                    <command># ethtool -K [DEVICE] tx-udp_tnl-segmentation
+                        &lt;on></command>
+                </para>
+
+                <para>Another feature which can be found in some NICs is
+                    the inner packet checksum offload. When this feature is
+                    enabled, it is possible to offload to the hardware the
+                    computation of the checksum for the encapsulated
+                    packet.</para>
+
+                <para>To enable or disable this feature, run the
+                    command:</para>
+                <para>
+                    <command># ethtool -K [DEVICE]
+                        tx-udp_tnl-csum-segmentation &lt;off></command>
+                </para>
+                <para>
+                    <command># ethtool -K [DEVICE]
+                        tx-udp_tnl-csum-segmentation &lt;on></command>
+                </para>
+
+            </sect3>
+
+            <sect3 xml:id="sec.hashing_offload">
+                <title>Hashing and Packet Steering Offload</title>
+
+                <para>An important aspect of modern NICs is having multiple
+                    hardware queues where packets can be placed either on
+                    the receive side or on the transmit side.</para>
+
+                <para>This hardware capability has many advantages in
+                    multicore architectures since each queue is also
+                    assigned a specific IRQ (see IRQ configuration). In
+                    consequence each interrupt can be pinned and handled by
+                    a specific core. </para>
+
+                <para>Similarly, the NIC allows you to steer particular
+                    flows matching some criteria to a particular hardware
+                    queue hence – potentially – steering that flow to a
+                    particular CPU core. This is not too far from what RSS
+                    does in software but it has the extra advantage of
+                    being performed by the hardware. The CPU is freed up
+                    from hashing the packets, classifying them and steering
+                    them to the right software queue.</para>
+
+                <para>The two <emphasis role="bold">ethtool</emphasis>
+                    parameters which are involved with the hashing and
+                    steering of the flows are: <emphasis role="bold"
+                        >rxhash</emphasis> and <emphasis role="bold"
+                        >ntuple</emphasis>.</para>
+
+                <para>The <emphasis role="bold">rxhash</emphasis> is a very
+                    basic parameter which can be enabled or disabled with
+                    the following commands:</para>
+                <para>
+                    <command># ethtool -K [DEVICE] rxhash on</command>
+                </para>
+                <para>
+                    <command># ethtool -K [DEVICE] rxhash off</command>
+                </para>
+
+                <para>The <emphasis role="bold">ntuple</emphasis> parameter
+                    is a more complex parameter which allows you to specify
+                    the flow you are interested in by configuring the match
+                    conditions on various fields of the packet itself. You
+                    can find some examples below.</para>
+
+                <para>As an example, to steer the TCP flow from
+                    192.168.10.10 to 192.168.10.20 to the queue number 3,
+                    run the following command:</para>
+
+                <para>
+                    <command># ethtool -N flow-type tcp4 src-ip
+                        192.168.10.10 dst-ip 192.168.10.20 action
+                        3</command>
+                </para>
+
+                <para>If the value used for the parameter <emphasis
+                        role="bold">action</emphasis> is -1 then the NIC
+                    will drop the packet received.</para>
+
+                <para>It is possible to match on various protocols. Some
+                    parameters to be configured only apply to some
+                    protocols (for example, <emphasis role="italic"
+                        >proto</emphasis> only applies to <emphasis
+                        role="italic">flow-type ether</emphasis> whilst
+                        <emphasis role="italic">l4proto</emphasis> only
+                    applies to <emphasis role="italic">flow-type
+                        ip4</emphasis>). To see a full list of supported
+                    parameters and valid values, refer to the <emphasis
+                        role="bold">ethtool</emphasis> manual page (see
+                        <link xlink:href="http://man.he.net/man8/ethtool"/>
+                    and to the NIC vendor documentation.</para>
+
+                <para>To show the filters currently applied to an
+                    interface, use the command <command>ethtool
+                        --show-ntuple</command>.</para>
+            </sect3>
+
+        </sect2>
+
+    </sect1>
+
+    <sect1 xml:id="sec.references">
+        <title>References</title>
+
+        <para>For more detailed information and references, have a look at
+            the following articles:</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="http://www.hardwaresecretscom/everything-you-need-to-know-about-the-cpu-c-states-power-saving-modes/"
+                        >Hardware Secrets, <quote>Everything You Need to
+                            Know About the CPU C-States Power Saving
+                            Modes</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://software.intel.com/en-us/blogs/2008/03/12/c-states-and-p-states-are-very-different"
+                        >Intel Developer Zone, <quote>C-states and P-states
+                            are very different</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://haypo.github.io/intel-cpus.html"
+                        >GitHub, Haypo Blog, <quote>Intel CPUs: P-state,
+                            C-state, Turbo Boost, CPU frequency,
+                            etc.</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://github.com/HewlettPackard/LinuxKI/wiki/Power-vs-Performance"
+                        >GitHub, HewlettPackard/LinuxKl, <quote>Power
+                            Savings vs. Performance on Linux</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://people.cs.pitt.edu/~kirk/cs3150spring2010/ShiminChen.pptx"
+                        >Presentation, Shimin Chen, Intel Labs Pittsburgh,
+                            <quote>Power Management Features in Intel
+                            Processors</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://www.cisco.com/c/en/us/about/security-center/network-performance-metrics.html"
+                        >Cisco, <quote>Bandwidth, Packets Per Second, and
+                            Other Network Performance
+                        Metrics</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt"
+                        >Kernel documentation</link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://lonesysadmin.net/2013/12/22/better-linux-disk-caching-performance-vm-dirty_ratio/"
+                        >The Lone Sysadmin, <quote>Better Linux Disk
+                            Caching &amp; Performance with
+                            vm.dirty_ratio &amp;
+                            vm.dirty_background_ratio</quote></link>
+                </para>
+            </listitem>
+            <listitem>
+                <para>
+                    <link
+                        xlink:href="https://doc.opensuse.org/documentation/leap/tuning/html/book.sle.tuning/cha.tuning.taskscheduler.html"
+                        >openSUSE Leap 42.3 System Analysis and Tuning
+                        Guide, Part V, Chapter 13 Tuning the Task Scheduler
+                    </link>
+                </para>
+            </listitem>
+        </itemizedlist>
+
+    </sect1>
+
+    <sect1 xml:id="sec.legal_notice">
+        <title>Legal Notice</title>
+        <para>Copyright &copy;2006– 2017 SUSE LLC and contributors. All
+            rights reserved. </para>
+        <para>Permission is granted to copy, distribute and/or modify this
+            document under the terms of the GNU Free Documentation License,
+            Version 1.2 or (at your option) version 1.3; with the Invariant
+            Section being this copyright notice and license. A copy of the
+            license version 1.2 is included in the section entitled
+                <quote>GNU Free Documentation License</quote>.</para>
+        <para>SUSE, the SUSE logo and YaST are registered trademarks of
+            SUSE LLC in the United States and other countries. For SUSE
+            trademarks, see <link
+                xlink:href="http://www.suse.com/company/legal/"
+                >http://www.suse.com/company/legal/</link>. Linux is a
+            registered trademark of Linus Torvalds. All other names or
+            trademarks mentioned in this document may be trademarks or
+            registered trademarks of their respective owners.</para>
+        <para>This article is part of a series of documents called "SUSE
+            Best Practices". The individual documents in the series were
+            contributed voluntarily by SUSE's employees and by third
+            parties.</para>
+        <para>The articles are intended only to be one example of how a
+            particular action could be taken. They should not be understood
+            to be the only action and certainly not to be the action
+            recommended by SUSE. Also, SUSE cannot verify either that the
+            actions described in the articles do what they claim to do or
+            that they don't have unintended consequences.</para>
+        <para>Therefore, we need to specifically state that neither SUSE
+            LLC, its affiliates, the authors, nor the translators may be
+            held liable for possible errors or the consequences thereof.
+            Below we draw your attention to the license under which the
+            articles are published.</para>
+    </sect1>
+    <?pdfpagebreak style="suse2013" formatter="fop"?>
+    <xi:include href="license-gfdl.xml"/>
+</article>

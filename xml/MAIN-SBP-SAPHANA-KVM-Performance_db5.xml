@@ -1,0 +1,2848 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+
+<!-- Converted by suse-upgrade version 1.1 -->
+<article role="sbp" xmlns="http://docbook.org/ns/docbook"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+    xml:id="art.sbp.quilting.osc" xml:lang="en">
+ 
+ 
+  <info>
+  <title>SAP HANA on SUSE KVM Best Practice</title>
+  <subtitle>Performance Tunings for SUSE Linux Enterprise Server 12 SP2</subtitle>
+  <productname>SUSE Linux Enterprise Server</productname>
+  <productnumber>12 SP2</productnumber>
+  
+  <author>
+   <personname>
+    <firstname>Matt</firstname>
+    <surname>Fleming, Senior Software Engineer, SUSE</surname>
+   </personname>
+   <!--<affiliation>
+    <jobtitle>ISV Technical Manager</jobtitle>
+    <orgname>&suse;</orgname>
+    </affiliation>-->
+  </author>
+  
+  <author>
+   <personname>
+    <firstname>Lee</firstname>
+    <surname>Martin, SAP Architect &amp; Technical Manager, SUSE</surname>
+   </personname>
+   <!--<affiliation>
+    <jobtitle>ISV Technical Manager</jobtitle>
+    <orgname>&suse;</orgname>
+    </affiliation>-->
+  </author>
+  
+  <!--       <cover role="logos">
+   <mediaobject>
+   <imageobject>
+   <imagedata fileref="suse.svg"/>
+   </imageobject>
+   </mediaobject>
+   <mediaobject>
+   <imageobject>
+   <imagedata fileref="microsoft.svg"/>
+   </imageobject>
+   </mediaobject>
+   </cover>-->
+  
+  <date><?dbtimestamp format="B d, Y" ?></date>
+  
+  <abstract>
+
+   <para>
+    As per SAP Note 2284516 "SAP HANA virtualized on SUSE Linux Enterprise
+    Hypervisors", KVM (as included with SUSE Linux Enteprise Server) is
+    supported to run productive SAP HANA workloads.
+   </para>
+   <para>
+    This document describes how SUSE KVM systems should be configured to run
+    SAP HANA for productive use. <!--Please see
+    <emphasis role="strong"><xref linkend="sec.supported_scenarios_prerequisites"/></emphasis>
+    and the respective SAP Notes to ensure a supported configuration.-->
+   </para>
+   <para>
+    While this document is not compulsory for non-production SAP HANA
+    workloads, it may still be useful to help ensure optimal performance in
+    such scenarios.
+   </para>
+   
+  </abstract>
+ </info>
+ 
+ 
+ <sect1 xml:id="sec.introduction">
+  <title>Introduction</title>
+  <para>
+   This document describes how to setup a KVM on SUSE Linux Enterprise Server to run an SAP HANA
+   system for productive use. Please see
+    <emphasis role="strong"><xref linkend="sec.supported_scenarios_prerequisites"/></emphasis>
+    and the respective SAP Notes to ensure a supported configuration.
+   
+   The setup of the SAP HANA system or other
+   components like HA clusters are beyond the scope of this document.
+  </para>
+  <para>
+   The following chapters describe how to setup and tune the three SUSE KVM
+   components required to run SAP HANA on SUSE KVM:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     <emphasis role="strong"><xref linkend="sec.hypervisor"/></emphasis> - The host
+     operating system running the Hypervisor directly on the server hardware
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <emphasis role="strong"><xref linkend="sec.Guest_VM_XML_Configuration"/></emphasis>
+     - The libvirt domain XML description of the guest VM
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     <emphasis role="strong"><xref linkend="sec.Guest_Operating_System"/></emphasis>
+     - The operating system inside the VM where SAP HANA is running
+    </para>
+   </listitem>
+  </itemizedlist>
+  <para>
+   Most of the configuration options are specific to the libvirt package and
+   therefore require modifying the VM guest’s domain XML file.
+  </para>
+  
+  <sect2 xml:id="sec.definitions">
+   <title>Definitions</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Hypervisor: The software running directly on the physical sever to create
+      and run VMs (Virtual Machines).
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Virtual Machine: is an emulation of a computer.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Guest OS: The Operating System running inside the VM (Virtual Machine).
+      This is the OS running SAP HANA and therefore the one that should be
+      checked for SAP HANA support as per SAP Note 2235581 "SAP HANA: Supported
+      Operating Systems"
+      (<link xlink:href="https://launchpad.support.sap.com/#/notes/2235581">https://launchpad.support.sap.com/#/notes/2235581</link>)
+      and the "SAP HANA Hardware Directory"
+      (<link xlink:href="https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html">https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html</link>)
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Paravirtualization: Allows direct communication between the Hypervisor
+      and the VM Guest resulting in a lower overhead and better performance.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      libvirt: A management interface for KVM
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      qemu: The virtual machine emulator, also seen a process on the Hypervisor
+      running the VM.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      SI units: Some commands and configurations use the decimal prefix (e.g.
+      GB), while other use the binary prefix (e.g. GiB). In this document we
+      use the binary prefix where possible.
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    For a general overview of the technical components of the SUSE KVM
+    architecture, please refer to
+    <link xlink:href="https://www.suse.com/documentation/sles-12/singlehtml/book_virt/book_virt.html#sec.kvm.intro.arch">https://www.suse.com/documentation/sles-12/singlehtml/book_virt/book_virt.html#sec.kvm.intro.arch</link>
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.sap_hana_on_virtualization">
+   <title>SAP HANA on Virtualization</title>
+   <para>
+    SAP supports virtualization technologies for SAP HANA usage on a per
+    scenario basis:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Single-VM - One VM per Hypervisor/physical server for SAP HANA Scale-Up
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Multi-VM - Multiple VM’s per Hypervisor/physical server for SAP HANA
+      Scale-Up
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Scale-Out - For SAP HANA Scale-Out
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    See SAP Note 1788665 "SAP HANA Support for virtualized / partitioned
+    (multi-tenant) environments"
+    (<link xlink:href="https://launchpad.support.sap.com/#/notes/1788665">https://launchpad.support.sap.com/#/notes/1788665</link>)
+    for details.
+   </para>
+  </sect2>
+ </sect1>
+ 
+ 
+ <sect1 xml:id="sec.supported_scenarios_prerequisites">
+  <title>Supported Scenarios and Prerequisites</title>
+  <para>
+   <emphasis role="strong">Follow this SAP HANA on SUSE KVM Best Practice
+   document which describes the steps necessary to create a supported SAP HANA
+   on SUSE KVM configuration. SUSE Linux Enterprise Server for SAP Applications
+   has to be used for both Hypervisor and Guest.</emphasis>
+  </para>
+  <para>
+   Inquiries about scenarios not listed here should be directed to
+   <link xlink:href="mailto:saphana@suse.com">saphana@suse.com</link>
+  </para>
+  
+  <sect2 xml:id="sec.supported_scenarios">
+   <title>Supported Scenarios</title>
+   <para>
+    At the time of this publication the following configurations are supported
+    for production use:
+   </para>
+   <table xml:id="Supported_Combinations" frame="all" rowsep="1" colsep="1">
+    <title>Supported Combinations</title>
+    <tgroup cols="4">
+     <colspec colname="col_1" colwidth="16*"/>
+     <colspec colname="col_2" colwidth="33*"/>
+     <colspec colname="col_3" colwidth="33*"/>
+     <colspec colname="col_4" colwidth="16*"/>
+     <thead>
+      <row>
+       <entry align="left" valign="top">CPU Architecture</entry>
+       <entry align="left" valign="top"> SAP HANA scale-up (single VM) </entry>
+       <entry align="left" valign="top"> SAP HANA scale-up (multi VM) </entry>
+       <entry align="left" valign="top"> SAP HANA Scale-Out</entry>
+      </row>
+     </thead>
+     <tbody>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         Haswell (Intel v3)
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <itemizedlist>
+         <listitem>
+          <para>
+           Hypervisor: SLES for SAP 12 SP2
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Guest: SLES for SAP 12 SP1 onwards
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Size: max. 4 socket<superscript>1</superscript>, 2TiB RAM
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         Broadwell (Intel v4)
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <itemizedlist>
+         <listitem>
+          <para>
+           Hypervisor: tbd
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Guest: tbd
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Size: tbd
+          </para>
+         </listitem>
+        </itemizedlist>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         Skylake
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         tbd
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+   <para>
+    <superscript>1</superscript> Maximum 4 sockets using Intel standard
+    chipsets on a single system board, e.g. Lenovo* x3850, HPE*/SGI* UV300 etc.
+   </para>
+   <para>
+    Please check SAP Note 2284516 "SAP HANA virtualized on SUSE Linux
+    Enterprise Hypervisors"
+    (<link xlink:href="https://launchpad.support.sap.com/#/notes/2284516">https://launchpad.support.sap.com/#/notes/2284516</link>)
+    for the latest details of supported SAP HANA on KVM scenarios.
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.sizing">
+   <title>Sizing</title>
+   <para>
+    As per this Best Practice it is recommended to reserve the following
+    resources for the Hypervisor:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      7% RAM
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      1x Physical CPU core (2x LogicalCPU/Hyperthreads) per Socket
+     </para>
+    </listitem>
+   </itemizedlist>
+   
+   <sect3 xml:id="sec.memory_sizing">
+    <title>Memory Sizing</title>
+    <para>
+     Since SAP HANA runs inside the VM, it is the RAM size of the VM which must
+     be used as the basis for SAP HANA Memory sizing.
+    </para>
+   </sect3>
+   
+   <sect3 xml:id="sec.cpu_sizing">
+    <title>CPU Sizing</title>
+    <para>
+     In addition to the above mentioned CPU core reservation for the Hypervisor
+     (see <xref linkend="sec.vCPU_and_vNUMA_Topology"/> section for details), some
+     internal high-end benchmark workload tests on Intel Haswell CPUs have
+     shown a worse case scenario of a virtualized SAP HANA running
+     approximately 17% slower on than running directly on the physical server.
+    </para>
+    <para>
+     There are two main ways to deal with CPU sizing from a sizing perspective:
+    </para>
+    <orderedlist numeration="arabic">
+     <listitem>
+      <para>
+       Follow the fixed core-to-memory ratios for SAP HANA as defined by SAP
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         The SAP HANA Appliance certifications prescribe a fixed maximum amount
+         of memory (RAM) which is allowed for each CPU core, also known as
+         "core-to-memory ratio". The specific ratios are defined according to
+         CPU Architecture and Appliance Type: OLTP (Scale-up: SoH/S4H) or OLAP
+         (Scale-up: BWoH/BW4H/DM/SoH/S4H).
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         The relevant core-to-memory ratio required to size a VM can be easily
+         calculated as follows:
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           Go to the "SAP HANA Certified Hardware Directory"
+           <link xlink:href="https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html">https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html</link>
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Select the required CPU generation and Appliance Type (e.g. Haswell
+           for SoH)
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Look for the largest certified RAM size for a 4-Socket system (e.g.
+           3TB on 4-Socket)
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Look up the number of cores per CPU of this CPU Architecture used in
+           SAP HANA Appliances. The CPU model numbers are listed at:
+           <link xlink:href="https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/index.html#details">https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/index.html#details</link>
+           (e.g. 18)
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Using the above values calculate the total number of cores on the
+           certified Appliance by multiplying number of sockets by number of
+           cores (e.g. 4x18=72)
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Now divide the Appliance RAM by the total number of cores (not
+           hyperthreads) to give you the "core-to-memory" ratio. (e.g.
+           3072GiB/72 = approx. 43GiB per core)
+          </para>
+         </listitem>
+        </itemizedlist>
+       </listitem>
+       <listitem>
+        <para>
+         We can now calculate the RAM size the VM must have in order to be
+         compliant with the appropriate core-to-memory ratio defined by SAP:
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           Take the total number of CPU cores (not hyperthreads) on the
+           Hypervisor and subtract one core per socket for the Hypervisor (e.g.
+           72-4=68)
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Now take account of the Hypervisor overhead by multiplying the
+           previous value by a factor of "1-overhead" (e.g. 1 - 0.17% = factor
+           0.83, so 68*0.83=56 effective cores).
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Multiply the resulting number of CPU cores for the VM by the SAP
+           HANA core-to-memory ratio to calculate to maximum VM RAM size limit
+           by SAP for this amount of CPU power (e.g. 56 effective cores * 43GiB
+           per core = 2408GiB Max VM RAM size )
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Now, calculate the maxiumum VM RAM size limit by SUSE by checking
+           the <xref linkend="Supported_Combinations"/> table in this Best
+           Practice document for the maximum supported KVM Hypervisor RAM size
+           for SAP HANA and then subtracting the 7% memory overhead. (e.g. 2048
+           GiB * 0.93 (the 7% overhead) = 1904GiB Max VM RAM size)
+          </para>
+         </listitem>
+        </itemizedlist>
+       </listitem>
+       <listitem>
+        <para>
+         Finally, the actual RAM size of the VM to be configured must not
+         exceed the LOWEST of the two above calculated SAP and SUSE "Max VM RAM
+         size" limits
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Conclusion based on the example given: From available CPU power in the
+         VM, SAP would allow a maximum RAM size of up to 2408GiB for a VM
+         running OLTP. Since the current maximum supported KVM Hypervisor RAM
+         size for SAP HANA on Haswell is 2048GiB, there is no problem to use a
+         VM upto 1904GiB.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         See the table <xref linkend="SAP_HANA_core-to-memory_ratio_examples"/>
+         below for some current examples of SAP HANA core-to-memory ratios.
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <para>
+       Follow the SAP HANA TDI "Phase 5" rules as defined by SAP
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         SAP HANA TDI Phase 5 rules allow customers to deviate from the above
+         described SAP HANA core-to-memory ratios in certain scenarios. See the
+         SAP HANA TDI Phase 5 blog from SAP for more details:
+         <link xlink:href="https://blogs.saphana.com/2017/09/20/tdi-phase-5-new-opportunities-for-cost-optimization-of-sap-hana-hardware/">https://blogs.saphana.com/2017/09/20/tdi-phase-5-new-opportunities-for-cost-optimization-of-sap-hana-hardware/</link>.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         The following SAP HANA sizing documentation should also be useful
+        </para>
+        <itemizedlist>
+         <listitem>
+          <para>
+           SAP Best Practice "Sizing Approaches for SAP HANA":
+           <link xlink:href="https://websmp203.sap-ag.de/~sapidb/011000358700000050632013E">https://websmp203.sap-ag.de/~sapidb/011000358700000050632013E</link>
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           Sizing SAP HANA on help.sap.com:
+           <link xlink:href="https://help.sap.com/doc/eb3777d5495d46c5b2fa773206bbfb46/2.0.02/en-US/d4a122a7bb57101493e3f5ca08e6b039.html">https://help.sap.com/doc/eb3777d5495d46c5b2fa773206bbfb46/2.0.02/en-US/d4a122a7bb57101493e3f5ca08e6b039.html</link>
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           SAP Sizing at:
+           <link xlink:href="http://sap.com/sizing">http://sap.com/sizing</link>
+          </para>
+         </listitem>
+        </itemizedlist>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+    </orderedlist>
+    
+    <table xml:id="SAP_HANA_core-to-memory_ratio_examples" frame="all" rowsep="1" colsep="1">
+     <title>SAP HANA core-to-memory ratio examples</title>
+     <tgroup cols="6">
+      <colspec colname="col_1" colwidth="26*"/>
+      <colspec colname="col_2" colwidth="16*"/>
+      <colspec colname="col_3" colwidth="13*"/>
+      <colspec colname="col_4" colwidth="13*"/>
+      <colspec colname="col_5" colwidth="13*"/>
+      <colspec colname="col_6" colwidth="16*"/>
+      <thead>
+       <row>
+        <entry align="left" valign="top">CPU Architecture</entry>
+        <entry align="left" valign="top"> Appliance Type </entry>
+        <entry align="left" valign="top"> Max Memory Size </entry>
+        <entry align="left" valign="top"> Sockets </entry>
+        <entry align="left" valign="top"> Cores per Socket </entry>
+        <entry align="left" valign="top"> SAP HANA core-to-memory ratio</entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Haswell (Intel v3)
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLTP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          3072GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          18
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          43GiB/core
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Broadwell (Intel v4)
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLTP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4096GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          24
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          43GiB/core
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Skylake
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLTP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          6144GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          28
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          55GiB/core
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Haswell (Intel v3)
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLAP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          2048GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          18
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          28GiB/core
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Broadwell (Intel v4)
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLAP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          2048GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          24
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          21GiB/core
+         </para>
+        </entry>
+       </row>
+       <row>
+        <entry align="left" valign="top">
+         <para>
+          Skylake
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          OLAP
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          3072GiB
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          4
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          28
+         </para>
+        </entry>
+        <entry align="left" valign="top">
+         <para>
+          27GiB/core
+         </para>
+        </entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+   </sect3>
+  </sect2>
+  
+  
+  <sect2 xml:id="sec.kvm_hypervisor_version">
+   <title>KVM Hypervisor Version</title>
+   <para>
+    The Hypervisor must be configured according to this SAP HANA on SUSE KVM
+    Best Practice guide and fulfill the following minimal requirements:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      SLES for SAP 12 SP2 ("Unlimited Virtual Machines" subscription)
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        kernel 4.4 (Package Version &gt;= 4.4.49-92.11)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        libvirt 2.0 (Package Version &gt;= 2.0.0-27.12.1)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        qemu 2.6 (Package Version &gt;= 2.6.2-41.9.1)
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+  
+  <sect2 xml:id="sec.hypervisor_hardware">
+   <title>Hypervisor Hardware</title>
+   <para>
+    Use SAP HANA certified servers and storage as per SAP HANA Hardware
+    Directory at:
+    <link xlink:href="https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html">https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html</link>
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.guest_vm">
+   <title>Guest VM</title>
+   <para>
+    The guest VM must:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Run SLES for SAP 12 SP1 or later
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Be a SLES Supported VM Guest as per: Section 7.1 "Supported VM Guests" in
+      "book_virt" from
+      <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Comply with KVM limits as per SLES 12 SP2 release notes
+      <link xlink:href="https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12-SP2/#TechInfo.KVM">https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12-SP2/#TechInfo.KVM</link>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Fulfil the SAP HANA HWCCT storage KPI’s as per SAP Note 1943937
+      "Hardware Configuration Check Tool - Central Note"
+      (<link xlink:href="https://launchpad.support.sap.com//notes/1943937">https://launchpad.support.sap.com//notes/1943937</link>)
+      and SAP Note 2501817 - HWCCT 1.0 (≥220)
+      (<link xlink:href="https://launchpad.support.sap.com//notes/2501817">https://launchpad.support.sap.com//notes/2501817</link>).
+      Please refer to the <xref linkend="sec.storage"/> section for storage
+      configuration details.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Be configured according to this SAP HANA on SUSE KVM Best Practice
+      document
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ 
+ <sect1 xml:id="sec.hypervisor">
+  <title>Hypervisor</title>
+  
+  <sect2 xml:id="sec.kvm_hypervisor_installation">
+   <title>KVM Hypervisor Installation</title>
+   <para>
+    For details please refer to Section 6.4 Installation of Virtualization
+    Components: Patterns in "book_virt" from
+    <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+   </para>
+   <para>
+    Intall the SUSE KVM packages using the following zypper patterns:
+   </para>
+<screen>zypper in -t pattern kvm_server kvm_tools</screen>
+   <para>
+    In addition, it is also useful to install the "lstopo" tool which is part
+    of the "hwloc" package contained inside the SLE "HPC Module"
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.configure_networking_on_hypervisor">
+   <title>Configure networking on Hypervisor</title>
+   <para>
+    In order to achieve maximum performance required for productive SAP HANA
+    workloads the PCI address of the respective network port(s) must be
+    assigned directly into the KVM Guest VM in order to ensure that the Guest
+    VM has enough network device channels to accommodate the network traffic.
+    Ideally the VM Guest should be able to access the same number of network
+    device channels as the host, this can be checked and compared between host
+    and guest VM with "ethtool -l &lt;device&gt;", e.g.:
+   </para>
+<screen># ethtool -l eth1
+Channel parameters for eth1:
+Pre-set maximums:
+RX:             0
+TX:             0
+Other:          1
+Combined:       63
+Current hardware settings:
+RX:             0
+TX:             0
+Other:          1
+Combined:       63</screen>
+   
+   <sect3 xml:id="sec.assign_network_port_at_pci_nic_level">
+    <title>Assign network port at PCI NIC level</title>
+    <para>
+     The required network port(s) should be assigned to the Guest VM as
+     described in section "14.10.2 Adding a PCI Device with virsh" the SUSE
+     Linux Enterprise Server Virtualization Guide (Open "book_virt" from
+     <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>)
+    </para>
+    <formalpara>
+     <title>Persist detach of PCI NIC port</title>
+     <para>
+      Before starting the VM, the PCI NIC port must be detached from the
+      Hypervisor OS, otherwise the VM will not start. The PCI NIC detach can be
+      automated at boot time by creating a service file (after-local.service)
+      pointing to the a /etc/init.d/after.local which contains the commands to
+      detach the NIC.
+     </para>
+    </formalpara>
+    <para>
+     Create the systemd unit file /etc/systemd/system/after.local
+    </para>
+<screen>[Unit]
+Description=/etc/init.d/after.local Compatibility
+After=libvirtd.service
+Requires=libvirtd.service
+[Service]
+Type=oneshot
+ExecStart=/etc/init.d/after.local
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target</screen>
+    <para>
+     And then create the script /etc/init.d/after.local which will detach the
+     PCI device (where "pci_xxxx_xx_xx_0" must be replaced with the correct PCI
+     address)
+    </para>
+<screen>#! /bin/sh
+#
+# Copyright (c) 2010 SuSE LINUX Products GmbH, Germany.  All rights reserved.
+# ...
+virsh nodedev-detach pci_xxxx_xx_xx_0</screen>
+   </sect3>
+  </sect2>
+  
+  <sect2 xml:id="sec.storage_hypervisor">
+   <title>Storage configuration on Hypervisor</title>
+   <para>
+    As with compute resources, the storage used for running SAP HANA must also
+    be SAP certified. Therefore only the storage from SAP HANA Appliances or
+    SAP HANA Certified Enterprise Storage
+    (<link xlink:href="https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/enterprise-storage.html">https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/enterprise-storage.html</link>)
+    is supported. In all cases the SAP HANA storage configuration
+    recommendations from the respective hardware vendor should be followed, as
+    well as the SAP HANA Storage Requirements for TDI
+    (<link xlink:href="https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html">https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html</link>).
+    The SAP HANA on KVM Best Practice has been designed and tested to map the
+    block devices for SAP HANA on the Hypervisor directly into the VM.
+    Therefore any LVM (Logical Volume Manager) configuration should be made
+    inside the Guest VM only. Multipathing by contrast should be only
+    configured on the Hypervisor.
+   </para>
+   <para>
+    Ultimately the storage for SAP HANA must be able to fulfill the SAP HANA
+    HWCCT requirements from within the VM. For details on HWCCT and the
+    required storage KPI’s please refer to SAP Note 1943937 "Hardware
+    Configuration Check Tool - Central Note"
+    (<link xlink:href="https://launchpad.support.sap.com//notes/1943937">https://launchpad.support.sap.com//notes/1943937</link>)
+    and SAP Note 2501817 - HWCCT 1.0 (≥220)
+    (<link xlink:href="https://launchpad.support.sap.com//notes/2501817">https://launchpad.support.sap.com//notes/2501817</link>).
+   </para>
+   <para>
+    Network Attached Storage has not been tested with SAP HANA on KVM, if there
+    is a requirement for this please contact
+    <link xlink:href="mailto:saphana@suse.com">saphana@suse.com</link>.
+   </para>
+   <para>
+    Most of the configuration steps to configure the storage are at the Guest
+    VM XML level, see section <xref linkend="sec.storage"/>. Nevertheless storage
+    on the Hypervisor should:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Follow the storage layout recommendations from the appropriate hardware
+      vendor.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Not use LVM (Logical Volume Manager) on the Hypervisor level for SAP HANA
+      volumes since nested LVM is not supported.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Configure Multipathing on the Hypervisor only, not inside the Guest VM.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+  
+  <sect2 xml:id="sec.hypervisor_operating_system_configuration">
+   <title>Hypervisor Operating System Configuration</title>
+   
+   <sect3 xml:id="sec.tuned">
+    <title>tuned</title>
+    <para>
+     Install tuned and set the profile to latency-performance. Do not use the
+     sap-hana profile on the Hypervisor. This can be configured with the
+     following commands:
+    </para>
+<screen>zypper in tuned
+
+systemctl enable tuned
+
+systemctl start tuned
+
+tuned-adm profile latency-performance</screen>
+    <sect4 xml:id="sec.verify_tuned_has_set_cpu_frequency_governor_and_performance_bias">
+     <title>Verify tuned has set CPU Frequency Governor and Performance Bias</title>
+     <para>
+      The CPU frequency governor should be set to "performance" to avoid
+      latency issues due to ramping the CPU frequency up and down in response
+      to changes in the system’s load. The governor setting can be verified
+      with the following command to check what is set under "current policy":
+     </para>
+<screen>cpupower -c all  frequency-info</screen>
+     <para>
+      Additionally the performance bias setting should also be set to 0
+      (performance). The performance bias setting can be verified with the
+      following command:
+     </para>
+<screen>cpupower -c all info</screen>
+    </sect4>
+   </sect3>
+   
+   <sect3 xml:id="sec.irqbalance">
+    <title>irqbalance</title>
+    <para>
+     The irqbalance service should be disabled because it can cause latency
+     issues when the /proc/irq/* files are read. To disable irqbalance run the
+     following command:
+    </para>
+<screen>systemctl disable irqbalance.service
+
+systemctl stop irqbalance.service</screen>
+   </sect3>
+   
+   <sect3 xml:id="sec.customize_the_linux_kernel_boot_options">
+    <title>Customize the Linux Kernel boot options</title>
+    <para>
+     To edit the boot options for the Linux kernel to the following:
+    </para>
+    <orderedlist numeration="arabic">
+     <listitem>
+      <para>
+       Edit /etc/defaults/grub and add the the following boot options to the
+       line "GRUB_CMDLINE_LINUX_DEFAULT" (A detailed explanation of these
+       options follows)
+      </para>
+<screen>numa_balancing=disable   kvm_intel.ple_gap=0  transparent_hugepage=never  elevator=deadline  intel_idle.max_cstate=1  processor.max_cstate=1 default_hugepagesz=1GB hugepagesz=1GB hugepages=&lt;number of hugepages&gt;</screen>
+      <note>
+       <para>
+        The value for "&lt;number of hugepages&gt;" should be calculated by
+        taking the number GiB’s of RAM minus approx. 7% for the Hypervisor
+        OS. e.g. 2TiB RAM (2048GiB) minus 7% ≍ 1900 hugepages
+       </para>
+      </note>
+     </listitem>
+    </orderedlist>
+    <orderedlist numeration="arabic">
+     <listitem>
+      <para>
+       Run
+      </para>
+<screen>grub2-mkconfig -o /boot/grub2/grub.cfg</screen>
+     </listitem>
+     <listitem>
+      <para>
+       Reboot
+      </para>
+<screen>reboot</screen>
+     </listitem>
+    </orderedlist>
+   </sect3>
+   
+   <sect3 xml:id="sec.technical_explanation_of_the_above_described_configuration_settings">
+    <title>Technical explanation of the above described configuration settings</title>
+    <para>
+     <emphasis role="strong">Automatic NUMA Balancing
+     (numa_balancing=disable)</emphasis>
+    </para>
+    <para>
+     Automatic NUMA balancing can result in increased system latency and should
+     therefore be disabled.
+    </para>
+    <para>
+     <emphasis role="strong">KVM PLE-GAP (kvm_intel.ple_gap=0)</emphasis>
+    </para>
+    <para>
+     Pause Loop Exit (PLE) is a feature whereby a spinning guest CPU releases
+     the physical CPU until a lock is free. This is useful in cases where
+     multiple virtual CPUs are using the same physical CPU but causes
+     unnecessary delays when a guest is not overcommitted.
+    </para>
+    <para>
+     <emphasis role="strong">Transparent Hugepages
+     (transparent_hugepage=never)</emphasis>
+    </para>
+    <para>
+     Because 1G pages are used for the virtual machine, then there is no
+     additional benefit from having THP enabled. Disabling it will avoid
+     khugepaged interfering with the virtual machine while it scans for pages
+     to promote to hugepages.
+    </para>
+    <para>
+     <emphasis role="strong">I/O Scheduler (elevator=deadline)</emphasis>
+    </para>
+    <para>
+     The deadline I/O scheduler should be used for all disks/LUNs mapped into
+     the KVM guest.
+    </para>
+    <para>
+     <emphasis role="strong">Processor C-states (intel_idle.max_cstate=1
+     processor.max_cstate=1)</emphasis>
+    </para>
+    <para>
+     The processor will attempt to save power when idle by switching to a lower
+     power state. Unfortunately this incurs latency when switching in and out
+     of these states. Optimal performance is achieved by limiting the processor
+     to states C0 (normal running state) as well as C1 (first lower power
+     state). Note that while there is an exit latency associated with C1
+     states, it is offset on hyperthread-enabled platforms by the fact sibling
+     cores can borrow resources from sibling cores if they are in the C1 state
+     and some CPUs are able to boost the CPU frequency higher if siblings are
+     in the C1 state.
+    </para>
+    <para>
+     <emphasis role="strong">Hugepages (default_hugepagesz=1GB hugepagesz=1GB
+     hugepages=&lt;number of hugepages&gt;)</emphasis>
+    </para>
+    <para>
+     The use of 1GiB hugepages is to reduce overhead and contention when the
+     guest is updating its page tables. This requires allocation of 1GiB
+     hugepages on the host. The number of pages to allocate depends on the
+     memory size of the guest. 1GiB pages are not pageable by the OS, so they
+     always remain in RAM and therefore the "locked" definition in libvirt XML
+     files is not required. It also important to ensure the order of the
+     hugepage options, specifically the "number of hugepages" option must come
+     after the 1GiB hugepage size definitions.
+    </para>
+    <para>
+     The value for "&lt;number of hugepages&gt;" should be calculated by taking
+     the number GiB’s of RAM minus approx. 7% for the Hypervisor OS. e.g.
+     2TiB RAM (2048GiB) minus 7% ≍ 1900 hugepage
+    </para>
+   </sect3>
+  </sect2>
+ </sect1>
+ 
+ <sect1 xml:id="sec.Guest_VM_XML_Configuration">
+  <title>Guest VM XML Configuration</title>
+  <para>
+   This section describes the modifications required to the libvirt XML
+   defintion of the Guest VM. The libvirt XML may be edited using the following
+   command:
+  </para>
+  <screen>virsh edit &lt;Guest VM name&gt;</screen>
+  
+  <sect2 xml:id="sec.create_an_initial_guest_vm_xml">
+   <title>Create an initial Guest VM XML</title>
+   <para>
+    Please refer to section 9 "Guest Installation" of the SUSE Virtualization
+    Guide ( Open "book_virt" from
+    <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+    )
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.global_vcpu_configuration">
+   <title>Global vCPU Configuration</title>
+   <para>
+    Ensure that the following XML elements are configured:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      domain XML supports "xmlns:qemu" to use qemu commands directly
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      architecture and machine type are set to match the qemu version installed
+      on the Hypervisor
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        e.g."2.6" for qemu 2.6 on SLES for SAP 12 SP2
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      cpu mode is set to "host-passthrough"
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      the defined qemu CPU commandlines necessary for SAP HANA support are used
+     </para>
+    </listitem>
+   </itemizedlist>
+   <para>
+    The following XML example demonstrates how to configure this,
+   </para>
+<screen>&lt;domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'&gt;
+...
+    &lt;os&gt;
+       &lt;type arch='x86_64' machine='pc-i440fx-2.6'&gt;hvm&lt;/type&gt;
+    ...
+    &lt;/os&gt;
+    ...
+    &lt;cpu mode='host-passthrough'&gt;
+    ...
+    &lt;/cpu&gt;
+    ...
+    &lt;qemu:commandline&gt;
+      &lt;qemu:arg value='-cpu'/&gt;
+      &lt;qemu:arg value='host,migratable=off,+invtsc,l3-cache=on'/&gt;
+    &lt;/qemu:commandline&gt;
+&lt;/domain&gt;</screen>
+   <formalpara>
+    <title>Explanation of the critical "l3-cache" option:</title>
+    <para>
+     If a KVM guest has multiple vNUMA nodes it is critical that any L3 CPU
+     cache present on the host be mirrored in the KVM guest. When vCPUs share
+     an L3 cache the Linux kernel scheduler can use an optimised mechanism for
+     enqueueing tasks on vCPUs. Without L3 cache information the guest kernel
+     will always use a more expensive mechanism that involves Inter-Processor
+     Interrupts (IPIs).
+    </para>
+   </formalpara>
+   <formalpara>
+    <title>Explanation of the "host,migratable-off,+invtsc options:</title>
+    <para>
+     For best performance, SAP HANA requires the invtsc CPU feature in the KVM
+     guest. However, KVM will remove any non-migratable CPU features from the
+     virtual CPU presented to the KVM guest. This behavior can be overridden by
+     passing the <emphasis>migratable=off</emphasis> and
+     <emphasis>+invtsc</emphasis> values to the <emphasis>-cpu</emphasis>
+     option.
+    </para>
+   </formalpara>
+  </sect2>
+  
+  <sect2 xml:id="sec.vCPU_and_vNUMA_Topology">
+   <title>vCPU and vNUMA Topology</title>
+   <para>
+    In order to achieve maximum performance and be supported for use with SAP
+    HANA the KVM guest’s NUMA topology should exactly mirror the host’s
+    NUMA topology as well as not overcommitting memory or CPU resources. This
+    requires pinning virtual CPUs to unique physical CPUs (no virtual CPUs
+    should should share the same hyperthread/ physical CPU) and configuring
+    virtual NUMA node relationships for those virtual CPUs.
+   </para>
+   <note>
+    <para>
+     One physical CPU core (i.e. 2 hyperthreads) per NUMA node should be left
+     unused by KVM guests so that IOThreads can be pinned there.
+    </para>
+   </note>
+   <note>
+    <para>
+     In many use cases it is adviseable to map the Hyperthreading topology into
+     the Guest VM as described below since this allows SAP HANA to spread
+     workload threads across many vCPUs. However there maybe workloads which
+     perform better without hyperthreading. In this case only the first
+     physical hyperthread from each core should be mapped into the VM. In the
+     simplified example below that would mean only mapping host processor 0-15
+     into the VM.
+    </para>
+   </note>
+   <para>
+    It is important to note that KVM/QEMU uses a static hyperthread sibling CPU
+    APIC ID assignment for virtual CPUs irrespective of the actual physical CPU
+    APIC ID values on the host. For example, assuming that the first
+    hyperthread sibling pair is CPU 0 and CPU 16 on the Hypervisor host, you
+    will need to pin that simbling pair to vCPU 0 and vCPU 1.
+   </para>
+   <para>
+    Below is a table of a hypothetical configuration for a "4-socket NUMA
+    topology with 4 cores per socket and hyperthreading" server to help
+    understand the above logic. In real world SAP HANA scenarios CPUs will
+    typically have 18+ CPU cores, and will therefore have far more CPUs for the
+    Guest vs. iothreads.
+   </para>
+<screen>VM Guest          Physical Server    Physical Server   Physical Server
+vCPU #            Numa node #        "core id"         processor #
+emulator          0                  0                   0
+emulator          0                  0                   16
+0                 0                  1                   1
+1                 0                  1                   17
+2                 0                  2                   2
+3                 0                  2                   18
+4                 0                  3                   3
+5                 0                  3                   19
+emulpin 1         1                  0                   4
+emulpin 4         1                  0                   20
+6                 1                  1                   5
+7                 1                  1                   21
+8                 1                  2                   6
+9                 1                  2                   22
+10                1                  3                   7
+11                1                  3                   23
+iohtread 2        2                  0                   8
+iothread 5        2                  0                   24
+12                2                  1                   9
+13                2                  1                   25
+14                2                  2                   10
+15                2                  2                   26
+16                2                  3                   11
+17                2                  3                   27
+iothread 3        3                  0                   12
+iothread 6        3                  0                   28
+18                3                  1                   13
+19                3                  1                   29
+20                3                  2                   14
+21                3                  2                   30
+22                3                  3                   15
+23                3                  3                   31</screen>
+   <para>
+    The following commands can be use to determine the CPU details on the
+    Hypervisor host (see Appendix for an
+    <xref linkend="sec.lscpu_extended_example"/> and an
+    <xref linkend="sec.example_lstopo"/>):
+   </para>
+<screen>lscpu --extended=CPU,SOCKET,CORE
+
+lstopo-no-graphics</screen>
+   <para>
+    Using the above information the CPU and memory pinning section of the Guest
+    VM XML can be created. Below is an example based on the hypothetical
+    example above.
+   </para>
+   <para>
+    Please take note of the following configuration points:
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      The "vcpu placement" element lists the total number of vCPUs in the Guest
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The "iothreads" element lists the total number of iothreads (6 in this
+      example)
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        iothreads should be pinned to the Sockets where the respective storage
+        is physically attached. This mapping can be found by looking for the
+        "Block(Disk)" entries in output from "lstopo-no-graphics", see Appendix
+        <xref linkend="sec.example_lstopo"/>
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      The "cputune" element contains the attributes describing the mappings of
+      vCPU, emulator and iothreads to physical CPUs.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      The "numatune" element contains the attributes to describe distribution
+      of RAM across the virtual NUMA nodes (CPU sockets).
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        The "mode" attribute should be set to "strict"
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The appropriate number of nodes should be entered in the nodeset and
+        memnode attributes. In this example there are 4 sockets, therefore
+        nodeset=0-3 and cellid 0 to 3.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      The "cpu" element lists:
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        "mode" attribute which should be set to "host-passthrough" for SAP HANA
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        "topology" attributes to describe the vCPU NUMA topology of the Guest.
+        In this example, 4 sockets, each with 3 cores (see the cpu pinning
+        table) and 2 hyperthreads per core. Set "threads=1" if hyperthreading
+        is not to be used.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        The attributes of the "numa" elements to desribes which vCPU number
+        ranges belong to which NUMA node/socket. Care should be taken since
+        these number ranges are not the same as on the Hypervisor host.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        In addition, the attributes of the "numa" elements also describe how
+        much RAM should be distributed per NUMA node. In this 4-node example
+        enter 25% (or 1/4) of the entire Guest VM Memory. Please also refer to
+        the Memory section of this best practice guide for further details.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+   </itemizedlist>
+<screen>&lt;vcpu placement='static'&gt;24&lt;/vcpu&gt;
+&lt;iothreads&gt;6&lt;/iothreads&gt;
+  &lt;cputune&gt;
+    &lt;vcpupin vcpu='0' cpuset='1'/&gt;
+    &lt;vcpupin vcpu='1' cpuset='17'/&gt;
+    &lt;vcpupin vcpu='2' cpuset='2'/&gt;
+    &lt;vcpupin vcpu='3' cpuset='18'/&gt;
+    &lt;vcpupin vcpu='4' cpuset='3'/&gt;
+    &lt;vcpupin vcpu='5' cpuset='19'/&gt;
+
+    &lt;vcpupin vcpu='6' cpuset='5'/&gt;
+    &lt;vcpupin vcpu='7' cpuset='21'/&gt;
+    &lt;vcpupin vcpu='8' cpuset='6'/&gt;
+    &lt;vcpupin vcpu='9' cpuset='22'/&gt;
+    &lt;vcpupin vcpu='10' cpuset='7'/&gt;
+    &lt;vcpupin vcpu='11' cpuset='23'/&gt;
+
+    &lt;vcpupin vcpu='12' cpuset='9'/&gt;
+    &lt;vcpupin vcpu='13' cpuset='25'/&gt;
+    &lt;vcpupin vcpu='14' cpuset='10'/&gt;
+    &lt;vcpupin vcpu='15' cpuset='26'/&gt;
+    &lt;vcpupin vcpu='16' cpuset='11'/&gt;
+    &lt;vcpupin vcpu='17' cpuset='27'/&gt;
+
+    &lt;vcpupin vcpu='18' cpuset='13'/&gt;
+    &lt;vcpupin vcpu='19' cpuset='29'/&gt;
+    &lt;vcpupin vcpu='20' cpuset='14'/&gt;
+    &lt;vcpupin vcpu='21' cpuset='30'/&gt;
+    &lt;vcpupin vcpu='22' cpuset='15'/&gt;
+    &lt;vcpupin vcpu='23' cpuset='31'/&gt;
+
+    &lt;emulatorpin cpuset='0,16'/&gt;
+
+    &lt;iothreadpin iothread='1' cpuset='4'/&gt;
+    &lt;iothreadpin iothread='2' cpuset='8'/&gt;
+    &lt;iothreadpin iothread='3' cpuset='12'/&gt;
+    &lt;iothreadpin iothread='4' cpuset='20'/&gt;
+    &lt;iothreadpin iothread='5' cpuset='24'/&gt;
+    &lt;iothreadpin iothread='6' cpuset='28'/&gt;
+  &lt;/cputune&gt;
+
+  &lt;numatune&gt;
+    &lt;memory mode='strict' nodeset='0-3'/&gt;
+    &lt;memnode cellid='0' mode='strict' nodeset='0'/&gt;
+    &lt;memnode cellid='1' mode='strict' nodeset='1'/&gt;
+    &lt;memnode cellid='2' mode='strict' nodeset='2'/&gt;
+    &lt;memnode cellid='3' mode='strict' nodeset='3'/&gt;
+  &lt;/numatune&gt;
+
+  &lt;cpu mode='host-passthrough'&gt;
+    &lt;topology sockets='4' cores='3' threads='2'/&gt;
+    &lt;numa&gt;
+      &lt;cell id='0' cpus='0-5' memory='&lt;Memory per NUMA node&gt;' unit='KiB'/&gt;
+      &lt;cell id='1' cpus='6-11' memory='&lt;Memory per NUMA node&gt;' unit='KiB'/&gt;
+      &lt;cell id='2' cpus='12-17' memory='&lt;Memory per NUMA node&gt;' unit='KiB'/&gt;
+      &lt;cell id='3' cpus='18-23' memory='&lt;Memory per NUMA node&gt;' unit='KiB'/&gt;
+    &lt;/numa&gt;
+  &lt;/cpu&gt;</screen>
+   <note>
+    <para>
+     The memory unit can be set to GiB to ease the memory computations.
+    </para>
+   </note>
+  </sect2>
+  
+  <sect2 xml:id="sec.storage">
+   <title>Storage</title>
+   
+   <sect3 xml:id="sec.storage_configuration_for_operating_system_volumes">
+    <title>Storage configuration for Operating System volumes</title>
+    <para>
+     The performance of storage where the Operating System is installed is not
+     critical for the performance of SAP HANA, and therefore any KVM supported
+     storage may be used to deploy the Operating system itself.
+    </para>
+   </sect3>
+   
+   <sect3 xml:id="sec.storage_configuration_for_sap_hana_volumes">
+    <title>Storage configuration for SAP HANA volumes</title>
+    <para>
+     The Guest VM XML configuration must be based on the underlying storage
+     configuration on the Hypervisor, see section
+     <xref linkend="sec.storage_hypervisor"/> for details and adhere the following
+     recommendations:
+    </para>
+    <itemizedlist>
+     <listitem>
+      <para>
+       Follow the storage layout recommendations from the appropriate hardware
+       vendors.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Only use the KVM virtio "threads" driver
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Distribute block devices evenly across all available iothreads (see
+       <xref linkend="sec.IOThreads"/>)
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+         Avoid placing devices for SAP HANA data and log on the same iothreads.
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+         Pin iothreads to the CPU sockets where the storage is attached, see
+         section <xref linkend="sec.vCPU_and_vNUMA_Topology"/> for details.
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+     <listitem>
+      <para>
+       Set the following virtio attributes: name=<emphasis>qemu</emphasis>
+       type=<emphasis>raw</emphasis> cache=<emphasis>none</emphasis>
+       io=<emphasis>threads</emphasis>
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       Use persistent device names in the Guest VM XML configuration (see
+       example in <xref linkend="sec.IOThreads"/>).
+      </para>
+     </listitem>
+    </itemizedlist>
+   </sect3>
+   
+   <sect3 xml:id="sec.IOThreads">
+    <title>IOThreads</title>
+    <para>
+     As described in section <xref linkend="sec.vCPU_and_vNUMA_Topology"/>,
+     iothreads should be pinned to a set of physical CPUs which are not
+     presented to the Guest VM OS.
+    </para>
+    <para>
+     Below is an example (device names and bus addresses are configuration
+     dependent) of how to add the iothread options to a virtio device. Note
+     that the iothread numbers should be distributed across the respective
+     virtio devices.
+    </para>
+<screen> &lt;disk type='block' device='disk'&gt;
+    &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='1'/&gt;
+    &lt;source dev='/dev/disk/by-id/&lt;source device path&gt;'/&gt;
+    &lt;target dev='vda' bus='virtio'/&gt;
+ &lt;/disk&gt;</screen>
+    <para>
+     For further details please refer to section 12 "Managing Storage" in the
+     SUSE Virtualization Guide (Open "book_virt" from
+     <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>)
+    </para>
+   </sect3>
+  </sect2>
+  
+  <sect2 xml:id="sec.memory_backing">
+   <title>Memory Backing</title>
+   <para>
+    Configure the memory size of the Guest VM in KiB and in multiples of 1GiB
+    (due to the use of 1GiB hugepages). The max VM size is determined by the
+    total number of 1GiB hugepages defined on the Hypervisor OS as described in
+    section 4.3
+   </para>
+<screen> &lt;memory unit='KiB'&gt;&lt;enter memory size in KiB here&gt;&lt;/memory&gt;
+ &lt;currentMemory unit='KiB'&gt;&lt;enter memory size in KiB here&gt;&lt;/currentMemory&gt;</screen>
+   <para>
+    It is important to use 1 gigabyte hugepages for the guest VM memory backing
+    to achieve optimal performance of the KVM guest. In addition, Kernel Same
+    Page Merging (KSM) should be disabled.
+   </para>
+<screen> &lt;memoryBacking&gt;
+   &lt;hugepages&gt;
+      &lt;page size='1048576' unit='KiB'/&gt;
+   &lt;/hugepages&gt;
+   &lt;nosharepages/&gt;
+ &lt;/memoryBacking&gt;</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.virtio_rng">
+   <title>Virtio Random Number Generator (RNG) Device</title>
+   <para>
+    The host /dev/random file should be passed through to QEMU as a source of
+    entropy using the virtio RNG device,
+   </para>
+<screen> &lt;rng model='virtio'&gt;
+    &lt;backend model='random'&gt;/dev/random&lt;/backend&gt;
+    &lt;alias name='rng0'/&gt;
+ &lt;/rng&gt;</screen>
+  </sect2>
+ </sect1>
+ 
+ <sect1 xml:id="sec.Guest_Operating_System">
+  <title>Guest Operating System</title>
+  
+  <sect2 xml:id="sec.install_sles_for_sap_inside_the_guest_vm">
+   <title>Install SLES for SAP inside the Guest VM</title>
+   <para>
+    Please refer to the SUSE Guide "SUSE Linux Enterprise Server for SAP
+    Applications 12 SP2" (Open "book_s4s" from
+    <link xlink:href="https://www.suse.com/documentation/sles-for-sap-12/pdfdoc/sles-for-sap-12-sp2.zip">https://www.suse.com/documentation/sles-for-sap-12/pdfdoc/sles-for-sap-12-sp2.zip</link>)
+   </para>
+  </sect2>
+  
+  <sect2 xml:id="sec.guest_operating_system_configuration_for_sap_hana">
+   <title>Guest Operating System Configuration for SAP HANA</title>
+   <para>
+    Install and configure SLES for SAP 12 SP2 and SAP HANA as described in: *
+    SAP Note 1944799 - SAP HANA Guidelines for SLES Operating System
+    Installation * SAP Note 2205917 - SAP HANA DB: Recommended OS settings for
+    SLES 12 / SLES for SAP Applications 12
+   </para>
+   <formalpara>
+    <title>irqbalance</title>
+    <para>
+     The irqbalance service should be disabled because it can cause latency
+     issues when the /proc/irq/* files are read. To disable irqbalance run the
+     following command:
+    </para>
+   </formalpara>
+<screen>systemctl disable irqbalance.service
+systemctl stop irqbalance.service</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.guest_operating_system_storage_configuration_for_sap_hana_volumes">
+   <title>Guest Operating System storage configuration for SAP HANA volumes</title>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Follow the storage layout recommendations from the appropriate hardware
+      vendors.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Only use LVM (Logical Volume Manager) inside the VM for SAP HANA. Nested
+      LVM is not to be used.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Do not configure Multipathing in the guest, but instead on the Hypervisor
+      (see section <xref linkend="sec.storage_hypervisor"/>)
+     </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+ </sect1>
+ 
+ <sect1 xml:id="sec.administration">
+  <title>Administration</title>
+  <para>
+   For a full explanation of administration commands, please refer to offical
+   SUSE Virtualization documentation such as:
+  </para>
+  <itemizedlist>
+   <listitem>
+    <para>
+     Section 10 "Basic VM Guest Management" and others in the SUSE
+     Virtualization Guide for SLES12 SP2 (Open "book_virt" from
+     <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>)
+    </para>
+   </listitem>
+   <listitem>
+    <para>
+     SUSE Virtualization Best Practices for SLES12 SP2: Open
+     "vt_best_practice_guide" from
+     <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+    </para>
+   </listitem>
+  </itemizedlist>
+  
+  <sect2 xml:id="sec.useful_commands_on_the_hypervisor">
+   <title>Useful commands on the Hypervisor</title>
+   <para>
+    Checking kernel boot options used:
+   </para>
+<screen>cat /proc/cmdline</screen>
+   <para>
+    Checking hugepage status (This command can also be used to monitor the
+    progress of hugepage allocation during VM start)
+   </para>
+<screen>cat /proc/meminfo |grep Huge</screen>
+   <para>
+    List all VM Guest domains configured on Hypervisor
+   </para>
+<screen>virsh list --all</screen>
+   <para>
+    Start a VM (Note: VM start times can take some minutes on larger RAM
+    systems, check progress with " /proc/meminfo | grep Huge "
+   </para>
+<screen>virsh start &lt;VM/Guest Domain name&gt;</screen>
+   <para>
+    Shutdown a VM
+   </para>
+<screen>virsh shutdown &lt;VM/Guest Domain name&gt;</screen>
+   <para>
+    Location of VM Guest configuration files
+   </para>
+<screen>/etc/libvirt/qemu</screen>
+   <para>
+    Location of VM Log files
+   </para>
+<screen>/var/log/libvirt/qemu</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.useful_commands_inside_the_vm_guest">
+   <title>Useful commands inside the VM guest</title>
+   <para>
+    Checking L3 cache has been enabled in the guest
+   </para>
+<screen>lscpu | grep L3</screen>
+   <para>
+    Validating Guest and Host CPU Topology
+   </para>
+<screen>lscpu</screen>
+  </sect2>
+ </sect1>
+ 
+ <sect1 xml:id="sec.examples">
+  <title>Examples</title>
+  
+  <sect2 xml:id="sec.example_lscpu_from_a_lenovo_x3850_x6">
+   <title>Example lscpu from a Lenovo x3850 x6</title>
+<screen># lscpu
+Architecture:          x86_64
+CPU op-mode(s):        32-bit, 64-bit
+Byte Order:            Little Endian
+CPU(s):                144
+On-line CPU(s) list:   0-143
+Thread(s) per core:    2
+Core(s) per socket:    18
+Socket(s):             4
+NUMA node(s):          4
+Vendor ID:             GenuineIntel
+CPU family:            6
+Model:                 63
+Model name:            Intel(R) Xeon(R) CPU E7-8880 v3 @ 2.30GHz
+Stepping:              4
+CPU MHz:               2700.000
+CPU max MHz:           3100.0000
+CPU min MHz:           1200.0000
+BogoMIPS:              4589.07
+Virtualization:        VT-x
+L1d cache:             32K
+L1i cache:             32K
+L2 cache:              256K
+L3 cache:              46080K
+NUMA node0 CPU(s):     0-17,72-89
+NUMA node1 CPU(s):     18-35,90-107
+NUMA node2 CPU(s):     36-53,108-125
+NUMA node3 CPU(s):     54-71,126-143
+Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu mce_recovery pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm ida arat epb pln pts dtherm tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm xsaveopt cqm_llc cqm_occup_llc</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.lscpu_extended_example">
+   <title>Example "lscpu --extended=CPU,SOCKET,CORE"" from a Lenovo x3850 x6</title>
+<screen>#  lscpu --extended=CPU,SOCKET,CORE
+CPU SOCKET CORE
+0   0      0
+1   0      1
+2   0      2
+3   0      3
+4   0      4
+5   0      5
+6   0      6
+7   0      7
+8   0      8
+9   0      9
+10  0      10
+11  0      11
+12  0      12
+13  0      13
+14  0      14
+15  0      15
+16  0      16
+17  0      17
+18  1      18
+19  1      19
+20  1      20
+21  1      21
+22  1      22
+23  1      23
+24  1      24
+25  1      25
+26  1      26
+27  1      27
+28  1      28
+29  1      29
+30  1      30
+31  1      31
+32  1      32
+33  1      33
+34  1      34
+35  1      35
+36  2      36
+37  2      37
+38  2      38
+39  2      39
+40  2      40
+41  2      41
+42  2      42
+43  2      43
+44  2      44
+45  2      45
+46  2      46
+47  2      47
+48  2      48
+49  2      49
+50  2      50
+51  2      51
+52  2      52
+53  2      53
+54  3      54
+55  3      55
+56  3      56
+57  3      57
+58  3      58
+59  3      59
+60  3      60
+61  3      61
+62  3      62
+63  3      63
+64  3      64
+65  3      65
+66  3      66
+67  3      67
+68  3      68
+69  3      69
+70  3      70
+71  3      71
+72  0      0
+73  0      1
+74  0      2
+75  0      3
+76  0      4
+77  0      5
+78  0      6
+79  0      7
+80  0      8
+81  0      9
+82  0      10
+83  0      11
+84  0      12
+85  0      13
+86  0      14
+87  0      15
+88  0      16
+89  0      17
+90  1      18
+91  1      19
+92  1      20
+93  1      21
+94  1      22
+95  1      23
+96  1      24
+97  1      25
+98  1      26
+99  1      27
+100 1      28
+101 1      29
+102 1      30
+103 1      31
+104 1      32
+105 1      33
+106 1      34
+107 1      35
+108 2      36
+109 2      37
+110 2      38
+111 2      39
+112 2      40
+113 2      41
+114 2      42
+115 2      43
+116 2      44
+117 2      45
+118 2      46
+119 2      47
+120 2      48
+121 2      49
+122 2      50
+123 2      51
+124 2      52
+125 2      53
+126 3      54
+127 3      55
+128 3      56
+129 3      57
+130 3      58
+131 3      59
+132 3      60
+133 3      61
+134 3      62
+135 3      63
+136 3      64
+137 3      65
+138 3      66
+139 3      67
+140 3      68
+141 3      69
+142 3      70
+143 3      71</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.example_lstopo">
+   <title>Example lstopo-no-graphics from a Lenovo x3850 x6</title>
+<screen># lstopo-no-graphics
+Machine (504GB total)
+  NUMANode L#0 (P#0 126GB)
+    Package L#0 + L3 L#0 (45MB)
+      L2 L#0 (256KB) + L1d L#0 (32KB) + L1i L#0 (32KB) + Core L#0
+        PU L#0 (P#0)
+        PU L#1 (P#72)
+      L2 L#1 (256KB) + L1d L#1 (32KB) + L1i L#1 (32KB) + Core L#1
+        PU L#2 (P#1)
+        PU L#3 (P#73)
+      L2 L#2 (256KB) + L1d L#2 (32KB) + L1i L#2 (32KB) + Core L#2
+        PU L#4 (P#2)
+        PU L#5 (P#74)
+      L2 L#3 (256KB) + L1d L#3 (32KB) + L1i L#3 (32KB) + Core L#3
+        PU L#6 (P#3)
+        PU L#7 (P#75)
+      L2 L#4 (256KB) + L1d L#4 (32KB) + L1i L#4 (32KB) + Core L#4
+        PU L#8 (P#4)
+        PU L#9 (P#76)
+      L2 L#5 (256KB) + L1d L#5 (32KB) + L1i L#5 (32KB) + Core L#5
+        PU L#10 (P#5)
+        PU L#11 (P#77)
+      L2 L#6 (256KB) + L1d L#6 (32KB) + L1i L#6 (32KB) + Core L#6
+        PU L#12 (P#6)
+        PU L#13 (P#78)
+      L2 L#7 (256KB) + L1d L#7 (32KB) + L1i L#7 (32KB) + Core L#7
+        PU L#14 (P#7)
+        PU L#15 (P#79)
+      L2 L#8 (256KB) + L1d L#8 (32KB) + L1i L#8 (32KB) + Core L#8
+        PU L#16 (P#8)
+        PU L#17 (P#80)
+      L2 L#9 (256KB) + L1d L#9 (32KB) + L1i L#9 (32KB) + Core L#9
+        PU L#18 (P#9)
+        PU L#19 (P#81)
+      L2 L#10 (256KB) + L1d L#10 (32KB) + L1i L#10 (32KB) + Core L#10
+        PU L#20 (P#10)
+        PU L#21 (P#82)
+      L2 L#11 (256KB) + L1d L#11 (32KB) + L1i L#11 (32KB) + Core L#11
+        PU L#22 (P#11)
+        PU L#23 (P#83)
+      L2 L#12 (256KB) + L1d L#12 (32KB) + L1i L#12 (32KB) + Core L#12
+        PU L#24 (P#12)
+        PU L#25 (P#84)
+      L2 L#13 (256KB) + L1d L#13 (32KB) + L1i L#13 (32KB) + Core L#13
+        PU L#26 (P#13)
+        PU L#27 (P#85)
+      L2 L#14 (256KB) + L1d L#14 (32KB) + L1i L#14 (32KB) + Core L#14
+        PU L#28 (P#14)
+        PU L#29 (P#86)
+      L2 L#15 (256KB) + L1d L#15 (32KB) + L1i L#15 (32KB) + Core L#15
+        PU L#30 (P#15)
+        PU L#31 (P#87)
+      L2 L#16 (256KB) + L1d L#16 (32KB) + L1i L#16 (32KB) + Core L#16
+        PU L#32 (P#16)
+        PU L#33 (P#88)
+      L2 L#17 (256KB) + L1d L#17 (32KB) + L1i L#17 (32KB) + Core L#17
+        PU L#34 (P#17)
+        PU L#35 (P#89)
+    HostBridge L#0
+      PCIBridge
+        PCI 8086:1521
+          Net L#0 "eth0"
+        PCI 8086:1521
+          Net L#1 "eth1"
+        PCI 8086:1521
+          Net L#2 "eth2"
+        PCI 8086:1521
+          Net L#3 "eth3"
+  NUMANode L#1 (P#1 126GB)
+    Package L#1 + L3 L#1 (45MB)
+      L2 L#18 (256KB) + L1d L#18 (32KB) + L1i L#18 (32KB) + Core L#18
+        PU L#36 (P#18)
+        PU L#37 (P#90)
+      L2 L#19 (256KB) + L1d L#19 (32KB) + L1i L#19 (32KB) + Core L#19
+        PU L#38 (P#19)
+        PU L#39 (P#91)
+      L2 L#20 (256KB) + L1d L#20 (32KB) + L1i L#20 (32KB) + Core L#20
+        PU L#40 (P#20)
+        PU L#41 (P#92)
+      L2 L#21 (256KB) + L1d L#21 (32KB) + L1i L#21 (32KB) + Core L#21
+        PU L#42 (P#21)
+        PU L#43 (P#93)
+      L2 L#22 (256KB) + L1d L#22 (32KB) + L1i L#22 (32KB) + Core L#22
+        PU L#44 (P#22)
+        PU L#45 (P#94)
+      L2 L#23 (256KB) + L1d L#23 (32KB) + L1i L#23 (32KB) + Core L#23
+        PU L#46 (P#23)
+        PU L#47 (P#95)
+      L2 L#24 (256KB) + L1d L#24 (32KB) + L1i L#24 (32KB) + Core L#24
+        PU L#48 (P#24)
+        PU L#49 (P#96)
+      L2 L#25 (256KB) + L1d L#25 (32KB) + L1i L#25 (32KB) + Core L#25
+        PU L#50 (P#25)
+        PU L#51 (P#97)
+      L2 L#26 (256KB) + L1d L#26 (32KB) + L1i L#26 (32KB) + Core L#26
+        PU L#52 (P#26)
+        PU L#53 (P#98)
+      L2 L#27 (256KB) + L1d L#27 (32KB) + L1i L#27 (32KB) + Core L#27
+        PU L#54 (P#27)
+        PU L#55 (P#99)
+      L2 L#28 (256KB) + L1d L#28 (32KB) + L1i L#28 (32KB) + Core L#28
+        PU L#56 (P#28)
+        PU L#57 (P#100)
+      L2 L#29 (256KB) + L1d L#29 (32KB) + L1i L#29 (32KB) + Core L#29
+        PU L#58 (P#29)
+        PU L#59 (P#101)
+      L2 L#30 (256KB) + L1d L#30 (32KB) + L1i L#30 (32KB) + Core L#30
+        PU L#60 (P#30)
+        PU L#61 (P#102)
+      L2 L#31 (256KB) + L1d L#31 (32KB) + L1i L#31 (32KB) + Core L#31
+        PU L#62 (P#31)
+        PU L#63 (P#103)
+      L2 L#32 (256KB) + L1d L#32 (32KB) + L1i L#32 (32KB) + Core L#32
+        PU L#64 (P#32)
+        PU L#65 (P#104)
+      L2 L#33 (256KB) + L1d L#33 (32KB) + L1i L#33 (32KB) + Core L#33
+        PU L#66 (P#33)
+        PU L#67 (P#105)
+      L2 L#34 (256KB) + L1d L#34 (32KB) + L1i L#34 (32KB) + Core L#34
+        PU L#68 (P#34)
+        PU L#69 (P#106)
+      L2 L#35 (256KB) + L1d L#35 (32KB) + L1i L#35 (32KB) + Core L#35
+        PU L#70 (P#35)
+        PU L#71 (P#107)
+    HostBridge L#7
+    PCIBridge
+      PCI 1000:005d
+        Block(Disk) L#4 "sda"
+        Block(Disk) L#5 "sdb"
+        Block(Disk) L#6 "sdc"
+        Block(Disk) L#7 "sdd"
+        Block(Disk) L#8 "sde"
+    NUMANode L#2 (P#2 126GB) + Package L#2 + L3 L#2 (45MB)
+    L2 L#36 (256KB) + L1d L#36 (32KB) + L1i L#36 (32KB) + Core L#36
+      PU L#72 (P#36)
+      PU L#73 (P#108)
+    L2 L#37 (256KB) + L1d L#37 (32KB) + L1i L#37 (32KB) + Core L#37
+      PU L#74 (P#37)
+      PU L#75 (P#109)
+    L2 L#38 (256KB) + L1d L#38 (32KB) + L1i L#38 (32KB) + Core L#38
+      PU L#76 (P#38)
+      PU L#77 (P#110)
+    L2 L#39 (256KB) + L1d L#39 (32KB) + L1i L#39 (32KB) + Core L#39
+      PU L#78 (P#39)
+      PU L#79 (P#111)
+    L2 L#40 (256KB) + L1d L#40 (32KB) + L1i L#40 (32KB) + Core L#40
+      PU L#80 (P#40)
+      PU L#81 (P#112)
+    L2 L#41 (256KB) + L1d L#41 (32KB) + L1i L#41 (32KB) + Core L#41
+      PU L#82 (P#41)
+      PU L#83 (P#113)
+    L2 L#42 (256KB) + L1d L#42 (32KB) + L1i L#42 (32KB) + Core L#42
+      PU L#84 (P#42)
+      PU L#85 (P#114)
+    L2 L#43 (256KB) + L1d L#43 (32KB) + L1i L#43 (32KB) + Core L#43
+      PU L#86 (P#43)
+      PU L#87 (P#115)
+    L2 L#44 (256KB) + L1d L#44 (32KB) + L1i L#44 (32KB) + Core L#44
+      PU L#88 (P#44)
+      PU L#89 (P#116)
+    L2 L#45 (256KB) + L1d L#45 (32KB) + L1i L#45 (32KB) + Core L#45
+      PU L#90 (P#45)
+      PU L#91 (P#117)
+    L2 L#46 (256KB) + L1d L#46 (32KB) + L1i L#46 (32KB) + Core L#46
+      PU L#92 (P#46)
+      PU L#93 (P#118)
+    L2 L#47 (256KB) + L1d L#47 (32KB) + L1i L#47 (32KB) + Core L#47
+      PU L#94 (P#47)
+      PU L#95 (P#119)
+    L2 L#48 (256KB) + L1d L#48 (32KB) + L1i L#48 (32KB) + Core L#48
+      PU L#96 (P#48)
+      PU L#97 (P#120)
+    L2 L#49 (256KB) + L1d L#49 (32KB) + L1i L#49 (32KB) + Core L#49
+      PU L#98 (P#49)
+      PU L#99 (P#121)
+    L2 L#50 (256KB) + L1d L#50 (32KB) + L1i L#50 (32KB) + Core L#50
+      PU L#100 (P#50)
+      PU L#101 (P#122)
+    L2 L#51 (256KB) + L1d L#51 (32KB) + L1i L#51 (32KB) + Core L#51
+      PU L#102 (P#51)
+      PU L#103 (P#123)
+    L2 L#52 (256KB) + L1d L#52 (32KB) + L1i L#52 (32KB) + Core L#52
+      PU L#104 (P#52)
+      PU L#105 (P#124)
+    L2 L#53 (256KB) + L1d L#53 (32KB) + L1i L#53 (32KB) + Core L#53
+      PU L#106 (P#53)
+      PU L#107 (P#125)
+    PCIBridge
+      PCI 1000:005d
+        Block(Disk) L#9 "sdf"
+        Block(Disk) L#10 "sdg"
+        Block(Disk) L#11 "sdh"
+        Block(Disk) L#12 "sdi"
+    NUMANode L#3 (P#3 126GB) + Package L#3 + L3 L#3 (45MB)
+      L2 L#54 (256KB) + L1d L#54 (32KB) + L1i L#54 (32KB) + Core L#54
+        PU L#108 (P#54)
+        PU L#109 (P#126)
+      L2 L#55 (256KB) + L1d L#55 (32KB) + L1i L#55 (32KB) + Core L#55
+        PU L#110 (P#55)
+        PU L#111 (P#127)
+      L2 L#56 (256KB) + L1d L#56 (32KB) + L1i L#56 (32KB) + Core L#56
+        PU L#112 (P#56)
+        PU L#113 (P#128)
+      L2 L#57 (256KB) + L1d L#57 (32KB) + L1i L#57 (32KB) + Core L#57
+        PU L#114 (P#57)
+        PU L#115 (P#129)
+      L2 L#58 (256KB) + L1d L#58 (32KB) + L1i L#58 (32KB) + Core L#58
+        PU L#116 (P#58)
+        PU L#117 (P#130)
+      L2 L#59 (256KB) + L1d L#59 (32KB) + L1i L#59 (32KB) + Core L#59
+        PU L#118 (P#59)
+        PU L#119 (P#131)
+      L2 L#60 (256KB) + L1d L#60 (32KB) + L1i L#60 (32KB) + Core L#60
+        PU L#120 (P#60)
+        PU L#121 (P#132)
+      L2 L#61 (256KB) + L1d L#61 (32KB) + L1i L#61 (32KB) + Core L#61
+        PU L#122 (P#61)
+        PU L#123 (P#133)
+      L2 L#62 (256KB) + L1d L#62 (32KB) + L1i L#62 (32KB) + Core L#62
+        PU L#124 (P#62)
+        PU L#125 (P#134)
+      L2 L#63 (256KB) + L1d L#63 (32KB) + L1i L#63 (32KB) + Core L#63
+        PU L#126 (P#63)
+        PU L#127 (P#135)
+      L2 L#64 (256KB) + L1d L#64 (32KB) + L1i L#64 (32KB) + Core L#64
+        PU L#128 (P#64)
+        PU L#129 (P#136)
+      L2 L#65 (256KB) + L1d L#65 (32KB) + L1i L#65 (32KB) + Core L#65
+        PU L#130 (P#65)
+        PU L#131 (P#137)
+      L2 L#66 (256KB) + L1d L#66 (32KB) + L1i L#66 (32KB) + Core L#66
+        PU L#132 (P#66)
+        PU L#133 (P#138)
+      L2 L#67 (256KB) + L1d L#67 (32KB) + L1i L#67 (32KB) + Core L#67
+        PU L#134 (P#67)
+        PU L#135 (P#139)
+      L2 L#68 (256KB) + L1d L#68 (32KB) + L1i L#68 (32KB) + Core L#68
+        PU L#136 (P#68)
+        PU L#137 (P#140)
+      L2 L#69 (256KB) + L1d L#69 (32KB) + L1i L#69 (32KB) + Core L#69
+        PU L#138 (P#69)
+        PU L#139 (P#141)
+      L2 L#70 (256KB) + L1d L#70 (32KB) + L1i L#70 (32KB) + Core L#70
+        PU L#140 (P#70)
+        PU L#141 (P#142)
+      L2 L#71 (256KB) + L1d L#71 (32KB) + L1i L#71 (32KB) + Core L#71
+        PU L#142 (P#71)
+        PU L#143 (P#143)</screen>
+  </sect2>
+  
+  <sect2 xml:id="sec.example_guest_vm_xml_based_on_the_example_lenovo_x3850_x6_above">
+   <title>Example Guest VM XML based on the example Lenovo x3850 x6 above</title>
+   <important>
+    <para>
+     The XML file below is only an <emphasis role="strong">example</emphasis>
+     showing the key configurations based on the about command outputs to
+     assist in understanding how to configure the XML. The actual XML
+     configuration must be based on your respective hardware configuration and
+     VM requirements.
+    </para>
+   </important>
+   <para>
+    Points of interest in this example (Please refer to the detailed chapters
+    of SAP HANA on SUSE KVM Best Practice for a full explanation)
+   </para>
+   <itemizedlist>
+    <listitem>
+     <para>
+      Memory
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        The Hypervisor has 512GiB RAM, of which 488GiB has been allocated as
+        1GB Hugepages and therefore 488GiB is the max VM size in this case
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        488GiB = 511705088 KiB
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        In the "numa" section memory is split evenly over the 4 NUMA nodes (CPU
+        sokcets)
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      CPU Pinning
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Note the alternating CPU pinning on the Hypervisor, see
+        <xref linkend="sec.vCPU_and_vNUMA_Topology"/> section for details
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Note the topology difference between the Guest VM (4x17 CPU cores) the
+        Hypervisor (4x18 CPU cores)
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Referring to the <xref linkend="sec.example_lstopo"/> output we know that
+        the disks are attached via CPU sockets 1 and 2, therefore the iothreads
+        are pinned (see vcpupin) to logical CPUs on those sockets
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      Storage/IO
+     </para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        Storage is configured with virtio and the block devices for SAP HANA
+        are spread evenly across the iothreads
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Source devices use persistent multipath addresses
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        Type is set to raw, and cache=none
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        See <xref linkend="sec.storage"/> section for details
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
+    <listitem>
+     <para>
+      " rng model=<emphasis>virtio</emphasis> ", for details see section
+      <xref linkend="sec.virtio_rng"/>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      qemu:commandline elements to describe CPU attributes, for details see
+      section <xref linkend="sec.global_vcpu_configuration"/>
+     </para>
+    </listitem>
+   </itemizedlist>
+<screen># cat /etc/libvirt/qemu/SUSEKVM.xml
+&lt;!--
+WARNING: THIS IS AN AUTO-GENERATED FILE. CHANGES TO IT ARE LIKELY TO BE
+OVERWRITTEN AND LOST. Changes to this xml configuration should be made using:
+  virsh edit SUSEKVM
+or other application using the libvirt API.
+--&gt;
+
+&lt;domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'&gt;
+  &lt;name&gt;SUSEKVM&lt;/name&gt;
+  &lt;uuid&gt;39112135-9cee-4a5e-b36b-eba8757d666e&lt;/uuid&gt;
+  &lt;memory unit='KiB'&gt;511705088&lt;/memory&gt;
+  &lt;currentMemory unit='KiB'&gt;511705088&lt;/currentMemory&gt;
+  &lt;memoryBacking&gt;
+    &lt;hugepages/&gt;
+      &lt;page size='1048576' unit='KiB'/&gt;
+    &lt;nosharepages/&gt;
+  &lt;/memoryBacking&gt;
+  &lt;vcpu placement='static'&gt;136&lt;/vcpu&gt;
+  &lt;iothreads&gt;5&lt;/iothreads&gt;
+  &lt;cputune&gt;
+    &lt;vcpupin vcpu='0' cpuset='1'/&gt;
+    &lt;vcpupin vcpu='1' cpuset='73'/&gt;
+    &lt;vcpupin vcpu='2' cpuset='2'/&gt;
+    &lt;vcpupin vcpu='3' cpuset='74'/&gt;
+    &lt;vcpupin vcpu='4' cpuset='3'/&gt;
+    &lt;vcpupin vcpu='5' cpuset='75'/&gt;
+    &lt;vcpupin vcpu='6' cpuset='4'/&gt;
+    &lt;vcpupin vcpu='7' cpuset='76'/&gt;
+    &lt;vcpupin vcpu='8' cpuset='5'/&gt;
+    &lt;vcpupin vcpu='9' cpuset='77'/&gt;
+    &lt;vcpupin vcpu='10' cpuset='6'/&gt;
+    &lt;vcpupin vcpu='11' cpuset='78'/&gt;
+    &lt;vcpupin vcpu='12' cpuset='7'/&gt;
+    &lt;vcpupin vcpu='13' cpuset='79'/&gt;
+    &lt;vcpupin vcpu='14' cpuset='8'/&gt;
+    &lt;vcpupin vcpu='15' cpuset='80'/&gt;
+    &lt;vcpupin vcpu='16' cpuset='9'/&gt;
+    &lt;vcpupin vcpu='17' cpuset='81'/&gt;
+    &lt;vcpupin vcpu='18' cpuset='10'/&gt;
+    &lt;vcpupin vcpu='19' cpuset='82'/&gt;
+    &lt;vcpupin vcpu='20' cpuset='11'/&gt;
+    &lt;vcpupin vcpu='21' cpuset='83'/&gt;
+    &lt;vcpupin vcpu='22' cpuset='12'/&gt;
+    &lt;vcpupin vcpu='23' cpuset='84'/&gt;
+    &lt;vcpupin vcpu='24' cpuset='13'/&gt;
+    &lt;vcpupin vcpu='25' cpuset='85'/&gt;
+    &lt;vcpupin vcpu='26' cpuset='14'/&gt;
+    &lt;vcpupin vcpu='27' cpuset='86'/&gt;
+    &lt;vcpupin vcpu='28' cpuset='15'/&gt;
+    &lt;vcpupin vcpu='29' cpuset='87'/&gt;
+    &lt;vcpupin vcpu='30' cpuset='16'/&gt;
+    &lt;vcpupin vcpu='31' cpuset='88'/&gt;
+    &lt;vcpupin vcpu='32' cpuset='17'/&gt;
+    &lt;vcpupin vcpu='33' cpuset='89'/&gt;
+    &lt;vcpupin vcpu='34' cpuset='19'/&gt;
+    &lt;vcpupin vcpu='35' cpuset='91'/&gt;
+    &lt;vcpupin vcpu='36' cpuset='20'/&gt;
+    &lt;vcpupin vcpu='37' cpuset='92'/&gt;
+    &lt;vcpupin vcpu='38' cpuset='21'/&gt;
+    &lt;vcpupin vcpu='39' cpuset='93'/&gt;
+    &lt;vcpupin vcpu='40' cpuset='22'/&gt;
+    &lt;vcpupin vcpu='41' cpuset='94'/&gt;
+    &lt;vcpupin vcpu='42' cpuset='23'/&gt;
+    &lt;vcpupin vcpu='43' cpuset='95'/&gt;
+    &lt;vcpupin vcpu='44' cpuset='24'/&gt;
+    &lt;vcpupin vcpu='45' cpuset='96'/&gt;
+    &lt;vcpupin vcpu='46' cpuset='25'/&gt;
+    &lt;vcpupin vcpu='47' cpuset='97'/&gt;
+    &lt;vcpupin vcpu='48' cpuset='26'/&gt;
+    &lt;vcpupin vcpu='49' cpuset='98'/&gt;
+    &lt;vcpupin vcpu='50' cpuset='27'/&gt;
+    &lt;vcpupin vcpu='51' cpuset='99'/&gt;
+    &lt;vcpupin vcpu='52' cpuset='28'/&gt;
+    &lt;vcpupin vcpu='53' cpuset='100'/&gt;
+    &lt;vcpupin vcpu='54' cpuset='29'/&gt;
+    &lt;vcpupin vcpu='55' cpuset='101'/&gt;
+    &lt;vcpupin vcpu='56' cpuset='30'/&gt;
+    &lt;vcpupin vcpu='57' cpuset='102'/&gt;
+    &lt;vcpupin vcpu='58' cpuset='31'/&gt;
+    &lt;vcpupin vcpu='59' cpuset='103'/&gt;
+    &lt;vcpupin vcpu='60' cpuset='32'/&gt;
+    &lt;vcpupin vcpu='61' cpuset='104'/&gt;
+    &lt;vcpupin vcpu='62' cpuset='33'/&gt;
+    &lt;vcpupin vcpu='63' cpuset='105'/&gt;
+    &lt;vcpupin vcpu='64' cpuset='34'/&gt;
+    &lt;vcpupin vcpu='65' cpuset='106'/&gt;
+    &lt;vcpupin vcpu='66' cpuset='35'/&gt;
+    &lt;vcpupin vcpu='67' cpuset='107'/&gt;
+    &lt;vcpupin vcpu='68' cpuset='37'/&gt;
+    &lt;vcpupin vcpu='69' cpuset='109'/&gt;
+    &lt;vcpupin vcpu='70' cpuset='38'/&gt;
+    &lt;vcpupin vcpu='71' cpuset='110'/&gt;
+    &lt;vcpupin vcpu='72' cpuset='39'/&gt;
+    &lt;vcpupin vcpu='73' cpuset='111'/&gt;
+    &lt;vcpupin vcpu='74' cpuset='40'/&gt;
+    &lt;vcpupin vcpu='75' cpuset='112'/&gt;
+    &lt;vcpupin vcpu='76' cpuset='41'/&gt;
+    &lt;vcpupin vcpu='77' cpuset='113'/&gt;
+    &lt;vcpupin vcpu='78' cpuset='42'/&gt;
+    &lt;vcpupin vcpu='79' cpuset='114'/&gt;
+    &lt;vcpupin vcpu='80' cpuset='43'/&gt;
+    &lt;vcpupin vcpu='81' cpuset='115'/&gt;
+    &lt;vcpupin vcpu='82' cpuset='44'/&gt;
+    &lt;vcpupin vcpu='83' cpuset='116'/&gt;
+    &lt;vcpupin vcpu='84' cpuset='45'/&gt;
+    &lt;vcpupin vcpu='85' cpuset='117'/&gt;
+    &lt;vcpupin vcpu='86' cpuset='46'/&gt;
+    &lt;vcpupin vcpu='87' cpuset='118'/&gt;
+    &lt;vcpupin vcpu='88' cpuset='47'/&gt;
+    &lt;vcpupin vcpu='89' cpuset='119'/&gt;
+    &lt;vcpupin vcpu='90' cpuset='48'/&gt;
+    &lt;vcpupin vcpu='91' cpuset='120'/&gt;
+    &lt;vcpupin vcpu='92' cpuset='49'/&gt;
+    &lt;vcpupin vcpu='93' cpuset='121'/&gt;
+    &lt;vcpupin vcpu='94' cpuset='50'/&gt;
+    &lt;vcpupin vcpu='95' cpuset='122'/&gt;
+    &lt;vcpupin vcpu='96' cpuset='51'/&gt;
+    &lt;vcpupin vcpu='97' cpuset='123'/&gt;
+    &lt;vcpupin vcpu='98' cpuset='52'/&gt;
+    &lt;vcpupin vcpu='99' cpuset='124'/&gt;
+    &lt;vcpupin vcpu='100' cpuset='53'/&gt;
+    &lt;vcpupin vcpu='101' cpuset='125'/&gt;
+    &lt;vcpupin vcpu='102' cpuset='55'/&gt;
+    &lt;vcpupin vcpu='103' cpuset='127'/&gt;
+    &lt;vcpupin vcpu='104' cpuset='56'/&gt;
+    &lt;vcpupin vcpu='105' cpuset='128'/&gt;
+    &lt;vcpupin vcpu='106' cpuset='57'/&gt;
+    &lt;vcpupin vcpu='107' cpuset='129'/&gt;
+    &lt;vcpupin vcpu='108' cpuset='58'/&gt;
+    &lt;vcpupin vcpu='109' cpuset='130'/&gt;
+    &lt;vcpupin vcpu='110' cpuset='59'/&gt;
+    &lt;vcpupin vcpu='111' cpuset='131'/&gt;
+    &lt;vcpupin vcpu='112' cpuset='60'/&gt;
+    &lt;vcpupin vcpu='113' cpuset='132'/&gt;
+    &lt;vcpupin vcpu='114' cpuset='61'/&gt;
+    &lt;vcpupin vcpu='115' cpuset='133'/&gt;
+    &lt;vcpupin vcpu='116' cpuset='62'/&gt;
+    &lt;vcpupin vcpu='117' cpuset='134'/&gt;
+    &lt;vcpupin vcpu='118' cpuset='63'/&gt;
+    &lt;vcpupin vcpu='119' cpuset='135'/&gt;
+    &lt;vcpupin vcpu='120' cpuset='64'/&gt;
+    &lt;vcpupin vcpu='121' cpuset='136'/&gt;
+    &lt;vcpupin vcpu='122' cpuset='65'/&gt;
+    &lt;vcpupin vcpu='123' cpuset='137'/&gt;
+    &lt;vcpupin vcpu='124' cpuset='66'/&gt;
+    &lt;vcpupin vcpu='125' cpuset='138'/&gt;
+    &lt;vcpupin vcpu='126' cpuset='67'/&gt;
+    &lt;vcpupin vcpu='127' cpuset='139'/&gt;
+    &lt;vcpupin vcpu='128' cpuset='68'/&gt;
+    &lt;vcpupin vcpu='129' cpuset='140'/&gt;
+    &lt;vcpupin vcpu='130' cpuset='69'/&gt;
+    &lt;vcpupin vcpu='131' cpuset='141'/&gt;
+    &lt;vcpupin vcpu='132' cpuset='70'/&gt;
+    &lt;vcpupin vcpu='133' cpuset='142'/&gt;
+    &lt;vcpupin vcpu='134' cpuset='71'/&gt;
+    &lt;vcpupin vcpu='135' cpuset='143'/&gt;
+    &lt;emulatorpin cpuset='0,54'/&gt;
+    &lt;iothreadpin iothread='1' cpuset='72'/&gt;
+    &lt;iothreadpin iothread='2' cpuset='18'/&gt;
+    &lt;iothreadpin iothread='3' cpuset='36'/&gt;
+    &lt;iothreadpin iothread='4' cpuset='90'/&gt;
+    &lt;iothreadpin iothread='5' cpuset='108'/&gt;
+  &lt;/cputune&gt;
+  &lt;numatune&gt;
+    &lt;memory mode='strict' nodeset='0-3'/&gt;
+    &lt;memnode cellid='0' mode='strict' nodeset='0'/&gt;
+    &lt;memnode cellid='1' mode='strict' nodeset='1'/&gt;
+    &lt;memnode cellid='2' mode='strict' nodeset='2'/&gt;
+    &lt;memnode cellid='3' mode='strict' nodeset='3'/&gt;
+  &lt;/numatune&gt;
+  &lt;os&gt;
+    &lt;type arch='x86_64' machine='pc-i440fx-2.6'&gt;hvm&lt;/type&gt;
+    &lt;boot dev='hd'/&gt;
+  &lt;/os&gt;
+  &lt;features&gt;
+    &lt;acpi/&gt;
+    &lt;apic/&gt;
+    &lt;vmport state='off'/&gt;
+  &lt;/features&gt;
+  &lt;cpu mode='host-passthrough'&gt;
+    &lt;topology sockets='4' cores='17' threads='2'/&gt;
+    &lt;numa&gt;
+      &lt;cell id='0' cpus='0-33' memory='127926272' unit='KiB'/&gt;
+      &lt;cell id='1' cpus='34-66' memory='127926272' unit='KiB'/&gt;
+      &lt;cell id='2' cpus='67-101' memory='127926272' unit='KiB'/&gt;
+      &lt;cell id='3' cpus='102-135' memory='127926272' unit='KiB'/&gt;
+    &lt;/numa&gt;
+  &lt;/cpu&gt;
+  &lt;clock offset='utc'&gt;
+    &lt;timer name='rtc' tickpolicy='catchup'/&gt;
+    &lt;timer name='pit' tickpolicy='delay'/&gt;
+    &lt;timer name='hpet' present='no'/&gt;
+  &lt;/clock&gt;
+  &lt;on_poweroff&gt;destroy&lt;/on_poweroff&gt;
+  &lt;on_reboot&gt;restart&lt;/on_reboot&gt;
+  &lt;on_crash&gt;restart&lt;/on_crash&gt;
+  &lt;pm&gt;
+    &lt;suspend-to-mem enabled='no'/&gt;
+    &lt;suspend-to-disk enabled='no'/&gt;
+  &lt;/pm&gt;
+  &lt;devices&gt;
+    &lt;emulator&gt;/usr/bin/qemu-kvm&lt;/emulator&gt;
+...
+    &lt;disk type='block' device='disk'&gt;
+      &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='1'/&gt;
+      &lt;source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx...'/&gt;
+      &lt;target dev='vda' bus='virtio'/&gt;
+    &lt;/disk&gt;
+    &lt;disk type='block' device='disk'&gt;
+      &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='2'/&gt;
+      &lt;source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-cd5e'/&gt;
+      &lt;target dev='vdf' bus='virtio'/&gt;
+    &lt;/disk&gt;
+    &lt;disk type='block' device='disk'&gt;
+      &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='3'/&gt;
+      &lt;source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-cd89'/&gt;
+      &lt;target dev='vdg' bus='virtio'/&gt;
+    &lt;/disk&gt;
+    &lt;disk type='block' device='disk'&gt;
+      &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='4'/&gt;
+      &lt;source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-c9bb'/&gt;
+      &lt;target dev='vdh' bus='virtio'/&gt;
+    &lt;/disk&gt;
+    &lt;disk type='block' device='disk'&gt;
+      &lt;driver name='qemu' type='raw' cache='none' io='threads' iothread='5'/&gt;
+      &lt;source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-c9e5'/&gt;
+      &lt;target dev='vdi' bus='virtio'/&gt;
+    &lt;/disk&gt;
+
+    &lt;hostdev mode='subsystem' type='pci' managed='yes'&gt;
+      &lt;source&gt;
+        &lt;address domain='0x0003' bus='0x03' slot='0x00' function='0x0'/&gt;
+      &lt;/source&gt;
+    &lt;/hostdev&gt;
+...
+    &lt;memballoon model='virtio'&gt;
+      &lt;address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/&gt;
+    &lt;/memballoon&gt;
+...
+    &lt;rng model='virtio'&gt;
+      &lt;backend model='random'&gt;/dev/random&lt;/backend&gt;
+    &lt;/rng&gt;
+  &lt;/devices&gt;
+  &lt;qemu:commandline&gt;
+    &lt;qemu:arg value='-cpu'/&gt;
+    &lt;qemu:arg value='host,migratable=off,+invtsc,l3-cache=on'/&gt;
+  &lt;/qemu:commandline&gt;
+&lt;/domain&gt;</screen>
+  </sect2>
+ </sect1>
+  
+  <sect1 xml:id="sec.additional_information">
+   <title>Additional Information</title>
+   
+   <sect2 xml:id="sec.resources">
+    <title>Resources</title>
+    
+    <para>For more information, see the following guides:</para>
+   
+   <itemizedlist>
+    <listitem>
+     <para>
+      SUSE Virtualization Best Practices for SLES12 SP2: Open
+      "vt_best_practice_guide" from
+      <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      SUSE Virtualization Guide for SLES12 SP2: Open "book_virt" from
+      <link xlink:href="https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip">https://www.suse.com/documentation/sles-12/pdfdoc/sles-12-sp2.zip</link>
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      SUSE Best Practices for Mission-Critical SAP Applications:
+      <link xlink:href="https://www.suse.com/de-de/products/sles-for-sap/resource-library/sap-best-practices/">https://www.suse.com/de-de/products/sles-for-sap/resource-library/sap-best-practices/</link>
+     </para>
+    </listitem>
+   </itemizedlist>
+   </sect2>
+  
+  
+  <sect2 xml:id="sec.feedback">
+   <title>Feedback</title>
+   <para>
+    Several feedback channels are available:
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>
+      Bugs and Enhancement Requests
+     </term>
+     <listitem>
+      <para>
+       For services and support options available for your product, refer to
+       <link xlink:href="http://www.suse.com/support/">http://www.suse.com/support/</link>.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+   <para>
+    To report bugs for a product component, go to
+    <link xlink:href="https://scc.suse.com/support/">https://scc.suse.com/support/</link>
+    requests, log in, and select Submit New SR (Service Request).
+   </para>
+   <variablelist>
+    <varlistentry>
+     <term>
+      User Comments
+     </term>
+     <listitem>
+      <para>
+       We want to hear your comments about and suggestions for this manual and
+       the other documentation included with this product. Use the User
+       Comments feature at the bottom of each page in the online documentation
+       or go to
+       <link xlink:href="http://www.suse.com/doc/feedback">http://www.suse.com/doc/feedback</link>
+       and enter your comments there.
+      </para>
+     </listitem>
+    </varlistentry>
+    <varlistentry>
+     <term>
+      Mail
+     </term>
+     <listitem>
+      <para>
+       For feedback on the documentation of this product, you can also send a
+       mail to
+       <link xlink:href="mailto:doc-team@suse.de">doc-team@suse.de</link>. Make
+       sure to include the document title, the product version and the
+       publication date of the documentation. To report errors or suggest
+       enhancements, provide a concise description of the problem and refer to
+       the respective section number and page (or URL).
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </sect2>
+  
+  <sect2 xml:id="sec.version_history">
+   <title>Version History</title>
+   <informaltable frame="all" rowsep="1" colsep="1">
+    <tgroup cols="4">
+     <colspec colname="col_1" colwidth="25*"/>
+     <colspec colname="col_2" colwidth="25*"/>
+     <colspec colname="col_3" colwidth="25*"/>
+     <colspec colname="col_4" colwidth="25*"/>
+     <tbody>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         Version
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Publication Date
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Author
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Comment
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         0.1
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Oct 2017
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Lee Martin
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Initial version
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         0.2
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Dec 2017
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Lee Martin
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Pilot Customers
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         0.3
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Jan 2018
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Lee Martin
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         SAP Review
+        </para>
+       </entry>
+      </row>
+      <row>
+       <entry align="left" valign="top">
+        <para>
+         0.4
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Feb 2018
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         Lee Martin
+        </para>
+       </entry>
+       <entry align="left" valign="top">
+        <para>
+         SUSE Review
+        </para>
+       </entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </informaltable>
+  </sect2>
+  </sect1>
+  
+   <sect1 xml:id="sec.legal_notice">
+    <title>Legal Notice</title>
+    <para>Copyright &copy;2006– 2018 SUSE LLC and contributors. All rights reserved. </para>
+    <para>Permission is granted to copy, distribute and/or modify this document under the terms
+     of the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with
+     the Invariant Section being this copyright notice and license. A copy of the license
+     version 1.2 is included in the section entitled <quote>GNU Free Documentation
+      License</quote>.</para>
+    <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United
+     States and other countries. For SUSE trademarks, see <link
+      xlink:href="http://www.suse.com/company/legal/"
+      >http://www.suse.com/company/legal/</link>. Linux is a registered trademark of Linus
+     Torvalds. All other names or trademarks mentioned in this document may be trademarks or
+     registered trademarks of their respective owners.</para>
+    <para>This article is part of a series of documents called "SUSE Best Practices". The
+     individual documents in the series were contributed voluntarily by SUSE's employees and
+     by third parties.</para>
+   <!-- <para>The articles are intended only to be one example of how a particular action could be
+     taken. They should not be understood to be the only action and certainly not to be the
+     action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+     in the articles do what they claim to do or that they don't have unintended
+     consequences.</para>-->
+    <para> All information found in this document has been compiled with utmost attention
+     to detail. However, this does not guarantee complete accuracy. Neither SUSE
+     LLC, the authors, nor the translators shall be held liable for possible
+     errors or the consequences thereof.Therefore, we need to specifically state that neither SUSE LLC, its affiliates, the
+     authors, nor the translators may be held liable for possible errors or the consequences
+     thereof. </para>
+    <para>Below we draw your attention to the license under which the articles are
+     published.</para>
+   </sect1>
+   <?pdfpagebreak style="suse2013" formatter="fop"?>
+   <xi:include href="license-gfdl.xml"/>
+   
+
+   
+<!--   <sect1 xml:id="sec.copyright">
+   <title>Copyright</title>
+   <para>
+    <link xlink:href="http://www.suse.com/documentation">http://www.suse.com/documentation</link>
+   </para>
+   <para>
+    Copyright © 2017 SUSE LLC and contributors. All rights reserved.
+   </para>
+   <para>
+    Permission is granted to copy, distribute and/or modify this document under
+    the terms of the GNU Free Documentation License, Version 1.2 or (at your
+    option) version 1.3; with the Invariant Section being this copyright notice
+    and license. A copy of the license version 1.2 is included in the section
+    entitled <literal>GNU Free Documentation License</literal>.
+   </para>
+   <para>
+    For SUSE trademarks, see Trademark and Service Mark list
+    <link xlink:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>
+    Linux* is a registered trademark of Linus Torvalds. All other third party
+    trademarks are the property of their respective owners. A trademark symbol
+    ®, ™ etc.) denotes a SUSE trademark; an asterisk (*) denotes a third
+    party trademark.
+   </para>
+   <para>
+    All information found in this book has been compiled with utmost attention
+    to detail. However, this does not guarantee complete accuracy. Neither SUSE
+    LLC, the authors, nor the translators shall be held liable for possible
+    errors or the consequences thereof.
+   </para>
+  
+ </sect1>-->
+ 
+</article>

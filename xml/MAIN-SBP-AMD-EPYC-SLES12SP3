@@ -1,0 +1,2874 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+<article role="sbp" xmlns="http://docbook.org/ns/docbook"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+  xml:id="art.sbp.amdepyc.sles12sp3" xml:lang="en">
+
+
+  <info>
+    <title>Optimizing Linux for AMD EPYC with SUSE Linux Enterprise 12
+      SP3</title>
+    <!--<subtitle>Simplified Deployment on Microsoft Azure</subtitle>-->
+    <productname>SUSE Linux Enterprise Server</productname>
+    <productnumber>12 SP3</productnumber>
+
+    <author>
+      <personname>
+        <firstname>Mel</firstname>
+        <surname>Gorman, Senior Kernel Engineer, SUSE</surname>
+      </personname>
+      <!--      <affiliation>
+        <jobtitle>Senior Software Engineer</jobtitle>
+        <orgname>SUSE</orgname>
+        </affiliation>-->
+    </author>
+
+    <author>
+      <personname>
+        <firstname>Matt</firstname>
+        <surname>Fleming, Kernel Engineer, SUSE</surname>
+      </personname>
+      <!--      <affiliation>
+        <jobtitle>Senior Software Engineer</jobtitle>
+        <orgname>SUSE</orgname>
+        </affiliation>-->
+    </author>
+
+    <author>
+      <personname>
+        <firstname>Dario</firstname>
+        <surname>Faggioli, Software Engineer Virtualization Specialist,
+          SUSE</surname>
+      </personname>
+      <!--      <affiliation>
+        <jobtitle>Senior Software Engineer</jobtitle>
+        <orgname>SUSE</orgname>
+        </affiliation>-->
+    </author>
+
+
+
+    <date><?dbtimestamp format="B d, Y" ?></date>
+
+
+    <abstract>
+
+      <para>The document at hand provides an overview of the AMD EPYC (TM)
+        architecture and how computational-intensive workloads can be tuned
+        on SUSE Linux Enterprise Server 12 SP3.</para>
+
+    </abstract>
+  </info>
+
+
+  <sect1 xml:id="sec.overview">
+    <title>Overview</title>
+
+    <para>EPYC is the latest generation of AMD x86-64 System-on-Chip (SoC)
+      processor. It is based on the Zen microarchitecture introduced in
+      2017, supporting up to 32 cores (64 threads) and 8 memory channels
+      per socket. At the time of writing, 1-socket and 2-socket models are
+      available from Original Equipment Manufacturers (OEMs). This document
+      provides an overview of the EPYC architecture and how
+      computational-intensive workloads can be tuned on SUSE Linux
+      Enterprise Server 12 SP3.</para>
+  </sect1>
+
+  <sect1 xml:id="sec.epyc_architecture">
+    <title>EPYC Architecture</title>
+
+    <para><emphasis role="italic">Symmetric multiprocessing
+        (SMP)</emphasis> systems are those that contain two or more
+      physical processing cores. Each core may have two threads if
+      hyper-threading is enabled with some resources being shared between
+      hyper-thread siblings. To minimise access latencies, multiple layers
+      of caches are used with each level being larger but with higher
+      access costs. Cores may share different levels of cache which should
+      be taken into consideration when tuning for a workload.</para>
+
+    <para>Historically, a single socket contained a number of cores sharing
+      a hierarchy of caches and memory channels and multiple sockets were
+      connected via a memory interconnect. Modern configurations may have
+      multiple dies as a <emphasis role="italic">Multi-Chip Module
+        (MCM)</emphasis> with one set of interconnects within the socket
+      and a separate interconnect for each socket. In practical terms, it
+      means that some CPUs and memory are faster to access than others
+      depending on the <quote>distance</quote>. This should be considered
+      when tuning for <emphasis role="italic">Non-Uniform Memory
+        Architecture (NUMA)</emphasis> as all memory accesses are not
+      necessarily to local memory incurring a variable access
+      penalty.</para>
+
+    <para>EPYC is an MCM design with four dies on each package regardless
+      of thread count. The number of cores on each die is always symmetric
+      so they are balanced. Each socket has eight memory channels (two
+      channels per die) with two <emphasis role="italic">Dual Inline Memory
+        Modules (DIMMs)</emphasis> allowed per channel for up to 16 DIMMs
+      per socket. Total capacity is expected to be 2TB per socket with a
+      maximum bandwidth of 21.3GB/sec per channel for a total of 171GB/sec
+      per socket depending on the DIMMs selected.</para>
+
+    <para>Within the package, the four dies are interconnected with a
+      fully-connected Infinity Fabric. Fully connected means that one core
+      accessing memory connected to another die will always be one hop
+      away. The bandwidth of the fabric is 42GB/sec per link. The link is
+      optimized for low-power and low-latency so the bandwidth available
+      means that a die accessing memory local to the socket incurs a
+      smaller access penalty than is normally expected when accessing
+      remote memory.</para>
+
+    <para>Sockets are also connected via Infinity Fabric with four links
+      between each socket connecting each die on one socket to the peer die
+      on the second socket. Consequently, access distance to remote memory
+      from a thread will be at most 2 hops away. The data bandwidth on each
+      of these links is 38GB/sec for a total of 152 GB/sec between sockets.
+      At the time of writing, only two sockets are possible within a single
+      machine.</para>
+
+    <para>Power management on the links is careful to minimise the amount
+      of power required. If the links are idle then the power may be used
+      to boost the frequency of individual cores. Hence, it is worth noting
+      that minimising access is not only important from a memory access
+      latency point of view, but it also has an impact on the speed of
+      individual cores.</para>
+
+    <para>There are two IO x16 links per die giving a total of 8 links
+      where links can be used as Infinity links, PCI Express links or a
+      limited number of SATA links. This allows very large IO
+      configurations as well as a high degree of flexibility due to having
+      a total of 128 lanes available on single socket machines. It is
+      important to note that the number of links available is equal in one
+      socket and two socket configurations. In one socket configurations,
+      all lanes are available for IO. In two socket configurations, some
+      lanes are used to connect the two sockets together with the upshot
+      that a one socket configuration does not compromise on the available
+      IO channels.</para>
+  </sect1>
+
+  <sect1 xml:id="sec.epyc_topology">
+    <title>EPYC Topology</title>
+
+    <para>Figure 1 below shows the topology of an example machine generated
+      by the <package>lstopo</package> tool. </para>
+
+    <figure>
+      <title>EPYC Topology</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="amd-epyc-topology.png" width="100%"
+            format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="amd-epyc-topology.png" width="100%"
+            format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>This tool is part of the <package>hwloc</package> package which
+      is not supported in SUSE Linux Enterprise Server 12 SP3 but can be
+      installed for the purposes of illustration. The two
+        <quote>packages</quote> correspond to each socket. The four dies on
+      each socket are clearly visible and each die has a split L3 cache.
+      Optimizing for computation should focus on co-operating tasks being
+      bound to a die. In this example, the IO channels are not heavily used
+      but the focus will be CPU and memory-intensive loads. If optimizing
+      for IO, it is recommended, where possible, that the workload is
+      located on the nodes local to the IO channel.</para>
+
+    <para>The computer output below shows a conventional view of the
+      topology using the <package>numactl</package> tool. The CPU IDs that
+      map to each node are reported on the “node X cpus:” lines and note
+      the NUMA distances on the table at the bottom of the figure. Node 0
+      and node 1 are a distance of 16 apart which is the distance between
+      two dies on one socket. The distance between node 0 and node 4 is 32
+      as they are on separate sockets. The distance is a not a guarantee of
+      the access latency but it is a rule-of-thumb that accesses between
+      sockets are roughly twice the cost of accessing another die on the
+      same socket.</para>
+
+    <screen>epyc:~ # numactl --hardware
+available: 8 nodes (0-7)
+node 0 cpus: 0 1 2 3 4 5 6 7 64 65 66 67 68 69 70 71
+node 0 size: 32056 MB
+node 0 free: 31446 MB
+node 1 cpus: 8 9 10 11 12 13 14 15 72 73 74 75 76 77 78 79
+node 1 size: 32253 MB
+node 1 free: 31545 MB
+node 2 cpus: 16 17 18 19 20 21 22 23 80 81 82 83 84 85 86 87
+node 2 size: 32253 MB
+node 2 free: 31776 MB
+node 3 cpus: 24 25 26 27 28 29 30 31 88 89 90 91 92 93 94 95
+node 3 size: 32253 MB
+node 3 free: 29039 MB
+node 4 cpus: 32 33 34 35 36 37 38 39 96 97 98 99 100 101 102 103
+node 4 size: 32253 MB
+node 4 free: 31823 MB
+node 5 cpus: 40 41 42 43 44 45 46 47 104 105 106 107 108 109 110 111
+node 5 size: 32253 MB
+node 5 free: 31565 MB
+node 6 cpus: 48 49 50 51 52 53 54 55 112 113 114 115 116 117 118 119
+node 6 size: 32253 MB
+node 6 free: 32098 MB
+node 7 cpus: 56 57 58 59 60 61 62 63 120 121 122 123 124 125 126 127
+node 7 size: 32124 MB
+node 7 free: 31984 MB
+node distances:
+node   0   1   2   3   4   5   6   7
+0:  10  16  16  16  32  32  32  32
+1:  16  10  16  16  32  32  32  32
+2:  16  16  10  16  32  32  32  32
+3:  16  16  16  10  32  32  32  32
+4:  32  32  32  32  10  16  16  16
+5:  32  32  32  32  16  10  16  16
+6:  32  32  32  32  16  16  10  16
+7:  32  32  32  32  16  16  16  10</screen>
+
+    <para>Finally, the cache topology can be discovered in a variety of
+      fashions. While <package>lstopo</package> can provide the
+      information, it is not always available. Fortunately, the level, size
+      and ID of CPUs that share cache can be identified from the files
+      under <filename>/sys/devices/system/cpu/cpuN/cache</filename>.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.memory_cpu_binding">
+    <title>Memory and CPU Binding</title>
+
+    <para>NUMA is a scalable memory architecture for multiprocessor systems
+      that can reduce contention on a memory channel. A full discussion on
+      tuning for NUMA is beyond the scope for this paper. But the document
+        <quote>A NUMA API for Linux</quote> at <link
+        xlink:href="http://developer.amd.com/wordpress/media/2012/10/LibNUMA-WP-fv1.pdf"
+        >http://developer.amd.com/wordpress/media/2012/10/LibNUMA-WP-fv1.pdf</link>
+      provides a valuable introduction.</para>
+
+    <para>The default policy for programs is the <quote>local
+        policy</quote>. A program which calls <command>malloc()</command>
+      or <command>mmap()</command> reserves virtual address space but does
+      not immediately allocate physical memory. The physical memory is
+      allocated the first time the address is accessed by any thread and,
+      if possible, the memory will be local to the accessing CPU. If the
+      mapping is of a file, the first access may have occurred at any time
+      in the past so there are no guarantees about locality.</para>
+
+    <para>When memory is allocated to a node, it is less likely to move if
+      a thread changes to a CPU on another node or if multiple programs are
+      remote accessing the data unless <emphasis role="italic">Automatic
+        NUMA Balancing (NUMAB)</emphasis> is enabled. When NUMAB is
+      enabled, unbound process accesses are sampled and if there are enough
+      remote accesses then the data will be migrated to local memory. This
+      mechanism is not perfect and incurs overhead of its own. This means
+      it can be important for performance for thread and process migrations
+      between nodes to be minimized and for memory placement to be
+      carefully considered and tuned.</para>
+
+    <para>The <package>taskset</package> tool is used to set or get the CPU
+      affinity for new or existing processes. An example use is to confine
+      a new process to CPUs local to one node. Where possible, local memory
+      will be used. But if the total required memory is larger than the
+      node then remote memory can still be used. In such configurations, it
+      is recommended to size the workload such that it fits in the node to
+      avoid any of the data being paged out when <package>kswapd</package>
+      wakes to reclaim memory from the local node.</para>
+
+    <para><package>numactl</package> controls both memory and CPU policies
+      for processes that it launches and can modify existing processes. In
+      many respects, the parameters are easier to specify than
+        <package>taskset</package>. For example, it can bind a task to all
+      CPUs on a specified node instead of having to specify individual CPUs
+      with <package>taskset</package>. Most importantly, it can set the
+      memory allocation policy without requiring application
+      awareness.</para>
+
+    <para>Using policies, a preferred node can be specified where the task
+      will use that node if memory is available. This is typically used in
+      combination with binding the task to CPUs on that node. If a
+      workload's memory requirements are larger than a single node and
+      predictable performance is required then the
+        <quote>interleave</quote> policy will round-robin allocations from
+      allowed nodes. This gives sub-optimal but predictable access
+      latencies to main memory. More importantly, interleaving reduces the
+      probability that the OS will need to reclaim any data belonging to a
+      large task.</para>
+
+    <para>Further improvements can be made to access latencies by binding a
+      workload to a single <emphasis role="italic">CPU Complex
+        (CCX)</emphasis> within a node. Since L3 caches are not shared
+      between CCXs, binding a workload to a CCX avoids L3 cache misses
+      caused by workload migration.</para>
+
+    <para>Find examples below on how <package>taskset</package> and
+        <package>numactl</package> can be used to start commands bound to
+      different CPUs depending on the topology.</para>
+
+    <screen># Run a command bound to CPU 1
+epyc:~ # taskset -c 1 [command]
+  
+# Run a command bound to CPUs belonging to node 0
+epyc:~ # taskset -c `cat /sys/devices/system/node/node0/cpulist` [command]
+  
+# Run a command bound to CPUs belonging to nodes 0 and 1
+epyc:~ # numactl –cpunodebind=0,1 [command]
+  
+# Run a command bound to CPUs that share L3 cache with cpu 1
+epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_list` [command]</screen>
+
+
+    <sect2 xml:id="sec.tuning_without_binding">
+      <title>Tuning for Local Access Without Binding</title>
+
+      <para>The ability to use local memory where possible and remote
+        memory if necessary is valuable but there are cases where it is
+        imperative that local memory always be used. If this is the case,
+        the first priority is to bind the task to that node. If that is not
+        possible then the command <command>sysctl
+          vm.zone_reclaim_mode=1</command> can be used to aggressively
+        reclaim memory if local memory is not available. </para>
+
+      <note>
+        <title>High Costs</title>
+        <para>While this option is good from a locality perspective, it can
+          incur high costs due to stalls related to reclaim and the
+          possibility that data from the task will be reclaimed. Treat this
+          option with a high degree of caution and testing.</para>
+      </note>
+
+    </sect2>
+
+    <sect2 xml:id="sec.hazards_cpu_binding">
+      <title>Hazards with CPU Binding</title>
+
+      <para>There are three major hazards to consider with CPU
+        binding.</para>
+
+      <para>The first is to watch for remote memory nodes being used where
+        the process is not allowed to run on CPUs local to that node. While
+        going more in detail here is outside the scope of this paper, the
+        most common scenario is an IO-bound thread communicating with a
+        kernel IO thread on a remote node bound to the IO controller whose
+        accesses are never local. Similarly, the version of
+          <package>irqbalance</package> shipped with SUSE Linux Enterprise
+        Server 12 SP3 is not necessarily optimal for EPYC. Thus it is worth
+        considering disabling <package>irqbalance</package> and manually
+        binding IRQs from storage or network devices to CPUs that are local
+        to the IO channel. Depending on the kernel version and drivers in
+        use, it may not be possible to manually bind IRQs. For example,
+        some devices multi-queue support may not permit IRQs affinities to
+        be changed. </para>
+
+      <para>The second is that guides about CPU binding tend to focus on
+        binding to a single CPU. This is not always optimal when the task
+        communicates with other threads as fixed bindings potentially miss
+        an opportunity for the processes to use idle cores sharing an L1 or
+        L2 cache. This is particularly true when dispatching IO, be it to
+        disk or a network interface where a task may benefit from being
+        able to migrate close to the related threads but also applies to
+        pipeline-based communicating threads for a computational workload.
+        Hence, focus initially on binding to CPUs sharing L3 cache and
+        then, and only then, consider whether to bind based on a L1/L2
+        cache or a single CPU using the primary metric of the workload to
+        establish whether the tuning is appropriate. </para>
+
+      <para>The final hazard is similar in that if many tasks are bound to
+        a smaller set of CPUs then the subset of CPUs could be
+        over-saturated even though the machine overall has spare
+        capacity.</para>
+
+    </sect2>
+
+    <sect2 xml:id="sec.cpusets_memory_control_groups">
+      <title>CPUsets and Memory Control Groups</title>
+
+      <para><emphasis role="italic">CPUsets</emphasis> are ideal when
+        multiple workloads must be isolated on a machine in a predictable
+        fashion. CPUsets allow a machine to be partitioned into subsets.
+        These sets may overlap, and in that case they suffer from similar
+        problems as CPU affinities. In the event there is no overlap, they
+        can be switched to <quote>exclusive</quote> mode which treats them
+        completely in isolation with relatively little overhead with the
+        caveat that one overloaded CPUset can be saturated leaving another
+        CPUset completely idle. Similarly, they are well suited when a
+        primary workload must be protected from interference due to
+        low-priority tasks in which case the low priority tasks can be
+        placed in a CPUset. The caveat with CPUsets is that the overhead is
+        higher than using scheduler and memory policies. Ordinarily, the
+        accounting code for CPUsets is completely disabled but once a
+        single CPUset is created there are additional essential checks that
+        are made when checking scheduler and memory policies.</para>
+
+      <para>Similarly <package>memcg</package> can be used to limit the
+        amount of memory that can be used by a set of processes. When the
+        limits are exceeded then the memory will be reclaimed by tasks
+        within <package>memcg</package> directly without interfering with
+        any other tasks. This is ideal for ensuring there is no inference
+        between two or more sets of tasks. Similar to CPUsets, there is
+        some management overhead incurred so if tasks can simply be
+        isolated on a NUMA boundary then it is preferred from a performance
+        perspective. The major hazard is that if the limits are exceeded
+        then the processes directly stall to reclaim the memory which can
+        incur significant latencies. </para>
+
+      <note>
+        <title/>
+        <para>Without <package>memcg</package>, when memory gets low, the
+          global reclaim daemon does work in the background and if it
+          reclaims quickly enough, no stalls are incurred. When using
+            <package>memcg</package>, observe the
+            <package>allocstall</package> counter in
+            <filename>/proc/vmstat</filename> as this can detect early if
+          stalling is a problem.</para>
+      </note>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.hp_storage_interrupt_affinity">
+    <title>High-performance Storage Devices and Interrupt Affinity</title>
+
+    <para>High-performance storage devices like <emphasis role="italic"
+        >Non-Volatile Memory Express (NVMe)</emphasis> or <emphasis
+        role="italic">Serial Attached SCSI (SAS)</emphasis> controller are
+      designed to take advantage of parallel I/O submission. These devices
+      typically support a large number of submit and receive queues, which
+      are tied to <emphasis role="italic">MSI-X</emphasis> interrupts.
+      Ideally these devices should provide as many MSI-X vectors as CPUs
+      are present in the system. To achieve the best performance each MSI-X
+      vector should be assigned to an individual CPU.</para>
+
+    <sect2 xml:id="sec.auto_numa_balancing">
+      <title>Automatic NUMA Balancing</title>
+
+      <para>Automatic NUMA Balancing will ignore any task that uses memory
+        policies. In the event that the workloads can be manually optimized
+        with policies then do so and disable automatic NUMA balancing by
+        specifying <command>numa_balancing=disable</command> on the kernel
+        command line or via <command>sysctl</command>. There are many cases
+        where it is impractical or impossible to specify policies in which
+        case the balancing should be sufficient for throughput-sensitive
+        workloads. For latency sensitive workloads, the sampling for NUMA
+        balancing may be too high in which case it may be necessary to
+        disable balancing. The final corner case where NUMA balancing is a
+        hazard is a case where the number of runnable tasks always exceeds
+        the number of CPUs in a single node. In this case, the load
+        balancer (and potentially affine wakes) will constantly pull tasks
+        away from the preferred node as identified by automatic NUMA
+        balancing resulting in excessive sampling and CPU
+        migrations.</para>
+
+    </sect2>
+
+  </sect1>
+
+  <sect1 xml:id="sec.evaluating_workloads">
+    <title>Evaluating Workloads</title>
+
+    <para>The first and foremost step when evaluating how a workload should
+      be tuned is to establish a primary metric such as latency, throughput
+      or elapsed time. When each tuning step is considered or applied, it
+      is critical that the primary metric be examined before conducting any
+      further analysis to avoid intensive focus on the wrong bottleneck.
+      Make sure that the metric is measured multiple times to ensure that
+      the result is reproducible and reliable within reasonable boundaries.
+      When that is established, analyse how the workload is using different
+      system resources to determine what area should be the focus. The
+      focus in this paper is on how CPU and memory is used. But other
+      evaluations may need to consider the IO subsystem, network subsystem,
+      system call interfaces, external libraries etc. The methodologies
+      that can be employed to conduct this are outside the scope of the
+      paper but the book <quote>Systems Performance: Enterprise and the
+        Cloud</quote> by Brendan Gregg (see <link
+        xlink:href="http://www.brendangregg.com/sysperfbook.html"
+        >http://www.brendangregg.com/sysperfbook.html</link>)is a
+      recommended primer on the subject.</para>
+
+    <sect2 xml:id="sec.cpu_utilization_saturation">
+      <title>CPU Utilization and Saturation</title>
+
+      <para>Decisions on whether to bind a workload to a subset of CPUs
+        require that the CPU utilization and any saturation risk is known.
+        Both the <command>ps</command> and <command>pidstat</command>
+        commands can be used to sample the number of threads in a system.
+        Typically <command>pidstat</command> yields more useful information
+        with the important exception of the run state. A system may have
+        many threads but if they are idle then they are not contributing to
+        utilisation. The <command>mpstat</command> command can report the
+        utilization of each CPU in the system. </para>
+
+      <para>High utilization of a small subset of CPUs may be indicative of
+        a single-threaded workload that is pushing the CPU to the limits
+        and may indicate a bottleneck. Conversely, low utilization may
+        indicate a task that is not CPU-bound, is idling frequently or is
+        migrating excessively. While each workload is different, load
+        utilization of CPUs may show a workload that can run on a subset of
+        CPUs to reduce latencies due to either migrations or remote
+        accesses. When utilization is high, it is important to determine if
+        the system could be saturated. The <package>vmstat</package> tool
+        reports the number of runnable tasks waiting for CPU in the
+          <quote>r</quote> column where any value over 1 indicates that
+        wakeup latencies may be incurred. While the exact wakeup latency
+        can be calculated using trace points, knowing that there are tasks
+        queued is an important step. If a system is saturated, it may be
+        possible to tune the workload to use fewer threads.</para>
+
+      <para>Overall, the initial intent should be to use CPUs from as few
+        NUMA nodes as possible to reduce access latency but there are
+        exceptions. EPYC has an exceptional number of high-speed memory
+        channels to main memory, thus consider the workload thread
+        activity. If they are co-operating threads or sharing data then
+        isolate them on as few nodes as possible to minimize cross-node
+        memory accesses. If the threads are completely independent with no
+        shared data, it may be best to isolate them on a subset of CPUs
+        from each node to maximize the number of available memory channels
+        and throughput to main memory. For some computational workloads, it
+        may be possible to use hybrid models such as MPI for
+        parallelization across nodes and using openMP for threads within
+        nodes.</para>
+
+    </sect2>
+
+    <sect2 xml:id="sec.transparent_huge_pages">
+      <title>Transparent Huge Pages</title>
+
+      <para>Huge pages are a mechanism by which performance can be improved
+        by reducing the number of page faults, the cost of translating
+        virtual addresses to physical addresses due to fewer layers in the
+        page table and being able to cache translations for a larger
+        portion of memory. <emphasis role="italic">Transparent Huge Pages
+          (THP)</emphasis> is supported for private anonymous memory that
+        automatically backs mappings with huge pages where anonymous memory
+        could be allocated as <command>heap</command>,
+          <command>malloc()</command>,
+          <command>mmap(MAP_ANONYMOUS)</command>, etc. While the feature
+        has existed for a long time, it has evolved significantly.</para>
+
+      <para>Many tuning guides recommend disabling THP due to problems with
+        early implementations. Specifically, when the machine was running
+        for long enough, the use of THP could incur severe latencies and
+        could aggressively reclaim memory in certain circumstances. These
+        problems have been resolved by the time SUSE Linux Enterprise
+        Server 12 SP3 was released. This means there are no good grounds
+        for automatically disabling THP because of severe latency issues
+        without measuring the impact. However, there are exceptions that
+        are worth considering for specific workloads.</para>
+
+      <para>Some high-end in-memory databases and other applications
+        aggressively use <command>mprotect()</command> to ensure that
+        unprivileged data is never leaked. If these protections are at the
+        base page granularity then there may be many THP splits and
+        rebuilds that incur overhead. It can be identified if this is a
+        potential problem by using <command>strace</command> to detect the
+        frequency and granularity of the system call. If they are high
+        frequency then consider disabling THP. It can also be sometimes
+        inferred from observing the <command>thp_split</command> and
+          <command>thp_collapse_alloc counters</command> in
+          <filename>/proc/vmstat</filename>. </para>
+
+      <para>Workloads that sparsely address large mappings may have a
+        higher memory footprint when using THP. This could result in
+        premature reclaim or fallback to remote nodes. An example would be
+        HPC workloads operating on large sparse matrices. If memory usage
+        is much higher than expected then compare memory usage with and
+        without THP to decide if the tradeoff is not worthwhile. This may
+        be critical on EPYC given that any spillover will congest the
+        Infinity links and potentially cause cores to run at a lower
+        frequency. </para>
+
+      <note>
+        <title>Sparsely Addressed Memory</title>
+        <para>This is specific to sparsely addressed memory. A secondary
+          hint for this case may be that the application primarily uses
+          large mappings with a much higher Virtual Size (VSZ, see <xref
+            linkend="sec.cpu_utilization_saturation"/>) than Resident Set
+          Size (RSS). Applications which densely address memory benefit
+          from the use of THP by achieving greater bandwidth to
+          memory.</para>
+      </note>
+
+      <para>Parallelized workloads that operate on shared buffers with
+        threads using more CPUs that are on a single node may experience a
+        slowdown with THP if the granularity of partitioning is not aligned
+        to the huge page. The problem is that if a large shared buffer is
+        partitioned on a 4K boundary then false sharing may occur whereby
+        one thread accesses a huge page locally and other threads access it
+        remotely. If this situation is encountered, it is preferable that
+        the granularity of sharing is increased to the THP size. But if
+        that is not possible then disabling THP is an option.</para>
+
+      <para>Applications that are extremely latency sensitive or must
+        always perform in a deterministic fashion can be hindered by THP.
+        While there are fewer faults, the time for each individual fault is
+        higher as memory must be allocated and cleared before being
+        visible. The increase in fault times may be in the microsecond
+        granularity. Ensure this is a relevant problem as it typically only
+        applies to hard real-time applications. The secondary problem is
+        that a kernel daemon periodically scans a process looking for
+        contiguous regions that can be backed by huge pages. When creating
+        a huge page, there is a window during which that memory cannot be
+        accessed by the application and new mappings cannot be created
+        until the operation is complete. This can be identified as a
+        problem with thread-intensive applications that frequently allocate
+        memory. In this case consider effectively disabling
+          <package>khugepaged</package> by setting a large value in
+          <filename>/sys/kernel/mm/transparent_hugepage/khugepaged/alloc_sleep_millisecs</filename>.
+        This will still allow THP to be used opportunistically while
+        avoiding stalls when calling <command>malloc()</command> or
+          <command>mmap()</command>.</para>
+
+      <para>THP can be disabled. To do so, specify
+          <command>transparent_hugepage=disable</command> on the kernel
+        command line, at runtime via
+          <filename>/sys/kernel/mm/transparent_hugepage/enabled</filename>
+        or on a per process basis by using a wrapper to execute the
+        workload that calls
+        <command>prctl(PR_SET_THP_DISABLE)</command>.</para>
+    </sect2>
+
+    <sect2 xml:id="sec.user_kernel_footprint">
+      <title>User/Kernel Footprint</title>
+
+      <para>Assuming an application is mostly CPU or memory bound, it is
+        useful to determine if the footprint is primarily in userspace or
+        kernel space as it gives a hint where tuning should be focused. The
+        percentage of CPU time can be measured on a coarse-grained fashion
+        using <command>vmstat</command> or a fine-grained fashion using
+          <command>mpstat</command>. If an application is mostly spending
+        time in user space then the focus should be on tuning the
+        application itself. If the application is spending time in the
+        kernel then it should be determined which subsystem dominates. The
+          <command>strace</command> or <command>perf trace</command>
+        commands can measure the type, frequency and duration of system
+        calls as they are the primary reasons why an application spends
+        time within the kernel. In some cases, an application may be tuned
+        or modified to reduce the frequency and duration of system calls.
+        In other cases, a profile is required to identify which portions of
+        the kernel are most relevant as a target for tuning.</para>
+
+    </sect2>
+
+    <sect2 xml:id="sec.memory_utilization_saturation">
+      <title>Memory Utilisation and Saturation</title>
+
+      <para>The traditional means of measuring memory utilization of a
+        workload is to examine the <emphasis role="italic">Virtual Size
+          (VSZ)</emphasis> and <emphasis role="italic">Resident Set Size
+          (RSS)</emphasis> using either the <command>ps</command> or
+          <command>pidstat</command> tool. This is a reasonable first step
+        but is potentially misleading when shared memory is used and
+        multiple processes are examined. VSZ is simply a measure of memory
+        space reservation and is not necessarily utilized. RSS may be
+        double accounted if it is a shared segment between multiple
+        processes. The file <filename>/proc/pid/maps</filename> can be used
+        to identify all segments used and whether they are private or
+        shared. The file <filename>/proc/pid/smaps</filename> yields more
+        detailed information including the <emphasis role="italic"
+          >Proportional Set Size (PSS)</emphasis>. PSS is an estimate of
+        RSS except it is divided between the number of processes mapping
+        that segment which can give a more accurate estimate of
+        utilisation. Note that the <filename>smaps</filename> file is very
+        expensive to read and should not be monitored at a high frequency.
+        Finally, the <emphasis role="italic">Working Set Size
+          (WSS)</emphasis> is the amount of memory active required to
+        complete computations during an arbitrary phase of a programs
+        execution. It is not a value that can be trivially measured. But
+        conceptually it is useful as the interaction between WSS relative
+        to available memory affects memory residency and page fault
+        rates.</para>
+
+      <para>On NUMA systems, the first saturation point is a node overflow
+        when the <quote>local</quote> policy is in effect. Given no binding
+        of memory, when a node is filled, a remote node’s memory will be
+        used transparently and background reclaim will take place on the
+        local node. Two consequences of this are that remote access
+        penalties will be used and old memory from the local node will be
+        reclaimed. If the WSS of the application exceeds the size of a
+        local node then paging and refaults may be incurred.</para>
+
+      <para>The first thing to identify is that a remote node overflow
+        occurred which is accounted for in
+          <filename>/proc/vmstat</filename> as the
+          <command>numa_hit</command>, <command>numa_miss</command>,
+          <command>numa_foreign</command>,
+          <command>numa_interleave</command>, <command>numa_local</command>
+        and <command>numa_other counters</command>:</para>
+
+      <itemizedlist>
+        <listitem>
+          <para><command>numa_hit</command> is incremented when an
+            allocation uses the preferred node where preferred may be
+            either a local node or one specified by a memory policy.</para>
+        </listitem>
+        <listitem>
+          <para><command>numa_miss</command> is incremented when an
+            alternative node is used to satisfy an allocation.</para>
+        </listitem>
+        <listitem>
+          <para><command>numa_foreign</command> is rarely useful but is
+            accounted against a node that was preferred. It is a subtle
+            distinction from numa_miss that is rarely useful.</para>
+        </listitem>
+        <listitem>
+          <para><command>numa_interleave</command> is incremented when an
+            interleave policy was used to select allowed nodes in a
+            round-robin fashion.</para>
+        </listitem>
+        <listitem>
+          <para><command>numa_local</command> increments when a local node
+            is used for an allocation regardless of policy.</para>
+        </listitem>
+        <listitem>
+          <para><command>numa_other</command> is used when a remote node is
+            used for an allocation regardless of policy.</para>
+        </listitem>
+      </itemizedlist>
+
+      <para>For the local memory policy, the <command>numa_hit</command>
+        and <command>numa_miss</command> counters are the most important to
+        pay attention to. An application that is allocating memory that
+        starts incrementing the <command>numa_miss</command> implies that
+        the first level of saturation has been reached. If this is observed
+        on EPYC, it may be valuable to bind the application to nodes that
+        represent dies on a single socket. If the ratio of hits to misses
+        is close to 1, consider an evaluation of the interleave policy to
+        avoid unnecessary reclaim.</para>
+
+      <note>
+        <title>NUMA Statistics</title>
+        <para>It is critical to note that these NUMA statistics only apply
+          at the time a physical page was allocated and is not related to
+          the reference behaviour of the workload. For example, if a task
+          running on node 0 allocates memory local to node 0 then it will
+          be accounted for as a <command>node_hit</command> in the
+          statistics. However, if the memory is shared with a task running
+          on node 1, all the accesses may be remote, which is a miss from
+          the perspective of the hardware but not accounted for in
+            <filename>/proc/vmstat</filename>. Detecting remote and local
+          accesses at a hardware level requires using the hardwares
+            <emphasis role="italic">Performance Management Unit</emphasis>
+          to detect.</para>
+      </note>
+
+      <para>When the first saturation point is reached then reclaim will be
+        active. This can be observed by monitoring the
+          <command>pgscan_kswapd</command> and
+          <command>pgsteal_kswapd</command>
+        <filename>/proc/vmstat counters</filename>. If this is matched with
+        an increase in major faults or minor faults then it may be
+        indicative of severe thrashing. In this case the interleave policy
+        should be considered. An ideal tuning option is to identify if
+        shared memory is the source of the usage. If this is the case, then
+        interleave just the shared memory segments. This can be done in
+        some circumstances using <command>numactl</command> or by modifying
+        the application directly.</para>
+
+      <para>More severe saturation is observed if the
+          <command>pgscan_direct</command> and
+          <command>pgsteal_direct</command> counters are also increasing as
+        these indicate that the application is stalling while memory is
+        being reclaimed. If the application was bound to individual nodes,
+        increasing the number of available nodes will alleviate the
+        pressure. If the application is unbound, it indicates that the WSS
+        of the workload exceeds all available memory. It can only be
+        alleviated by tuning the application to use less memory or
+        increasing the amount of RAM available.</para>
+
+      <para>As before, whether to use memory nodes from one socket or two
+        sockets depends on the application. If the individual processes are
+        independent then either socket can be used. But where possible,
+        keep communicating processes on the same socket to maximize memory
+        throughput while minimizing the socket interconnect traffic.</para>
+
+    </sect2>
+
+    <sect2 xml:id="sec.other_resources">
+      <title>Other Resources</title>
+
+      <para>The analysis of other resources is outside the scope of this
+        paper. However, a common scenario is that an application is
+        IO-bound. A superficial check can be made using the
+          <command>vmstat</command> tool and checking what percentage of
+        CPU time is spent idle combined with the number of processes that
+        are blocked and the values in the <emphasis role="strong"
+          >bi</emphasis> and <emphasis role="strong">bo</emphasis> columns.
+        Further analysis is required to determine if an application is IO
+        rather than CPU or memory bound. But this is a sufficient check to
+        start with. </para>
+
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.power_management">
+    <title>Power Management</title>
+
+    <para>Modern CPUs balance power consumption and performance through the
+      use of <emphasis role="italic">Performance States
+        (P-States)</emphasis>. Low utilization workloads may use lower
+      P-States to conserve power while still achieving acceptable
+      performance. When a CPU is idle, lower power idle states <emphasis
+        role="italic">(C-States)</emphasis> can be selected to further
+      conserve power. However this comes with higher exit latencies when
+      lower power states are selected. It is further complicated by the
+      fact that if individual cores are idle and running at low power then
+      the additional power can be used to boost the performance of active
+      cores. This means this scenario is not a straight-forward balance
+      between power consumption and performance. More complexity is added
+      on EPYC whereby spare power may be used to boost either cores or the
+      Infinity links.</para>
+
+    <para>EPYC provides <emphasis role="italic">SenseMI</emphasis> which,
+      among other capabilities, enables CPUs to make adjustments to voltage
+      and frequency depending on the historical state of the CPU. There is
+      a latency penalty when switching P-States but EPYC is capable of
+      fine-grained in the adjustments that can be made to reduce likelihood
+      that the latency is a bottleneck. On SUSE Linux Enterprise Server,
+      EPYC uses the <command>acpi_cpufreq</command> driver which allows
+      P-states to be configured to match requested performance. However,
+      this is limited in terms of the full capabilities of the hardware. It
+      cannot boost the frequency beyond the maximum stated frequencies and
+      if a target is specified then the highest frequency below the target
+      will be used. A special case is if the governor is set to
+      performance. In this situation the hardware will quickly use the
+      highest available frequency in an attempt to work quickly and then
+      return to idle.</para>
+
+    <para>What should be determined is whether power management is likely
+      to be a factor for a workload. One that is limited to a subset of
+      active CPUs and nodes will have high enough utilization so that power
+      management will not be active on those cores and no action is
+      required. Hence, with CPU binding, the issue of power management may
+      be side-stepped.</para>
+
+    <para>Secondly, a workload that does not communicate heavily with other
+      processes and is mostly CPU-bound will also not experience any side
+      effects due to power management.</para>
+
+    <para>The workloads that are most likely to be affected are those that
+      synchronously communicate between multiple threads or those that idle
+      frequently and have low CPU utilisation overall. It will be further
+      compounded if the threads are sensitive to wakeup latency but there
+      are secondary effects if a workload must complete quickly but the CPU
+      is running at a low frequency.</para>
+
+    <para>The P-State and C-State of each individual CPU can be examined
+      using the <command>turbostat</command> utility. The computer output
+      below shows an example where a workload is busy on CPU 0 and other
+      workloads are idle. A useful exercise is to start a workload and
+      monitor the output of <command>turbostat</command> paying close
+      attention to CPUs that have moderate utilization and running at a
+      lower frequency. If the workload is latency-sensitive then it is
+      grounds for either minimizing the number of CPUs available to the
+      workload or configuring power management. </para>
+
+    <screen>
+Package Core    CPU     Avg_MHz Busy%   Bzy_MHz TSC_MHz IRQ     C1      C2      C1%     C2%
+-       -       -       26      0.85    3029    2196    5623    1251    3439    0.64    98.53
+0       0       0       3192    100.00  3192    2196    1268    0       0       0.00    0.00
+0       0       64      1       0.02    2936    2196    10      0       9       0.00    99.99
+0       1       1       1       0.08    1337    2196    20      0       14      0.00    99.94
+0       1       65      1       0.04    1263    2196    13      0       12      0.00    99.97
+0       2       2       1       0.04    1236    2196    14      0       12      0.00    99.98
+0       2       66      1       0.04    1226    2196    14      0       13      0.00    99.97
+0       3       3       1       0.05    1237    2196    16      0       14      0.00    99.97
+0       3       67      1       0.05    1238    2196    16      0       15      0.00    99.97
+</screen>
+
+    <para>In the event it is determined that tuning CPU frequency
+      management is appropriate. Then the following actions can be taken to
+      set the management policy to performance using the
+        <command>cpupower</command> utility:</para>
+
+    <screen>epyc:~# cpupower frequency-set -g performance
+Setting cpu: 0 
+Setting cpu: 1 
+Setting cpu: 2 
+...</screen>
+
+
+    <para>Persisting it across reboots can be done via a local
+        <command>init</command> script, via <command>udev</command> or via
+      one-shot <command>systemd</command> service file if it is deemed to
+      be necessary. Note that <command>turbostat</command> will still show
+      that idling CPUs use a low frequency. The impact of the policy is
+      that the highest P-State will be used as soon as possible when the
+      CPU is active. In some cases, a latency bottleneck will occur because
+      of a CPU exiting idle. If this is identified on EPYC, restrict the
+      C-state by specifying <command>processor.max_cstate=2</command> on
+      the kernel command line which will prevent CPUs from entering lower
+      C-states. It is expected on EPYC that the exit latency from C1 is
+      very low. But by allowing C2, it reduces interference from the idle
+      loop injecting micro-operations into the pipeline and should be the
+      best state overall. It is also possible to set the max idle state on
+      individual cores using <command>cpupower idle-set</command>. If SMT
+      is enabled, the idle state should be set on both siblings.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.security_mitigations">
+    <title>Security Mitigations</title>
+
+    <para>On occasion, a security fix is applied to a distribution that has
+      a performance impact. The most recent notable examples are <emphasis
+        role="strong">Meltdown</emphasis> and two variants of <emphasis
+        role="strong">Spectre</emphasis>. AMD EPYC is immune to the
+      Meltdown variant and page table isolation is never active. However,
+      it is vulnerable to the Spectre variant. In the event it can be
+      guaranteed that the server is in a trusted environment running only
+      known code that is not malicious, the
+        <parameter>nospectre_v2</parameter> parameter can be specified on
+      the kernel command line. This is only relevant to workloads that
+      enter/exit the kernel frequently.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.hw_based_profiling">
+    <title>Hardware-based Profiling</title>
+
+    <para>Ordinarily advanced monitoring of a workload is conducted via
+        <command>oprofile</command> or <command>perf</command>. At the time
+      of writing, it is known that EPYC has extensive Performance
+      Monitoring Unit (PMU) capabilities but the OS support is limited.
+        <command>oprofile</command> is not implemented and falls back to
+      using the timer interrupt which is not recommended for general use.
+        <command>perf</command> support is limited to a subset of events:
+      cycles, L1 cache access/misses, TLB access/misses, retired branch
+      instructions and mispredicted branches. In terms of identifying what
+      subsystem may be worth tuning in the OS, the most useful invocation
+      is <command>perf record -a -e cycles sleep 30</command> to capture 30
+      seconds of data for the entire system. You can also call
+        <command>perf record -e cycles command</command> to gather a
+      profile of a given workload. Specific information on the OS can be
+      gathered through tracepoints or creating probe points with
+        <command>perf</command> or <command>trace-cmd</command>. But the
+      details on how to conduct such analysis are beyond the scope of this
+      paper.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.candidate_workloads">
+    <title>Candidate Workloads</title>
+
+    <para>The workloads that will benefit most from the EPYC architecture
+      are those that can be parallelized and are either memory or IO-bound.
+      This is particularly true for workloads that are <quote>NUMA
+        friendly</quote>: they can be trivially parallelized and each
+      thread can operate independently for the majority of the workloads
+      lifetime. For memory-bound workloads, the primary benefit will be
+      taking advantage of the high bandwidth available on each channel. For
+      IO-bound workloads, the primary benefit will be realiszed when there
+      are multiple storage devices, each of which is connected to the node
+      local to a task issuing IO.</para>
+
+    <sect2>
+      <title>Test Setup</title>
+
+      <para>The following sections will demonstrate how an OpenMP and MPI
+        workload can be configured and tuned on an EPYC reference
+        platform.</para>
+
+    </sect2>
+
+
+
+
+
+  </sect1>
+
+
+
+  <sect1>
+    <title/>
+
+    <sect2 xml:id="sec.os_updates">
+      <title>Operating System Updates</title>
+      <para>Check for SUSE Linux Enterprise Server operating system updates
+        and fixes before installing additional software. By installing a
+        patch, you might be able to avoid calling the support desk.</para>
+      <para>Here is an example of how to check for available patches for
+        SUSE Linux Enterprise Server by using the <command>zypper</command>
+        command:</para>
+      <screen>sudo zypper list-patches</screen>
+
+      <para>Depending on the kind of issue, patches are classified by
+          <emphasis role="italic">category</emphasis> and <emphasis
+          role="italic">severity</emphasis>.</para>
+
+      <para>Commonly used values for <emphasis role="italic"
+          >category</emphasis> are: <emphasis role="strong"
+          >security</emphasis>, <emphasis role="strong"
+          >recommended</emphasis>, <emphasis role="strong"
+          >optional</emphasis>, <emphasis role="strong">feature</emphasis>,
+        or <emphasis role="strong">yast</emphasis>.</para>
+
+      <para>Commonly used values for <emphasis role="italic"
+          >severity</emphasis> are: <emphasis role="strong"
+          >critical</emphasis>, <emphasis role="strong"
+          >important</emphasis>, <emphasis role="strong"
+          >moderate</emphasis>, <emphasis role="strong">low</emphasis>, or
+          <emphasis role="strong">unspecified</emphasis>.</para>
+      <para>The <command>zypper</command> command searches only for the
+        updates that your installed packages need. As an example, you could
+        use the command:</para>
+      <screen>sudo zypper patch --category=security,recommended --severity=critical,important</screen>
+      <para>You can add the parameter <parameter>--dry-run</parameter> to
+        test the update without actually updating the system.</para>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.sap_hana_2_tier_db_tier_template">
+    <title>SAP HANA 2-tier (DB-tier) Template</title>
+    <para>The template provides and deploys a VM that is customized for use
+      with SAP HANA, using the latest pay-as-you-go (PAYG) version of the
+      SUSE Linux Enterprise Server for SAP Applications (SLES4SAP).</para>
+    <para>It deploys one server on Premium Storage (Premium_LRS) and uses
+      Managed Disks.</para>
+
+
+    <figure>
+      <title>SAP HANA 2-tier (DB-tier) Template Overview</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="azure_2tier.svg" width="100%" format="SVG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="azure_2tier.png" width="100%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <!--<figure>
+      <title></title>
+      <mediaobject>
+        <imageobject>
+          <imagedata fileref="azure_2tier.svg" width="100%" scalefit="1"/>
+        </imageobject>        
+      </mediaobject>
+    </figure>-->
+
+    <sect2 xml:id="sec.os_configuration_for_sap_hana">
+      <title>OS Configuration for SAP HANA</title>
+      <para>SAP HANA requires specific Linux kernel settings, which are not
+        part of the standard Azure images and must be set manually.</para>
+      <screen>sudo saptune solution apply HANA</screen>
+    </sect2>
+
+    <sect2 xml:id="sec.disk_overview">
+      <title>Disk Overview</title>
+      <para>The template uses the following disks and mount points for the
+        HANA machine:</para>
+
+      <para>Demo</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Small</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>same disks as data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para/>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Medium</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4,5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>8,9</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>10</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Large</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3,4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7,8</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2048 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>9</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>For the installation of SAP HANA there are different ways
+        available. You can use the native SAP mechanism of using the SAP
+        Software Provisioning Manager (SWPM) or the HANA database lifecycle
+        manager (HDBLCM).</para>
+      <para>For details, have a look at the SAP documentation at <link
+          xlink:href="https://help.sap.com/viewer/p/SAP_HANA_PLATFORM"
+          >https://help.sap.com/viewer/p/SAP_HANA_PLATFORM</link>.</para>
+      <para>A very short description is in addition available at <link
+          xlink:href="https://docs.microsoft.com/en-us/azure/virtual-machines/workloads/sap/hana-get-started"
+          >https://docs.microsoft.com/en-us/azure/virtual-machines/workloads/sap/hana-get-started</link>
+        .</para>
+      <para>Another way would be to use the SUSE YaST based HANA install
+        wizard, which simplifies the setup. It is discussed in a later
+        section below.</para>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.sap_netweaver_3_tier_template">
+    <title>SAP Netweaver 3-tier Template</title>
+    <para>The template provides and deploys several VMs which are
+      customized for use with SAP Netweaver and SAP HANA as database, using
+      the latest pay-as-you-go (PAYG) version of the SUSE Linux Enterprise
+      Server for SAP Applications (SLES4SAP).</para>
+    <para>It deploys all server on Premium Storage (Premium_LRS) and using
+      Managed Disks.</para>
+
+
+    <figure>
+      <title>SAP Netweaver 3-tier Template Overview</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="azure_3tier.svg" width="100%" format="SVG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="azure_3tier.png" width="100%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <!--  <informalfigure>
+      <mediaobject>
+        <imageobject>
+          <imagedata fileref="azure_3tier.svg" width="100%" scalefit="1"/>
+        </imageobject>
+        <textobject>
+          <phrase>azure_3tier.svg</phrase>
+        </textobject>
+      </mediaobject>
+    </informalfigure>-->
+
+    <sect2 xml:id="sec.os_configuration_for_the_sap_netweaver_vm">
+      <title>OS Configuration for the SAP Netweaver VM</title>
+      <para>SAP Netweaver requires specific Linux kernel settings, which
+        are not part of the standard Azure images and must be set
+        manually.</para>
+      <screen>sudo saptune solution apply NETWEAVER</screen>
+    </sect2>
+
+    <sect2 xml:id="sec.os_configuration_for_the_sap_hana_vm">
+      <title>OS Configuration for the SAP HANA VM</title>
+
+      <para>SAP HANA requires specific Linux kernel settings, which are not
+        part of the standard Azure images and must be set manually.</para>
+
+      <screen>sudo saptune solution apply HANA</screen>
+
+      <para>For more details see the documentation at <link
+          xlink:href="https://www.suse.com/documentation/sles-for-sap-12/book_s4s/data/sec_saptune.html"
+          >https://www.suse.com/documentation/sles-for-sap-12/book_s4s/data/sec_saptune.html</link></para>
+    </sect2>
+
+    <sect2 xml:id="sec.disk_overview_2">
+      <title>Disk Overview</title>
+      <para>The template uses the following disks and mount points for the
+        HANA machine:</para>
+
+      <para>Demo</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>The XSCS machine uses only the base OS disk.</para>
+      <para>The APP server machines use an additional 128 GB disk for
+        /usr/sap/&lt;SID&gt;.</para>
+
+      <para>Small</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>same disks as data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para/>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>The XSCS machine uses only the base OS disk.</para>
+      <para>The APP server machines use an additional 128 GB disk for
+        /usr/sap/&lt;SID&gt;</para>
+
+      <para>Medium</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4,5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>8,9</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Large</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3,4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7,8</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2048 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+    </sect2>
+
+    <sect2 xml:id="sec.other_settings_and_machines">
+      <title>Other Settings and Machines</title>
+
+      <para>All machines created with the template use the Azure feature
+          <quote>Accelerated Network (AN)</quote> (only if the VM size
+        supports AN).</para>
+      <para>The XSCS machine gets a dynamic public IP address to be able to
+        access all other machines in the private network and only uses the
+        base OS disk. There is no additional disk.</para>
+      <para>The APP server machines use an additional 128 GB disk for
+        /usr/sap/&lt;SID&gt; and the machines are placed in an
+          <emphasis role="strong">Availablity Set</emphasis> with a
+          <emphasis role="strong">FaultDomainCount</emphasis> of 2 and an
+          <emphasis role="strong">UpdateDomainCount</emphasis> of
+        20.</para>
+      <note>
+        <title>Availability Set</title>
+        <para>An <emphasis role="strong">Availability Set</emphasis> is a
+          logical group in Azure to ensure that the VM resources are
+          isolated from each other when they are deployed within an Azure
+          datacenter. It ensures that the VMs you place within such an
+            <emphasis role="strong">Availability Set</emphasis> run across
+          multiple physical servers, compute racks, storage units and
+          network switches. The Virtual Machines are placed then into an
+            <emphasis role="strong">Availability Set</emphasis> to minimize
+          the chances that two of them fail or are updated at the same
+          time. This is essential when you want to build reliable cloud
+          solutions and clusters.</para>
+      </note>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.sap_netweaver_3_tier_ha_template">
+    <title>SAP Netweaver 3-tier HA Template</title>
+
+    <para>The template provides and deploys several VMs <emphasis
+        role="strong">twice</emphasis> to be used in an HA configuration.
+      They are customized for use with SAP Netweaver and SAP HANA as
+      database, using the latest pay-as-you-go (PAYG) version of the SUSE
+      Linux Enterprise Server for SAP Applications (SLES4SAP).</para>
+    <para>It deploys all servers on Premium Storage (Premium_LRS) and using
+      Managed Disks.</para>
+
+
+    <figure>
+      <title>SAP Netweaver 3-tier HA Template Overview</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="azure_3tierha.svg" width="100%" format="SVG"
+          />
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="azure_3tierha.png" width="100%" format="PNG"
+          />
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+
+    <!--<informalfigure>
+      <mediaobject>
+        <imageobject>
+          <imagedata fileref="azure_3tierHA.svg" width="100%" scalefit="1"
+          />
+        </imageobject>
+        <textobject>
+          <phrase>azure_3tierHA.svg</phrase>
+        </textobject>
+      </mediaobject>
+    </informalfigure>-->
+
+    <sect2 xml:id="sec.os_configuration_for_the_sap_netweaver_vm_2">
+      <title>OS Configuration for the SAP Netweaver VM</title>
+      <para>SAP Netweaver requires specific Linux kernel settings, which
+        are not part of the standard Azure images and must be set
+        manually.</para>
+      <screen>sudo saptune solution apply NETWEAVER</screen>
+    </sect2>
+
+    <sect2 xml:id="sec.os_configuration_for_the_sap_hana_vm_2">
+      <title>OS Configuration for the SAP HANA VM</title>
+
+      <para>SAP HANA requires specific Linux kernel settings, which are not
+        part of the standard Azure images and must be set manually.</para>
+
+      <screen>sudo saptune solution apply HANA</screen>
+
+      <para>For more details see the documentation at <link
+          xlink:href="https://www.suse.com/documentation/sles-for-sap-12/book_s4s/data/sec_saptune.html"
+          >https://www.suse.com/documentation/sles-for-sap-12/book_s4s/data/sec_saptune.html</link></para>
+    </sect2>
+
+    <sect2 xml:id="sec.other_settings">
+      <title>Other Settings</title>
+      <para>The XSCS machine gets a dynamic public IP address to be able to
+        access all other machines in the private network.</para>
+      <para>All machines use the Azure feature <quote>Accelerated Network
+          (AN)</quote> (only if the VM size supports AN).</para>
+      <para>All AVSets for the APP machines use a <emphasis role="strong"
+          >FaultDomainCount</emphasis> of 2 and an <emphasis role="strong"
+          >UpdateDomainCount</emphasis> of 20.</para>
+    </sect2>
+
+    <sect2 xml:id="sec.disk_overview_3">
+      <title>Disk Overview</title>
+      <para>The template uses the following disks and mount points:</para>
+
+      <para>Demo</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/sapmnt</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>128 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Small</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>same disks as data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para/>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>Medium</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2,3</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>4,5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB (W)</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>8,9</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+
+      <para>(w) uses Azure feature "writeAccelerator"</para>
+
+      <para>Large</para>
+      <informaltable rowsep="1" colsep="1">
+        <tgroup cols="3">
+          <colspec colname="col_1" colwidth="33*"/>
+          <colspec colname="col_2" colwidth="33*"/>
+          <colspec colname="col_3" colwidth="33*"/>
+          <thead>
+            <row>
+              <entry align="left" valign="top">Mount Point </entry>
+              <entry align="left" valign="top"> Disk </entry>
+              <entry align="left" valign="top"> Size</entry>
+            </row>
+          </thead>
+          <tbody>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/data</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>0,1,2</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/log</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>3,4</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>512 GB (W)</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/shared</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>5</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>1024 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/usr/sap</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>6</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>64 GB</para>
+              </entry>
+            </row>
+            <row>
+              <entry align="left" valign="top">
+                <para>/hana/backup</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>7,8</para>
+              </entry>
+              <entry align="left" valign="top">
+                <para>2048 GB</para>
+              </entry>
+            </row>
+          </tbody>
+        </tgroup>
+      </informaltable>
+      <para>(w) uses Azure feature "writeAccelerator"</para>
+    </sect2>
+
+    <sect2 xml:id="sec.other_settings_and_machines_2">
+      <title>Other Settings and Machines</title>
+
+      <para>All machines created with the template use the Azure feature
+          <quote>Accelerated Network (AN)</quote> (only if the VM size
+        supports AN).</para>
+      <para>The XSCS machine gets a dynamic public IP address to be able to
+        access all other machines in the private network and only use the
+        base OS disk. There is no additional disk.</para>
+      <para>The APP server machines use an additional 128 GB disk for
+        /usr/sap/&lt;SID&gt; and the machines are placed in an
+          <emphasis role="strong">Availablity Set</emphasis> with a
+          <emphasis role="strong">FaultDomainCount</emphasis> of 2 and an
+          <emphasis role="strong">UpdateDomainCount</emphasis> of
+        20.</para>
+
+      <note>
+        <title>Availability Set</title>
+        <para>An <emphasis>Availability Set</emphasis> is a logical group
+          in Azure to ensure that the VM resources are isolated from each
+          other when they are deployed within an Azure datacenter. It
+          ensures that the VMs you place within such an <emphasis
+            role="strong">Availability Set</emphasis> run across multiple
+          physical servers, compute racks, storage units and network
+          switches. The Virtual Machines are placed then into an <emphasis
+            role="strong">Availability Set</emphasis> to minimize the
+          chances that two of them fail or are updated at the same time.
+          This is essential when you want to build reliable cloud solutions
+          and clusters.</para>
+      </note>
+
+      <para>The HA template provides two additional instances for an HA NFS
+        server which has an additional disk as share of 32GB.</para>
+    </sect2>
+
+    <sect2 xml:id="sec.internal_load_balancer_and_ports">
+      <title>Internal Load Balancer and Ports</title>
+      <para>Special for the HA setup is the use of the Azure <emphasis
+          role="italic">Internal Load Balancer</emphasis> (ILB) which is
+        necessary to use virtual IP addresses in Azure. As such, the ILB
+        allows the use of virtual host names and IPs for the xSCS, HA-NFS
+        and SAP HANA pacemaker clusters. Additionally the ILB is providing
+        Layer 4: TCP and HTTP health probes.</para>
+
+      <para>
+        <link
+          xlink:href="https://docs.microsoft.com/en-us/azure/load-balancer/"
+          >https://docs.microsoft.com/en-us/azure/load-balancer/</link>
+      </para>
+      <para>The selection <emphasis role="italic">ABAP</emphasis> uses the
+        relevant <emphasis role="italic">ASCS ports</emphasis>, <emphasis
+          role="italic">JAVA</emphasis> uses the relevant <emphasis
+          role="italic">SCS ports</emphasis> and <emphasis role="italic"
+          >ABAP+JAVA</emphasis> both of the ports.</para>
+
+      <para>ASCS/SCS Internal Load Balancer ports (examples all with
+        instance <emphasis role="strong">00</emphasis> in bold):</para>
+
+      <itemizedlist>
+        <listitem>
+          <para> ASCS ERS ports : 33<emphasis role="strong">00</emphasis>,
+              5<emphasis role="strong">00</emphasis>13, 5<emphasis
+              role="strong">00</emphasis>14, 5<emphasis role="strong"
+              >00</emphasis>16 </para>
+        </listitem>
+        <listitem>
+          <para> SCS ERS ports : 33<emphasis role="strong">00</emphasis>,
+              5<emphasis role="strong">00</emphasis>13, 5<emphasis
+              role="strong">00</emphasis>14, 5<emphasis role="strong"
+              >00</emphasis>16 </para>
+        </listitem>
+        <listitem>
+          <para> ASCS Ports : 32<emphasis role="strong">00</emphasis>,
+              36<emphasis role="strong">00</emphasis>, 39<emphasis
+              role="strong">00</emphasis>, 81<emphasis role="strong"
+              >00</emphasis>, 5<emphasis role="strong">00</emphasis>13,
+              5<emphasis role="strong">00</emphasis>14, 5<emphasis
+              role="strong">00</emphasis>16 </para>
+        </listitem>
+        <listitem>
+          <para> SCS Ports : 32<emphasis role="strong">00</emphasis>,
+              33<emphasis role="strong">00</emphasis>, 39<emphasis
+              role="strong">00</emphasis>, 81<emphasis role="strong"
+              >00</emphasis>, 5<emphasis role="strong">00</emphasis>13,
+              5<emphasis role="strong">00</emphasis>14, 5<emphasis
+              role="strong">00</emphasis>16 </para>
+        </listitem>
+        <listitem>
+          <para> HANA Ports : 3<emphasis role="strong"
+              >00</emphasis>15,3<emphasis role="strong">00</emphasis>17
+          </para>
+        </listitem>
+        <listitem>
+          <para> NFS Ports : 2049 </para>
+        </listitem>
+      </itemizedlist>
+      <para>Probe Ports:</para>
+      <itemizedlist>
+        <listitem>
+          <para> xSCS: 62000 </para>
+        </listitem>
+        <listitem>
+          <para> ERS : 61000 </para>
+        </listitem>
+        <listitem>
+          <para> HANA: 62500 </para>
+        </listitem>
+        <listitem>
+          <para> NFS : 61000 </para>
+        </listitem>
+      </itemizedlist>
+    </sect2>
+  </sect1>
+
+  <sect1
+    xml:id="sec.quick_guide_to_install_sap_hana_on_a_suse_linux_enterprise_server_for_sap_applications">
+    <title>Quick Guide to Install SAP HANA on a SUSE Linux Enterprise
+      Server for SAP Applications</title>
+    <para>This section leads you through the installation of a default SAP
+      HANA on SUSE Linux Enterprise Server.</para>
+    <para>It does not replace the SAP documentation - <emphasis
+        role="strong">PLEASE</emphasis> read the SAP HANA installation
+      documentation.</para>
+
+    <important>
+      <title>Transfer</title>
+      <para>You need to transfer the SAP media for SAP HANA to the Azure
+        cloud environment.</para>
+    </important>
+
+    <sect2 xml:id="sec.file_share_for_sap_media">
+      <title>File Share for SAP Media</title>
+
+      <para>Azure Files offers shared storage for applications using the
+        Server Message Block (SMB) protocol which is very useful to upload
+        the SAP HANA Media to it and use it from both machines.</para>
+
+      <para>
+        <link
+          xlink:href="https://docs.microsoft.com/en-us/azure/storage/files/storage-files-introduction"
+          >https://docs.microsoft.com/en-us/azure/storage/files/storage-files-introduction</link>
+      </para>
+      <para>To use Azure Storage, you need to create first a storage
+        account.</para>
+      <para>In the example below, the Azure CLI v2 command line installed
+        on our local machine is used. It is also possible to install it on
+        the virtual machine you have created in Azure.</para>
+      <para>For more details see <link
+          xlink:href="https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-zypper?view=azure-cli-latest"
+          >https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-zypper?view=azure-cli-latest</link>.</para>
+      <para>Another way would be to follow the more general steps from
+          <link
+          xlink:href="https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mount-azure-file-storage-on-linux-using-smb"
+          >https://docs.microsoft.com/en-us/azure/virtual-machines/linux/mount-azure-file-storage-on-linux-using-smb</link></para>
+      <para>or using the portal</para>
+      <para>
+        <link
+          xlink:href="https://github.com/AzureCAT-GSI/SAP-HANA-ARM/blob/master/UploadToAzure.md"
+          >https://github.com/AzureCAT-GSI/SAP-HANA-ARM/blob/master/UploadToAzure.md</link>
+      </para>
+
+      <sect3 xml:id="sec.steps_to_create_a_file_share_in_azure">
+        <title>Steps to Create a File Share in Azure</title>
+
+        <para>First you need a resource group where the storage should be
+          placed in.</para>
+        <para>Substitute the <emphasis role="italic">--location</emphasis>
+          parameter with the azure region you have chosen:</para>
+        <screen>az group create --name mytestRG <emphasis role="italic">--location westeurope</emphasis></screen>
+        <para>Now you can create the storage account in your resource
+          group:</para>
+        <screen>az storage account create \
+    --name hsrsa4sapmedia \
+    --resource-group mytestRG \
+    --sku Standard_LRS \
+    --location westeurope</screen>
+
+        <para>A good practice is to share the connection string using
+          variables, as you need to add it to every following storage
+          commands:</para>
+
+        <screen>az storage account show-connection-string \
+    --name hsrsa4sapmedia \
+    --resource-group mytestRG</screen>
+        <para>Set the AZURE_STORAGE_CONNECTION_STRING environment variable
+          with the output value of the command. You should enclose the
+          connection string in quotes.</para>
+        <screen>export AZURE_STORAGE_CONNECTION_STRING="YOUR_connection_string"</screen>
+      </sect3>
+    </sect2>
+
+    <sect2 xml:id="sec.sap_media">
+      <title>SAP Media</title>
+
+      <para>Installation media for SAP HANA should be downloaded and placed
+        in the Azure fileshare created in the step before. For this we
+        create an own directory called "SapBits".</para>
+      <para>You need to download the SAP package 51052325, which should
+        consist of four files:</para>
+      <itemizedlist>
+        <listitem>
+          <para>51052325_part1.exe</para>
+        </listitem>
+        <listitem>
+          <para>51052325_part2.rar</para>
+        </listitem>
+
+        <listitem>
+          <para>51052325_part3.rar</para>
+        </listitem>
+
+        <listitem>
+          <para>51052325_part4.rar</para>
+        </listitem>
+      </itemizedlist>
+
+      <para>If you have the files in your download directory on your
+        machine, the command looks as follows:</para>
+      <screen>az storage share create --name mediashare
+az storage directory create --name SapBits --share-name mediashare
+
+az storage file upload --share-name mediashare/SapBits --source ~/Download/51052325_part1.exe
+az storage file upload --share-name mediashare/SapBits --source ~/Download/51052325_part2.rar
+az storage file upload --share-name mediashare/SapBits --source ~/Download/51052325_part3.rar
+az storage file upload --share-name mediashare/SapBits --source /Download/51052325_part4.rar</screen>
+
+      <para>The next steps need to be done on your virtual machine you
+        created for HANA in Azure. Log in to this machine.nius.</para>
+      <para>Mount it on the SUSE Linux Enterprise Server system in Azure
+        with the command:</para>
+      <screen>sudo zypper in cifs-utils unrar
+
+mkdir -p /hana/shared/SapBits
+
+sudo mount -t cifs //hsrsa4sapmedia.file.core.windows.net/mediashare/SapBits /mnt -o vers=3.0,username=storage-account-name,password=storage-account-key,dir_mode=0777,file_mode=0777,serverino
+
+sudo cp -v /mnt/51052325* /hana/shared/SapBits
+
+sudo umount /mnt</screen>
+      <para>Extract the HANA software</para>
+      <screen>cd /hana/shared/SapBits
+unrar x 51052325_part1.exe</screen>
+      <para>If you need the hana software later again, you do not need this
+        step as it is extracted</para>
+    </sect2>
+
+    <sect2 xml:id="sec.hana_install">
+      <title>HANA Install</title>
+
+      <para>Hana requires a few packages installed within SUSE Linux
+        Enterprise Server.</para>
+      <screen>zypper in -t pattern sap-hana</screen>
+      <para>and configuration settings</para>
+      <screen>saptune daemon start
+saptune solution apply HANA</screen>
+      <para>There are several possibilities to install SAP HANA, which are
+        detailed in the following sections.</para>
+
+      <sect3 xml:id="sec.with_use_of_the_suse_installation_wizard">
+        <title>Installation Using the SUSE Installation Wizard</title>
+        <itemizedlist>
+          <listitem>
+            <para> Start YaST. </para>
+          </listitem>
+          <listitem>
+            <para>Under <quote>Software</quote> choose the <quote>SAP
+                Installation Wizard</quote>:</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>YaST Control Center - SAP Installation Wizard</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard1.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard1.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!--<informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard1.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard1.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+
+        <itemizedlist>
+          <listitem>
+            <para>Point the Installer to the directory with the SAP Media
+              from the step above (for example
+              /hana/shared/SapBits/51052325):</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - Directory</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard3.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard3.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!--<informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard3.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard3.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para>The sap media get copied to the local machine:</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - Copying Media</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard4.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard4.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!--<informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard4.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard4.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para>Say <quote>No</quote> if you asked for
+              Supplement/3rd-party mediashare:</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - Medium</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard5.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard5.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!-- <informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard5.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard5.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para>Click <quote>Next</quote> at the screen asking for SAP
+              add-ons:</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - SAP Add-ons</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard6.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard6.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!-- <informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard6.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard6.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>
+-->
+        <itemizedlist>
+          <listitem>
+            <para> Fill out the four fields for HANA:</para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - System Parameters</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard7.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard7.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+        <!--     
+        <informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard7.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard7.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para>Say <quote>No</quote> if you are asked for more products:
+            </para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - More SAP Products</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard8.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard8.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!--<informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard8.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard8.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para> Agree with the question to continue the installation:
+            </para>
+          </listitem>
+        </itemizedlist>
+
+        <figure>
+          <title>SAP Installation Wizard - Continue Installation</title>
+          <mediaobject>
+            <imageobject role="fo">
+              <imagedata fileref="azure_hana_wizard9.png" width="100%"
+                format="PNG"/>
+            </imageobject>
+            <imageobject role="html">
+              <imagedata fileref="azure_hana_wizard9.png" width="80%"
+                format="PNG"/>
+            </imageobject>
+          </mediaobject>
+        </figure>
+
+        <!-- <informalfigure>
+          <mediaobject>
+            <imageobject>
+              <imagedata
+                fileref="/home/pschinagl/AZURE/WizardSteps/HANA_Wizard9.png"
+                width="100%" scalefit="1"/>
+            </imageobject>
+            <textobject>
+              <phrase>/home/pschinagl/AZURE/WizardSteps/HANA_Wizard9.png</phrase>
+            </textobject>
+          </mediaobject>
+        </informalfigure>-->
+
+        <itemizedlist>
+          <listitem>
+            <para>HANA gets installed and started. </para>
+          </listitem>
+        </itemizedlist>
+        <para>This installation process will take some time - be patient.
+          You will see the log output in the window.</para>
+      </sect3>
+
+      <sect3 xml:id="sec.using_the_command_line">
+        <title>Installation Using the Command Line</title>
+
+        <para>The HANA installer will ask for some values.</para>
+        <para>Answer the questions according to your well prepared sheet
+          with all needed parameters. Do <emphasis role="strong"
+            >NOT</emphasis> install HANA with a virtual host name,
+            <emphasis role="strong">use</emphasis> the physical host name.
+          Double-check before you type!</para>
+
+        <orderedlist numeration="arabic">
+          <listitem>
+            <para> Install the SAP HANA Database as described in the SAP
+              HANA Server Installation Guide on <emphasis role="strong"
+                >both</emphasis> machines. </para>
+            <orderedlist numeration="loweralpha">
+              <listitem>
+                <para> Change to the directory where you have downloaded
+                    <emphasis role="strong">and unpacked</emphasis> the
+                  installation medium ( in our example it should be
+                  /hana/shared/SapBits ): </para>
+                <screen>   cd /hana/shared/SapBits/51052325/DATA_UNITS/HDB_LCM_LINUX_X86_64</screen>
+              </listitem>
+              <listitem>
+                <para> Start the SAP HANA database lifecycle manager
+                  interactively at the command line: </para>
+                <screen>   sudo ./hdblcm</screen>
+              </listitem>
+            </orderedlist>
+          </listitem>
+        </orderedlist>
+      </sect3>
+    </sect2>
+
+    <sect2
+      xml:id="sec.for_3_tier_templates_how_to_connect_to_the_other_systems">
+      <title>For 3-tier Templates: How to Connect to the Other
+        Systems</title>
+
+      <para>Only the XSCS machine has a public IP address and needs to be
+        used as intermediate hop (jumphost) between your actual SSH target
+        and yourself.</para>
+      <para>Instead of using something like <quote>unsecure</quote> SSH
+        agent forwarding, where the data gets exposed at every jump, you
+        can use ProxyCommand to proxy all your commands through your
+        jumphost.</para>
+      <para>Consider the following scenario:</para>
+
+      <screen>+--------+    +---------+    /------ | Host A |
+| Laptop |--P-| XSCS    |---+
++--------+    +---------+    \-------| Host B |
+                              ...
+                              \------| Host X |</screen>
+
+      <para>A configuration like this will allow you to proxy through the
+        jumphost within the admin subnet to HOST A and B,
+        &#8230;</para>
+
+      <screen>on YOUR local system create a ssh config file:
+
+$ cat .ssh/config
+Host XSCS
+   User <emphasis role="strong">adminuser used here as example</emphasis>
+   Hostname <emphasis role="strong">public-ip-of-xscs</emphasis>
+   Port 22 # a non-standard port would be a good idea
+
+Host hosta
+   User adminuser
+   Hostname <emphasis role="strong">private-ip of host a</emphasis>
+   Port 22
+   ProxyCommand ssh -q -W %h:%p XSCS
+
+Host hostb
+   User adminuser
+   Hostname <emphasis role="strong">private-ip of host b</emphasis>
+   Port 22
+   ProxyCommand ssh -q -W %h:%p XSCS
+
+etc...</screen>
+
+      <screen>ssh adminuser@hosta</screen>
+
+      <para>or</para>
+
+      <screen>ssh adminuser@<emphasis role="strong">private-ip-hosta</emphasis></screen>
+    </sect2>
+  </sect1>
+
+  <sect1 xml:id="sec.legal_notice">
+    <title>Legal Notice</title>
+    <para>Copyright &copy;2006–2018 SUSE LLC and contributors. All
+      rights reserved. </para>
+    <para>Permission is granted to copy, distribute and/or modify this
+      document under the terms of the GNU Free Documentation License,
+      Version 1.2 or (at your option) version 1.3; with the Invariant
+      Section being this copyright notice and license. A copy of the
+      license version 1.2 is included in the section entitled <quote>GNU
+        Free Documentation License</quote>.</para>
+    <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE
+      LLC in the United States and other countries. For SUSE trademarks,
+      see <link xlink:href="http://www.suse.com/company/legal/"
+        >http://www.suse.com/company/legal/</link>. Linux is a registered
+      trademark of Linus Torvalds. All other names or trademarks mentioned
+      in this document may be trademarks or registered trademarks of their
+      respective owners.</para>
+    <para>This article is part of a series of documents called "SUSE Best
+      Practices". The individual documents in the series were contributed
+      voluntarily by SUSE's employees and by third parties.</para>
+    <!--  <para>The articles are intended only to be one example of how a particular action could be
+      taken. They should not be understood to be the only action and certainly not to be the
+      action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+      in the articles do what they claim to do or that they don't have unintended
+      consequences.</para>-->
+    <para> All information found in this book has been compiled with utmost
+      attention to detail. However, this does not guarantee complete
+      accuracy.
+      <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+        for possible errors or the consequences thereof. --></para>
+    <para>Therefore, we need to specifically state that neither SUSE LLC,
+      its affiliates, the authors, nor the translators may be held liable
+      for possible errors or the consequences thereof. Below we draw your
+      attention to the license under which the articles are
+      published.</para>
+  </sect1>
+
+  <?pdfpagebreak style="suse2013" formatter="fop"?>
+  <xi:include href="license-gfdl.xml"/>
+
+</article>

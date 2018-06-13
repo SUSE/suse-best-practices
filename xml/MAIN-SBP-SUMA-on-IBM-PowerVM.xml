@@ -1,0 +1,481 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+<article role="sbp" xmlns="http://docbook.org/ns/docbook"
+  xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+  xml:id="art.sbp.amdepyc.sles12sp3" xml:lang="en">
+
+  <info>
+    <title>How to Deploy SUSE Linux Enterprise Server with SUSE Manager on IBM PowerVM</title>
+    <!--<subtitle>Simplified Deployment on Microsoft Azure</subtitle>-->
+    <productname>SUSE Linux Enterprise Server</productname>
+    <productnumber>12 SP3</productnumber>
+
+    <author>
+      <personname>
+        <firstname>Olivier</firstname>
+        <surname>Van Rompuy, Senior System Engineer and Technical Consultant, IRIS</surname>
+      </personname>
+      <!--      <affiliation>
+        <jobtitle>Senior Software Engineer</jobtitle>
+        <orgname>SUSE</orgname>
+        </affiliation>-->
+    </author>
+
+   
+
+    <date><?dbtimestamp format="B d, Y" ?></date>
+
+    <abstract>
+
+      <para>The document at hand provides an overview of .</para>
+    </abstract>
+  </info>
+
+  <sect1 xml:id="sec.overview">
+    <title>Overview</title>
+    <para>EPYC is the latest generation of the AMD64 System-on-Chip (SoC)
+      processor family. It is based on the Zen microarchitecture,
+      introduced in 2017, and supports up to 32 cores (64 threads) and 8
+      memory channels per socket. At the time of writing, 1-socket and
+      2-socket models are available from Original Equipment Manufacturers
+      (OEMs). This document provides an overview of the EPYC architecture
+      and how computational-intensive workloads can be tuned on SUSE Linux
+      Enterprise Server 12 SP3.</para>
+  </sect1>
+
+  <sect1 xml:id="sec.epyc_architecture">
+    <title>EPYC Architecture</title>
+
+    <para><emphasis role="italic">Symmetric multiprocessing
+        (SMP)</emphasis> systems are those that contain two or more
+      physical processing cores. Each core may have two threads if
+      hyper-threading is enabled, with some resources being shared between
+      hyper-thread siblings. To minimize access latencies, multiple layers
+      of caches are used, with each level being larger but with higher
+      access costs. Cores may share different levels of cache which should
+      be considered when tuning for a workload.</para>
+
+    <para>Historically, a single socket contained several cores sharing a
+      hierarchy of caches and memory channels and multiple sockets were
+      connected via a memory interconnect. Modern configurations may have
+      multiple dies as a <emphasis role="italic">Multi-Chip Module
+        (MCM)</emphasis> with one set of interconnects within the socket
+      and a separate interconnect for each socket. This means that some
+      CPUs and memory are faster to access than others depending on the
+        <quote>distance</quote>. This should be considered when tuning for
+        <emphasis role="italic">Non-Uniform Memory Architecture
+        (NUMA)</emphasis> as all memory accesses are not necessarily to
+      local memory incurring a variable access penalty.</para>
+
+    <para>EPYC is an MCM design with four dies on each package regardless
+      of thread count. The number of cores on each die is always symmetric
+      so they are balanced. Each socket has eight memory channels (two
+      channels per die) with two <emphasis role="italic">Dual Inline Memory
+        Modules (DIMMs)</emphasis> allowed per channel for up to 16 DIMMs
+      per socket. Total capacity is expected to be 2 TB per socket with a
+      maximum bandwidth of 21.3 GB/sec per channel for a total of 171
+      GB/sec per socket depending on the DIMMs selected.</para>
+
+    <para>Within the package, the four dies are interconnected with a
+      fully-connected <emphasis role="italic">Infinity Fabric</emphasis>.
+      Fully connected means that one core accessing memory connected to
+      another die will always be one hop away. The bandwidth of the fabric
+      is 42 GB/sec per link. The link is optimized for low-power and
+      low-latency. Thus the bandwidth available means that a die accessing
+      memory local to the socket incurs a smaller access penalty than is
+      normally expected when accessing remote memory.</para>
+
+    <para>Sockets are also connected via Infinity Fabric with four links
+      between each socket connecting each die on one socket to the peer die
+      on the second socket. Consequently, access distance to remote memory
+      from a thread will be at most two hops away. The data bandwidth on
+      each of these links is 38 GB/sec for a total of 152 GB/sec between
+      sockets. At the time of writing, only two sockets are possible within
+      a single machine.</para>
+
+    <para>Power management on the links is careful to minimize the amount
+      of power required. If the links are idle then the power may be used
+      to boost the frequency of individual cores. Hence, minimizing access
+      is not only important from a memory access latency point of view, but
+      it also has an impact on the speed of individual cores.</para>
+
+    <para>There are two IO x16 links per die giving a total of 8 links
+      where links can be used as Infinity links, PCI EXPRESS* links or a
+      limited number of SATA* links. This allows very large IO
+      configurations and a high degree of flexibility because of having a
+      total of 128 lanes available on single socket machines. It is
+      important to note that the number of links available is equal in one
+      socket and two socket configurations. In one socket configurations,
+      all lanes are available for IO. In two socket configurations, some
+      lanes are used to connect the two sockets together with the upshot
+      that a one socket configuration does not compromise on the available
+      IO channels.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.epyc_topology">
+    <title>EPYC Topology</title>
+
+    <para>Figure 1 below shows the topology of an example machine generated
+      by the <package>lstopo</package> tool. </para>
+
+    <figure xml:id="fig.epyc_topology">
+      <title>EPYC Topology</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="amd-epyc-topology.png" width="100%"
+            format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="amd-epyc-topology.png" width="80%"
+            format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>This tool is part of the <package>hwloc</package> package which
+      is not supported in SUSE Linux Enterprise Server 12 SP3 but can be
+      installed for illustration. The two <quote>packages</quote>
+      correspond to each socket. The four dies on each socket are clearly
+      visible and each die has a split L3 cache. Optimizing for computation
+      should focus on co-operating tasks being bound to a die. In this
+      example, the IO channels are not heavily used but the focus will be
+      CPU and memory-intensive loads. If optimizing for IO, it is
+      recommended, where possible, that the workload is located on the
+      nodes local to the IO channel.</para>
+
+    <para>The computer output below shows a conventional view of the
+      topology using the <package>numactl</package> tool. The CPU IDs that
+      map to each node are reported on the <quote>node X cpus:</quote>
+      lines and note the NUMA distances on the table at the bottom of the
+      computer output. Node 0 and node 1 are a distance of 16 apart which
+      is the distance between two dies on one socket. The distance between
+      node 0 and node 4 is 32 as they are on separate sockets. The distance
+      is a not a guarantee of the access latency. However, it is a rule of
+      thumb that accesses between sockets are roughly twice the cost of
+      accessing another die on the same socket.</para>
+
+    <screen>epyc:~ # numactl --hardware
+available: 8 nodes (0-7)
+node 0 cpus: 0 1 2 3 4 5 6 7 64 65 66 67 68 69 70 71
+node 0 size: 32056 MB
+node 0 free: 31446 MB
+node 1 cpus: 8 9 10 11 12 13 14 15 72 73 74 75 76 77 78 79
+node 1 size: 32253 MB
+node 1 free: 31545 MB
+node 2 cpus: 16 17 18 19 20 21 22 23 80 81 82 83 84 85 86 87
+node 2 size: 32253 MB
+node 2 free: 31776 MB
+node 3 cpus: 24 25 26 27 28 29 30 31 88 89 90 91 92 93 94 95
+node 3 size: 32253 MB
+node 3 free: 29039 MB
+node 4 cpus: 32 33 34 35 36 37 38 39 96 97 98 99 100 101 102 103
+node 4 size: 32253 MB
+node 4 free: 31823 MB
+node 5 cpus: 40 41 42 43 44 45 46 47 104 105 106 107 108 109 110 111
+node 5 size: 32253 MB
+node 5 free: 31565 MB
+node 6 cpus: 48 49 50 51 52 53 54 55 112 113 114 115 116 117 118 119
+node 6 size: 32253 MB
+node 6 free: 32098 MB
+node 7 cpus: 56 57 58 59 60 61 62 63 120 121 122 123 124 125 126 127
+node 7 size: 32124 MB
+node 7 free: 31984 MB
+node distances:
+node   0   1   2   3   4   5   6   7
+  0:  10  16  16  16  32  32  32  32
+  1:  16  10  16  16  32  32  32  32
+  2:  16  16  10  16  32  32  32  32
+  3:  16  16  16  10  32  32  32  32
+  4:  32  32  32  32  10  16  16  16
+  5:  32  32  32  32  16  10  16  16
+  6:  32  32  32  32  16  16  10  16
+  7:  32  32  32  32  16  16  16  10</screen>
+
+    <para>Finally, the cache topology can be discovered in a variety of
+      fashions. While <package>lstopo</package> can provide the
+      information, it is not always available. Fortunately, the level, size
+      and ID of CPUs that share cache can be identified from the files
+      under <filename>/sys/devices/system/cpu/cpuN/cache</filename>.</para>
+  </sect1>
+
+ 
+
+  <sect1 xml:id="sec.conclusion">
+    <title>Conclusion</title>
+
+       <para>With SUSE Linux Enterprise, all the tools to monitor and tune a
+      workload are readily available. Your customers can extract the
+      maximum performance and reliability running their applications,
+      either on bare metal or virtualized, on the EPYC platform.</para>
+
+  </sect1>
+
+  <sect1 xml:id="sec.resources">
+    <title>Resources</title>
+
+    <para>For more information, refer to:</para>
+
+    <itemizedlist>
+      <listitem>
+        <para>AMD SenseMI Technology (<link
+            xlink:href="https://www.amd.com/en/technologies/sense-mi"
+            >https://www.amd.com/en/technologies/sense-mi</link>)</para>
+      </listitem>
+      <listitem>
+        <para>Balanced power plan optimized for AMD Ryzen processors (<link
+            xlink:href="https://community.amd.com/community/gaming/blog/2017/04/06/amd-ryzen-community-update-3"
+            >https://community.amd.com/community/gaming/blog/2017/04/06/amd-ryzen-community-update-3</link></para>
+      </listitem>
+      <listitem>
+        <para>EPYC Tech Day: Gerry Talbot (<link
+            xlink:href="https://www.youtube.com/watch?v=W5IhEit6NqY"
+            >https://www.youtube.com/watch?v=W5IhEit6NqY</link>)</para>
+      </listitem>
+      <listitem>
+        <para>Optimizing Linux for Dual-Core AMD Opteron Processors (<link
+            xlink:href="http://www.novell.com/traininglocator/partners/amd/4622016.pdf"
+            >http://www.novell.com/traininglocator/partners/amd/4622016.pdf</link>)</para>
+      </listitem>
+      <listitem>
+        <para>Systems Performance: Enterprise and the Cloud by Brendan
+          Gregg (<link
+            xlink:href="http://www.brendangregg.com/sysperfbook.html"
+            >http://www.brendangregg.com/sysperfbook.html</link>)</para>
+      </listitem>
+      <listitem>
+        <para>NASA Parallel Benchmark (<link
+            xlink:href="https://www.nas.nasa.gov/publications/npb.html"
+            >https://www.nas.nasa.gov/publications/npb.html</link>)</para>
+      </listitem>
+    </itemizedlist>
+    
+  </sect1>
+ 
+ 
+
+  <sect1 xml:id="sec.appendix_a">
+    <title>Appendix A</title>
+
+    <para>Example of a VM configuration file:</para>
+
+    <screen>
+  &lt;domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>  
+  &lt;name>sles12sp3_01&lt;/name>
+    &lt;uuid>26137bb8-9e5f-48e9-a81d-63ae36400196&lt;/uuid>
+    &lt;memory unit='KiB'>209715200&lt;/memory>
+    &lt;currentMemory unit='KiB'>209715200&lt;/currentMemory>
+    &lt;memoryBacking>
+      &lt;hugepages>
+        &lt;page size='1048576' unit='KiB'/>
+      &lt;/hugepages>
+      &lt;nosharepages/>
+    &lt;/memoryBacking>
+    &lt;vcpu placement='static'>96&lt;/vcpu>
+    &lt;cputune>
+      &lt;vcpupin vcpu='0' cpuset='1'/>
+      &lt;vcpupin vcpu='1' cpuset='65'/>
+      &lt;vcpupin vcpu='2' cpuset='2'/>
+      &lt;vcpupin vcpu='3' cpuset='66'/>
+      &lt;vcpupin vcpu='4' cpuset='3'/>
+      &lt;vcpupin vcpu='5' cpuset='67'/>
+      &lt;vcpupin vcpu='6' cpuset='4'/>
+      &lt;vcpupin vcpu='7' cpuset='68'/>
+      &lt;vcpupin vcpu='8' cpuset='5'/>
+      &lt;vcpupin vcpu='9' cpuset='69'/>
+      &lt;vcpupin vcpu='10' cpuset='6'/>
+      &lt;vcpupin vcpu='11' cpuset='70'/>
+      &lt;vcpupin vcpu='12' cpuset='9'/>
+      &lt;vcpupin vcpu='13' cpuset='73'/>
+      &lt;vcpupin vcpu='14' cpuset='10'/>
+      &lt;vcpupin vcpu='15' cpuset='74'/>
+      &lt;vcpupin vcpu='16' cpuset='11'/>
+      &lt;vcpupin vcpu='17' cpuset='75'/>
+      &lt;vcpupin vcpu='18' cpuset='12'/>
+      &lt;vcpupin vcpu='19' cpuset='76'/>
+      &lt;vcpupin vcpu='20' cpuset='13'/>
+      &lt;vcpupin vcpu='21' cpuset='77'/>
+      &lt;vcpupin vcpu='22' cpuset='14'/>
+      &lt;vcpupin vcpu='23' cpuset='78'/>
+      &lt;vcpupin vcpu='24' cpuset='17'/>
+      &lt;vcpupin vcpu='25' cpuset='81'/>
+      &lt;vcpupin vcpu='26' cpuset='18'/>
+      &lt;vcpupin vcpu='27' cpuset='82'/>
+      &lt;vcpupin vcpu='28' cpuset='19'/>
+      &lt;vcpupin vcpu='29' cpuset='83'/>
+      &lt;vcpupin vcpu='30' cpuset='20'/>
+      &lt;vcpupin vcpu='31' cpuset='84'/>
+      &lt;vcpupin vcpu='32' cpuset='21'/>
+      &lt;vcpupin vcpu='33' cpuset='85'/>
+      &lt;vcpupin vcpu='34' cpuset='22'/>
+      &lt;vcpupin vcpu='35' cpuset='86'/>
+      &lt;vcpupin vcpu='36' cpuset='25'/>
+      &lt;vcpupin vcpu='37' cpuset='89'/>
+      &lt;vcpupin vcpu='38' cpuset='26'/>
+      &lt;vcpupin vcpu='39' cpuset='90'/>
+      &lt;vcpupin vcpu='40' cpuset='27'/>
+      &lt;vcpupin vcpu='41' cpuset='91'/>
+      &lt;vcpupin vcpu='42' cpuset='28'/>
+      &lt;vcpupin vcpu='43' cpuset='92'/>
+      &lt;vcpupin vcpu='44' cpuset='29'/>
+      &lt;vcpupin vcpu='45' cpuset='93'/>
+      &lt;vcpupin vcpu='46' cpuset='30'/>
+      &lt;vcpupin vcpu='47' cpuset='94'/>
+      &lt;vcpupin vcpu='48' cpuset='33'/>
+      &lt;vcpupin vcpu='49' cpuset='97'/>
+      &lt;vcpupin vcpu='50' cpuset='34'/>
+      &lt;vcpupin vcpu='51' cpuset='98'/>
+      &lt;vcpupin vcpu='52' cpuset='35'/>
+      &lt;vcpupin vcpu='53' cpuset='99'/>
+      &lt;vcpupin vcpu='54' cpuset='36'/>
+      &lt;vcpupin vcpu='55' cpuset='100'/>
+      &lt;vcpupin vcpu='56' cpuset='37'/>
+      &lt;vcpupin vcpu='57' cpuset='101'/>
+      &lt;vcpupin vcpu='58' cpuset='38'/>
+      &lt;vcpupin vcpu='59' cpuset='102'/>
+      &lt;vcpupin vcpu='60' cpuset='41'/>
+      &lt;vcpupin vcpu='61' cpuset='105'/>
+      &lt;vcpupin vcpu='62' cpuset='42'/>
+      &lt;vcpupin vcpu='63' cpuset='106'/>
+      &lt;vcpupin vcpu='64' cpuset='43'/>
+      &lt;vcpupin vcpu='65' cpuset='107'/>
+      &lt;vcpupin vcpu='66' cpuset='44'/>
+      &lt;vcpupin vcpu='67' cpuset='108'/>
+      &lt;vcpupin vcpu='68' cpuset='45'/>
+      &lt;vcpupin vcpu='69' cpuset='109'/>
+      &lt;vcpupin vcpu='70' cpuset='46'/>
+      &lt;vcpupin vcpu='71' cpuset='110'/>
+      &lt;vcpupin vcpu='72' cpuset='49'/>
+      &lt;vcpupin vcpu='73' cpuset='113'/>
+      &lt;vcpupin vcpu='74' cpuset='50'/>
+      &lt;vcpupin vcpu='75' cpuset='114'/>
+      &lt;vcpupin vcpu='76' cpuset='51'/>
+      &lt;vcpupin vcpu='77' cpuset='115'/>
+      &lt;vcpupin vcpu='78' cpuset='52'/>
+      &lt;vcpupin vcpu='79' cpuset='116'/>
+      &lt;vcpupin vcpu='80' cpuset='53'/>
+      &lt;vcpupin vcpu='81' cpuset='117'/>
+      &lt;vcpupin vcpu='82' cpuset='54'/>
+      &lt;vcpupin vcpu='83' cpuset='118'/>
+      &lt;vcpupin vcpu='84' cpuset='57'/>
+      &lt;vcpupin vcpu='85' cpuset='121'/>
+      &lt;vcpupin vcpu='86' cpuset='58'/>
+      &lt;vcpupin vcpu='87' cpuset='122'/>
+      &lt;vcpupin vcpu='88' cpuset='59'/>
+      &lt;vcpupin vcpu='89' cpuset='123'/>
+      &lt;vcpupin vcpu='90' cpuset='60'/>
+      &lt;vcpupin vcpu='91' cpuset='124'/>
+      &lt;vcpupin vcpu='92' cpuset='61'/>
+      &lt;vcpupin vcpu='93' cpuset='125'/>
+      &lt;vcpupin vcpu='94' cpuset='62'/>
+      &lt;vcpupin vcpu='95' cpuset='126'/>
+    &lt;/cputune>
+    &lt;numatune>
+      &lt;memory mode='strict' nodeset='0-7'/>
+      &lt;memnode cellid='0' mode='strict' nodeset='0'/>
+      &lt;memnode cellid='1' mode='strict' nodeset='1'/>
+      &lt;memnode cellid='2' mode='strict' nodeset='2'/>
+      &lt;memnode cellid='3' mode='strict' nodeset='3'/>
+      &lt;memnode cellid='4' mode='strict' nodeset='4'/>
+      &lt;memnode cellid='5' mode='strict' nodeset='5'/>
+      &lt;memnode cellid='6' mode='strict' nodeset='6'/>
+      &lt;memnode cellid='7' mode='strict' nodeset='7'/>
+    &lt;/numatune>
+    &lt;os>
+      &lt;type arch='x86_64' machine='pc-i440fx-2.9'>hvm&lt;/type>
+      &lt;boot dev='hd'/>
+    &lt;/os>
+    &lt;features>
+      &lt;acpi/>
+      &lt;apic/>
+    &lt;/features>
+    &lt;cpu mode='host-passthrough' check='none'>
+      &lt;topology sockets='8' cores='6' threads='2'/>
+      &lt;numa>
+        &lt;cell id='0' cpus='0-11' memory='26214400' unit='KiB'/>
+        &lt;cell id='1' cpus='12-23' memory='26214400' unit='KiB'/>
+        &lt;cell id='2' cpus='24-35' memory='26214400' unit='KiB'/>
+        &lt;cell id='3' cpus='36-47' memory='26214400' unit='KiB'/>
+        &lt;cell id='4' cpus='48-59' memory='26214400' unit='KiB'/>
+        &lt;cell id='5' cpus='60-71' memory='26214400' unit='KiB'/>
+        &lt;cell id='6' cpus='72-83' memory='26214400' unit='KiB'/>
+        &lt;cell id='7' cpus='84-95' memory='26214400' unit='KiB'/>
+      &lt;/numa>
+    &lt;/cpu>
+    ...
+    &lt;devices>
+      &lt;emulator>/usr/bin/qemu-kvm&lt;/emulator>
+      &lt;disk type='file' device='disk'>
+        &lt;driver name='qemu' type='qcow2'/>
+        &lt;source file='/home/sles12sp3_01.img'/>
+        &lt;target dev='vda' bus='virtio'/>
+        &lt;address type='pci' domain='0x0000' bus='0x00' slot='0x05' function='0x0'/>
+      &lt;/disk>
+      ...
+      &lt;interface type='network'>
+        &lt;mac address='52:54:00:9e:08:44'/>
+        &lt;source network='default'/>
+        &lt;model type='virtio'/>
+        &lt;address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x0'/>
+      &lt;/interface>
+      ...
+      &lt;rng model='virtio'>
+        &lt;backend model='random'>/dev/urandom&lt;/backend>
+        &lt;address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/>
+      &lt;/rng>
+    &lt;/devices>
+    &lt;qemu:commandline>
+      &lt;qemu:arg value='-cpu'/>
+      &lt;qemu:arg value='host,migratable=off,+invtsc,l3-cache=on'/>
+    &lt;/qemu:commandline>
+  &lt;/domain>
+</screen>
+
+  </sect1>
+
+  <sect1 xml:id="sec.legal_notice">
+    <title>Legal Notice</title>
+    <para>Copyright &copy;2006–2018 SUSE LLC and contributors. All
+      rights reserved. </para>
+    <para>Permission is granted to copy, distribute and/or modify this
+      document under the terms of the GNU Free Documentation License,
+      Version 1.2 or (at your option) version 1.3; with the Invariant
+      Section being this copyright notice and license. A copy of the
+      license version 1.2 is included in the section entitled <quote>GNU
+        Free Documentation License</quote>.</para>
+    <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE
+      LLC in the United States and other countries. For SUSE trademarks,
+      see <link xlink:href="http://www.suse.com/company/legal/"
+        >http://www.suse.com/company/legal/</link>. Linux is a registered
+      trademark of Linus Torvalds. All other names or trademarks mentioned
+      in this document may be trademarks or registered trademarks of their
+      respective owners.</para>
+    <para>This article is part of a series of documents called "SUSE Best
+      Practices". The individual documents in the series were contributed
+      voluntarily by SUSE's employees and by third parties.</para>
+    <!--  <para>The articles are intended only to be one example of how a particular action could be
+      taken. They should not be understood to be the only action and certainly not to be the
+      action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+      in the articles do what they claim to do or that they don't have unintended
+      consequences.</para>-->
+    <para> All information found in this article has been compiled with
+      utmost attention to detail. However, this does not guarantee complete
+      accuracy.
+      <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+        for possible errors or the consequences thereof. --></para>
+    <para>Therefore, we need to specifically state that neither SUSE LLC,
+      its affiliates, the authors, nor the translators may be held liable
+      for possible errors or the consequences thereof. Below we draw your
+      attention to the license under which the articles are
+      published.</para>
+  </sect1>
+  
+  <?pdfpagebreak style="suse2013" formatter="fop"?>
+  <xi:include href="license-gfdl.xml"/>
+</article>

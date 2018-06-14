@@ -5,10 +5,9 @@
 %entity;
 ]>
 
-<article role="sbp" xmlns="http://docbook.org/ns/docbook"
-  xmlns:xi="http://www.w3.org/2001/XInclude"
-  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
-  xml:id="art.sbp.amdepyc.sles12sp3" xml:lang="en">
+<article role="sbp" xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art.sbp.amdepyc.sles12sp3"
+  xml:lang="en">
 
   <info>
     <title>How to Deploy SUSE Linux Enterprise Server with SUSE Manager on IBM PowerVM</title>
@@ -27,193 +26,275 @@
         </affiliation>-->
     </author>
 
-   
+
 
     <date><?dbtimestamp format="B d, Y" ?></date>
 
     <abstract>
 
-      <para>The document at hand provides an overview of .</para>
+      <para>The document at hand provides an overview of how to deploy SUSE Manager on IBM Power
+        Systems. This enables you to manage and maintain your enterprise Linux system deployments
+        across physical, virtual and cloud environments via one centralized tool. Described is a
+        base deployment of SUSE Manager 3.1 on IBM PowerVM LPARs, including Autoinstallation,
+        AutoYaST and Netboot Integration.</para>
     </abstract>
   </info>
 
-  <sect1 xml:id="sec.overview">
-    <title>Overview</title>
-    <para>EPYC is the latest generation of the AMD64 System-on-Chip (SoC)
-      processor family. It is based on the Zen microarchitecture,
-      introduced in 2017, and supports up to 32 cores (64 threads) and 8
-      memory channels per socket. At the time of writing, 1-socket and
-      2-socket models are available from Original Equipment Manufacturers
-      (OEMs). This document provides an overview of the EPYC architecture
-      and how computational-intensive workloads can be tuned on SUSE Linux
-      Enterprise Server 12 SP3.</para>
-  </sect1>
+  <sect1 xml:id="sec.install_suma_power">
+    <title>Installing SUSE Manager on IBM Power</title>
 
-  <sect1 xml:id="sec.epyc_architecture">
-    <title>EPYC Architecture</title>
+    <para>First, you need to perform several actions related to the IBM PowerVM architecture (refer
+      also to the IBM documentation at <link
+        xlink:href="https://www.ibm.com/support/knowledgecenter/"
+        >https://www.ibm.com/support/knowledgecenter/</link> ):</para>
 
-    <para><emphasis role="italic">Symmetric multiprocessing
-        (SMP)</emphasis> systems are those that contain two or more
-      physical processing cores. Each core may have two threads if
-      hyper-threading is enabled, with some resources being shared between
-      hyper-thread siblings. To minimize access latencies, multiple layers
-      of caches are used, with each level being larger but with higher
-      access costs. Cores may share different levels of cache which should
-      be considered when tuning for a workload.</para>
+    <procedure>
+      <step>
+        <para>Create a new Logical Partition (LPAR) for SUSE Manager on an IBM Power System with
+          POWER8 or higher processors.</para>
+      </step>
+      <step>
+        <para>Configure the infrastructure for this LPAR: LAN, SAN, storage luns, zoning,
+          etc..</para>
+      </step>
+      <step>
+        <para>Create a virtual DVD drive for this LPAR on one of the VIO servers (learn more about
+          VIO servers here: <link
+            xlink:href="https://www.ibm.com/support/knowledgecenter/en/POWER8/p8hb1/p8hb1_vios_virtualioserveroverview.htm"
+            >https://www.ibm.com/support/knowledgecenter/en/POWER8/p8hb1/p8hb1_vios_virtualioserveroverview.htm</link>).</para>
+      </step>
+      <step>
+        <para>Add the SUSE Linux Enterprise Server 12 ISO files to the virtual optical device (dvd)
+          repository on this VIO server.</para>
+      </step>
+      <step>
+        <para>Using the command <command>cfgassist</command> on the VIO server loads the first DVD
+          in the virtual drive.</para>
+      </step>
+      <step>
+        <para>Activate the LPAR, enter the System Management Services (SMS) menu and choose to boot
+          from the DVD.</para>
+      </step>
+    </procedure>
 
-    <para>Historically, a single socket contained several cores sharing a
-      hierarchy of caches and memory channels and multiple sockets were
-      connected via a memory interconnect. Modern configurations may have
-      multiple dies as a <emphasis role="italic">Multi-Chip Module
-        (MCM)</emphasis> with one set of interconnects within the socket
-      and a separate interconnect for each socket. This means that some
-      CPUs and memory are faster to access than others depending on the
-        <quote>distance</quote>. This should be considered when tuning for
-        <emphasis role="italic">Non-Uniform Memory Architecture
-        (NUMA)</emphasis> as all memory accesses are not necessarily to
-      local memory incurring a variable access penalty.</para>
+    <para>When the SUSE YaST installation tool appears, subscribe with the correct SUSE Customer
+      Center (SCC) registration code (<quote>SUSE Linux Enterprise Server for IBM POWER</quote>).
+      Collect your registration codes from the SCC portal site at <link
+        xlink:href="https://scc.suse.com">https://scc.suse.com</link>.</para>
 
-    <para>EPYC is an MCM design with four dies on each package regardless
-      of thread count. The number of cores on each die is always symmetric
-      so they are balanced. Each socket has eight memory channels (two
-      channels per die) with two <emphasis role="italic">Dual Inline Memory
-        Modules (DIMMs)</emphasis> allowed per channel for up to 16 DIMMs
-      per socket. Total capacity is expected to be 2 TB per socket with a
-      maximum bandwidth of 21.3 GB/sec per channel for a total of 171
-      GB/sec per socket depending on the DIMMs selected.</para>
+    <para>Now choose to add the SUSE Manger Server extension as shown on the screen below, and enter
+        <emphasis role="strong">Next</emphasis>:</para>
 
-    <para>Within the package, the four dies are interconnected with a
-      fully-connected <emphasis role="italic">Infinity Fabric</emphasis>.
-      Fully connected means that one core accessing memory connected to
-      another die will always be one hop away. The bandwidth of the fabric
-      is 42 GB/sec per link. The link is optimized for low-power and
-      low-latency. Thus the bandwidth available means that a die accessing
-      memory local to the socket incurs a smaller access penalty than is
-      normally expected when accessing remote memory.</para>
-
-    <para>Sockets are also connected via Infinity Fabric with four links
-      between each socket connecting each die on one socket to the peer die
-      on the second socket. Consequently, access distance to remote memory
-      from a thread will be at most two hops away. The data bandwidth on
-      each of these links is 38 GB/sec for a total of 152 GB/sec between
-      sockets. At the time of writing, only two sockets are possible within
-      a single machine.</para>
-
-    <para>Power management on the links is careful to minimize the amount
-      of power required. If the links are idle then the power may be used
-      to boost the frequency of individual cores. Hence, minimizing access
-      is not only important from a memory access latency point of view, but
-      it also has an impact on the speed of individual cores.</para>
-
-    <para>There are two IO x16 links per die giving a total of 8 links
-      where links can be used as Infinity links, PCI EXPRESS* links or a
-      limited number of SATA* links. This allows very large IO
-      configurations and a high degree of flexibility because of having a
-      total of 128 lanes available on single socket machines. It is
-      important to note that the number of links available is equal in one
-      socket and two socket configurations. In one socket configurations,
-      all lanes are available for IO. In two socket configurations, some
-      lanes are used to connect the two sockets together with the upshot
-      that a one socket configuration does not compromise on the available
-      IO channels.</para>
-
-  </sect1>
-
-  <sect1 xml:id="sec.epyc_topology">
-    <title>EPYC Topology</title>
-
-    <para>Figure 1 below shows the topology of an example machine generated
-      by the <package>lstopo</package> tool. </para>
-
-    <figure xml:id="fig.epyc_topology">
-      <title>EPYC Topology</title>
+    <figure>
+      <title>YaST Installation - Extensions and Module Selection</title>
       <mediaobject>
         <imageobject role="fo">
-          <imagedata fileref="amd-epyc-topology.png" width="100%"
-            format="PNG"/>
+          <imagedata fileref="suma-powervm-yast-extension-selection.png" width="100%" format="PNG"/>
         </imageobject>
         <imageobject role="html">
-          <imagedata fileref="amd-epyc-topology.png" width="80%"
-            format="PNG"/>
+          <imagedata fileref="suma-powervm-yast-extension-selection.png" width="80%" format="PNG"/>
         </imageobject>
       </mediaobject>
     </figure>
 
-    <para>This tool is part of the <package>hwloc</package> package which
-      is not supported in SUSE Linux Enterprise Server 12 SP3 but can be
-      installed for illustration. The two <quote>packages</quote>
-      correspond to each socket. The four dies on each socket are clearly
-      visible and each die has a split L3 cache. Optimizing for computation
-      should focus on co-operating tasks being bound to a die. In this
-      example, the IO channels are not heavily used but the focus will be
-      CPU and memory-intensive loads. If optimizing for IO, it is
-      recommended, where possible, that the workload is located on the
-      nodes local to the IO channel.</para>
+    <para>Accept the SUSE End User License Agreement (EULA) and enter <emphasis role="strong"
+        >Next</emphasis>:</para>
 
-    <para>The computer output below shows a conventional view of the
-      topology using the <package>numactl</package> tool. The CPU IDs that
-      map to each node are reported on the <quote>node X cpus:</quote>
-      lines and note the NUMA distances on the table at the bottom of the
-      computer output. Node 0 and node 1 are a distance of 16 apart which
-      is the distance between two dies on one socket. The distance between
-      node 0 and node 4 is 32 as they are on separate sockets. The distance
-      is a not a guarantee of the access latency. However, it is a rule of
-      thumb that accesses between sockets are roughly twice the cost of
-      accessing another die on the same socket.</para>
+    <figure>
+      <title>YaST Installation - SUSE End User License Agreement</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-license-agreement.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-license-agreement.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
 
-    <screen>epyc:~ # numactl --hardware
-available: 8 nodes (0-7)
-node 0 cpus: 0 1 2 3 4 5 6 7 64 65 66 67 68 69 70 71
-node 0 size: 32056 MB
-node 0 free: 31446 MB
-node 1 cpus: 8 9 10 11 12 13 14 15 72 73 74 75 76 77 78 79
-node 1 size: 32253 MB
-node 1 free: 31545 MB
-node 2 cpus: 16 17 18 19 20 21 22 23 80 81 82 83 84 85 86 87
-node 2 size: 32253 MB
-node 2 free: 31776 MB
-node 3 cpus: 24 25 26 27 28 29 30 31 88 89 90 91 92 93 94 95
-node 3 size: 32253 MB
-node 3 free: 29039 MB
-node 4 cpus: 32 33 34 35 36 37 38 39 96 97 98 99 100 101 102 103
-node 4 size: 32253 MB
-node 4 free: 31823 MB
-node 5 cpus: 40 41 42 43 44 45 46 47 104 105 106 107 108 109 110 111
-node 5 size: 32253 MB
-node 5 free: 31565 MB
-node 6 cpus: 48 49 50 51 52 53 54 55 112 113 114 115 116 117 118 119
-node 6 size: 32253 MB
-node 6 free: 32098 MB
-node 7 cpus: 56 57 58 59 60 61 62 63 120 121 122 123 124 125 126 127
-node 7 size: 32124 MB
-node 7 free: 31984 MB
-node distances:
-node   0   1   2   3   4   5   6   7
-  0:  10  16  16  16  32  32  32  32
-  1:  16  10  16  16  32  32  32  32
-  2:  16  16  10  16  32  32  32  32
-  3:  16  16  16  10  32  32  32  32
-  4:  32  32  32  32  10  16  16  16
-  5:  32  32  32  32  16  10  16  16
-  6:  32  32  32  32  16  16  10  16
-  7:  32  32  32  32  16  16  16  10</screen>
+    <para>Provide the correct registration code delivered with your SUSE Manager subscription, and
+      enter <emphasis role="strong">Next</emphasis>:</para>
 
-    <para>Finally, the cache topology can be discovered in a variety of
-      fashions. While <package>lstopo</package> can provide the
-      information, it is not always available. Fortunately, the level, size
-      and ID of CPUs that share cache can be identified from the files
-      under <filename>/sys/devices/system/cpu/cpuN/cache</filename>.</para>
+    <figure>
+      <title>YaST Installation - SUSE Manager Registration Code</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-extension-regcodes.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-extension-regcodes.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>No additional <emphasis role="strong">Add On Product</emphasis> has to be installed. Skip
+      this screen and enter <emphasis role="strong">Next</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Add On Product</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-addon.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-addon.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>The next screen provides the partitioning options:</para>
+
+    <figure>
+      <title>YaST Installation - Partitioning Options</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-suggestedpartioning-1.png " width="100%"
+            format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-suggestedpartioning-1.png " width="80%" format="PNG"
+          />
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>Select <emphasis role="strong">Expert Partitioner</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Expert Partitioner</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-expertpartinioneer.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-expertpartinioneer.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>Execute <emphasis role="strong">Rescan Devices</emphasis> to clear the auto-suggested
+      partitioning:</para>
+
+    <figure>
+      <title>YaST Installation - Rescan Devices</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-rescandevices.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-rescandevices.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>In the particular scenario at hand, a reinstallation has been performed. In this case,
+      follow the steps below. If partitioning and/or LVM settings are already present, choose to
+      import these settings into the installer, and select <emphasis role="strong">Import Mount
+        Points</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Import Moint Points</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-importmount.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-importmount.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <note>
+      <title>Fresh Installation</title>
+      <para>If you perform an installation from scratch, configure your partitions and LVM settings
+        following the recommendations below:</para>
+
+      <simplelist>
+        <member>Minimum 100 GB for root / partition</member>
+        <member>Minimum 50 GB for <filename>/var/lib/pgsql</filename></member>
+        <member>Minimum 50 GB per SUSE product and 100 GB per Red Hat product for
+            <filename>/var/spacewalk</filename></member>
+      </simplelist>
+    </note>
+
+    <para>When you are finished, continue with the partitioning step, and enter <emphasis
+        role="strong">Next</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Suggested Partitioning</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-suggestedpartitionig-2.png" width="100%"
+            format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-suggestedpartitionig-2.png" width="80%" format="PNG"
+          />
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>Provide the correct time zone settings, and confirm them with <emphasis role="strong"
+        >Next</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Clock and Time Zone</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-timezone.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-timezone.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>At this stage you can choose to skip the creation of an initial user. Enter <emphasis
+        role="strong">Next</emphasis>:</para>
+
+    <figure>
+      <title>YaST Installation - Local User</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-localuser.png" width="100%" format="PNG"/>
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-localuser.png" width="80%" format="PNG"/>
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>Verify the settings overview and make further changes or customizations where needed.
+      Confirm with <emphasis role="strong">Install</emphasis> to start the installation:</para>
+
+    <figure>
+      <title>YaST Installation - Installation Settings</title>
+      <mediaobject>
+        <imageobject role="fo">
+          <imagedata fileref="suma-powervm-yast-installation-settings.png" width="100%" format="PNG"
+          />
+        </imageobject>
+        <imageobject role="html">
+          <imagedata fileref="suma-powervm-yast-installation-settings.png" width="80%" format="PNG"
+          />
+        </imageobject>
+      </mediaobject>
+    </figure>
+
+    <para>After the installation is finished, verify whether all aspects of the operating system
+      have been installed correctly.</para>
+
   </sect1>
 
- 
+  
+
 
   <sect1 xml:id="sec.conclusion">
     <title>Conclusion</title>
 
-       <para>With SUSE Linux Enterprise, all the tools to monitor and tune a
-      workload are readily available. Your customers can extract the
-      maximum performance and reliability running their applications,
-      either on bare metal or virtualized, on the EPYC platform.</para>
+    <para>With SUSE Linux Enterprise, all the tools to monitor and tune a workload are readily
+      available. Your customers can extract the maximum performance and reliability running their
+      applications, either on bare metal or virtualized, on the EPYC platform.</para>
 
   </sect1>
 
@@ -244,8 +325,7 @@ node   0   1   2   3   4   5   6   7
             >http://www.novell.com/traininglocator/partners/amd/4622016.pdf</link>)</para>
       </listitem>
       <listitem>
-        <para>Systems Performance: Enterprise and the Cloud by Brendan
-          Gregg (<link
+        <para>Systems Performance: Enterprise and the Cloud by Brendan Gregg (<link
             xlink:href="http://www.brendangregg.com/sysperfbook.html"
             >http://www.brendangregg.com/sysperfbook.html</link>)</para>
       </listitem>
@@ -255,10 +335,10 @@ node   0   1   2   3   4   5   6   7
             >https://www.nas.nasa.gov/publications/npb.html</link>)</para>
       </listitem>
     </itemizedlist>
-    
+
   </sect1>
- 
- 
+
+
 
   <sect1 xml:id="sec.appendix_a">
     <title>Appendix A</title>
@@ -441,41 +521,34 @@ node   0   1   2   3   4   5   6   7
 
   <sect1 xml:id="sec.legal_notice">
     <title>Legal Notice</title>
-    <para>Copyright &copy;2006–2018 SUSE LLC and contributors. All
-      rights reserved. </para>
-    <para>Permission is granted to copy, distribute and/or modify this
-      document under the terms of the GNU Free Documentation License,
-      Version 1.2 or (at your option) version 1.3; with the Invariant
-      Section being this copyright notice and license. A copy of the
-      license version 1.2 is included in the section entitled <quote>GNU
-        Free Documentation License</quote>.</para>
-    <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE
-      LLC in the United States and other countries. For SUSE trademarks,
-      see <link xlink:href="http://www.suse.com/company/legal/"
-        >http://www.suse.com/company/legal/</link>. Linux is a registered
-      trademark of Linus Torvalds. All other names or trademarks mentioned
-      in this document may be trademarks or registered trademarks of their
-      respective owners.</para>
-    <para>This article is part of a series of documents called "SUSE Best
-      Practices". The individual documents in the series were contributed
-      voluntarily by SUSE's employees and by third parties.</para>
+    <para>Copyright &copy;2006–2018 SUSE LLC and contributors. All rights reserved. </para>
+    <para>Permission is granted to copy, distribute and/or modify this document under the terms of
+      the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with the
+      Invariant Section being this copyright notice and license. A copy of the license version 1.2
+      is included in the section entitled <quote>GNU Free Documentation License</quote>.</para>
+    <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United States
+      and other countries. For SUSE trademarks, see <link
+        xlink:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>.
+      Linux is a registered trademark of Linus Torvalds. All other names or trademarks mentioned in
+      this document may be trademarks or registered trademarks of their respective owners.</para>
+    <para>This article is part of a series of documents called "SUSE Best Practices". The individual
+      documents in the series were contributed voluntarily by SUSE's employees and by third
+      parties.</para>
     <!--  <para>The articles are intended only to be one example of how a particular action could be
       taken. They should not be understood to be the only action and certainly not to be the
       action recommended by SUSE. Also, SUSE cannot verify either that the actions described
       in the articles do what they claim to do or that they don't have unintended
       consequences.</para>-->
-    <para> All information found in this article has been compiled with
-      utmost attention to detail. However, this does not guarantee complete
-      accuracy.
+    <para> All information found in this article has been compiled with utmost attention to detail.
+      However, this does not guarantee complete accuracy.
       <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
         for possible errors or the consequences thereof. --></para>
-    <para>Therefore, we need to specifically state that neither SUSE LLC,
-      its affiliates, the authors, nor the translators may be held liable
-      for possible errors or the consequences thereof. Below we draw your
-      attention to the license under which the articles are
+    <para>Therefore, we need to specifically state that neither SUSE LLC, its affiliates, the
+      authors, nor the translators may be held liable for possible errors or the consequences
+      thereof. Below we draw your attention to the license under which the articles are
       published.</para>
   </sect1>
-  
+
   <?pdfpagebreak style="suse2013" formatter="fop"?>
   <xi:include href="license-gfdl.xml"/>
 </article>

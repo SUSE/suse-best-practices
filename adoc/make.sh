@@ -5,7 +5,7 @@
 #
 # libreoffice --convert-to svg *odg
 #
-# ALL other libreoffice windows must eb closed for the scripted SVG creation
+# ALL other libreoffice windows must be closed for the scripted SVG creation
 #
 
 #doclist="Asciidoc+Atom-GettingStarted SAP_HA740_certification_notes SAP_HA740_SetupGuide"

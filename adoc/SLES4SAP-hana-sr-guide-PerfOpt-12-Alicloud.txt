@@ -1,0 +1,706 @@
+= SAP HANA HA Cross-Zone solution on SUSE Linux Enterprise Server for SAP Applications
+
+Jinhui Li Bernd Schubert
+
+:toc:
+
+Version Control:
+
+|=========================================================
+| **Version** | **Revision Date** | **Types Of Changes** | **Effective Date**
+| 1.0 |  |  | 2018/3/7
+| 1.1 | 2018/7/04 |Add corosync and cluster configuration example| 2018/7/04
+| 1.2 | 2018/10/29 |Add more details regarding network, restructure stonith, correct table of network design | 2018/10/29
+|=========================================================
+
+
+== Solution Overview
+
+
+=== SAP HANA System Replication
+SAP HANA provides a feature called System Replication which is available in every SAP HANA installation offering an inherent disaster recovery support.
+
+For details, please refer to SAP Help Portal HANA system replication: 
+
+https://help.sap.com/viewer/6b94445c94ae495c83a19646e7c3fd56/2.0.03/en-US/b74e16a9e09541749a745f41246a065e.html.
+
+
+=== HAE of SUSE Linux Enterprise Server for SAP Applications
+SUSE High Availability Extension (HAE) is a high availability solution based on Corosync and Pacemaker. With SUSE Linux Enterprise Server for SAP Applications, SUSE provides SAP specific Resource Agents (SAPHana, SAPHanaTopology etc.) used by Pacemaker to help users to buildup SAP HANA HA solution more effectively.
+
+For details, please refer to latest version of SAP HANA SR Performance Optimized Scenario at SUSE documentation center:  
+
+https://www.suse.com/documentation/suse-best-practices.
+
+
+=== Architecture Overview
+This document guides you on how to deploy a SAP HANA HA solution cross different Zones. Following is a brief architecture:
+
+. HAE of SUSE Linux Enterprise Server for SAP Applications is used to setup the HA Cluster;
+
+. SAP HANA System Replication is activated between the two HANA nodes;
+
+. Two HANA nodes locates in different Zones of the same Region;
+
+. Alibaba Cloud Specific Virtual IP Resource Agent is used to allow Moving IP automatically switched to Active SAP HANA node; Alibaba Cloud specific STONITH device is used for fencing;
+
+Alibaba Cloud Architecture:
+
+image::Alicloud_image001.png[arch,width="60%"]
+
+Network Architeture:
+
+image::Alicloud_network.png[network,width="60%"]
+
+=== Network Design
+
+|=========================================================
+|hostname|role|heartbeat IP|business IP|virtual IP
+|hana0|Hana primary node|192.168.0.83|192.168.0.82 1.2+|192.168.4.1
+|hana1|Hana secondary node|192.168.1.246|192.168.1.245
+|HanaStudio|Hana Studio|no|192.168.0.79|no
+|=========================================================
+
+== Infrastructure Preparation
+
+=== Infrastructure List
+
+* 1 VPC network;
+https://www.alibabacloud.com/product/vpc[Virtual Private Cloud]
+* 2 ECS instances in different zones of the same VPC;
+https://www.alibabacloud.com/product/ecs[Elastic Compute Service]
+* 2 ENI one for each ECS instance;
+https://www.alibabacloud.com/help/doc-detail/58496.htm[Elastic network interfaces]
+* Alibaba Cloud specific Virtual IP Resource Agent and STONITH device;
+* NAT Gateway and SNAT entry;
+https://www.alibabacloud.com/help/product/44413.htm[NAT Gateway]
+
+=== Creating VPC
+First of all, a VPC should be created via *Console->Virtual Private Cloud->VPCs->Create VPC*.
+In this example, we create a VPC named suse_hana_ha in EU Central 1 (frankfurt) Region as follow:
+
+image::Alicloud_VPC.png[vpc,width="46%"]
+
+There should be at least 2 VSwitches(subnets) defined within the VPC network, each VSwitch bound to a different Zone. In this example, we have following 2 VSwitches(subnets):
+
+* Switch1 192.168.0.0/24  Zone A, for SAP HANA Primary Node;
+* Switch2 192.168.1.0/24  Zone B, for SAP HANA Secondary Node;
+
+image::Alicloud_vswitch.png[vswitch,width="45%"]
+
+=== Creating ECS Instances
+Two ECS instances are created in different Zones of the same VPC via *Console->Elastic Compute Service ECS->Instances->Create Instance*. Choose the "SUSE Linux Enterprise Server for SAP Applications" image from the Image Market place.
+
+In this example, 2 ECS instances (hostname: hana0 and hana1) are created in eu-central-1 Region, Zone A and Zone B, within VPC: suse_hana_ha, with SUSE Linux Enterprise Server for SAP Applications 12 SP2 image from the Image Market Place. Host hana0 is the primary SAP HANA database node, and hana1 is the secondary SAP HANA database node.
+
+image::Alicloud_instance.png[instance,width="45%"]
+
+=== Creating ENIs and binding to ECS instances
+Create two ENIs via *Console-> Elastic Compute Service ECS->Network and Security->ENI*, and attach one for each ECS instance, for HANA System Replication purpose. Configure the IP addresses of the ENIs to the subnet for HANA System Replication only.
+
+In this example, the ENIs are attached to ECS instances hana0 and hana1, and IP addresses are configured as 192.168.0.83 and 192.168.1.246 within the same VSwitches of hana0 and hana1, and put in the VPC: suse_hana_ha
+
+image::Alicloud_ENI.png[ENI,width="50%"]
+
+Meanwhile, within the Guest OS, /etc/hosts should also be configured as well.
+
+In this example, please run following two commands on boths sites:
+
+----
+echo "192.168.0.82 hana0 hana0" >> /etc/hosts
+
+echo "192.168.1.245 hana1 hana1" >> /etc/hosts
+----
+image::Alicloud_hosts.png[hosts,width="80%"]
+
+=== Creating NAT Gateway and configure SNAT entry
+First of all, create a NAT Gateway attached to the given VPC; In our example, we create a NAT Gateway named suse_hana_ha_GW as follows:
+
+image::Alicloud_NAT_GW.png[NATGW,width="53%"]
+
+After creating NAT Gateway, you need to create corresponding SNAT entry to allow ECS instances within the VPC can access public address on Internet.
+
+NOTE: Alibaba Cloud specific STONITH device and Virtual IP Resource Agent are mandatory for cluster and they need to access Alibaba Cloud OpenAPI through a public domain);
+
+In our example, we create to two SNAT entries, for ECS instances locates in different network range as follows:
+
+image::Alicloud_SNAT.png[SNAT,width="50%"]
+
+=== Creating STONITH device and Virtual IP Resource Agent
+* Download stonith fencing software with following command:
+
+----
+wget http://repository-iso.oss-cn-beijing.aliyuncs.com/ha/aliyun-ecs-pacemaker.tar.gz
+----
+
+For a HA solution, a fencing device is a must. Alibaba Cloud provides its own STONITH device, which allows the servers in the HA cluster to shut down the other node which is not responsive. The STONITH device leverage Alibaba Cloud OpenAPI underneath the ECS instance, which is similar to a physical reset / shutdown on a on-premise environment.
+
+image::Alicloud_image017.png[aliyunpacemaker,width="75%"]
+* Extract the package and install the software
+----
+tar –xvf aliyun-ecs-pacemaker.tar.gz
+./install
+----
+image::Alicloud_image019.png[installpacemaker,width="99%"]
+* Install Alibaba Cloud OpenAPI SDK
+----
+pip install aliyun-python-sdk-ecs aliyun-python-sdk-vpc aliyuncli
+----
+image::Alicloud_image021.png[SDKInstall,width="73%"]
+* Configure Alibaba Cloud OpenAPI SDK and Client
+----
+aliyuncli configure
+----
+image::Alicloud_image023.png[SDKConfigure,width="100%"]
+You can get your Access Key from following:
+
+image::Alicloud_image025.png[AccessKey,width="45%"]
+
+== Software Preparation
+=== Software List
+- SUSE Linux Enterprise Server for SAP Applications 12 SP2
+- HANA Installation Media
+- SAP Host Agent Installation Media
+
+=== HAE installation
+Both ECS instances are created with the SUSE Linux Enterprise Server for SAP Applications image. Both ECS instances should install the HAE component, as well as package SAPHanaSR. In this example, we install HAE (major software component: Corosync and Pacemaker), and SAPHanaSR on both ECS instances as follows:
+
+Install the pattern High Availability on both nodes. To do so, for example, use zypper :
+
+----
+zypper in -t pattern ha_sles
+----
+
+Now the Resource Agents for controlling the SAP HANA system replication needs to be installed at both cluster nodes.
+
+----
+zypper in SAPHanaSR SAPHanaSR-doc
+----
+
+=== SAP HANA Installation
+Install SAP HANA software on both ECS instances, and make sure the SAP HANA SID and Instance Number are the same (requirement by SAP HANA System Replication). It is recommended to use hdblcm to do the installation. For details please refer to SAP HANA Server Installation and Update Guide: https://help.sap.com/viewer/2c1988d620e04368aa4103bf26f17727/2.0.03/en-US.
+
+In this example, both node are installed with SAP HANA (Rev. 2.00.030.00), and SID: **JL0**, Instance Number: **00**.
+
+image::Alicloud_hanaVersion.png[HanaVersion,width="70%"]
+
+=== SAP Host Agent Installation
+When you have finished HANA installation with hdblcm as mentioned above, the SAP Host Agent should already be installed on your server. In case you want to install it manually, please kindly refer to Installing SAP Host Agent Manually: https://help.sap.com/saphelp_nw73ehp1/helpdata/en/8b/92b1cf6d5f4a7eac40700295ea687f/content.htm?no_cache=true.
+
+In this example, you can check SAP Host Agent status after you have SAP HANA with hdblcm installed on hana0 and hana1 as follows:
+
+image::Alicloud_hostcontrol1.png[HostControl,width="95%"]
+
+== Configuring SAP HANA System Replication
+=== Backup HANA on primary ECS instance
+To do backup on HANA, you can either use SAP HANA studio or hdbsql as the client command tool.
+
+The backup command is:
+
+For HANA 1 single container mode:
+
+----
+BACKUP DATA USING FILE('COMPLETE_DATA_BACKUP');
+----
+
+For HANA 2 with multitenant as default mode (You should backup systemDB and also all tenantDB as shown below in our example):
+
+----
+BACKUP DATA for <DATABASE> using FILE('COMPLETE_DATA_BACKUP')
+----
+
+Commandline example:
+
+----
+BACKUP DATA for SYSTEMDB using FILE('COMPLETE_DATA_BACKUP')
+----
+
+----
+BACKUP DATA for JL0 using FILE('COMPLETE_DATA_BACKUP')
+----
+
+In this example for HDB Studio, we execute SAP HANA database backup on both ECS instances as follows:
+
+image::Alicloud_backup.png[backup,width="55%"]
+
+=== Configuring SAP HANA System Replication on primary node
+.	Log onto the primary node with: `su - <sid>adm`; +
+**[sidadm]** should be replaced by your SAP HANA database SID. In our example it is `su - jl0adm`;
+
+.	Stop HANA with: `HDB stop`;
+
+.	Change following file content:
+----
+vi /hana/shared/<SID>/global/hdb/custom/config/global.ini
+----
+
+Add following content:
+----
+[system_replication_hostname_resolution]
+<IP> = <HOSTNAME>
+----
+
+**[IP]** should be address of the ENI (heartbeat IP address for HANA system replication) attached to the Secondary node;
+
+**[HOSTNAME]** should be hostname of the Secondary node;
+
+
+In this example, we have following configuration:
+
+----
+[system_replication_hostname_resolution]
+
+192.168.1.246 = hana1
+----
+
+=== Configuring SAP HANA System Replication on secondary node
+Same as above for primary, but use IP and hostname of primary node
+
+In this example, we have following configuration:
+----
+[system_replication_hostname_resolution]
+
+192.168.0.83 = hana0
+----
+
+=== Enable SAP HANA System Replication on primary node
+.	Log onto the primary node with: `su - <sid>adm`;
+
+.	Start HANA with: `HDB start`;
+
+.	Enable System Replication with:
+
+----
+hdbnsutil -sr_enable --name= [primary location name]
+----
+
+**[primary location name]** should be replaced by location of your primary HANA node.
+
+In this example, we use following command:
+
+----
+hdbnsutil -sr_enable --name=hana0
+----
+
+NOTE: all above operations are done on primary node.
+
+=== Register the Secondary node to the Primary HANA node
+.	Logon to the secondary node with: `su - <sid>adm`;
+
+.	Stop HANA with:  `HDB stop`;
+
+.	Register the Secondary HANA node to the Primary HANA node by running following command:
+----
+hdbnsutil -sr_register --remoteHost=[location of primary Node] --remoteInstance=[instance number of primary node] --replicationMode=sync --name=[location of the secondary node] --operationMode=logreplay
+----
+In this example, we use following command:
+----
+hdbnsutil -sr_register --name=hana1 --remoteHost=hana0 --remoteInstance=00 --replicationMode=sync --operationMode=logreplay
+----
+
+.	Start HANA with: `HDB start`;
+
+.	Verify the System Replication Status with:
+----
+hdbnsutil -sr_state
+----
+In this example, we have following status on secondary HANA node hana1:
+
+image::Alicloud_replicationState.png[HSRStatus,width="120%"]
+
+NOTE: all above operations are done on secondary node.
+
+== Configuring HAE for SAP HANA
+
+=== Configuration of Corosync
+It is desirable that, you add more redundancy for messaging (Heartbeat) by using separate ENIs attached to the ECS instances with separate network range.
+
+On Alibaba Cloud, it is strongly suggested that, only using Unicast for the transport setting in Corosync.
+
+Follow the following steps to configure Corosync:
+
+* Create Keys
+
+Run `corosync-keygen` on primary HANA node. The generated key will be located in the file: /etc/corosync/authkey.
+
+In our example, we execute the command on hana1:
+
+image::Alicloud_authKey1.png[authKey,width="80%"]
+
+* Configure /etc/corosync/corosync.conf with following content as root on primary HANA node: +
+```shell
+totem {
+        version: 2
+        token: 5000
+        token_retransmits_before_loss_const: 6
+        secauth: on
+        crypto_hash: sha1
+        crypto_cipher: aes256
+        clear_node_high_bit: yes
+        interface {
+            ringnumber: 0
+            bindnetaddr: **IP-address-for-heart-beating-for-the-current-server**
+            mcastport: 5405
+            ttl: 1
+        }
+        # On Alibaba Cloud, transport should be set to udpu, means: unicast
+        transport: udpu
+}
+logging {
+      fileline: off
+      to_logfile: yes
+      to_syslog: yes
+      logfile: /var/log/cluster/corosync.log
+      debug: off
+      timestamp: on
+      logger_subsys {
+          subsys: QUORUM
+          debug: off
+      }
+}
+nodelist {
+    node {
+        ring0_addr: **ip-node-1**
+        nodeid: 1
+    }
+    node {
+        ring0_addr: **ip-node-2**
+        nodeid: 2
+    }
+}
+quorum {
+    # Enable and configure quorum subsystem (default: off)
+    # see also corosync.conf.5 and votequorum.5
+    provider: corosync_votequorum
+    expected_votes: 2
+    two_node: 1
+}
+```
+
+**IP-address-for-heart-beating-for-the-current-server** should be replaced by the IP address of the current server, used for messaging (heartbeat) or HANA System Replication. In our example, we use IP address of ENI of the current node (192.168.0.83 for hana0 and 192.168.1.246 for hana1);
+
+NOTE: this value will be different on primary and secondary node.
+nodelist directive is used to list all nodes in the cluster.
+
+**ip-node-1** and **ip-node-2** should be replaced by the IP addresses of the ENIs attached to ECS instances for Heartbeat Purpose or HANA System Replication Purpose (in this example it should be 192.168.0.83 for hana0 and 192.168.1.246 for hana1).
+
+After completing edit of /etc/corosync/corosync.conf on primary HANA node, copy the /etc/corosync/authkey and /etc/corosync/corosync.conf to /etc/corosync on the secondary HANA node with following command:
+----
+scp /etc/corosync/authkey root@**hostnameOfSecondaryNode**:/etc/corosync
+----
+In our example, we execute following command:
+
+image::Alicloud_image069.png[scpkey1,width="80%"]
+
+After copy the corosync.conf to the secondary node, please kindly configure the bindnetaddr as above to the local heart beating IP address.
+
+=== Configuration of pacemaker
+For SAP HANA HA solution, we need to configure 7 Resource Agents and corresponding constraints in Pacemaker.
+
+NOTE: the following pacemaker configuration only need to be done on one node (normally primary node).
+
+* Cluster bootstrap and more
+
+
+Add configuration of bootstrap and default setting of resource and operations to the cluster; Save following scripts in a file: crm-bs.txt
+```javascript
+property $id='cib-bootstrap-options' \
+              stonith-enabled="true" \
+              stonith-action="off" \
+              stonith-timeout="150s"
+rsc_defaults $id="rsc-options" \
+              resource-stickness="1000"    \
+              migration-threshold="5000"
+op_defaults $id="op-options" \
+              timeout="600"
+```
+Execute command to add setting to the cluster:
+
+----
+crm configure load update crm-bs.txt
+----
+
+* STONITH device
+
+
+This part defines Aliyun STONITH devices in the cluster.
+
+Save following scripts in a file: crm-stonith.txt
+```shell
+primitive res_ALIYUN_STONITH_1 stonith:fence_aliyun \
+			op monitor interval=120 timeout=60 \
+        	params pcmk_host_list=<primary node hostname> port=<primary node instance id>  \
+        	access_key=<access key> secret_key=<secret key> \
+        	region=<region> \
+        	meta target-role=Started
+primitive res_ALIYUN_STONITH_2 stonith:fence_aliyun \
+        	op monitor interval=120 timeout=60 \
+			params pcmk_host_list=<secondary node hostname> port=<secondary node instance id> \
+        	access_key=<access key> secret_key=<secret key> \
+        	region=<region> \
+        	meta target-role=Started
+			location loc_<primary node hostname>_stonith_not_on_<primary node hostname> res_ALIYUN_STONITH_1 -inf: <primary node hostname>
+			#Stonith 1 should not run on primary node because it is controling primary node
+			location loc_<secondary node hostname>_stonith_not_on_<secondary node hostname> res_ALIYUN_STONITH_2 -inf: <secondary node hostname>
+			#Stonith 2 should not run on secondary node because it is controling secondary node
+```
+**[secondary node hostname]** / **[primary node hostname]** should be replaced by the real hostname of your secondary node;
+
+**[secondary node instance id]** / **[secondary node instance id]** should be replaced by the real instance-id of your secondary node; you can get this from the console;
+
+**[access key]** should be replaced with real access key;
+
+**[secret key]** should be replaced with real secret key;
+
+**[region]** should be replaced with real region name where the node locates;
+
+Execute command to add the resource to the cluster:
+
+----
+crm configure load update crm-stonith.txt
+----
+
+*	SAPHanaTopology
+
+
+This part defines a SAPHanaTopology RA, and a clone of SAPHanaTopology on both nodes in the cluster. Save following scripts in a file: crm-saphanatop.txt
+```shell
+primitive rsc_SAPHanaTopology_<SID>_HDB<instance number> ocf:suse:SAPHanaTopology \
+        operations $id="rsc_SAPHanaTopology_<SID>_HDB<instance number>-operations" \
+           op monitor interval="10" timeout="600"  \
+           op start interval="0" timeout="600" \
+           op stop interval="0" timeout="300" \
+           params SID="<SID>" InstanceNumber="<instance number>"
+clone cln_SAPHanaTopology_<SID>_HDB<instance number> rsc_SAPHanaTopology_<SID>_HDB<instance number> \
+        meta clone-node-max="1" interleave="true"
+```
+**[SID]** should be replaced by the real SAP HANA SID;
+
+**[instance number]** should be replaced by the real SAP HANA Instance Number;
+
+Execute command to add resources to the cluster:
+
+----
+crm configure load update crm-saphanatop.txt
+----
+
+*	SAPHana
+
+
+This part defines a SAPHana RA, and a Multi-state resource of SAPHana on both nodes in the cluster. Save following scripts in a file: crm-saphana.txt
+```shell
+primitive rsc_SAPHana_<SID>_HDB<instance number> ocf:suse:SAPHana \
+        operatoins $id="rsc_sap_<SID>_HDB<instance number>-operations" \
+        op start interval="0" timeout="3600" \
+        op stop interval="0" timeout="3600" \
+        op promote interval="0" timeout="3600" \
+        op monitor interval="60" role="Master" timeout="700" \
+        op monitor interval="61" role="Slave" timeout="700" \
+        params SID="<SID>" InstanceNumber="<instance number>" PREFER_SITE_TAKEOVER="true" \
+        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false"
+ms msl_SAPHana_<SID>_HDB<instance number> rsc_SAPHana_<SID>_HDB<instance number> \
+        meta clone-max="2" clone-node-max="1" interleave="true"
+```
+**[SID]** should be replaced by the real SAP HANA SID;
+
+**[instance number]** should be replaced by the real SAP HANA Instance Number;
+
+Execute command to add resources to the cluster:
+
+----
+crm configure load update crm-saphana.txt
+----
+
+*	Virtual IP
+
+
+This part defines a Virtual IP RA in the cluster. Save following scripts in a file: crm-vip.txt.
+```shell
+primitive res_vip_<SID>_HDB<instance number> ocf:aliyun:vpc-move-ip \
+			op monitor interval=60 \
+			meta target-role=Started \
+			params address=<virtual_IPv4_address> routing_table=<route_table_ID> interface=eth0
+```
+**[virtual_IP4_address]** should be replaced by the real IP address you prefer to provide service;
+
+**[route_table_ID]** should be replaced by the route table ID of your VPC;
+
+**[SID]** should be replaced by the real SAP HANA SID;
+
+**[instance number]** should be replaced by the real SAP HANA Instance Number;
+
+Execute command to add the resource to the cluster:
+
+----
+crm configure load update crm-vip.txt
+----
+
+*	Constraints
+
+
+Two constraints are organizing the correct placement of the virtual IP address for the client database access and the start order between the two resource agents SAPHana and SAPHanaTopology. Save following scripts in a file: crm-constraint.txt.
+```shell
+colocation col_SAPHana_vip_<SID>_HDB<instance number> 2000: rsc_vip_<SID>_HDB<instance number>:started \
+        	msl_SAPHana_<SID>_HDB<instance number>:Master
+order ord_SAPHana_<SID>_HDB<instance number> Optional: cln_SAPHanaTopology_<SID>_HDB<instance number> \
+        	msl_SAPHana_<SID>_HDB<instance number>
+```
+**[SID]** should be replaced by the real SAP HANA SID;
+
+**[instance number]** should be replaced by the real SAP HANA Instance Number;
+
+Execute command to add the resource to the cluster:
+
+----
+crm configure load update crm-constraint.txt
+----
+
+*	check cluster status
+. Start HANA HA Cluster on both nodes:
+----
+systemctl start Pacemaker
+----
+
+. Monitor the HANA HA Cluster with following commands:
+----
+systemctl status pacemaker
+crm_mon –r
+----
+
+In our example we have following result:
+
+image::Alicloud_clusterStatushana0.png[clusterStatushana0,width="70%"]
+
+Meanwhile, please kindly check, if a new entry **[virtual_IP4_address]** is added into the route table of VPC.
+
+In our example, we have following:
+
+image::Alicloud_RouteTableHana0.png[RouteTableHANA0,width="45%"]
+
+=== Verify the HA takeover
+
+- Shutdown the primary node;
+- Check the status of Pacemaker as follows:
+
+image::Alicloud_clusterStatushana2.png[clusterStatushana2,width="80%"]
+- Compare the entry of route table in VPC as follows:
+
+image::Alicloud_RouteTableHana1.png[RouteTableHana1,width="45%"]
+
+== Example
+=== Example of Cluster Configuration
+In our example, the cluster configuration (you can check it via command "crm configure show") should have content as below:
+```shell
+node 1: hana0 \
+	attributes hana_jl0_vhost=hana0 hana_jl0_srmode=sync hana_jl0_remoteHost=hana1 hana_jl0_site=hana0 lpa_jl0_lpt=10 hana_jl0_op_mode=logreplay
+node 2: hana1 \
+	attributes lpa_jl0_lpt=1529509236 hana_jl0_op_mode=logreplay hana_jl0_vhost=hana1 hana_jl0_site=hana1 hana_jl0_srmode=sync hana_jl0_remoteHost=hana0
+primitive res_ALIYUN_STONITH_0 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params pcmk_host_list=hana0 port=i-gw8byf3m4f9a8os6rke8 access_key=<access key> secret_key=<secret key> region=eu-central-1 \
+	meta target-role=Started
+primitive res_ALIYUN_STONITH_1 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params pcmk_host_list=hana1 port=i-gw8byf3m4f9a8os6rke9 access_key=<access key> secret_key=<secret key> region=eu-central-1 \
+	meta target-role=Started
+primitive rsc_SAPHanaTopology_JL0_HDB00 ocf:suse:SAPHanaTopology \
+	operations $id=rsc_SAPHanaTopology_JL0_HDB00-operations \
+	op monitor interval=10 timeout=600 \
+	op start interval=0 timeout=600 \
+	op stop interval=0 timeout=300 \
+	params SID=JL0 InstanceNumber=00
+primitive rsc_SAPHana_JL0_HDB00 ocf:suse:SAPHana \
+	operations $id=rsc_SAPHana_JL0_HDB00-operations \
+	op start interval=0 timeout=3600 \
+	op stop interval=0 timeout=3600 \
+	op promote interval=0 timeout=3600 \
+	op monitor interval=60 role=Master timeout=700 \
+	op monitor interval=61 role=Slave timeout=700 \
+	params SID=JL0 InstanceNumber=00 PREFER_SITE_TAKEOVER=true DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false
+primitive rsc_vip_JL0_HDB00 ocf:aliyun:vpc-move-ip \
+	op monitor interval=60 \
+	meta target-role=Started \
+	params address=192.168.4.1 routing_table=vtb-gw8fii1g1d8cp14tzynub interface=eth0
+ms msl_SAPHana_JL0_HDB00 rsc_SAPHana_JL0_HDB00 \
+	meta clone-max=2 clone-node-max=1 interleave=true target-role=Started
+clone cln_SAPHanaTopology_JL0_HDB00 rsc_SAPHanaTopology_JL0_HDB00 \
+	meta clone-node-max=1 interleave=true
+colocation col_SAPHana_vip_JL0_HDB00 2000: rsc_vip_JL0_HDB00:Started msl_SAPHana_JL0_HDB00:Master
+location loc_hana0_stonith_not_on_hana0 res_ALIYUN_STONITH_0 -inf: hana0
+location loc_hana1_stonith_not_on_hana1 res_ALIYUN_STONITH_1 -inf: hana1
+order ord_SAPHana_JL0_HDB00 Optional: cln_SAPHanaTopology_JL0_HDB00 msl_SAPHana_JL0_HDB00
+property cib-bootstrap-options: \
+	have-watchdog=false \
+	dc-version=1.1.15-21.1-e174ec8 \
+	cluster-infrastructure=corosync \
+	stonith-action=off \
+	stonith-enabled=true \
+	stonith-timeout=150s \
+	last-lrm-refresh=1529503606 \
+	maintenance-mode=false
+rsc_defaults rsc-options: \
+	resource-stickness=1000 \
+	migration-threshold=5000
+op_defaults op-options: \
+	timeout=600
+```
+
+=== Example of /etc/corosync/corosync.conf
+In our example, the corosync.conf should on hana1 should have content as below:
+```shell
+totem{
+version: 2
+token: 5000
+token_retransmits_before_loss_const: 6
+secauth: on
+crypto_hash: sha1
+crypto_cipher: aes256
+clear_node_high_bit: yes
+interface {
+ringnumber: 0
+bindnetaddr: 192.168.0.83
+mcastport: 5405
+ttl: 1
+}
+# On Alibaba Cloud, transport should be set to udpu, means: unicast
+transport: udpu
+}
+logging {
+fileline: off
+to_logfile: yes
+to_syslog: yes
+logfile: /var/log/cluster/corosync.log
+debug: off
+timestamp: on
+logger_subsys {
+subsys: QUORUM
+debug: off
+}
+}
+nodelist {
+node {
+ring0_addr: 192.168.0.83
+nodeid: 1
+}
+node {
+ring0_addr: 192.168.1.246
+nodeid: 2
+}
+}
+quorum {
+# Enable and configure quorum subsystem (default: off)
+# see also corosync.conf.5 and votequorum.5
+provider: corosync_votequorum
+expected_votes: 2
+two_node: 1
+}
+```
+== Reference
+- Pacemaker 1.1 Configuration Explained
+https://clusterlabs.org/pacemaker/doc/en-US/Pacemaker/1.1/html/Pacemaker_Explained/.
+- SAP HANA SR Performance Optimized Scenario
+https://www.suse.com/media/white-paper/suse_linux_enterprise_server_for_sap_applications_12_sp1.pdf.
+- SAP HANA system replication - SAP Help Portal
+https://help.sap.com/viewer/6b94445c94ae495c83a19646e7c3fd56/2.0.03/en-US/b74e16a9e09541749a745f41246a065e.html.
+- SAP Applications on Alibaba Cloud: Supported Products and IaaS VM Types
+https://launchpad.support.sap.com/#/notes/2552731

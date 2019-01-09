@@ -1,0 +1,395 @@
+== Operating a Cloud
+
+Setting a massively scalable cloud environment up is one thing, but it
+is also of crucial importance to run it effectively and to maintain it
+in a way that allows the provider to benefit from the economy of scale.
+"Economy of scale" is a term often used to describe the major effect
+that results from running a cloud: If all processes are standardized and
+automated properly, adding more nodes to the installation is easy and
+happens without a lot of effort. The target hence is to get all required
+functionality in place right at the beginning and then profit from it
+however long the cloud will scale.
+
+This chapter will elaborate on the most important aspects of running and
+maintaining a large scale cloud environment. It covers the major aspects
+of the operational everyday's business: System maintenance, monitoring
+and the centralized collection of log files.
+
+=== Maintaining hundreds of hosts
+
+Automation is not a new trend in IT. Until roughly 10 years ago, a lot
+of companies would refuse to accept the need for automation because they
+had simply not been used to the concept. But solutions such as Puppet,
+Salt and Ansible have rapidly made it clear that automation is the key
+to maintaining the own infrastructure more effectively and cheaper. It
+does not make sense to pay highly skilled engineers and architects to
+perform the same work again and again if that work can simply be done by
+automation -- and the skilled people could just as well develop shiny
+and cool new products.
+
+What is true for small and conventional setups is even more true for the
+typical cloud environment that will usually consist of dozens and maybe
+even hundreds or thousands of nodes: Automation is absolutely required
+and the platform cannot be successful without it.
+
+==== Automation is key
+
+Let's take a look at the reasons for that. Imagine that a cloud setup
+has roughly 600 nodes -- it would definitely count already as a large
+installation. One of the central design targets of clouds, as should be
+well known by now, is the ability to scale out. It's very important to
+have this ability in particular for public cloud environments: Here, at
+any point in time, a new customer may simply show up and request the
+use of a notable amount of resources. Even if the cloud provider can
+manage to serve said customer with the resource buffer he is keeping in
+his platform (usually 25-30% of the total resources available), he would
+still have to scale out quickly to recreate said buffer and to allow for
+further growth.
+
+Adding dozens or hundreds of nodes to a setup at the same time can be a
+very tedious task -- or it can be a quite convenient task that does not
+involve a lot of human intervention.
+
+In cloud environments, the complete lifecycle of a physical machine must
+be automated as good as possible. This means that automation must start
+long before a working Linux installation exists in the target system --
+in fact, the only manual part in the process of adding new nodes may be
+the physical installation of a machine in the rack. The rest should be
+an automated process: First, the machine boots into a network-based tool
+to inventarize and prepare the system; then, an automated installation
+of the operationg system is performed. Finally, required software along
+with the necessary configuration is installed on the machine by means of
+an automation tool such as Salt or Ansible. If a procedure like this is
+in place, adding large amounts of servers can be done easily and with no
+hassle.
+
+SUSE OpenStack Cloud comes with tools that allow administrators to come
+up with an automated workstream like this, supporting features such as
+
+- the automated discovery of (new) hardware
+- the automated installation of an operating system
+- the automated management of system and application configuration
+- the automated maintenance of installed software (Updates / Upgrades)
+
+==== A working maintenance concept
+
+Getting the systems up, however, is not the only relevant task. Having a
+complete and well-designed maintenance scheme in place is just as
+important -- one big challenge, for instance, are security updates. Many
+security updates will require the installation of new packages on the
+affected systems, which can be done more or less easily. Some updates,
+however, will bring in a new version of the Linux kernel which will then
+require the affected servers to be rebooted. Rebooting hundreds or even
+thousands of servers in a coordinated and controlled manner is tricky to
+get right. For this purpose, SUSE OpenStack cloud comes with tools that
+will not only support the administrator in installing updates in a
+centralized way but that will also support in doing complete reboots of
+the environment.
+
+The keyrole in a working maintance concept is a central system management 
+service. This ensures a stable and controlled software distribution, a staging of updates
+and the automatic rollout of patches /configurations. SUSE Manager offers 
+all this feature and helps with compliance features like the "CVE search" to 
+handle a large number of linux nodes.
+
+In addition to tools, it's obvious that working maintenance concept for
+clouds also has to define a number of processes specific to the setup in
+question. Processes are usually highy adapted to the environment where
+they are used, which includes factors such as the company running the
+setup.
+
+==== Some approaches will fail
+
+Thanks to the functionality of SUSE OpenStack Cloud and SUSE Enterprise
+Storage, most work related to installing and maintaining the platform is
+done in an automated manner. Administrators need to make sure though
+that they do not boycot some of the functionalit present in the products
+by design decisions in their scale out cloud projects.
+
+[[Ephemeral_Issues]]
+One regular issue, for instance, is local storage in virtual machines
+inside the cloud. As already laid out in the storage chapter, the local
+storage of virtual machines in clouds is referred to as "ephemeral"
+storage. On the systems, the -- temorary -- local storage devices of VMs
+are usually local images residing on a storage device inside the host
+where the VM is running -- often a fast SSD. That is why from the
+user-perspective, running production workload based on ephemeral storage
+is tempting: It will usually feature much higher IOPS values and notably
+less latency than network-connected storage such as Ceph volumes. Still,
+the inherent issue with local storage in individual nodes of the setup
+is the fact that they are not redundant and not replicated somewhere.
+For that reason, cloud providers should not and cannot make guarantees
+on the availability of the ephemeral disks of individual VMs.
+
+A drastical example for why using local, ephemeral storage in VMs is not
+an option is a cloud-wide reboot of all servers due to necessary
+security updates. The large cloud providers will simply reboot their
+machines and assume that applications deployed on top of the cloud are
+designed in an inherently redundant way. Companies serving customers
+with less-modern applications might choose a compromise and migrate the
+individual virtual machines away from physical servers that are about to
+be rebooted. But this live-migration can only be done successfully if
+the VM's data reside on volumes that can easily be detached from one
+host and easily be attached to another. Virtual machines using ephemeral
+storage only can not be migrated away and in the worst case make it even
+impossible to reboot individual physical servers. This would massively
+violate the principle of the economy of scale is a clear no-go.
+
+It is hence of crucial importance to ensure that ephemeral storage is
+not abused by users for something that it is not -- and to make ensure
+that attractive storage alternatives such as highly-performant Ceph
+storages are available.
+
+Based on the actual use-case, companies planning to setup a cloud need
+to determine their target architecture and the need for storage that
+comes along with said target picture. Mixtures of local and shared
+ephemeral storage are, while technically possible, a complex thing and
+need careful consideration. Getting help from experienced experts on the
+matter is recommended.
+
+=== Monitoring OpenStack environments
+
+Once SUSE OpenStack Cloud and SUSE Enterprise Storage are up and running,
+it's important to monitor both solutions properly. Working monitoring is
+the only way to ensure that faults and issues are detected immediately
+and can be handled with by the operators on duty -- if that's necessary.
+
+Many administrators used to conventional setups will, when hearing words
+such as "monitoring", likely think of the conventional monitoring tools
+that are very widespread such as Nagios or Zabbix. And indeed are these
+tools excellent choices for event-based monitoring in conventional setups
+as they reliably identify failure events and trigger alarms.
+
+Most of these tools, however, also have in common that their design and
+their technical fundament is several years if not decades old. And also,
+event-based monitoring is not the only kind of surveillance required in
+a cloud; another very important topic in clouds is the ability to have
+an overview over the current load, the historical load and the likely
+development of load in the nearer future. This functionally is called
+trending and requires the collection of according metric values from all
+nodes in the cloud.
+
+Solutions suitable for monitoring cloud environments and recording the
+metric values required for trending are hence usually referred to with
+the acronym "MAT", which stands for "Monitoring, Alerting, Trending".
+
+==== VMs and the platform itself
+
+When the subject is "Monitoring the cloud", a clear distinction must be
+made between monitoring individual VMs in the cloud and monitoring the
+infrastructure that is the cloud itself. Many public cloud providers do
+not care about the status of customer VMs at all but do offer a software
+using which cloud users can configure monitoring for their VMs and other
+services. This feature is usually also referred to "Monitoring as a
+Service" and OpenStack does have a solution for this which this document
+will discuss in deep detail later in this chapter.
+
+In contrast to that stands the necessity to monitor all components that
+together form the physical infrastructure and the logical infrastructure
+of the cloud, that is those components required to provide the service
+of cloud computing. Both OpenStack and Ceph must be monitored here as
+well as accompanying services such as RabbitMQ, MariaDB, all devices for
+network infrastructure or the proper supply with power.
+
+In the following paragraphs, this document will elaborate on solution
+for both the monitoring of VMs in the cloud and the monitoring of the
+cloud itself.
+
+==== Why conventional tools will fail
+
+Before that part comes, it is necessary though to have a quick look at
+what differentiates typical cloud monitoring tools from solutions such
+as the already mentioned Nagios or Zabbix. As already explained, in
+clouds, event monitoring is only one aspect of of measuring everything
+one needs to know about the platform. another very important aspect is
+trending. Conventional solutions often do offer features for trending,
+as does PNP4Nagios for Nagios. Zabbix, for instance, also has built-in
+trending capabilities. Most of these solutions suffer from an inherent
+design flaw, though: they store trending data in relational databases
+such as MariaDB or PostgreSQL. That is a serious performance bottleneck:
+The data model of said databases does not match the format of metric
+data required for cloud trending.
+
+Now what does that mean in detail? Imagine a scenario in which an admin
+wants to know how the usage of virtual CPUs has developed in a platform
+over the course of the last year. The monitoring solution might have
+recorded said data and may have the data in MariaDB. But to generate a
+concise and understandable graph, the monitoring software need to run an
+utterly large MariaDB query that reads out individual lines from those
+tables in MariaDB that hold the actual data. All collected data is then
+drawn into a graph and displayed to the user.
+
+Said MariaDB query will be very resource intensive -- and this covers
+only the the read aspect of trending. The write aspect is even worse: If
+every system has 200 metric values that the admin wants to fetch every
+15 seconds, he quickly ends up with hundreds of thousands of SQL queries
+a minute depending on the overall amount of nodes in the setup. That
+will quickly bring almost every MariaDB instance to its limits and even
+if MariaDB survives the load, graph generation and trending in general
+would still be slow and tedious.
+
+==== An introduction to Monitoring, Alerting and Trending
+
+This is where modern solutions for Monitoring, Alerting and Trending
+(MAT) enter the stage. They also use databases to store data but in
+stark contrast to conventional solutions do not use relational DBs such
+as MariaDB. Instead, they use Time Series Databases. These work very
+different from their older ancerstors: Time Series Databases do not have
+tables and rows but align all data on a single root element which is the
+timelime itself. Queries like the one mentioned previousl are very easy
+to serve that way: Because data is stored in the database in the same
+format that it is supposed to be displayed in, gathering metric data on
+a certain time period from time series databases is easy and convenient
+from both the administrator's and database's point of view.
+
+The nice thing about this kind of trending is that basic monitoring can
+also be done using the same technology. Metrics can almost arbitrarily
+be defined in  modern TSDB implementations as long as the metric can be
+expressed in a numeric value; for instance, one metric could be "number
+of working Apache webserver processes on a host". If said number falls
+below the desired value, the TSDB would trigger an alarm. It is very
+important to understand that while metric-based monitoring is something
+all TSDB implementations can do though, event-based alerting is not
+available in every TSDB implementation. This chaper will later explain
+why that is not necessarily a bad thing in massive scale out setups.
+
+==== Variant 1: Monasca
+
+Monasca is OpenStack's solution for both Monitoring as a Service and the
+monitoring of the OpenStack platform itself. Monasca is an official
+OpenStack component and hence of course also supported by SUSE OpenStack
+Cloud. Under the hood, Monasca is a complex construct consisting of many
+different components that work hand in hand to ensure a monitoring that
+is as smooth as possible.
+
+Several components such as the Kafka stream processing engine play a
+role in the Monasca monitoring environment. The persistent storage of
+data for long-term trending is done using a time-series database and
+follows modern standards. The `monasca-agent` component collects every
+metric available on the target sstems (physical machines or VMs) and
+transports it back to the central Monasca engine.
+
+As it is an OpenStack component, Monasca is of course deeply integrated
+with all other OpenStack components. It uses Keystone for authentication
+and works together nicely with the other OpenStack components. Monasca
+also can be accessed using Grafana, the leading Open Source solution for
+visualizing trending data.
+
+==== Variant 2: Prometheus & Friends
+
+If Monascana for some reason is not the ideal solution for a particular
+setup, a good alternative to Monasca is Prometheus itself also is a time
+series database that comes along with a number of additional components
+to allow for a smooth monitoring experience. Prometheus itself is the
+core of the environment and will take care of storing collected metrics
+from the individual physical hosts in the cloud.
+
+Prometheus comes with a separate program to collect metric data on the
+target systems, the so called Prometheus Node Exporter. "Exporter" is in
+fact an acronym for "agent" in the Prometheus universe because basically
+the exporters act like agents. The communicate with Prometheus via a
+standardized API. Because Prometheus is, just like Monasca, Free and
+Open Source sofware, that API is open and fully documented. Accordingly,
+a lot of Open Source projects are defining interfaces for metric data
+aggregation right in their applications or provide separate exporters
+for their programs that can be combined with Prometheus. In this aspect,
+Prometheus is a little bit more versatile than Monasca, which is highly
+OpenStack-specific.
+
+Prometheus also comes with an AlertManager that generates alerts based
+on pre-defined rules. For these rules, Prometheus developers have even
+invented a new query language that is similar to but not identical with
+SQL.
+
+The already mentioned Grafana visualization solution for metric data has
+a backend-driver for Prometheus and can connect to it natively. The same
+goes for Ceph, which offers a Prometheus-compatible interface that the
+solution can read Ceph metric data from without any exporter at all (in
+fact, Ceph has a Prometheus metric data exporter built-in
+
+Last but not least, Prometheus can easily be combined with all the tools
+in the TICK stack created by InfluxDB -- this is especially helpful for
+the storage of trending-data on a long-term base (i.e. several years of
+all different kinds of historical metric data). InfluxDB, thanks to its
+design, is much better suited for this job than Prometheus. By teaming
+up, both solutions allow administrators to get the best from both worlds.
+
+==== Monasca, Prometheus, or ...
+
+Monasca and Prometheus are only two examples for the vast amount of ways
+to properly monitor an OpenStack installation. If you already have some
+sort of time-series based monitoring solution in place, it might also be
+possible to extend said solution to support OpenStack. An important
+question in any case is whether you want to monitor the OpenStack setup
+only or also VMs in it. If the plan is to monitor both, Monasca is likely
+the best bet. If flexibility on the metric-collection side of things is
+relevant, Prometheus offers more opportunities than Monasca, which is, in
+fact, precisely tailored to the OpenStack use-case.
+
+The important thing to understand is that large scale environments will
+need monitoring, alerting and trending and that solutions that admins
+are used to for historical reasons will likely be insufficient for this
+job.
+
+=== Knowing what is going on: Logging
+
+As explained earlier, many MAT solutions are good for trending-based
+metric types but not for event-based alerting. In fact, a scale out
+environment may produce so many alerts in times of trouble that any
+conventional monitoring solution would hardly be of any use.
+
+==== On the need for centralized logging
+
+That is why in large environments, it is also absolutely necessary to
+have a central solution for logging in place. When debugging an isssue and
+in stress, an admin cannot login to dozens or hundreds of servers and
+search the local logs on these machines for certain indicators. Instead,
+admins do need a solution that aggregates relevant logs from all machines
+and then makes them available through an indexed, searchable database.
+
+==== How Monitoring & Logging go hand in hand
+
+With a solution for centralized logging in place, monitoring events by
+means of a time-series database becomes at least easier. As soon as a
+valid metric is defined for a certain event, once that event triggers in
+the monitoring system, the administrator can immediately login into the
+centralized log aggregation system and examine the logs of the affected
+system. Tedious SSH jumping is not necessary anymore.
+
+==== Variant 1: ELK
+
+The typical variant to create centralized logging based on Open Source
+software is the so called ELK stack. ELK here is the acronym for
+ElasticSearch, Logstash and Kibana and refers to three components that
+are usually deployed together. ElasticSearch is the indexing and search
+engine that received log entries from systems. Logstash collects the log
+files from the target systems and sends them to ElasticSearch. Kibana is
+a concise and easy-to-use interface to Logstash and ElasticSearch and
+allows for web-based access.
+
+Although it is not always these three components that are combined, the
+"ELK" acronym has established for this kind of solution. Sometimes, the
+Logstash component, for instance, is replaced by Fluentd or other tools
+for log aggregation. The great versatility of this solution is one of its
+biggest advantages.
+
+When using Monasca for MAT, ELK is also highly practical: Monasca nicely
+integrates with ELK and can be used together with it.
+
+==== Variant 2: Splunk
+
+A commercial but well-proven alternative to the ELK stack is Splunk. It
+is especially famous amongst system administrators for its very simple
+setup and usability. It can also easily be extended with new features and
+there is a complete ecosystem steered by the company behind Splunk for
+the solution.
+
+The downside is that Splunk has a charging model based on the amount of
+transferred log files. As OpenStack tends to generate a lot of logs and
+this document is all about large scale environments, the amount of logs
+in such setups will naturally be large and hene Splunk licenses will be
+a relevant part in Budget planning. In exchange, though, admins get a
+well-working solution that has no issues whatsoever with functioning in
+large scale environments.
+
+// vim:set syntax=asciidoc:

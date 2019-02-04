@@ -1,0 +1,466 @@
+== Networking
+
+Cloud environments and large-scale clouds in particular come with
+requirements in terms of physical and virtual networking that are
+fundamentally different from conventional setups. This chapter will
+in great detail compare network requirements in conventional setups
+and large-scale clouds and elaborate on the major differences. It
+will show how Software Defined Networking in large-scale clouds is
+used to provide seamlessly scalable and reliable networking for the
+cloud and what technologies are available in OpenStack to implement
+proper Software Defined Networking.
+
+=== Networking in conventional setups
+
+Virtually every modern computing installation in data centers has the
+networking portion of the setup as a component just as important as
+the other parts (such as storage or compute facilities). Conventional
+setups share a number of basic design aspects for networking and also
+have similiarities in how networking adds to the overall value of the
+setup.
+
+==== Cloud Computing versus conventional setups
+
+Three design aspects are typical for networking in conventional setups:
+
+- *No need for scalability*: In conventional setups, the maximum size of
+  the setup is typically clear as soon as the project starts. Networking
+  capabilities such as the overall required amount of switch ports can
+  hence be planned right in the beginning to that they are sufficient
+  for the largest size the setup can ever grow into. Seamless scalability
+  is not a typical design requirement in conventional setups, giving the
+  network a very static look & feel. Also, conventional setups usually
+  do not grow to sizes that cannot be handled easily anymore using COTS
+  networking hardware -- even if several hundreds of ports are required,
+  standard 48-port switches will easily work and allow for a standard
+  tree- or star-based network layout.
+
+- *Individual networks for individual customers*: As conventional setups
+  are typically planned per customer, the network infrastructure that is
+  specific for a certain setup also belongs to that customer. It is not
+  shared with other customers, i.e. multi-tenancy is not a design tenet
+  of networking in conventional setups. Additionally, in conventional
+  setups, the network maintenance is usually done by the internet service
+  provider for the customer, effectively giving the ISP the full control
+  over all configuration aspects of the network.
+
+- *VLANs & other switch features are used*: In setups where many clients
+  belonging to different customers share common networking segments, the
+  management functionalities of switches are heavily used. The textbook
+  example for this are VLANs, a technology to logically shield traffic
+  from other traffic on a switch, which must usually be configured in the
+  management interface of each particular network device that is supposed
+  to know about them.
+
+Based on the statements made about cloud computing in the first two
+chapters of this whitepaper, it becomes obvious very quickly why these
+basic network design tenets of conventional setups do not work well in
+cloud computing environments:
+
+- *Need for scalability*: It's impossible to predict the final size of a
+  cloud computing environment at its incarnation. If things go well, the
+  setup might have hundreds or even thousands of nodes that all need to
+  be able to communicate with each other properly. OpenStack is made for
+  the specific use-case of allowing to grow a platform seamlessly and up
+  to almost no limits -- the networking infrastructure in place needs to
+  be able to cope with said scalability. This affects the physical as
+  well as the logical side of things: Star- of tree-based layouts might
+  not work very well for clouds because they limit the bandwidth available
+  to individual ports too much; the logical separation into VLANs can
+  become a problem as well because a setup might simply run out of VLAN
+  IDs after a certain while.
+
+- *Individual configuration & Shared network segments everywhere*: To
+  reach the target of seamless and borderless scalability, clouds do not
+  in general dedicate certain hardware to individual customers. Hence,
+  all network elements and segments may and will be shared amongst all
+  customers in the setup, making it impossible to establish customer-specific
+  setups and configuration on individual devices. Every attempt to do so
+  would violate the principle of scalability, hence this approach in
+  clouds is impossible to follow. In stark contrast, in clouds, users must
+  have the ability to determine the topology of their virtual networks
+  completely at their own discretion; the cloud solution in place must
+  ensure that the desired configuration is implemented physically and
+  logically in a safe manner and independently from other customers.
+
+- *No customer specific configuration on hardware*: Based on the points
+  laid out in the last paragraph, it's very obvious that individual
+  switches cannot contain user-specific configuration data. Not only
+  would that violate the principle of scalability, but it would also
+  make it possible for customers to service themselves when becoming a
+  new customer in a cloud computing environment in the first place --
+  after all, the ability to serve themselves is a major difference when
+  it comes to clouds and conventional setups. User-specific settings on
+  switches and other network devices can usually only be enabled using
+  an administrator account -- it is, howevery, very obvious that a cloud
+  provider does not want to give administrator access to all networking
+  devices to all customers in their cloud respectively. Hence, features
+  such as VLANs that require network hardware reconfiguration cannot
+  come to use in clouds, either. That does, however, not mean of course
+  that the functionality they provide is not not required anymore.
+
+=== Networking in cloud environments
+
+To understand how functionality usually provided by network devices in
+conventional setups can be provided in cloud environments, it's totally
+important to understand how modern switches typically work. They are
+built out of three major components:
+
+- *Data plane*: The data plane is the component of a switch forwarding
+  packets from one of its ports to another (or the other way around). It
+  does not perform any qualification of traffic but simply forwards and
+  redirects packets according to the original requests.
+
+- *Control plane*: The control plane performs packet qualification and
+  establishes the policies required for features such as VLANs. It holds
+  all rulesets configured by the author and influences the forwarding
+  of packets happening in the data plane.
+
+- *Management plane*: The management plane contains administrative
+  traffic and is usually considered a subset of the contro plane -- as
+  it is not relevant for the explanations in this document, it will be
+  considered a part of the control plane throughout the rest of this
+  document as well and not be mentioned separately.
+  
+.Traffic Layers in Cloud Networks
+image::SDN-Layer.png[align="center",width=400]  
+
+==== Special requirements in clouds
+
+As explained earlier, in cloud environments, it is impossible to use the
+control plane of networking devices as one would do in conventional
+setups because that would break the principle of scalability and also
+the users' ability to service themselves in using cloud resources. The
+actually features provided by control planes such as the segregation of
+traffic belonging to different customers are, however, also necessary in
+cloud environments and must be present.
+
+To combine the best from both worlds, cloud setups use a concept that is
+usually referred to as "decoupling": The data plane functionality of
+switches is retained and used while the control plane functionality is
+moved from individual switches onto a software-layer that can be
+centrally configured from within a cloud computing environment. As the
+control plane functionality is implemented in standard software after
+the decoupling has taken place, such setups are usually referred to as
+using "Software Defined Networking", or SDN.
+
+=== Software Defined Networking (SDN) primer
+
+Just like conventional network setups, setups leveraging Software Defined
+networking functionality split into multiple physical and logical
+layers. The most important layer is the physical layer representing the
+aforementioned data plane -- without this functionality, networks inside
+clouds or any other kinds of setups would simply not work. The important
+difference between concentional setups and SDN-based setups is, however,
+the fact that in SDN-based setups, the data plane of switches is the only
+core functionality of them that is actively used. If one wants to put it
+this way, switches in clouds are degraded to dumb devices only forwarding
+packets from one port to another. Their built-in control plane is unused.
+
+Instead, in SDN-based setups, a new, virtual control plane is established
+as a central and integral component of the actual cloud computing setup.
+This comes with a number of advantages: functionality that would
+typically and decentrally be provided by individual switches in standard
+setups is provided by a single, central instance holding valid
+configuration data for the whole environment. As it is an integral part
+of the cloud, the control plane configuration can be manipulated directly
+in the cloud software without the need to login to individual network
+devices and alter their local configuration.
+
+The control plane of individual switches is replaced with many virtual
+control planes (i.e. "virtual switches") present on every single host
+that is part of the setup. As all hosts receive their configuration from
+the same central configuration database, the correct setup for each and
+every particular host is applied directly there. Functionality that
+would typically be provided by the control plane of network switches is
+provided by combining several logical technologies on the hosts directly.
+
+This overall layout comes with one huge advantage: Customers running
+services and VMs on the cloud are given the chance to design the network
+topology in "their" area of the cloud completely at their will. They are
+free to implement any arbitrary network configuration. And they control
+the configuration of their virtual networks using the same Cloud APIs
+that they use to control all other services. As customer networks in
+clouds are "virtual" and shielded from each other, it is impossible for
+customers to accidentally collide with each other. It also is impossible
+for attackers to sniff traffic from other networks.
+
+==== Basic design tenets of SDN environments
+
+Although this document's intention is not to act as a thorough technical
+guide, it will quickly elaborate on the basic design tenets of SDN
+setups for the sake of better understanding and the ability to properly
+distinguish between conventional and cloud approaches. For many readers
+not having had the opportunity to work in cloud environments hands-on,
+understanding SDN principles might be too conceptional otherwise.
+
+To understand how SDN in cloud environments works down to the individual
+port of a switch that a server is connected to, it's important to note
+that cloud setups distinguish between different kinds of network traffic.
+
+- *Management traffic*: This kind of traffic is used by the components
+  of the cloud software such as OpenStack to communicate with each
+  other. As cloud solutions are typically built in a modular manner, a
+  lot of different components need to talk to each other -- and most of
+  the time, a cloud environment will have a "management network" that
+  serves exactly this purpose. Often, the management network is also
+  referred to as "underlay" network. Virtual machines running in the
+  cloud by different customers are logically split from this network --
+  they do not have direct access to it.
+
+- *Customer traffic*: This traffic type marks the actual payload traffic
+  produced by paying customers on the cloud. As the networks used for
+  this kind of traffic in clouds do not exist "physically" (i.e. by
+  means of an according VLAN configuration on some network device), the
+  networks are typically referred to as "virtual". Traffic floating in
+  these virtual networks typically splits into two different subtypes:
+  *Internal* traffic is traffic inside a virtual network that remains in
+  said network but may cross host-borders (e.g. the traffic from two VMs
+  in the same virtual network running on different hosts). In contrast
+  to that, *external* traffic is traffic coming from a virtual network
+  and targeted to a different network, either in the same cloud or in the
+  internet. As this network layer  usually uses the underlay for the
+  physical exchange of data, it is often referred to as "overlay".
+
+==== Encapsulation in SDN environments
+
+Obviously, even the traffic passing between virtual machines in virtual
+networks must cross the physical borders between two systems at a point
+in time. Virtual traffic usually uses the aforementioned management net,
+but to ensure that management traffic of the platform and traffic from
+virtual networks do not mix up, all SDN solutions currently present on
+the market use some sort of encapsulation. VxLAN and GRE tunnels are the
+most common choices (both terms refer to specific technologies). As both
+technologies allow for the assignment of certain IT tags to individual
+network packets, traffic can easily be identified as originating from a
+specific network.
+
+On hosts where SDN setups are present, software such as Open vSwitch
+usually is employed to create a virtual local switch that is able to
+handle said virtual networking IDs. Virtual machines started on hosts
+will, if they are on the request by the user associated with a certain
+virtual network, have a direct connection to the virtual switch on the
+host that has its ID field set to the ID of the virtual network. That
+way, the virtual switch on the source host as well as the virtual switch
+on the target host can reliably identify the virtual network that said
+traffic belongs to and only forward the packets to virtual ports on the
+virtual switches authorized to see it. This principle reimplements the
+VLAN functionality found in conventional switches in virtual networks in
+the cloud and ensures the true separation of traffic between customers
+and even virtual networks within the same customer environment. In stark
+contrast to conventional setups though, in clouds, all these settings
+can be modified from within the cloud environment directly. Logging into
+the management interfaces of switches is not necessary anymore.
+
+==== Local traffic in SDN environments
+
+Once encapsulation is setup on the host level as described previously,
+newly started VMs are automatically connected to virtual networks if the
+VM spawn request contains according instructions. As soon as the VM has
+a working IP address, it can communicate with other VMs in the same
+virtual network.
+
+Here, another coud-related speciality comes into play: It is uncommon to
+use static local IP addresses in virtual networks in cloud environments
+-- as one would possibly do in other, conventional setups. Instead, Cloud
+VMs are in general expected to use DHCP to acquire their local IP address
+at boot time. The cloud solution in turn is responsible for running a
+DHCP server that will assign the pre-determined IP to a cloud VM once
+the according DHCP request is received. The cloud software also takes
+care of IP address management (_IPAM_) of local IPs -- this is the source
+for IP information in the DHCP server run by the cloud environment.
+
+==== External traffic in SDN environments
+
+The ability to exchange traffic securely between virtual machines inside
+a cloud is important, but obviously the ability to communicate with the
+outer world is just as important. Accordingly, in clouds, there needs to
+be a device functioning as gateway between the virtual networks on the
+one hand and external networks on the other. All cloud solutions out on the
+market at this time support according functionality, and in most of them,
+the hosts assuring said kind of traffic flow are usually referred to as
+"gateway nodes" or "networking nodes". Networking nodes do not have to be
+distinct servers; the role of gateway nodes can also be assigned to
+other already existing machines. One way or another, gateway nodes are
+shared networking components: they have connections to a physical network
+and many virtual networks. As they use the same encapsulation technology
+as compute nodes when VMs exchange traffic, data separate on network
+nodes is ensured.
+
+Internet nodes also ensure that individual VMs run by customers can be
+directly reached from the internet. The static assignment of external
+IPs to individual VMs will not work in clouds: This approach would not
+only break the principle of scalability; it would also break the idea
+of the consumption-based payment model present in most clouds and the
+principle of the custmers to service themselves properly. Instead of
+statically assigning external IPs to virtual machines, customers must
+have the ability to decide at any point in time whether one of their VMs
+requires an external IP address or not. To reach this goal, IP addresses
+must be managed by the cloud platform itself. Most clouds do that by
+combining several technologies available in the Linux kernel to map an
+official IP address to the local IP of a VM in the cloud (_Floating-IP_).
+
+==== SDN summary
+
+Software defined networking is of crucial importance in cloud setups. It
+allows to do away with the statical configuration facilities often found
+in conventional setups. By turning switches into mere packet-forwarding
+devices and moving the control facility into the cloud, SDN allows to
+create truly integrated multi-tenant setups still featuring all functions
+expected in modern setups.
+
+A number of SDN implementations are available on the market now and are
+generally considered "production ready"; the most prominent one
+certainly is Open vSwitch. Many solutions such as Midonet by Midokura
+are based on Open vSwitch; others are separate developments such as the
+Tungsten Fabric distribution owned by Juniper.
+
+=== Software Defined Networking in OpenStack
+
+OpenStack features the ability to leverage the advantages of Software
+Defined Networking. A separate component is responsible in OpenStack for
+providing SDN functionality; it's called Neutron and is generally also
+considered one of the more sophisticated components of OpenStack.
+
+==== Neutron primer
+
+Neutron itself is not an actual SDN implementation; instead, it offers a
+ReSTful API and a plugin mechanism that allows to load plugins for a
+high number of SDN implementations present on the market. In certain
+setups SDN solutions may also be combined; that is, however, a complex
+approach and should only be used if unavoidable -- when in doubt, be
+sure to get expert help as early as necessary.
+
+A large number of plugins to enable certain SDN implementations in
+Neutron are available; the standard solution is Open vSwitch which can
+be combined nicely with Neutron and which is also perfectly well
+supported by the SUSE OpenStack distributions. Other Neutron plug-ins
+exist for solutions such as Tungsten Fabric or Midonet by Midokura. Some
+commercial SDN implementations can be combined with the SUSE OpenStack
+distribution;
+
+For the sake of explanation, this document will in its further course
+assume that Open vSwitch-based Software Defined Networking is used.
+
+Like all OpenStack components, Neutron follows a decentralized design.
+This is necessary also because for the correct functioning of SDN in an
+OpenStack cloud, numerous components on numerous target systems must
+work together properly. For instance, when a host boots up, the virtual
+switch for SDN on it must be configured at boot time. When a new VM is
+started on said host, a virtual port on the local virtual switch must be
+created and tagged with the correct settings for VxLAN or GRE.
+The VM will need the network information (IP, DNS, Routing) and additional meta data
+to configure itself. 
+
+OpenStack Neutron hence follows an agent-based architecture. Beside a central
+API service, which is running on the control nodes, several L2 and L3 agents are
+running also on the network / compute nodes. 
+
+==== SDN architecture in OpenStack clouds
+
+Building Software Defined Networking for OpenStack environments mostly
+follows the basic design tenets laid out earlier in this chapter. A
+typical SDN-environment deployed as part of SUSE OpenStack Cloud will use
+Open vSwitch to create the virtual ("overlay") network segment and VxLAN
+or GRE encapsulation to encapsulate traffic on the underlay level of the
+physical network, which, at the same time, acts as management network.
+
+As Open vSwitch is the default SDN solution for Neutron, a seamless and
+well-working integration between Neutron and Open vSwitch is guaranteed
+and leveraged by SUSE OpenStack Cloud.
+
+When combining OpenStack and Open vSwitch, networking functionality in
+large-scale environments will be split across several nodes. Several
+networking nodes must be put into place being connected to a powerful
+upstream link; the minimum number of networking nodes usually is 4 but
+may be much higher depending on the setup's load. Said upstream link
+should be planned to accomodate for the environment's traffic needs
+including a certain buffer; it should at a later point also be possible
+to upgrade the link.
+
+API services should be run behind load balancers to accomodate for high
+amounts of incoming requests; it is recommended to have at least three
+of them as well. All networking nodes should also be running an instance
+of the Neutron DHCP agent to ensure that customer VMs get replies to
+their DHCP requests at all times.
+
+SUSE OpenStack Cloud comes pre-equipped for this kind of SDN setup and
+allows to easily facilitate such configurations in-place.
+
+==== OpenStack SDN Summary
+
+The combination of Open vSwitch and OpenStack Neutron allows for a very
+well-functioning basic implementation of Software Defined Networking in
+a cloud computing environment. Also, Open vSwitch has gone through a
+large number of improvements in recent years, effectively making it much
+more stable and resilient than it used to be a few years ago. Customers
+starting to look into OpenStack are generally recommended to try the
+Open vSwitch approach first before resorting to other solutions.
+
+Depending on the actual setup, Open vSwitch may, however, also not be
+the best fit for a respective setup. A weak spot in the Open vSwitch
+design is the fact that Open vSwitch itself does not hold a centralized
+instance of truth for all virtual networks and virtual machines in the
+setup. While this technical approach is not an issue in medium-sized and
+smaller large-scale environments, it can become a problem in large
+clouds because of the overhead traffic generated by virtual machines
+trying to find each other. After all, standard protocols such as ARP
+come to use for this purpose and generate a lot of additional traffic on
+a regular base in Open vSwitch setups.
+
+If Open vSwitch turns out not to be the best solution for SDN in a given
+use-case, there are several alternatives available on the market. Most
+of the alternatives based on Open vSwitch effectively avoid the issues
+described in the last paragraph by extending Open vSwitch with a central
+source of truth for network and VM information. In these setups, using
+Open vSwitch traffic flows, traffic is manipulated so that most of the
+dreaded overhead traffic avoided in the first place. If a solution that
+uses such manipulation strategies is in place, this helps to reduce the
+SDN-induced overhead massively. Other solutions such as Tungsten Fabric do
+not have said issues at all because they follow design principles that
+are fundamentally different from Open vSwitch.
+
+Finding the right SDN implementation for your setup is a tricky task and
+depends a lot on the actual requirements on-site. Trusting a proven
+solution will help you proceed faster and build a more resilient setup. 
+OpenStack provides with openvswitch already a scalable and proven 
+implementation, which is able to create a large scale out architecture.
+
+=== Physical networks in large-scale environments
+
+During the introduction to software-defined networking in the beginning
+of this chapter, this document referred to the overall physical network
+layout. Conventional network designs such as star- or tree-based
+approaches are not perfectly fit for scale-out environments because the
+highest switch-level will usually be "congested" at some point; i.e. it
+will not be possible to connect additional switches to the highest level
+of the switching hierarchy. High availability on the physical level also
+is a concern: Effectively, every server will typically consume two
+network ports on the local network infrastructure to connet to two
+distinct switches, effectively increasing the amount of required ports
+and switch-interconnects even further.
+
+Such issues can actually be worked around at the cost of making the
+setup more expensive and more complicated. A typical approach is the so
+called Layer-3 routing: In such a scenario, the internet routing
+protocol BGP is used for the routing of traffic even between the local
+nodes of the installation -- every node also turns into a little router
+that knows the exact network paths to all other servers. The advantage
+of such setups is that the logical borders of individual networks do not
+matter anymore; at any point in time, the network can be extended by new
+switches plugged in at arbitrary locations of the setup. And even if the
+highest level of such "leaf-spine architectures" doesn't offer available
+ports for new switches anymore, thanks to BGP a new, higher level of
+additional core switches can be installed at any time.
+
+While SDN, however, is absolutely necessary on the level of networking
+inside cloud environments, ISPs setting up a cloud need to carefully
+ask themselves whether they want to run a platform that will likely
+have between 200 and 600 hosts or more. Only considerably high target
+node numbers justify a layer-3-based setup like the one in little detail
+explained before. Also, such BGP-based setups are highly specific to the
+actual setup of customers and usually cannot be achieved using standard
+tools and products. If in doubt, be sure to seek for support early in
+time to not allow SDN to become an actual show stopper for your project.
+
+// vim:set syntax=asciidoc:

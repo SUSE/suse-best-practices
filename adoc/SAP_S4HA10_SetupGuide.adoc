@@ -34,42 +34,47 @@ of the technical infrastructure, single points of failure can be eliminated.
 and mid-size companies. Many critical business environments require the highest
 possible {sapReg} application availability.
 
-The described cluster solution could be used for {sapReg} {sapS4pl}.
+The described cluster solution can be used for {sapReg} {sapS4pl}.
 
 {sapS4pl} is a common stack of middleware functionality used to support the SAP
 business applications. The {sapERS} constitutes application
 level redundancy for one of the most crucial components of the {sapS4pl} stack,
 the enqueue service. An optimal effect of the enqueue replication mechanism can
 be achieved when combining the application level redundancy with a high
-availability cluster solution, for example as provided by {sles4sap}. The mentioned components have
-proven their maturity over several years of productive operations for customers of different sizes
-and branches.
+availability cluster solution, as provided for example by {sles4sap}. Over several 
+years of productive operations, the components mentioned have proven their maturity 
+for customers of different sizes and branches.
 
 
 === Additional Documentation and Resources
 
-Chapters in this manual contain links to additional documentation resources that
+Several chapters in this document contain links to additional documentation resources that
 are either available on the system or on the Internet.
 
-For the latest documentation updates, see http://www.suse.com/documentation.
+For the latest product documentation updates, see http://www.suse.com/documentation.
 
-You can also find numerous whitepapers, best-practices guides and other
-resources at the SUSE Linux Enterprise Server for SAP Applications resource
-library: https://www.suse.com/products/sles-for-sap/resource-library/.
+More whitepapers, guides and best practices guides referring to SUSE Linux Enterprise Server and SAP can be 
+found and downloaded at the SUSE Best Practices web page:
 
-This guide and other SAP specific best practices could be downloaded via
-https://www.suse.com/products/sles-for-sap/resource-library/sap-best-practices/.
-You can find at this landing page guides for {SAPHANA} system replication
-automation and HA scenarios for {SAPNw} and {s4hana}.
+https://www.suse.com/documentation/suse-best-practices/#sap
+
+Here you can access guides for {SAPHANA} system replication
+automation and High Availability (HA) scenarios for {SAPNw} and {s4hana}.
+
+Additional resources, such as customer references, brochures or flyers, can be found at the SUSE Linux 
+Enterprise Server for SAP Applications resource library: 
+
+https://www.suse.com/products/sles-for-sap/resource-library/.
+
 
 === Errata
 
-We will publish and maintain in a higher frequency the TID for this document to fix very urgent small
-things and deliver important information.
-SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide - Errata:
+To deliver urgent smaller fixes and important information in a timely manner, the TID for this document 
+will be updated, maintained and published at a higher frequency: 
+- SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide - Errata:
 (https://www.suse.com/support/kb/doc/?id=7023714)
-In addition to this guide, check the SUSE SAP Best Practice Guide Errata for other solutions.
-(https://www.suse.com/support/kb/doc/?id=7023713)
+In addition to this guide, check the SUSE SAP Best Practice Guide Errata for other solutions
+(https://www.suse.com/support/kb/doc/?id=7023713).
 
 // Standard SUSE includes
 === Feedback
@@ -81,76 +86,75 @@ include::common_intro_feedback.adoc[]
 
 == Scope of this Document
 
-This guide will show you how to:
+The document at hand explains how to:
 
-- Plan a {sleHA} platform for {sapS4pl},
-  including {sapERS}.
+- Plan a {sleHA} platform for {sapS4pl}, including {sapERS}.
 - Set up a {linux} high availability platform and perform a basic {sapS4pl}
   installation including {sapERS} on {sle}.
 - Integrate the high availability cluster with the {sap} control framework via
   {s4sClConnector3} version 3, as certified by {sap}.
 
-This guide focuses on the high availability of the central services. For {saphana} system replication
-follow the guides for the performance- or cost-optimized scenario. (see section "Additional
-documentation and resources")
+It focuses on the high availability of the central services. For {saphana} system replication,
+refer to the guides for the performance- or cost-optimized scenario (see section "Additional
+documentation and resources").
 
 == Overview
 
-This guide describes how to set up a pacemaker cluster using {sles4sap}
-{slesProdVersion} for the Enqueue Replication scenario. The focus is on matching the{sapCert}
-certification specifications and goals. In this Guide two nodes are used for the ASCS
-central services instance and ERS replicated enqueue instance. This two nodes are controlled by
-the SUSE HA cluster. A third node is used for running the database and PAS and AAS application
+The document at hand describes how to set up a pacemaker cluster using {sles4sap}
+{slesProdVersion} for the Enqueue Replication scenario. The focus is on matching the {sapCert}
+certification specifications and goals. In this guide two nodes are used for the ASCS
+central services instance and ERS replicated enqueue instance. These two nodes are controlled by
+the SUSE Linux Enterprise High Availability cluster. A third node is used for running the database and PAS and AAS application
 server instances. An additional forth node is used as NFS server.
 
-These goals include:
+The goals for the setup include:
 
 - Integration of the cluster with the {SAP} start framework _sapstartsrv_ to
-  ensure that maintenance procedures do not break the cluster stability
-- Rolling Kernel Switch (RKS) awareness
-- Standard {sap} installation to improve support processes
+  ensure that maintenance procedures do not break the cluster stability.
+- Rolling Kernel Switch (RKS) awareness.
+- Standard {sap} installation to improve support processes.
 - Support of automated HA maintenance mode for SAP resources by implementing support of
-  SAP HACheckMaintenanceMode and HASetMaintenanceMode
-- Support of more than two cluster nodes for ASCS and ERS instances allowed
+  SAP HACheckMaintenanceMode and HASetMaintenanceMode.
+- Support of more than two cluster nodes for ASCS and ERS instances allowed.
 
-The updated certification {sapcert} has redefined some of the test procedures
-and described new expectations how the cluster should behave in special
-conditions. These changes allowed us to improve the cluster architecture and to
+The updated certification {sapcert} redefines some of the test procedures
+and describes new expectations how the cluster should behave in special
+conditions. These changes allowed to improve the cluster architecture and to
 design it for easier usage and setup.
 
-Shared SAP resources are on a central NFS server.
+Shared SAP resources are located on a central NFS server.
 
-The {sap} instances themselves are installed on a shared disk to allow switching over the file
-systems for proper functionality. The second need for a shared disk is that we are using the SBD
+The {sap} instances themselves are installed on a shared disk to allow for switching over the file
+systems for proper functionality. The second need for a shared disk derives from using the SBD
 for the cluster fencing mechanism STONITH.
 
-=== Differences to previous Cluster Architectures
+=== Differences to Previous Cluster Architectures
 
-- The concept is different to the old stack with the master-slave architecture.
+- The described new concept differs from the old stack with the master-slave architecture.
   With the new certification we switch to a more simple model with primitives.
-  This means we have on one machine the ASCS with its own resources and on
-  the other machine the ERS with its own resources.
-- For {s4Hana} the new concept also covers, that the ASCS does not need to be started at ERS
-  side  after a resource failure. The new enqueue architecture is also named ENSA2.
+  This means: on one machine there is the ASCS with its own resources and on
+  the other machine there is the ERS with its own resources.
+- For {s4Hana} the new concept implies that, after a resource failure, the ASCS does not need to be started at the ERS
+  side. The new enqueue architecture is also named ENSA2.
 
-=== Three Systems or more for ASCS, ERS, Database and additional SAP Instances
+=== Three Systems or More for ASCS, ERS, Database and Additional SAP Instances
 
-This guide describes the installation of a distributed {sap} system on three and more
-systems. In this setup only two systems are in the cluster. The database and
+The document at hand describes the installation of a distributed {sap} system on three and more
+systems. In this setup only two systems reside inside the cluster. The database and
 {sap} dialog instances could also be added to the cluster by either adding more nodes to the
-cluster or by installing the database on either of the nodes. However we recommend to install the
-database on a separate cluster. The cluster configuration for three and more node are described at the
+cluster or by installing the database on either of the existing nodes. However it is recommended to install the
+database on a separate cluster. The cluster configuration for three and more nodes is described at the
 end of this document. The number of nodes within one cluster should be either two or an odd number.
 ////
 TODO: check text content
 ////
-NOTE: The cluster in this guide only manages the {sap} instances ASCS and ERS,
-because of the focus of the {sapCert} certification.
+NOTE: Because the setup at hand focuses on the {sapCert} certification, the cluster detailed 
+in this guide only manages the {sap} instances ASCS and ERS.
 
-If your database is {sapHana}, we recommend to set up the performance optimized
-system replication scenario using our automation solution {sapHanaSR}. The
-{sapHanaSR} automation should be set up in an own two node cluster. The setup is
-described in a separate best practice available at our best practice page.
+If your database is {sapHana}, it is recommended to set up the performance optimized
+system replication scenario using the automation solution {sapHanaSR}. The
+{sapHanaSR} automation should be set up in an own two-node cluster. The setup is
+described in a separate best practices document available from the SUSE Best Practices web page.
 
 .Three systems for the certification setup
 image::sles4sap_nw740_3nodes.svg[SVG]
@@ -191,8 +195,8 @@ TODO: add the end if needed
 
 === High Availability for the Database
 
-Depending on your needs you could also increase the availability of the database, if your
-database is not already high available by design.
+Depending on your needs you can increase the availability of the database, if your
+database is not already highly available by design.
 
 ==== {SapHana} System Replication
 
@@ -210,7 +214,7 @@ The following Databases are supported in combination with this scenario:
 
 ==== Simple Stack
 
-An other option is to implement a second cluster for a database without SR aka
+Another option is to implement a second cluster for a database without SR, also known as
 "ANYDB". The cluster resource agent SAPDatabase uses the SAPHOSTAGENT to control
 and monitor the database.
 
@@ -226,64 +230,63 @@ image::sles4sap_nw740_cs+anydb.svg[SVG]
 |SAP HANA DATABASE 2.0
 |=========================================================
 
-NOTE: Version for {sapS4pj} on Linux on AMD64/Intel 64. More information about
+NOTE: Version for {sapS4pl} on Linux on AMD64/Intel 64. More information about
 supported combination of OS and Databases for {sapS4in} can be found at the
-SAP Product Availability Matrix. (https://apps.support.sap.com/sap/support/pam[SAP PAM])
+SAP Product Availability Matrix at https://apps.support.sap.com/sap/support/pam[SAP PAM].
 
-=== Integration of {sapS4} into the Cluster using the Cluster Connector
+=== Integration of {sapS4} into the Cluster Using the Cluster Connector
 
 The integration of the HA cluster through the SAP control framework using the
 {s4sClConnector} is of special interest. The {SAPSTARTSRV} controls {sap} instances since
-{sap} Kernel versions 6.40. One of the classical problems running
-{sap} instances in a highly available environment is, that if an {sap}
+{sap} Kernel versions 6.40. One of the classic problems running
+{sap} instances in a highly available environment is the following: If an {sap}
 administrator changes the status (start/stop) of an {sap} instance without using
-the interfaces provided by the cluster software, then the cluster framework will
+the interfaces provided by the cluster software, the cluster framework will
 detect that as an error status and will bring the {sap} instance into the old
 status by either starting or stopping the {sap} instance. This can result in
 very dangerous situations, if the cluster changes the status of an {sap} instance
 during some {sap} maintenance tasks. The new updated solution enables the central component
-{SAPSTARTSRV} to report state changes to the cluster software, and therefore avoids the
-previously  described dangerous situations.
-(See also our blog "Using sap_vendor_cluster_connector for interaction between cluster
-framework and sapstartsrv")
-(https://blogs.sap.com/2014/05/08/using-sapvendorclusterconnector-for-interaction-between-cluster-framework-and-sapstartsrv/comment-page-1/).
+{SAPSTARTSRV} to report state changes to the cluster software. This avoids dangerous situations
+as previously described.
+More details can be found in the blog article "Using sap_vendor_cluster_connector for interaction between cluster
+framework and sapstartsrv" at https://blogs.sap.com/2014/05/08/using-sapvendorclusterconnector-for-interaction-between-cluster-framework-and-sapstartsrv/comment-page-1/.
 
 .Cluster connector to integrate the cluster with the {sap} start framework
 image::sles4sap_clusterconnector.svg[SVG]
 
-NOTE: For this scenario we are using an updated version of the {s4sClConnector3}
-which implements the API version 3 for the communication between the cluster
+NOTE: For this scenario, an updated version of the {s4sClConnector3} is used.
+It implements the API version 3 for the communication between the cluster
 framework and the {sapstartsrv}.
 
-The new version of the {s4sClConnector3} now allows to start, stop and 'migrate'
+The new version of the {s4sClConnector3} allows to start, stop and 'migrate'
 an {sap} instance. The integration between the cluster software and the
-{sapstartsrv} also implements to run checks of the HA setup using either the
-command line tool sapcontrol or even the {SAP} management consoles ({SAP} MMC or
+{sapstartsrv} also implements the option to run checks of the HA setup using either the
+command line tool 'sapcontrol' or even the {SAP} management consoles ({SAP} MMC or
 {sap} MC). Since version 3.1.0 and later the maintenance mode of cluster resources triggered with SAP
-sapcontrol commands is supported.
+'sapcontrol' commands is supported.
 
 
 === Disks and Partitions
 
-For all {sap} file systems beside the file systems on NFS we are using XFS.
+XFS is used for all {sap} file systems besides the file systems on NFS.
 
 ==== Shared Disk for Cluster ASCS and ERS
 
-The disk for the ASCS and ERS instances need to be shared and assigned to the
-cluster nodes {my2nd1} and {my2nd2} in the two node cluster example. Besides the partitions for the file systems
-for the SAP instances the disk also provides the partition to be used as SBD.
+The disk for the ASCS and ERS instances must be shared and assigned to the
+cluster nodes {my2nd1} and {my2nd2} in the two node cluster example. In addition to the partitions for the file systems
+for the SAP instances, the disk also provides the partition to be used as SBD.
 
 On {my2nd1} prepare the file systems for the shared disk. Create three partitions on
 the shared drive {myDev}:
 
-* partition one ({myDevPartSbd}) for SBD (7M)
-* partition two ({myDevPartAscs}) for the first file system (10GB) formatted
+* Partition one ({myDevPartSbd}) for SBD (7M)
+* Partition two ({myDevPartAscs}) for the first file system (10GB) formatted
 with XFS
-* partition three ({myDevPartErs}) for the second file system (10GB) formatted
+* Partition three ({myDevPartErs}) for the second file system (10GB) formatted
 with XFS
 
-You could either use YaST to create partitions or using available command line
-tools. The following script could be used for non-interactive setups.
+To create the partitions, you could either use YaST or available command line tools. 
+The following script can be used for non-interactive setups.
 
 [subs="attributes"]
 ----
@@ -297,13 +300,13 @@ tools. The following script could be used for non-interactive setups.
 # mkfs.xfs {myDevPartErs}
 ----
 
-For these file systems we recommend to use plain partitions to keep the cluster
-configuration as easy as possible. However you could also place these file
+For these file systems it is recommended to use plain partitions to keep the cluster
+configuration as simple as possible. However you can also place these file
 systems in separate volume groups. In that case you need to add further cluster
 resources to control the logical volume groups, and occasionally
-MD-Raid devices. This is out of the scope of this setup-guide.
+MD-Raid devices. The description of such a setup however is out-of-scope of the guide at hand.
 
-After we have partitioned the shared disk on {my2nd1} we need to request a
+After having partitioned the shared disk on {my2nd1}, you need to request a
 partition table rescan on {my2nd2}.
 
 [subs="attributes"]
@@ -311,8 +314,8 @@ partition table rescan on {my2nd2}.
 # partprobe; fdisk -l {myDev}
 ----
 
-During the SAP installation we need {myMpAscs} to be mounted on {my2nd1} and
-{myMpErs} to be mounted on {my2nd2}.
+During the SAP installation you need to mount {myMpAscs} on {my2nd1} and
+{myMpErs} on {my2nd2}.
 ////
 TODO: non line break with in command or variables
 ////
@@ -326,17 +329,17 @@ The disk for the primary and secondary application server is assigned to
 {myNode1}.
 
 .{myNode1}
-* partition one ({myDevPartDb}) for the Database (160GB) formatted with XFS
-* partition two ({myDevPartPas}) for the PAS instance (10GB) formatted with XFS
-* partition three ({myDevPartSec}) for the AAS instance (10GB) formatted
+* Partition one ({myDevPartDb}) for the Database (160GB) formatted with XFS
+* Partition two ({myDevPartPas}) for the PAS instance (10GB) formatted with XFS
+* Partition three ({myDevPartSec}) for the AAS instance (10GB) formatted
 with XFS
 
 ////
 TODO we used a non shared disk. Forgot to mount during installation?!?!?!
 ////
 
-You could either use YaST to create partitions or using available command line
-tools. The following script could be used for non-interactive setups.
+You can either use YaST or available command line tools to create the partitions. 
+The following script can be used for non-interactive setups.
 
 .{myNode1}
 ==============================================
@@ -362,8 +365,8 @@ tools. The following script could be used for non-interactive setups.
 
 - {myNode1}:   {myDevPartSec}   {myMpSec}
 
-NOTE:  {myInstPas} => Since NetWeaver 7.5 the primary application server instance
-directory has been renamed. (D<Instance_Number>)
+NOTE:  {myInstPas}: Since NetWeaver 7.5 the primary application server instance
+directory has been renamed to 'D<Instance_Number>'.
 
 
 .NFS server
@@ -376,8 +379,8 @@ directory has been renamed. (D<Instance_Number>)
 
 === IP Addresses and Virtual Names
 
-Check, if the /etc/hosts contains at least the following address resolutions.
-Add those entries, if they are missing.
+Check if the file /etc/hosts contains at least the following address resolutions.
+Add those entries if they are missing.
 
 [subs="attributes"]
 ----
@@ -402,14 +405,14 @@ Add those entries, if they are missing.
 
 === Mount Points and NFS Shares
 
-In our setup the directory _/usr/sap_ is part of the root file system. You could
-of course also create a dedicated file system for that area and mount _/usr/sap_
-during the system boot. As _/usr/sap_ also contains the {sap} control file
-_sapservices_ and the {saphostagent} the directory should not be placed on a
+In the present setup the directory _/usr/sap_ is part of the root file system. You can
+also create a dedicated file system for that area and mount _/usr/sap_
+during the system boot. As _/usr/sap_ contains the {sap} control file
+_sapservices_ and the {saphostagent}, the directory should not be placed on a
 shared file system between the cluster nodes.
 
-We need to create the directory structure on all nodes which should be able to
-run the SAP resource. The SYS directory will be on an NFS share for all nodes.
+You need to create the directory structure on all nodes that should run the SAP resource. 
+The SYS directory will be located on an NFS share for all nodes.
 
 - Creating mount points and mounting NFS share at all nodes
 
@@ -438,7 +441,7 @@ run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 ////
 TODO: one partition will be mounted mkdir must be run again after mount
 ////
-As we do not control the NFS shares via the cluster in this setup, you should
+You do not control the NFS shares via the cluster in the setup at hand. Thus you should
 add these file systems to _/etc/fstab_ to get the file systems mounted during
 the next system boot.
 
@@ -448,12 +451,12 @@ review Lee means this looks like a 4 node cluster, adding additional title???
 .File system layout including NFS shares
 image::sles4sap_nw740_fs.svg[SVG]
 
-We prepare the three servers for the distributed {sap} installation. Server 1
-({myNode1}) will be used to install the {sap} HANA database. Server 1
-({myNode1}) will be used to install the PAS {sap} instance. Server 1
-({myNode1}) will be used to install the AAS {sap} instances. Server 2
-({my2nd1}) will be used to install the ASCS {sap} instances. Server 3
-({my2nd2}) will be used to install the ERS {sap} instances.
+Prepare the three servers for the distributed {sap} installation. Server 1
+({myNode1}) is used to install the {sap} HANA database. Server 1
+({myNode1}) is used to install the PAS {sap} instance. Server 1
+({myNode1}) is used to install the AAS {sap} instances. Server 2
+({my2nd1}) is used to install the ASCS {sap} instances. Server 3
+({my2nd2}) is used to install the ERS {sap} instances.
 
 - Mounting the instance and database file systems at one specific node:
 
@@ -470,7 +473,7 @@ We prepare the three servers for the distributed {sap} installation. Server 1
 ----
 =============================================================
 
-- As a result the directory _/usr/sap/{mySid}/_ should now look like:
+- As a result the directory _/usr/sap/{mySid}/_ should now look as follows:
 
 [subs="attributes"]
 ----
@@ -485,19 +488,19 @@ drwxr-xr-x 1 {mySidLc}adm sapsys  0 28. Mar 15:59 {myInstErs}/
 drwxr-xr-x 5 {mySidLc}adm sapsys 87 28. Mar 17:21 SYS/
 ----
 
-NOTE: The owner of the folder and files are changed during the {sap} installation. By default all
+NOTE: The owner of the folder and files is changed during the {sap} installation. By default all
 of them are owned by root.
 
 == SAP Installation
 
-The overall procedure to install the distributed SAP system is:
+The overall procedure to install the distributed SAP system is as follows:
 
-- Installing the ASCS instance for the central services
-- Installing the ERS to get a replicated enqueue scenario
+- Install the ASCS instance for the central services
+- Install the ERS to get a replicated enqueue scenario
 - Prepare the ASCS and ERS installations for the cluster take-over
-- Installing the Database
-- Installing the primary application server instance (PAS)
-- Installing additional application server instances (AAS)
+- Install the Database
+- Install the primary application server instance (PAS)
+- Install additional application server instances (AAS)
 
 The result will be a distributed {sap} installation as illustrated here:
 
@@ -507,8 +510,7 @@ image::sles4sap_nw740_distInstall.svg[SVG]
 === Linux User and Group Number Scheme
 
 Whenever asked by the SAP software provisioning manager (SWPM) which Linux User
-IDs or Group IDs to use, refer to the following table which is, of course, only
-an example.
+IDs or Group IDs to use, refer to the following table as example:
 
 [subs="attributes"]
 ----
@@ -524,9 +526,9 @@ User  {bsDBadm}       2003
 
 === Install ASCS on {my2nd1}
 
-Temporarily we need to set the service IP address we will have later in the
-cluster, as local IP because the installer wants to resolve or use it.
-Make sure to use the right virtual host name for each installation step.
+Temporarily, as local IP address, you need to set the service IP address which you will later use in the
+cluster, because the installer wants to resolve or use it.
+Make sure to use the correct virtual host name for each installation step.
 Take care for the file systems like {myDevPartAscs} and /var/lib/Landscape/ which might also need
 to be mounted.
 
@@ -549,9 +551,9 @@ to be mounted.
 
 === Install ERS on {my2nd2}
 
-Temporarily we need to set the service IP address we will have later in the
-cluster, as local IP because the installer would like to resolve or use it.
-Make sure to use the right virtual host name for each installation step.
+Temporarily, as local IP address, you need to set the service IP address which you will later use in the
+cluster, because the installer want to resolve or use it.
+Make sure to use the correct virtual host name for each installation step.
 
 [subs="attributes"]
 ----
@@ -576,7 +578,7 @@ High-Availability System -> ERS Instance
 ----
 
 * If you get a prompt to manually stop/start the ASCS instance, log in at
-{my2nd1} as user {mysapadm} and call sapcontrol.
+{my2nd1} as user {mysapadm} and call 'sapcontrol'.
 
 [subs="attributes"]
 ----
@@ -1612,6 +1614,10 @@ op_defaults op-options: \
 ////
 
 == Reference
+
+For more detailled information, have a look at the documents listed below.
+
+=== Pacemaker
 - Pacemaker 1.1 Configuration Explained
 https://clusterlabs.org/pacemaker/doc/en-US/Pacemaker/1.1/html/Pacemaker_Explained/.
 

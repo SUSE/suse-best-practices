@@ -282,10 +282,8 @@ On {my2nd1} prepare the file systems for the shared disk. Create three partition
 the shared drive {myDevA}:
 
 * Partition one ({myDevPartSbd}) for SBD (7MB)
-* Partition two ({myDevPartAscs}) for the first file system (10GB) formatted
-with XFS
-* Partition three ({myDevPartErs}) for the second file system (10GB) formatted
-with XFS
+* Partition two ({myDevPartAscs}) for the first file system (10GB) formatted with XFS
+* Partition three ({myDevPartErs}) for the second file system (10GB) formatted with XFS
 
 To create the partitions, you can use either YaST or available command line tools.
 The following script can be used for non-interactive setups.
@@ -455,7 +453,7 @@ the next system boot.
 review Lee means this looks like a 4 node cluster, adding additional title???
 ////
 .File system layout including NFS shares
-image::sles4sap_nw740_fs.svg[SVG]
+image::sles4sap_ap1809_fs.svg[SVG]
 
 Prepare the three servers for the distributed {sap} installation. Server 1
 ({myNode1}) is used to install the {sap} HANA database. Server 1
@@ -511,7 +509,7 @@ The overall procedure to install the distributed SAP system is as follows:
 The result will be a distributed {sap} installation as illustrated here:
 
 .Distributed installation of the {sap} system
-image::sles4sap_ap1809_fs.svg[SVG]
+image::sles4sap_nw740_distInstall.svg[SVG]
 
 === Linux User and Group Number Scheme
 
@@ -1497,7 +1495,232 @@ quorum {
 ----
 
 ////
-TODO: 4node example
+TODO: 3node example
+
+=== The Multinode Cluster Setup for an {sapS4}
+
+Depending from your starting point it is possible to extend a two node cluster setup or directly start with
+more than two nodes for the ASCS / ERS.
+The example below will show the extension of an existing two node cluster pair. The major configuration changes
+will be shown and the basic preparation of the new cluster member node.
+
+==== Two Node Configuration - Starting point
+
+- Backup your system
+-- cluster configuration
+-- corosync.conf
+-- all data and configuration which are important and customized and not default
+
+The system is configured as described in our  the best practice
+SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide.
+
+.Backup the cluster configuration
+
+Go to one of the cluster nodes and safe the cluster configuration with crm:
+
+[subs="attributes"]
+----
+# crm configure save 2node.txt
+----
+
+Take care for the existing /etc/corosync/corosync.conf and all files which maybe important for a restore.
+This example is only one methode to create a configuration backup.
+
+[subs="attributes"]
+----
+# tar cvf /<path to an external storage>/bck_2nodes_configuration.tar /etc/corosync/corosync.conf 2node.txt ..
+----
+
+==== Multi Node Configuration
+
+- OS installation new node
+- Patching the existing nodes
+- OS preparation new node
+-- installing packages
+-- SAP preparation
+-- joining the infrastructure
+-- joining the cluster
+- Test the new cluster configuration
+- Pro's and Con's for odd and even numbers of cluster nodes
+
+===== OS installation of the new cluster node member.
+
+Recommended is to use an automated installation which takes care that all your system set up identical.
+A documentation which describes the changes from this automated setup is very helpful. In our example we
+deploy our machines with an autoyast configuration file and run a post step script which does the basic
+configuration.
+
+===== Patching the existing nodes.
+
+Depending on you infrastructure and installation setup it must be necessary to install the latest updates
+and patches on your existing nodes. In case there are freezed repositories like SUSE Manager provides this.
+The new system could be added to the same repositories and will have at least the same patch level as your
+existing nodes.
+
+Use *zypper patch* or *zypper update* depending on the company rules.
+
+- It is recommended to install the latest available patches to guaranty the system stability and hardening.
+Bug fixing and security patches helps to did not run into unplanned outages and make the system less vulnerable.
+
+There are multiple ways:
+
+[subs="attributes"]
+----
+# zypper patch --category security
+## or
+# zypper patch --severity important
+## or
+# zypper patch
+## or
+# zypper update
+----
+
+===== OS preparation new node
+
+.Please take care for a valid DNS, time, network setup and patch level.
+
+- verify that DNS is working
+
+[subs="attributes"]
+----
+# ping <hostname>
+----
+
+- set up *chrony* (this is best done with *yast2*) and enable it
+
+[subs="attributes"]
+----
+# yast ntp-client
+----
+
+- check the network setting
+
+[subs="attributes"]
+----
+# ip r
+----
+
+We experienced some trouble if there is no valid or no default route set.
+
+- patch the new system like the existing nodes, verify that your system have the same patch level and
+ required reboot are done and not outstanding
+After installing all needed packages this could be one way to check the package versions.
+
+.on the existing cluster nodes
+
+[subs="attributes"]
+----
+# rpm -qa | sort >rpm_valuga11.log
+----
+
+.on the new node
+
+[subs="attributes"]
+----
+# rpm -qa | sort >rpm_valuga13.log
+----
+
+.copy the file from one node to the other and compare it
+
+[subs="attributes"]
+----
+# vimdiff rpm_valuga13.log rpm_valuga11.log
+----
+
+NOTE: If there any differences fix them first before you proceed.
+
+.Installing packages
+
+- install *pattern ha_sles* on new cluster node
+
+[subs="attributes"]
+----
+# zypper in -t pattern ha_sles
+----
+
+- install and configure the watchdog device on the new machine
+
+Instead of deploying the software based solution, a hardware-based watchdog device should preferably be used.
+The following example uses the software device but can be easily adapted to the hardware device.
+
+[subs="attributes"]
+----
+# modprobe softdog
+# echo softdog > /etc/modules-load.d/watchdog.conf
+# systemctl restart systemd-modules-load
+# lsmod | egrep "(wd|dog|i6|iT|ibm)"
+----
+- install the package *{s4sClConnector3}* version 3.1.0 from the SUSE repositories:
+
+[subs="attributes"]
+----
+# zypper in {s4sClConnector3}
+----
+
+.SAP preparation on the new node
+
+SAP will provide with SWPM 2.0 a new option which can do all the needed steps to prepare a fresh
+install server to be able to fit into an existing SAP system. This new option will help us to prepare a
+new host which could run later one the ASCS or ERS in our cluster environment.
+
+You need to create the directory structure that should run the SAP resource.
+The SYS directory is located on an NFS share for all nodes.
+
+- creating mount points and mounting NFS share at all nodes
+
+.{sapS4}
+==============================================
+[subs="attributes"]
+----
+# mkdir -p /sapmnt /var/lib/Landscape
+# mkdir -p /usr/sap/{mySid}/{{myInstAscs},{myInstErs},SYS}
+# mount -t nfs {myNfsSrv}:{myNFSSapmnt}    /sapmnt
+# mount -t nfs {myNfsSrv}:{myNFSSys} /usr/sap/{mySid}/SYS
+# mount -t nfs {myNfsSrv}:{myNFSSapmedia} /var/lib/Landscape
+----
+==============================================
+
+As this directory should be available at all the time they can be mounted during boot. This can be
+achieved by put the information into the /etc/fstab.
+
+[subs="attributes"]
+----
+#
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNAscs}
+----
+
+* SWPM product installation path:
+** Installing {sapS4in}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP
+-> High-Availability System -> ASCS Instance
+* Use SID {mySid}
+* Use instance number {myAscsIno}
+* Deselect using FQDN
+* All passwords: use {mySapPwd}
+* Double-check during the parameter review, if virtual name *{myVipNAscs}* is used
+
+
+
+
+Add the user _{mySapAdm}_ to the unix user group _haclient_.
+
+[subs="attributes"]
+----
+# usermod -a -G haclient {mySapAdm}
+----
+
+[subs="attributes"]
+----
+#
+----
+
+[subs="attributes"]
+----
+#
+----
+
+
+===== Example of corosync.conf for three nodes
 
 valuga21:~ # cat /etc/corosync/corosync.conf
 # Read the corosync.conf.5 manual page
@@ -1553,11 +1776,6 @@ nodelist {
 		nodeid: 3
 	}
 
-	node {
-		ring0_addr: 192.168.1.108
-		nodeid: 4
-	}
-
 }
 
 quorum {
@@ -1565,15 +1783,14 @@ quorum {
 	# Enable and configure quorum subsystem (default: off)
 	# see also corosync.conf.5 and votequorum.5
 	provider: corosync_votequorum
-	expected_votes: 4
+	expected_votes: 3
 	two_node: 0
 }
 
-valuga21:~ # cat 4node.txt
+valuga21:~ # cat 3node.txt
 node 1: valuga21
 node 2: valuga22
 node 3: valuga23
-node 4: valuga24
 primitive rsc_fs_EN2_ASCS00 Filesystem \
 	params device="/dev/sda2" directory="/usr/sap/EN2/ASCS00" fstype=xfs \
 	op start timeout=60s interval=0 \
@@ -1609,13 +1826,6 @@ group grp_EN2_ASCS00 rsc_ip_EN2_ASCS00 rsc_fs_EN2_ASCS00 rsc_sap_EN2_ASCS00 \
 group grp_EN2_ERS10 rsc_ip_EN2_ERS10 rsc_fs_EN2_ERS10 rsc_sap_EN2_ERS10 \
 	meta target-role=Started
 colocation ASCS00_ERS10_separated_EN2 -50000: grp_EN2_ERS10 grp_EN2_ASCS00
-#
-# currently not helpful on 2 node clusters
-#
-#colocation col_sap_EN2_no_both -5000: grp_EN2_ERS10 grp_EN2_ASCS00
-#
-# not needed for ENSA2
-#location loc_sap_EN2_failover_to_ers rsc_sap_EN2_ASCS00 #         rule 2000: runs_ers_EN2 eq 1
 order ord_sap_EN2_first_start_ascs Optional: rsc_sap_EN2_ASCS00:start rsc_sap_EN2_ERS10:stop symmetrical=false
 property cib-bootstrap-options: \
 	have-watchdog=true \
@@ -1636,7 +1846,7 @@ op_defaults op-options: \
 
 == Reference
 
-For more detailled information, have a look at the documents listed below.
+For more detailed information, have a look at the documents listed below.
 
 === Pacemaker
 - Pacemaker 1.1 Configuration Explained
@@ -1657,3 +1867,5 @@ include::common_gfdl1.2_i.adoc[]
 //
 // REVISION 1.0 2019/01
 //   - ENSA2 cluster setup 2 nodes
+// REVISION 1.1 2019/03
+//   - ENSA2 cluster setup 3+ nodes

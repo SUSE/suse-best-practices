@@ -56,8 +56,8 @@ function make_graphics()
 
 function make_docbook() # ascidoc -> docbook
 {
-    # asciidoc --doctype=book \
-    asciidoctor --doctype=article \
+    asciidoc --doctype=book \
+   # asciidoctor --doctype=article \
              --backend=docbook \
              --out-file="xml/${doc}.xml" \
              $docfile

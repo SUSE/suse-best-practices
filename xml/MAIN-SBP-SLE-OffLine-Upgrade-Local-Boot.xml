@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?asciidoc-toc?>
+<?asciidoc-numbered?>-->
+
+<!--<?xml version="1.0" encoding="UTF-8"?>-->
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+
+<article role="sbp" xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art.sbp.iaas.sapcloud"
+ xml:lang="en">
+
+ <info>
+  <title>Upgrading SLES to new major version when no media to boot is available</title>
+  <!--<subtitle></subtitle>-->
+  <productname>SUSE Linux Enterprise</productname>
+  <productnumber>11 and newer</productnumber>
+
+
+  <author>
+   <personname>
+    <firstname>Jiri</firstname>
+    <surname>Srain, Project Manager Engineering, SUSE</surname>
+   </personname>
+   <!--<affiliation>
+    <jobtitle>Project Manager Engineering</jobtitle>
+    <orgname>&suse;</orgname>
+    </affiliation>-->
+  </author>
+
+
+
+
+
+  <!--       <cover role="logos">
+   <mediaobject>
+   <imageobject>
+   <imagedata fileref="suse.svg"/>
+   </imageobject>
+   </mediaobject>
+   <mediaobject>
+   <imageobject>
+   <imagedata fileref="microsoft.svg"/>
+   </imageobject>
+   </mediaobject>
+   </cover>-->
+
+  <date><?dbtimestamp format="B d, Y" ?></date>
+
+  <abstract>
+   <para>This guide provides information, how to perform upgrade of a SLE system
+         to a new major version in environments, which do not allow standard booting
+	 of the installation media - neither locally, nor via PXE.</para>
+  </abstract>
+
+ </info>
+
+ <sect1 xml:id="sec.intro">
+  <title>Introduction</title>
+
+  <para>When you need to upgrade your SLE system to a newer service pack, there are
+   tools available, which allow upgrading it on-line - meaning to install 
+   new packages while the system is still running, followed by a reboot.</para>
+
+  <para>This process has the advantage, that you only need access to the system (be
+   it a local console, SSH session) and do not need to configure the firmware
+   in order to boot a different media.</para>
+
+  <para>However, upgrading a system to new major version cannot be performed on-line;
+   you need to boot the system from the installation media (DVD, USB stick, PXE)
+   in order to perform upgrade.</para>
+
+  <para>In some environments (e.g. Cloud, remote server room) it may not be possible
+   to insert a new media to the server, configure the firmware to boot from
+   a different (even virtual) disk or prepare the PXE boot environment for
+   starting the upgrade process.</para>
+
+  <para>This document describes, how the existing bootloader can be used in order
+   to start the upgrade of a host in such environment in order to perform
+   upgrade from SLE11 to SLE12, or from SLE12 to SLE15.</para>
+
+  <para>While the examples below focus on x86 system, similar approach can be applied
+   to other architectures too.</para>
+
+ </sect1>
+ <sect1 xml:id="sec.requirements">
+  <title>Requirements</title>
+
+  <para>In order to perform upgrade, you need to get prepared following:</para>
+  <itemizedlist>
+   <listitem>
+    <para>The installation repository</para>
+   </listitem>
+   <listitem>
+    <para>The installation kernel and initrd</para>
+   </listitem>
+  </itemizedlist>
+
+  <para>The installation repository should be either copied to a local disk, or available
+   via network. The installer supports all common transfer protocols, like HTTP(S),
+   FTP, NFS, SMB, and for local media, either a local disk or a CD/DVD drive.
+   The required disk space is around 5GB for upgrading to
+   SLE12 or around 1GB for upgrading to SLE15 on top of disk space needed for upgrade itself.</para>
+  <para>The installation kernel and initrd must be put to the boot areas; depending on the
+   hardware architecture; for x86 legacy booting, this is the /boot directory. The amount
+   of needed disk space is c.a. 100MB.</para>
+ </sect1>
+ <sect1 xml:id="sec.inst_repo">		 
+  <title>Preparing Installation Repository</title>
+  <para>Preparing the installation repository is an easy task. You must extract the contents
+   of the installation media to the respective location either on your local system or on
+   a network share. Use the contents of DVD1 of any SLE12 product, or the
+   Installer DVD with the unified SLE15 installer.</para>
+  <para>If you intend to put the installation media to a local storage, either use a second
+   disk or a standalone partition, which is not by default mounted by your system.
+   During the upgrade process, YaST mounts all partitions, which would result in the
+   partition getting mounted twice at the same time.</para>	  
+  <para>If you use any network share, make sure that it is accessible from the host you aim to
+   upgrade (test it e.g. via a web browser).</para>
+  <para>If you have a local SMT or RMT server available, the repository is probably already
+   mirrored on that server. In this case, you can point the installer to the POOL repository
+   of the product you want to upgrade to. However, in this case you need to make sure that the
+   installation environment is available too.</para>	  
+ </sect1>
+ <sect1 xml:id="sec.inst_kernel">		 
+  <title>Preparing Installation Kernel and Initrd</title>
+  <para>In order to boot the installer, you need to extract the installation kernel and initrd
+   from the media and put it to the location, where bootloader can load it from. There are
+   two ways to get the installation kernel and initrd:</para>
+  <itemizedlist>
+   <listitem>		 
+    <para>From the DVD1 of the SLE12 product, resp. the SLE15 unified installer</para>
+   </listitem>
+   <listitem>
+    <para>From packages whipped with new product for network booting</para>
+   </listitem>
+  </itemizedlist>
+  <para>The examples below expect that the system architecture is x86_64 with legacy booting,
+   and product is the SUSE Linux Enterprise Server. For other products or architectures, the paths or package
+   names may differ.</para>
+  <sect2 xml:id="sec.inst_kernel.media">
+   <title>Extracting Installation Kernel from the media</title>
+   <para>This section expects that the installation media is mounted under /mnt</para>
+   <para>Copy the kernel and initrd from the installation media to the same location, where
+    your system stores its kernel and initrd:</para>
+   <screen>
+# cp /mnt/boot/x86_64/loader/initrd /boot/initrd.install
+# cp /mnt/boot/x86_64/loader/linux /boot/linux.install		   
+   </screen>
+  </sect2>		 
+  <sect2 xml:id="sec.inst_kernel.package">
+   <title>Extracting Installation Kernel from a package</title>
+   <para>SLE12-SP4 and newer products include a package, which contains all files needed
+    for seting up a PXE boot server for installation of the respective product. The name
+    of the package looks like
+   <filename>tftpboot-installation-&lt;product&gt;-&lt;version&gt;-&lt;architecture&gt;.noarch.rpm</filename>.
+    You can download get the package from the repositories of the product you install to.
+    The package is architecture-independent and does not require any packages from the
+    new product.</para>
+   <screen>
+# rpm -i tftpboot-installation-SLES-12-SP4-x86_64-14.337.5-1.33.noarch.rpm
+# cp /srv/tftpboot/SLES-12-SP4-x86_64/boot/x86_64/loader/linux /boot/linux.install 
+# cp /srv/tftpboot/SLES-12-SP4-x86_64/boot/x86_64/loader/initrd /boot/initrd.install 	   
+# rpm -e tftpboot-installation-SLES-12-SP4-x86_64
+   </screen>
+  </sect2>		 
+ </sect1>
+ <sect1 xml:id="sec.bootloader">		 
+  <title>Configuring Bootloader</title>
+  <para>In order to perform upgrade, you need to configure the bootloader of the
+"old", still running system.</para>
+  <sect2 xml:id="sec.bootloader.grub">
+   <title>Configuring GRUB for upgrade from SLE11</title>
+   <para>GRUB configuration is stored in <filename>/boot/grub/menu.lst</filename>. Open this file and
+     append a section, which will start the ugrade:</para>	    
+   <screen>
+title SUSE Linux Enterprise Server 12 Update
+    root (hd0,1)
+    kernel /boot/linux.install &lt;options&gt;
+    initrd /boot/initrd.install
+   </screen>		  
+   <para>For <systemitem>&lt;options&gt;</systemitem> see parameters, which need to be included, below.
+    Make sure that the root value matches the one for your other sections so that
+    it points to the same partition. Optionally, you can configure GRUB to boot different
+    default section next time (adjust the number according to your menu, starting from 0):</para>
+   <screen>
+# grubonce 2
+Using entry #2: SUSE Linux Enterprise Server 12 Installer		   
+   </screen>		  
+  </sect2>		 
+  <sect2 xml:id="sec.bootloader.grub2">
+   <title>Configuring GRUB2 for upgrade from SLE12</title>
+   <para>GRUB2 generates the boot menu based from kernels and other operating systems found in the system.
+    However, it still allows you to add a custom section.</para>
+   <para>First, locate the menu entry for your system in <filename>/boot/grub2/grub.cfg</filename>. It can 
+    look like following:</para>
+  <screen>
+menuentry 'SLES 12-SP4'  --class sles --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-cd77493e-f701-4624-8074-21f0061e0727' {
+        load_video
+        set gfxpayload=keep
+        insmod gzio
+        insmod part_msdos
+        insmod ext2
+        set root='hd0,msdos2'
+        if [ x$feature_platform_search_hint = xy ]; then
+          search --no-floppy --fs-uuid --set=root --hint='hd0,msdos2'  cd77493e-f701-4624-8074-21f0061e0727
+        else
+          search --no-floppy --fs-uuid --set=root cd77493e-f701-4624-8074-21f0061e0727
+        fi
+        echo    'Loading Linux 4.12.14-94.41-default ...'
+        linux   /boot/vmlinuz-4.12.14-94.41-default root=UUID=cd77493e-f701-4624-8074-21f0061e0727  resume=/dev/vda1 splash=silent quiet showopts
+        echo    'Loading initial ramdisk ...'
+        initrd  /boot/initrd-4.12.14-94.41-default
+}
+  </screen>	      	  
+  <para>As a next step, open the file <filename>/etc/grub.d/40_custom</filename> and create a custom entry in it.
+   It will only differ from the one above in the title, path to kernel and initrd and kernel parameters
+   (lines <systemitem>menuetry</systemitem>, <systemitem>linux</systemitem> and <systemitem>initrd</systemitem>):</para>	  
+  <screen>
+menuentry 'SLES 15 Upgrade' {
+        load_video
+        set gfxpayload=keep
+        insmod gzio
+        insmod part_msdos
+        insmod ext2
+        set root='hd0,msdos2'
+        if [ x$feature_platform_search_hint = xy ]; then
+          search --no-floppy --fs-uuid --set=root --hint='hd0,msdos2'  cd77493e-f701-4624-8074-21f0061e0727
+        else
+          search --no-floppy --fs-uuid --set=root cd77493e-f701-4624-8074-21f0061e0727
+        fi
+        echo    'Loading Linux 4.12.14-94.41-default ...'
+        linux   /boot/linux.install  &lt;options&gt;
+        echo    'Loading initial ramdisk ...'
+        initrd  /boot/initrd.install
+  </screen>
+  <para>Keep the lines, which you do not need to change, unchanged; they make sure that bootloader loads
+   the right modules in order to load your installation kernel</para>
+  <para>For <systemitem>&lt;options&gt;</systemitem> see parameters, which need to be included, below.</para>
+  <para>After the menu entry is created, re-create the GRUB menu and, optionally, set the default
+   boot option for the next reboot:</para>
+  <screen>
+# grub2-mkconfig -o /boot/grub2/grub.cfg
+Generating grub configuration file ...
+Found theme: /boot/grub2/themes/SLE/theme.txt
+Found linux image: /boot/vmlinuz-4.12.14-94.41-default
+Found initrd image: /boot/initrd-4.12.14-94.41-default
+done
+# grub2-once --list
+0 SLES 12-SP4
+1 Advanced options for SLES 12-SP4>SLES 12-SP4, with Linux 4.12.14-94.41-default
+2 Advanced options for SLES 12-SP4>SLES 12-SP4, with Linux 4.12.14-94.41-default (recovery mode)
+3 SLES 15 Upgrade
+4 halt
+# grub2-once 3
+   </screen>
+  </sect2>		 
+  <sect2 xml:id="sec.bootloader.options">
+   <title>Setting bootloader options</title>
+   <para>You can insert into the bootloader any of the options, which you can use when performing
+    regular installation or upgrade. Those include, among others, options to start remote
+    installation or upgrade (via SSH or VNC), enforcing a text mode instead of graphical UI,
+    or starting AutoYaST - for both installation and upgrade. These options are not covered by
+    this document, refer to the <link xlink:href="http://www.suse.com/documentation/">documentation</link>
+    of the respective product.</para>
+   <para>There are, however, options which need to be present:</para>
+   <itemizedlist>
+    <listitem>
+     <para><systemitem>install=&lt;URL&gt;</systemitem> points the installer to the URL, which hosts
+      your installation repository. Set it according to where you prepared the installation media.</para>
+    </listitem>
+    <listitem>
+     <para><systemitem>upgrade=1</systemitem> is necessary in order to start the Upgrade workflow instead
+      of performing new installation.</para>
+    </listitem>
+    <listitem>
+     <para><systemitem>autoyast=&lt;URL&gt;</systemitem> is necessary if you prefer not to do upgrade
+      manually, but via AutoYaST instead. Set the location of the AutoYaST profile to drive the
+      upgrade process.</para>
+    </listitem>
+    <listitem>
+     <para><systemitem>autoupgrade=1</systemitem> is necessary in order to perform system upgrade with
+      AutoYaST. In this case, skip the <systemitem>upgrade=1</systemitem> option. Use together with 
+      the <systemitem>autoyast</systemitem> option.</para>
+    </listitem>
+    <listitem>
+     <para><systemitem>instsys=&lt;URL&gt;</systemitem> is necessary if you want to perform upgrade
+      via <systemitem>SMT</systemitem> or <systemitem>RMT</systemitem>. See more information below.</para>
+    </listitem>
+   </itemizedlist>
+   <para>For more information about AutoYaST and how to use it for system installation or upgrade,
+    refer to the Deployment Guide of the respective product.</para>
+  </sect2>		 
+ </sect1>
+ <sect1 xml:id="sec.upgrade_smt">
+  <title>Preparing Installation Environment for Upgrade via SMT</title>
+  <para>TBD
+</para>	  
+ </sect1>
+
+ <sect1 xml:id="sec.upgrade">
+  <title>Perrorming Upgrade</title>
+  <para>After setting the bootlader, reboot your system and choose the custom bootloader entry
+   in order to start the upgrade process. The upgrade itself will look the same way as if you
+   booted the installation media and selected "Upgrade" from its boot menu.</para>	  
+  <para>When the system is upgraded, remove the new created bootloader section if it is still
+   present and, if needed, set your default bootloader section as needed.</para>	  
+  <para>You can also remove the kernel and initrd you copied to your system and used for upgrade.</para>
+ </sect1>
+
+
+ <sect1 xml:id="sec.legal_notice">
+  <title>Legal Notice</title>
+  <para>Copyright &copy;2006–2019 SUSE LLC and contributors. All rights reserved. </para>
+  <para>Permission is granted to copy, distribute and/or modify this document under the terms of the
+   GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with the Invariant
+   Section being this copyright notice and license. A copy of the license version 1.2 is included in
+   the section entitled <quote>GNU Free Documentation License</quote>.</para>
+  <para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United States and
+   other countries. For SUSE trademarks, see <link xlink:href="http://www.suse.com/company/legal/"
+    >http://www.suse.com/company/legal/</link>. Linux is a registered trademark of Linus Torvalds.
+   All other names or trademarks mentioned in this document may be trademarks or registered
+   trademarks of their respective owners.</para>
+  <para>This article is part of a series of documents called "SUSE Best Practices". The individual
+   documents in the series were contributed voluntarily by SUSE's employees and by third
+   parties.</para>
+  <!--  <para>The articles are intended only to be one example of how a particular action could be
+   taken. They should not be understood to be the only action and certainly not to be the
+   action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+   in the articles do what they claim to do or that they don't have unintended
+   consequences.</para>-->
+  <para> All information found in this document has been compiled with utmost attention to detail.
+   However, this does not guarantee complete accuracy.
+   <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+   for possible errors or the consequences thereof. --></para>
+  <para>Therefore, we need to specifically state that neither SUSE LLC, its affiliates, the authors,
+   nor the translators may be held liable for possible errors or the consequences thereof. Below we
+   draw your attention to the license under which the articles are published.</para>
+ </sect1>
+ <?pdfpagebreak style="suse2013" formatter="fop"?>
+ <xi:include href="license-gfdl.xml"/>
+
+</article>

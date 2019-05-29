@@ -1,0 +1,536 @@
+== Storage
+
+A working implementation for the storage of customer payload data is
+crucially important to any setup present in modern IT. This chapter
+elaborates on the relevance of storage and a typical implementation in
+conventional setups. It explains how storage requirements 
+are different in scalable platforms and clouds and why conventional 
+approaches are not suitable. Finally, it details what object storage is, 
+how Ceph works and how SUSE Enterprise Storage based on Ceph is an ideal 
+storage solution for highly scalable environments such as OpenStack.
+
+=== Storage in Conventional Setups
+
+The need for resilient and robust storage is nothing new. Every 
+IT administrator is familiar with storage solutions such as SAN appliances 
+provided by vendors such as EMC, Dell or HP. For many years and good reasons,
+these solutions were considered state-of-the-art when it came to storing 
+data in IT setups. Said solutions combine easy-to-use GUIs and management 
+interfaces with a solid technical performance. They come, however, at a high 
+cost. Nevertheless, SAN appliances have been around for a long time and 
+continue to be successful. 
+
+==== SAN-Based Storage Architectures
+
+SAN storage appliances are a central component of conventional setups. 
+Although they are very important for the functionality of the environment, 
+SAN storages often are not designed redundantly. This is because redundant 
+SANs require the device to be available twice, which would double the
+costs for the setup. Most SAN storages use technologies such as RAID to 
+ensure internal redundancy. In case of a hardware device damage or 
+the loss of an entire data center site because of a network outage or a
+catastrophy, the data stored on the SAN becomes unavailable.
+
+As SAN storages act as central data shelf in their setups, the surrounding 
+IT systems need a way to connect to them. This is done using either the 
+FibreChannel protocol or Ethernet in combination with protocols such as 
+iSCSI. While a single SAN instance may feature a lot of disk space 
+(several terabytes), it is cut into small slices using the 
+supplied SAN management software. These slices are made available to 
+the consuming systems, which use them either via iSCSI and the network 
+connection available or by connecting to them via special FibreChannel 
+HBAs. The storage volume that becomes available on the host is then 
+consumed by services such as KVM or Xen or for the use with a standard, 
+POSIX-compliant, file system.
+
+When connected via FibreChannel, SAN storage devices deliver high
+performance levels in comparison to network-connected solutions. This comes
+with the disadvantage of having to maintain a second, independent network 
+infrastructure which adds administrative overhead to the setup.
+
+==== Problems of SAN-Based Storage
+
+SAN-based storages come with a number of problems, some of which
+have already been mentioned in this chapter. The biggest challenges are 
+explained below:
+
+- *Very high Total Cosf of Ownership (TCO)*: Most SAN storages are provided
+  by commercial vendors and come with the risk of *vendor lock-in*. This
+  means that replacements, spare parts, extensions, and add-ons must be bought
+  from the original vendor. The supplied hardware is usually standard
+  COTS hardware with modified firmware provided at a price twice as
+  high as the original part would be on the free market. Redundancy is
+  also hard to achieve because it would double the high costs of SAN devices.
+
+- *Lack of scalability*: SAN storages are limited in the overall amount 
+  of hard disks that fit in. When a device is used to capacity and no more
+  extension chassis can be connected, the only way to add more storage
+  is to add larger disks, or to install a second independent SAN.
+  The latter approach eliminates the avantange of having a single point 
+  of administration and is not recommended. From a cloud perspective, 
+  the scalability of SAN devices is not sufficient as seamless scalability 
+  is required.
+
+- *Lack of proper connectivity*: While it is good to have FibreChannel in
+  small and medium-sized setups, it does not work at scale in clouds. As
+  the number of target nodes in clouds can easily reach hundreds or even
+  thousands, creating a shadow FibreChannel infrastructure becomes next
+  to impossible.
+
+=== Proprietary Scale Out Storage Solutions
+
+When cloud environments started to become more widespread, the vendors of
+SAN storage solutions came up with new products and solutions. These were 
+supposed to accomodate the need for resilient and scalable storage. 
+Some well-known vendors started to offer similar, hardware-centric solutions. 
+Others decided to provide proprietary and commercial software solutions 
+that would allow to for high scalability on standard hardware. Many of 
+these products have already disappeared while other solutions have turned 
+out to be long-lasting.
+
+==== Issues and Limitations
+
+Many commercial scale out storage solutions come with the following 
+limitations and problems:
+
+- *The need for special hardware*: While some solutions for scale out
+  storage allow to use COTS hardware, many commercial variantes require
+  special hardware that needs to be bought from the vendor who delivers 
+  the storage solution. This fosters the vendor lock-in effect and 
+  increases the TCO of the storage solution.
+
+- *A lock-in effect for commercial software*: When customers decide to
+  buy a proprietary storage solution from a certain vendor, they buy a 
+  _black box_ that does not provide access to the source code of the 
+  solution. This is a notable risk as scalable platforms are not expected 
+  to reach an EOL status, meaning constant hardware updates are necessary. 
+  If the vendor of the storage solution decides to discontinue the product, 
+  it may be impossible to install it on new hardware. The same concerns 
+  hold true for scenarios in which the vendor discontinues the product 
+  altogether. In such cases, the customer either must have a contract that 
+  grants them access to the source code, or they must migrate to
+  another platform. Both approaches involve substantial efforts and
+  bigger investments.
+
+- *Support from one company only*: Another threat of the vendor lock-in 
+  effect is that support for a solution is delivered by the same vendor. 
+  This implicates that support contracts come at a high price, further 
+  increasing the TCO of the storage solution. It also means that, in 
+  case of emergencies, the ISP cannot debug their platform themselves,
+  because they are dependent on the solution provider.
+
+=== Storage Requirements in Scale-Out Environments
+
+Conventional storage approaches such as SANs or commercial scale-out solutions 
+do not fit very well into the principle of scale and cloud setups.
+To identify the ideal solution for a setup's storage needs, it is
+useful to define the basic features the storage solution of the setup should
+have.
+
+==== Required Storage Types
+
+Clouds require two different kinds of storage types: One is
+for data payload resulting from virtual machines, the other is related
+to the storage of asset data such as video files and images.
+
+[[Ephemeral_and_Persistent_Storage]]
+When talking about storing data in clouds, terms such as _persistent_
+and _ephemeral_ are often used. It is important to understand what these 
+terms mean to measure their effect on the functionality of a cloud.
+_Ephemeral_ storage refers to the volatile storage space that a VM in a
+cloud computing environment has for its main system disk. As VMs in the
+cloud are expected to be reproducible at any time by means of automation
+and orchestration, there is no point in storing the main system installation
+on a persistent storage volume.
+
+In contrast to that, _persistent_ storage in clouds denominates the
+kind of storage that is maintained independently from virtual machines
+but can be attached to arbitrary VMs at any point in time.
+When running a database such as MariaDB in a cloud, the data belonging to 
+the database reside on a persistent and permanent volume provided as a 
+block device. Following this architecture, the virtual machine running 
+MariaDB could easily be replaced while holding exactly the same data.
+The volume would simply be moved to the new VM.
+
+Persistent storage is where typical storage solutions come in; the
+need for ephemeral VM storage is served using the local space
+on the compute nodes.
+
+In addition to these two storage types, clouds offer an object storage 
+service that allows for access via the ReSTful protocol, which is based 
+on HTTP(S). Amazon S3 is the best-known type of implementation for such 
+a service. Users upload their asset data using the ReST protocol and can 
+access them later from anywhere in the world.
+
+This kind of storage is often used as replacement for central asset
+stores based on technologies such as NFS. Instead of all servers
+running a certain application to access asset data from shared media such
+as NFS, media is centrally accessed from a central asset store. This is
+more performant than using the full set of POSIX metrics available in 
+standard file systems and even more so given that object stores can 
+easily be combined with Content Delivery Networks (CDNs) for effective 
+caching.
+
+==== Constant Scalability
+
+Solutions such as SUSE OpenStack Cloud allow for growth and scalability 
+with regard to computing. The storage solution for the platform is expected 
+to provide the same functionality when it comes to storing data.
+
+==== COTS Hardware
+
+A successful cloud setup will grow over the years, no matter whether its  
+storage solution is open source software or a proprietary product. Very 
+likely, after the cloud environment is in use for several years, the 
+same hardware that was bought for the original setup will not be available
+anymore. Hence, the hardware used for cloud storage must be as generic 
+as possible. It is recommended to use standard server systems based on 
+common chips (such as Intel or AMD systems) for which replacements
+are available in the future. Another advantage of using
+COTS hardware is that it is cheaper than spezialized hardware for 
+proprietary solutions, as one can choose from a variety of suppliers 
+and negotiate prices. This also facilitates the use of the same hardware 
+class for compute and storage servers in different configurations. 
+
+==== Open Technology
+
+Data belonging to the customer's setup should not be controlled by a commercial 
+provider and a proprietary product. Open source software avoids vendor
+lock-in and makes it possible to understand, operate, and maintain a 
+platform even if the original supplier of the solution has lost interest 
+in developing it further or does not exist anymore. In addition, open 
+technology helps to keep the costs for support low. ISPs have the choice 
+between a large number of providers offering support for a certain product. 
+The more a solution is deployed, the smaller is the probability that it 
+disappears from the market.
+
+==== Single Point of Administration
+
+Supplying large cloud environments with random amounts of storage is not 
+complicated. A very complex task is, however, to provide a storage solution 
+that has only a single point of administration. The following example might
+help for clearer understanding:
+Connecting dozens or hundreds of JBOD chassis throughout the setup randomly 
+to individual servers can accomodate the need for disk space. Such a setup 
+can hardly be characterized as a maintainable environment. This means that
+a storage solution for a cloud setup does not only must allow for an 
+arbitrary amount of storage devices, it also must provide a central and 
+single point of administration.
+
+==== Integration into an Existing Cloud
+
+In clouds, large storage setups for scale-out data is provided as
+one logical instance that is cut into small pieces which are assigned
+to services such as VMs. Using a consumption-based payment model,
+users must have the opportunity to create new storage devices and assign
+them to their accounts in the cloud at any time and at their discretion.
+To make this work, the storage must provide a proper interface for the 
+cloud platform to connect to. Both services must be tightly integrated 
+to provide a maximum of comfort for every customer in the setup.
+
+=== The Perfect Alternative: Object Storage
+
+A more recent approach to scalable storage for cloud environments is Ceph. 
+Ceph is an object storage and allows for storage 
+environments to be build spanning across thousands of servers and millions 
+of individual storage devices. This makes storage setups in sizes of
+several petabytes a reality. The following chapter explains the 
+issue of building highly scalable storages and how Ceph works around these 
+issues. After a short introduction of Ceph, this chapter focuses on how 
+Ceph as part of SUSE Enterprise Storage and SUSE OpenStack Cloud make up
+the perfect combination for compute and storage needs in large scale 
+environments.
+
+==== An Introduction to Object Storage
+
+All storage devices found in modern electrical devices are referred
+to as _block storage_ devices because they are organized internally 
+based on _blocks_. A block is a chunk of data that must be read from the 
+device and written to the device completely in case of a failure. This 
+holds true for expensive flash-based SSDs for servers and for the 
+average USB memory stick.
+
+Standard block devices do not provide any mechanism to write data onto 
+or read data from them in any structured manner. This means it is possible 
+to write a certain piece of information onto a block on an SSD or a hard
+disk. To find said information later, one must read the device's 
+entire content and then filter the data that is being looked for. 
+This is not practicable in the daily work as this approach leads to poor
+performance.
+
+To work around the deficiencies of block-based storage devices, file 
+systems are needed. A file system's responsibility is to add a structure 
+to a storage device. This means the file system controls how data is stored 
+and retrieved. Without a file system, information placed in a storage medium 
+would be one large body. By separating the stored data into pieces and 
+giving each piece a name, the information is isolated and easily identified. 
+Most users are familiar with the concept of file systems. Windows file 
+systems include NTFS and FAT32 while in Linux, Ext4, XFS, and btrfs are 
+widespread. File systems have continuously improved over the course of the 
+last 15 years. Today, they are a given when it comes to the proper use of 
+storage devices. 
+
+However, most file systems come with one big disadvantage: They assume a
+tight bonding between the physical device and the file system on top of
+it. That is why scaling out a storage based on block storage devices is
+a technical challenge. It is not possible to take an already existing 
+file system, split it into numerous strips, and distribute these over 
+multiple physical devices (which could be located in a number of different 
+servers). This would corrupt the file systems and make them unusable.
+
+This is where object storage solutions come in. Object storages consider
+all pieces of information stored in them to be binary data. At any point
+in time binary data can be split randomly and put together again later as 
+long as both processes happen in the correct order. Based on this concept, 
+object storages add an intermediate layer between the physical storage 
+devices on the one hand and the data on the other. This is called the 
+_object layer_. Following this principle, the amount of storage devices 
+supported in the background is limited only by physical factors such as 
+the available space in a data center. In contrast, the logical object storage layer
+can scale to almost any size; a few theoretic limitations exist 
+when setups grow to sizes of several hundreds of millions of disks.
+
+One of the most prominent solutions in terms of object storages is Ceph.
+Originally started off as a part of a research grant from the US Department 
+of Energy in cooperation with several research laboratories, Ceph has 
+quickly evolved to a valuable open source storage solution that is backing 
+many of the largest cloud implementations throughout the world.
+
+=== An Introduction to Ceph
+
+Ceph is a perfect example for the concept of object storages. As
+described in the previous paragraph, it considers any kind of data
+uploaded into it a binary object. It splits these objects into many
+smaller objects (the default size per object is four megabytes) and 
+distributes these objects onto numerous hard disks in its backend.
+To better understand this process, the next paragraphs give an overview
+of how Ceph works. Because of its modular structure, understanding 
+the basic design of Ceph is easy.
+
+The purpose of the Ceph development was to create a scalable platform
+to replace shared storage solutions such as NFS. Originally, Ceph was
+planned as a POSIX-compatible file system backed by an object storage. 
+Said object storage was _RADOS_, which stands for *Reliable Autonomous 
+Distributed Object Store*. When first released, for Ceph storage the 
+name RADOS was used while the term _Ceph_ was used for the POSIX-compatible 
+file system on top of RADOS. Later, the object storage got renamed to Ceph 
+and the file system to CephFS. 
+
+To understand what RADOS means, it helps to analyze the name. _Object 
+Store_ characterizes the kind of storage that RADOS provides, it is an 
+object storage considering all uploaded data to be binary objects. 
+_Distributed_ means that RADOS can spread individual binary objects over 
+an almost endless amount of storage devices in its backend. These
+storage devices may be distributed across different servers, different 
+zones in a data center or different physical locations. _Autonomous_ means 
+that RADOS is taking care itself of its health and the integrity of the 
+stored data. If a storage device fails, it is ensured that no data 
+loss occurs from this event. _Reliable_ points out that RADOS has 
+built-in replication and redundancy and is also capable to 
+re-enforce replication policies in case of hardware failures without 
+manual intervention.
+
+==== The Ceph Storage Backend
+
+The Ceph object storage is built of three different services that together
+provide the desired functionality: _OSD_, _MON_, and _MDS_.
+
+OSD is the acronym for _Object Storage Device_. OSDs are the data silos in 
+Ceph. Any block device can act as an OSD for the Ceph object storage. OSDs 
+can appear in almost any scheme in a platform. They can be distributed over 
+as many servers as the administrator sees fit in the same room of a data 
+center, in different rooms of the data center, or in locally different data 
+centers. OSDs are responsible for serving clients who want to write or read 
+a specific binary object. They also take care of the internal replication 
+of binary objects. As soon as an OSD receives a new binary object, it 
+automatically copies said object to as many other OSDs as the replication 
+policy requires. For the purpose of replication, a distinct network connection 
+for all nodes participating in a Ceph cluster should be established. This 
+helps to ensure that the common management network connection between nodes 
+does not suffer from congestion because of Ceph traffic.
+
+MON is the acronym for _Monitoring Server_. As for Ceph, MONs act as a kind
+of accountant. They maintain lists of all MON servers, all MDSes, and all 
+OSDs available in the cluster and are responsible for distributing these 
+to all clients (whereas, from the MON perspective, OSDs and MDSes 
+are also clients). In addition, MONs enforce quota in Ceph clusters.
+If a Ceph cluster gets split into two partitions, MONs ensure that
+only the part of the cluster with the majority of MON servers continues
+to function. The other partition ceases operations until the cluster
+is fully restored. MONs are crucial component of Ceph setups. However,
+they are not involved in the data exchange between clients and the OSDs. 
+More details about how Ceph clients store data in the cluster can be found 
+further down in this chapter.
+
+MDS stands for _Metadata Server_. MDSes are required for CephFS,
+the Ceph-backed file system. They supply POSIX-compatible meta data for
+clients accessing the file system. As CephFS is not used in large cloud 
+environments, this document does not elaborate further on MSDs.
+
+Ceph's scalability features result from the fact that at any point in
+time, new OSDs, MDSes, or MONs can be added to the cluster even during
+the normal operations procedures. This allows Ceph to scale up to
+almost no limits.
+
+==== How Data Storage in Ceph Works: CRUSH
+
+To better understand why Ceph is an ideal solution for scalable storage, 
+the next paragraphs detail how data storage in Ceph works. Ceph clients 
+are initially configured with the addresses of at least one working MON 
+server in the Ceph setup. When they have successfully set up a connection 
+to a working MON, they receive current copies of the MON and the OSD 
+map from said MON. From that moment, they ignore their statical 
+configuration and receive information on MONs and OSDs from the MON servers 
+in the list they have just received. This is part of the self-healing 
+features of Ceph. Even if the MON server that a client has configured fails, 
+the client still knows all other valid MON servers as long as it has a
+working MON map. For production setups, at least three MONs are required.
+It is recommended to use uneven numbers of MON servers as in purely 
+mathematical terms the availability of these is better. The same is valid
+for OSDs. OSDs in a production setup should be distributed over at least
+three distinct hosts. If factors such as fire proctection areas play a
+role, they must also be taken into consideration when acquiring hardware
+for a new Ceph deployment.
+
+As soon as it is requested to store a certain file in Ceph, a client
+equipped with a valid MON and a valid OSD map splits said file into binary 
+objects first, with a size of four megabytes each if the original file is 
+not smaller. The client then performs a mathematical calculation based 
+on the _CRUSH_ algorithm, which stands for _Controlled Replication 
+Under Scalable Hashing_. CRUSH is the algorithm at the heart of Ceph and 
+its main function; it is a _pseudo-random_ hash algorithm that determines 
+which OSDs receive certain binary objects. The term _Pseudo-random_ is 
+used to describe CRUSH because it produces random results as to where 
+individual binary objects need to be put. However, the result for a certain 
+calculation is always the same as long as the overall layout of the 
+cluster does not change (this means as long as no OSDs fail or new OSDs 
+are added).
+
+When the client has done the CRUSH calculation for a certain binary object, 
+it performs the actual upload. The receiving OSD notices that a new binary 
+object has arrived and performs the same calculation using CRUSH to 
+determine where to put the replicas of this object. As soon as all replicas 
+have been created, the sending client receives a confirmation for the 
+successful completion of the write operation. This means the data is safely 
+stored in Ceph.
+
+If a node of a Ceph cluster containing OSDs fails, all other OSDs will
+notice this after a short time as all OSDs perform regular health checks 
+for all other OSDs. When MONs receive enough messages on a certain OSD 
+having failed, or many OSDs in the case of the outage of a whole server,
+they mark the OSD as "down" in the OSD map and force all clients in the 
+cluster to request an update of their local OSD map copy. After a 
+user-defined timeout, the OSDs are marked as "out" and Ceph-internal 
+recovery processes start automatically.
+
+Note that CRUSH is not a closed mechanism that is residing at the core of 
+Ceph and cannot be influenced. A configuration file called _CRUSH map_ 
+exists that is maintained by the MONs. In the map, the administrator can 
+influence the CRUSH behaviour and make it follow certain replication rules
+with regards to data center rooms, fire protection areas, or even different 
+data centers. Special tools in SUSE Enterprise Storage make edits and 
+having influence on the CRUSH map easy and concise.
+
+==== Ceph Front-Ends: CephFS, RBD
+
+Most front-ends available to Ceph have been mentioned in the previous 
+paragraphs. CephFS is the original front-end but not commonly used in 
+large-scale and cloud environments. Widely spread, however, is the use 
+of Ceph's _RBD_ front-end. RBD stands for _RADOS Block Device_ and describes 
+a way to access a Ceph object store through a block device layer.
+
+The Linux kernel itself contains an RBD kernel module that connects to
+a running Ceph cluster and sets up a local block device that writes into
+Ceph in its backend. Based on the RADOS programming library (*librados*),
+there is also a native storage driver available for Qemu, the emulator
+that is used with KVM on Linux systems. KVM can directly use RBD volumes 
+as backing devices for virtual machines without having to use the RBD 
+kernel driver. This allows for enhanced performance.
+
+==== Ceph Front-Ends: Amazon S3 and OpenStack Swift
+
+The third Ceph front-end refers to the other type of storage that clouds 
+are expected to provide, which is object storage via a ReSTful protocol. 
+Amazon Simple Storage Service (Amazon S3) is the most common service 
+of its kind. OpenStack also has a solution for storing objects and making 
+them accessible via an HTTPs protocol named _OpenStack swift_. 
+The protocol of swift is valuable and in a number
+of cases superior to Amazon S3. In addition, swift and its 
+protocol are open source software, while Amazon S3 is a 
+proprietary protocol made available by Amazon.
+
+The fundamental idea of Ceph as an object storage is to store arbitrary files 
+as binary objects. The only missing component, if access should happen 
+via Amazon S3 or swift, is a protocol bridge between Ceph and the HTTP(S) 
+clients. _Ceph Object Gateway_, also known as RADOS Gateway or RGW, fulfills
+this task. It is a translation layer that can communicate with Ceph in its 
+backend and with clients by using a reverse-engineered version of the Amazon
+S3 protocol or of swift.
+
+Using the Ceph Object Gateway, it becomes possible to run a local clone
+of Amazon S3 in the customer's data center. That way, Ceph can provide for the 
+second type of cloud-based data storage perfectly well. And as Ceph conforms
+to the swift protocol, there is no need to roll out swift as a 
+service, which makes maintaining the platform convenient.
+
+==== Ceph and OpenStack: A Perfect Combination
+
+Customers looking into building a large-scale cloud environment in most
+cases face the question of building resilient and scalable storage. SUSE 
+Enterprise Storage, which is based on Ceph and supports features such as 
+_Erasure Coding_, allows companies to leverage Ceph's 
+advantages the best possible way. OpenStack and Ceph are a perfect 
+combination as they became widely used at the same time, and as several 
+features of Ceph and OpenStack were developed for the other solution
+respectively.
+
+The core service for running, administering, and distributing persistent
+storage devices in OpenStack is _OpenStack Cinder_. The RBD back-end for
+cinder was one of the very first Cinder back-ends that could be used in 
+production already several years ago. Since then, a lot of development 
+and enhancements were done for cinder, making the RBD back-ends even more 
+stable and resilient. Using Ceph as a back-end storage for cinder to supply 
+virtual machines in OpenStack with persistent volumes is concise 
+and works reliably.
+
+_OpenStack Glance_ has a working back-end for Ceph as well. Glance takes
+the responsibility for storing image data used by newly created VMs
+and can easily put these image data into Ceph.
+
+_OpenStack Manila_ provides shared storage for virtual machines in clouds.
+CephFS, the POSIX-compatible file system in Ceph, can act here as backend 
+for manila.
+
+Finally, Ceph with the Ceph Object Gateway can act as a drop-in replacement 
+for swift, the ReSTful object storage for asset data. The Ceph 
+Object Gateway even supports authentication using
+the OpenStack Identity service _keystone_, so that administering the
+users allowed to access Ceph's Swift backend happens using the OpenStack
+tools.
+
+Combining the Ceph-based offering SUSE Enterprise Storage and SUSE 
+OpenStack Cloud allows for the creation of a highly scalable 
+computing platform with highly scalable storage attached to its back-end. 
+This is a very powerful and stable solution for large-scale 
+cloud environments.
+
+==== Disaster Recovery and Off-Site Replication
+
+As Ceph clusters can reach sizes of several terabytes or petabyte and
+topics such as backup, restore, and disaster recovery are complex.
+Backing up a storage device of several petabytes requires a second
+storage just as large as the original one. Many ISPs do not want to go that
+way for financial reasons. Instead, they offload the responsibility of
+backing up relevant data to their customers.
+
+The same holds true for disaster recovery and off-site replication. While
+it may be tempting to split a Ceph cluster onto multiple sites at first
+sight, this approach is not recommended. To guarantee disaster recovery 
+qualities, CRUSH needs to ensure that at least one copy of all objects 
+is existing on both sites at any time. This practice, however, adds the 
+latency between the data centers as latency to every write process that 
+happens in the cloud. To circumvent this issue, Ceph supports certain 
+disaster recovery strategies using replication on the level of the Ceph 
+Object Gateway.
+
+// vim:set syntax=asciidoc:

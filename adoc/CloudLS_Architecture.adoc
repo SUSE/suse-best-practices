@@ -1,0 +1,662 @@
+== Architecture
+
+Getting a large-scale cloud environment right is a complex task. 
+This chapter's purpose is to paint the bigger picture of all the
+factors you need to take into consideration. After an introduction into the
+principle of the economy of scale, this chapter outlines the main components 
+of an OpenStack cloud and how these work together. A special focus is laid 
+on designing a resilient and stable scale-out setup along with its individual 
+layers and the needed considerations. Last but not least, a typical OpenStack 
+architecture is shown to serve as a valid example.
+
+In general, cloud platforms have a complex design and still allow for large 
+scalability. But what does scalability in cloud environments mean?
+
+=== Scalability in Clouds
+
+Scalability is a word that most administrators are familiar with. 
+However, a lot of different definitions of scalability exist and the 
+word is often used in different contexts. Therefore, it is important to
+provide a definition of what scalability is for the purpose of this 
+document. 
+
+When talking about processes at scale, administrators
+intend to extend the load that a specific setup can process by adding
+new hardware. The way new hardware is added depends on local
+conditions and can vary when looking at different setups.
+
+Until recently, the term scalability typically was used
+to refer to a process called "scale-up" or "vertical scaling". This 
+describes a process in which existing hardware is extended so that it can 
+handle more load. Adding more RAM to an existing server, a stronger 
+CPU to a node or additional hard disks to an existing SAN storage 
+appliance are typical examples for scaling up. The issue with this approach 
+is that it cannot be pursued any further due to physical 
+limitations. As an example, the physical server's memory banks 
+with the biggest RAM modules may already be in use. This means you cannot 
+expand your server's memory anymore. It may also be impossible 
+to replace the CPU in a server simply because for the given CPU socket, 
+when no more powerful CPUs are available. Extending SANs can also fail
+as all device slots of the SAN appliance are already in use with the
+largest hard disks available for this model.
+
+Not being able to scale-up a system further used to be a large issue in 
+the past. In many cases, the only possibility to work around the problem 
+was to buy completely new, more capable hardware that would be able to 
+cope with the load present. That was an expensive and not always 
+successful strategy.
+
+The opposite of the process to scale-up or vertically scale is
+"scale-out" or "horizontal scaling". This approach is fundamentally 
+different and assumes that there is no point in extending the existing
+infrastructure by replacing individual hardware components. Instead, 
+in scale-out scenarios, the idea is to add new machines to the setup 
+to distribute the load more evenly to more target systems within the 
+installation. This obviously is a superior approach to scale-up
+approaches because the only limiting factor is the physical space that
+is available in the datacenter. Thanks to dark fibre connections and other
+modern technologies, it is even possible to create new datacenter sites 
+and connect those to existing sites to accomodate for seamless scale-out 
+processes.
+
+NOTE: Not all scalability approaches work for all environments. The
+ability to scale-out requires the software in use to support this 
+operational mode. Cloud solutions, such as OpenStack,
+are built for scale-out environments and have the ability to scale in a
+horizontal manner at the core of their functionality. Legacy software,
+in contrast to that, may only support scale-up scenarios.
+
+As this document is about scalability in massively scalable environments,
+the best scalability approach is to scale-out (horizontal scalability).
+Whenever "scalability" is mentioned in this document, it references to
+scale-out processes, unless noted differently in the respective section or paragraph.
+
+=== Cloud Computing Primer
+
+Similar to scalability, "cloud" is also used as a technical term in 
+an almost indefinite number of contexts. This document elaborates
+on the architecture of large-scale cloud environments based on SUSE 
+OpenStack Cloud. Therefore it is appropriate to define "cloud" and 
+"cloud software" in the context of this document.
+
+Conventional IT setups are usually a turn-key solution delivered to
+the customer for a specific purpose. The customer rarely takes care of
+running and operating the solution themselves. Instead, the IT service provider
+does that for them. This is statical and can be unsatisfying for the customer
+or the service provider. 
+
+In cloud setups, service providers become platform providers. Their
+main responsibility is to run a platform whose services customers can
+consume at their own discretion. In addition to running the platform and
+roviding resources, these providers also have to offer a way for customers to
+run the services themselves. This means consuming services without having to contact
+the service provider each time. The hardware that is used in 
+datacenters cannot provide what it takes to offer the described functionalities
+without additional software. For the purpose of this document,
+"cloud software" is software that creates a bridge between the
+platform or infrastructure, and the customers. This allows them to
+consume the available resources as dynamically as possible. 
+
+In summary, the following attributes can be used to define "cloud":
+
+- Self Service portal / API access
+- Network based
+- Pooling of existing resources
+- Consumtion based metering
+
+=== OpenStack Primer
+
+OpenStack is the best-known open source cloud solution currently
+available at the market. It is the fundamental technology for the SUSE
+Cloud product and plays an important role when building a large
+scale-out cloud based on SUSE products. An OpenStack Cloud also consists
+of several different and important components. The following paragraphs
+provide an overview of the components of an OpenStack cloud and you a
+quick introduction into OpenStack and how OpenStack can help you to build
+a scalable compute and storage platform.
+
+==== The OpenStack History
+
+The OpenStack project originally started as a joint venture between
+NASA and the American hosting provider, Rackspace. NASA controllers had
+found out that many of their scientists were conducting experiments for
+which they ordered hardware. When their experiments were finished, often the
+hardware would not be reused, while scientists in other departments were
+ordering new hardware for their respective experiments. The idea behind
+OpenStack was to create a tool to centrally administer an arbitrary amount
+of compute resources and to allow the scientists to consume these resources.
+Rackspace brought in the OpenStack Swift object storage service,
+which is explained in deeper detail in chapter 4.
+
+In 2012, NASA withdrew from OpenStack as an active contributor. Since OpenStack's
+official launch in 2010, dozens of companies have decided to 
+adopt OpenStack, including solutions from large system vendors such as SUSE,
+as their primary cloud technology. Today, the project is stable and 
+reliable, and the functionalities are constantly improved. OpenStack has become
+the ideal fundament when building a large scale-out environment.
+
+At the time of writing, OpenStack consists of more than 30 services. Not all of
+them are required for a basic cloud implementation; the number of core
+services is considered to be six (and even out
+of those only 5 are strictly necessary). For a minimum viable cloud
+setup, a few additional supporting services are also required. The
+following paragraphs provide a more detailed description of the
+OpenStack base services.
+
+==== Supporting Services: RabbitMQ
+
+OpenStack follows a strictly decentralized approach. Most OpenStack projects
+(and the ones described in the following paragraphs in
+particular) are not made of a single service but consist of many
+small services that often run on different hosts. All these services
+require a way to exchange messages between each other. Message protocols
+such as the AMQP standard exist for exactly that purpose and OpenStack
+is deployed along with the RabbitMQ message bus. RabbitMQ is one
+of the oldest AMQP implementations and written in the Erlang programming
+language. Several tools in the OpenStack universe use RabbitMQ to send
+and receive messages. Every OpenStack setup needs RabbitMQ. For
+reasons of performance and redundancy, large-scale environments
+usually have more than one RabbitMQ instance running (more details about
+the ideal architecture of services for RabbitMQ and other services are
+explained further down in this chapter).
+
+==== Supporting Services: MariaDB
+
+A second supporting service that is included in most OpenStack setups is MariaDB
+(or its predecessor MySQL). Almost all OpenStack
+services use MariaDB to store their internal metadata in a persistent
+manner. As the overall number of requests to the databases is large, just
+like RabbitMQ, MariaDB can be rolled out in a highly available
+scale-out manner in cloud environments (for example together with the
+Galera Multi-master replication solution).
+
+==== Authentication & Authorization: Keystone
+
+
+Keystone is the project for the OpenStack Identity service that takes care
+of authenticating users by requiring them to login to the API services and
+the Graphic User Interface (GUI) with a combination of a username and a
+password. Keystone then determines what role a specific user has inside
+a project (or "tenant"). All OpenStack components associate certain roles 
+with certain permissions. If a user has a certain role in a project, that 
+automatically entitles them to the permissions of said role for every respective 
+service.
+
+Keystone is one of the few services that only comprises of one program,
+the Keystone API itself. It is capable of connecting to existing user directories 
+such as LDAP or Active Directory but can also run in a stand-alone manner.
+
+==== Operating System Image Provisioning: Glance
+
+Glance is the project for the OpenStack Image service that stores and
+administers operating system images.
+
+Not all customers consuming cloud services are IT professionals.
+They may not have the knowledge required to install an operating system 
+in a newly created virtual machine (VM) in the cloud. And even IT professionals
+who are using cloud services cannot go through the entire setup process for
+every new VM they have to create. That would take too much time and hurt the 
+principle of the economy of scale. But it also would be unnecessary. A virtual
+machine inside KVM can, if spanwed in a cloud environment, be very well
+controlled and is the same inside different clouds if the underlying
+technology is identical.
+It has hence become quite common for cloud provider to supply users with
+a set of basic operating system images compatible with a given cloud.
+
+==== Virtual Networking: Neutron
+
+Neutron is the project for the OpenStack Networking service that implements
+Software Defined Networking (SDN).
+
+Networking is a part of modern-day clouds that shows the most obvious
+differences to conventional setups. Most paradigms about networking that
+are valid for legacy installations are not true in clouds and often not
+even applicable. While legacy setups make use of technologies such as
+VLAN on the hardware level, clouds use SDN
+and create a virtual overlay networking level where virtual customer
+networks reside. Customers have the ability to design their own virtual
+network topology according to their needs, without any interaction by
+the cloud provider.
+
+Through a system  of loadable plug-ins, Neutron supports a large number of
+SDN implementations such as Open vSwitch. Chapter 3 elaborates on
+networking in OpenStack and Neutron in deep detail. It explains how networks for clouds 
+must be designed to accomodate for the requirements of large-scale cloud
+implementations.
+
+==== Persistent VM Block-Storage: Cinder
+
+Cinder is the project for the OpenStack Block Storage service that takes
+care of splitting storage into small pieces and making it available to
+VMs throughout the cloud.
+
+Conventional setups often have a central storage appliance such as
+a SAN to provide storage to virtual machines through the installation.
+These devices come with a number of shortcomings and do not
+scale the way it is required on large-scale environments. And no matter
+what storage solution is in place, there still needs to be a method to
+semi-automatically configure the storage from within the cloud to create
+new volumes dynamically. After all, giving administrative rights to all
+users in the cloud is not recommended at all.
+
+Chapter 4 elaborates on Cinder and explains in deep detail how it can be
+used together with the Ceph object store to provide the required storage
+in a scalable manner in cloud environments.
+
+==== Compute: Nova
+
+Nova is the project for the OpenStack Compute service that is
+the centralized administration of compute resources and virtual machines.
+Nova was was originally developed by the Nebula project at NASA and from which
+most other projects have spawned off.
+
+Whenever a request to start a new VM, terminate an existing VM or change a
+VM is issued by a user, that request hits the Nova API component first. Nova is built of
+almost a dozen different pieces taking care of individual tasks inside a
+setup. That includes tasks such as the scheduling of new VMs the most
+effective way (that is, answering the question "What host can and should
+this virtual machine be running on?") and making sure that accessing the
+virtual KVM console of a VM is possible.
+
+Nova is a feature-rich component: Besides the standard hypervisor KVM,
+it also supports solutions such as Xen, Hyper-V by Microsoft or VMware.
+It has many functions that control Nova's behaviour and
+is one of the most mature OpenStack components.
+
+==== A Concise GUI: Horizon
+
+Horizon is the project for the OpenStack Dashboard service that is the
+standard UI interface of OpenStack and allows concise graphical access to
+all aforementioned components.
+
+OpenStack users may rarely ever use Horizon. Clouds function on the principle of
+API interfaces that commands can be sent to in a specialized format to trigger
+a certain action, meaning that all components in OpenStack come with an API 
+component that accepts commands based on the ReSTful HTTP approach.
+
+There are, however, some tasks where a graphical representation of the
+tasks at hand is helpful and maybe even desired. Horizon is written in Django 
+(a Python-based HTML version) and must be combined with a WSGI server.
+
+=== A Perfect Design for OpenStack
+
+To put it into a metaphor: OpenStack is like an orchestra where a whole lot
+of instruments need to join forces to play a symphony. That is
+even more true for large environments with huge numbers of participating
+nodes. What is a good way to structure and design such a setup? How can
+companies provide a platform suitable for the respective requirements in
+the best and most resilient manner? The following paragraphs answer these questions.
+
+==== Logical layers in Cloud environments
+
+To understand how to run a resilient and stable cloud environment, it is
+important to understand that a cloud comes with several layers. These layers are:
+
+- *The hardware layer*: This layer contains all standard rack servers in
+  an environment, this means devices that are not specific network
+  devices or other devices such as storage appliances.
+
+- *The network layer*: This layer contains all devices responsible for
+  providing physical network connectivity inside the setup and also to
+  the outside. Switches, network cabling, upstream routers, and special
+  devices such as VPN bridges are good examples.
+
+- *The storage layer*: This layer represents all devices responsible for
+  providing persistent storage inside the setup along with the software
+  components required for that. If solutions such as Ceph are in use,
+  the storage layer only represents the software required for SDN as the
+  hardware is already part of the hardware layer.
+
+- *The control layer*: This layer includes all logical components that
+  belong to the cloud solution. All tools and programs in this layer
+  are required for proper functionality of the system.
+
+- *The compute layer*: This layer covers all software components on the
+  compute nodes of a cloud environment.
+
+A cloud can encounter different scenarios of issues that come with 
+different severities. The two most notables categories of issues are:
+
+- *Loss of control*: In such a scenario, existing services in the cloud
+  continue to work as before, but it is impossible to control them via
+  the APIs provided by the cloud. It is also impossible to start new
+  services or to delete existing services.
+
+- *Loss of functionality*: Here, not only is it impossible to control
+  and steer the resources in a cloud but instead, these resources have
+  become unavailable due to an outage.
+
+When designing resilience and redundancy for large-scale environments,
+it is very important to understand these different issue categories and
+to understand how to avoid them.
+
+==== Brazing for Impact: Failure Domains
+
+An often discussed topic is the question of how to make a
+cloud environment resilient and highly available. It is very
+important to understand that "high availability" in the cloud context
+is usually not the same as high availability in the classical meaning of
+IT. Most administrators used to traditional IT setups typically
+assume that the meaning for high availability for clouds is to make every host in
+the cloud environment redundant. That is, however, usually not the case.
+Cloud environments make a few assumptions on the applications
+running inside of them. One assumption is that virtual setups are as
+automated as possible. That way, it is very easy to restart a virtual
+environment in case the old instance went down. Another assumption
+that applications running there are _cloud-native_ and inherently resilient 
+against failures of the hardware that they reside on.
+
+Most major public cloud providers have created SLAs that sound
+radical from the point of view of conventional setups. Large
+public clouds are often distributed over several physical sites that providers
+call _regions_. The SLAs of such setups usually contain a statement
+according to which the cloud status is _up_. If a cloud is _up_, it means that
+customers have the ability in any region of a setup to start a
+virtual machine that is connected to a virtual network.
+
+It must clearly be stated in the SLA that the provider of a cloud setup has no
+guarantee of the availability of all hosts in a cloud setup at any time.
+
+The focus of availability is on the control services, which are needed
+to run or operate the cloud itself. OpenStack services have a stateless
+design and can be easily run in a active / active manner, distributed
+on several nodes.  A cluster tool like *Pacemaker* can be used to
+manage the services and a load balancer in front of all and can combine the 
+services and make them available for the users.
+Any workload running inside the cloud can not be taken into account. 
+With the feature _compute HA_, SUSE OpenStack offers an exception.
+However, it should be used only where it is required, because it 
+adds complexity to the environment and makes it harder to maintain. 
+It is recommended to create a dedicated zone of compute nodes, which 
+provide the high availability feature. 
+
+In all scenarios, it makes sense to define failure domains
+and to ensure redundancy over these. Failure domains are often referred 
+to as _availability zones_. They are similar to the aforementioned regions
+but usually cover a much smaller geological area. 
+
+The main idea behind a failure domain is to include every needed service 
+into one zone. Redundancy is created by adding multiple failure domains 
+to the design. The setup has to make sure that a failure inside of a 
+failure domain does not affect any service in any other failure domain. 
+In addition, the function of the failed service must be taken over by another 
+failure domain.
+
+It is important that every failure domain is isolatet with regard to
+infrastructure like power, networking, and cooling. All services (control, compute,
+networking and storage) have to be distributed over all failure domains.
+The sizing has to take into account that even if one complete failure domain
+dies, enough resources need to be available to operate the cloud.
+
+The application layer is responsible for distributing the workload over
+all failure domains, so that the availability of the application is 
+ensured in case of a failure inside of one failure domain. OpenStack offers
+anti-affinity rules to schedule instances in different zones.
+
+The minimum recommended amount of failure domains for large scale-out
+setups based on OpenStack is three. With three faiure domains in place,
+a failure domain's outage can easily be compensated by the remaining
+two. When planning for additional failure domains, it is important to
+keep in mind how quorum works: To have quorum, the remaining parts of a
+setup must have the majority of relevant nodes inside of them. For example,
+with three failure domains, two failure domains would still have the
+majority of relevant nodes in case one failure domain goes down. The
+majority here is defined as "50% + one full instance".
+
+.Highlevel architecture of failure domain setup with three nodes
+image::cloudls_architectur_high_level.png[align="center",width=300]
+
+==== The Control Layer
+
+The control layer covers all components that ensure functionality and
+the ability to control the cloud. All components of this layer must be
+present and distributed evenly across the available failure domains,
+namely:
+
+- *MariaDB*: An instance of MariaDB should be running in every failure
+  domain of the setup. As MariaDB clustering does not support a
+  multi-master scenario out of the box, the Galera clustering solution
+  can be used to ensure that all MariaDB nodes in all failure domains
+  are fully functional MariaDB instances, allowing for write and read
+  access. All three MariaDB instances form one database cluster in a
+  scenario with three availability zones. If one zone fails, the other
+  two MariaDB instances still function.
+
+- *RabbitMQ*: RabbitMQ instances should also be present in all failure
+  domains of the installation. The built-in clustering functionality of
+  RabbitMQ can be used to achieve this goal and to create a RabbitMQ
+  cluster that resembles the MariaDB cluster described before.
+
+- *Load balancing*: All OpenStack services that users and 
+  other components themselves are using are HTTP(S) interfaces based
+  on the ReST principle. In large environments, they are
+  subject to a lot of load. In large-scale setups, it is required
+  to use load balancers in front of the API instances to distribute the
+  incoming requests evenly. This holds also true for MySQL (RabbitMQ however
+  has a built-in cluster functionality and is an exception from the rule).
+
+- *OpenStack services*: All OpenStack components and the programs
+  that belong to them with the exception of `nova-compute` and
+  `neutron-l3-agent` must be running on dedicated hosts (controller
+  nodes) in all failure domains. Powerful machines are
+  used to run these on the same hosts together with MariaDB and
+  RabbitMQ. As OpenStack is made for scale-out scenarios, there is no issue
+  resulting from running these components many times simultaneously.
+
+==== The Network Layer
+
+The physical network is expected to be built so that it interconnects
+the different failure domains of the setup and all nodes redundantly. The
+external uplink is also required to be redundant. A separate node in
+every failure domain should act as a network node for Neutron.
+A network node ensures the cloud's external connectivity by running
+the `neutron-l3-agent` API extension of Neutron.
+
+In many setups, the dedicated network nodes also run the DHCP agent for
+Open vSwitch. Please note that this is a possible and a valid configuration
+but not under all circumstances necessary.
+
+OpenStack enriches the existing Open vSwitch functionality with a feature
+usually referred to as _Distributed Virtual Routing_ (DVR). In setups
+making use of DVR, external network connectivity is moved from the dedicated
+network nodes to the compute node. Each compute node runs a routing
+service, which are needed by the local instances. This helps in two cases:
+
+- Scale-out: Adding new compute nodes also adds new network capabilities.
+- Failure: A failure of a compute node only effects the routing of local instances.
+
+The routing service is independent from the central networking nodes.
+
+Further details on the individual components of the networking layer and
+the way OpenStack deals with networking are available in chapter 3 of
+this document.
+
+==== The Storage Layer
+
+Storage is a complex topic in large-scale environments. Chapter 4 deals
+with all relevant aspects of it and explains how a Software Defined
+Storage (SDS) solution such as Ceph can easily satisfy a scalable setup's need
+for redundant storage.
+
+When using an SDS solution, the components must be distributed across all
+failure domains so that every domain has a working storage cluster. Three 
+nodes per domain are the bare minimum.
+In the example of Ceph, the CRUSH hashing algorithm must also be
+configured so that it stores replicas of all data in all failure domains
+for every write process.
+
+Should the Ceph Object Gateway be in use to provide for S3/Swift storage
+via a ReSTful interface, that service must be evenly available in all
+failure domains as well. It's necessary to include these
+servers in the loadbalancer setup that is in place for making the
+API services redundant and resilient.
+
+==== The Compute Layer
+
+When designing a scalable OpenStack Setup, the Compute 
+layer plays an important role. While for the control services
+no massive scaling is expected, the compute layer is mostly effected by the
+ongoing request of more resources.
+
+The most important factor is to scale-out the failure domains
+equally. When the setup is extended, comparable amounts of nodes should
+be added to all failure domains to ensure that the setup remains balanced.
+
+[[CPU_and_RAM_Ratio]]
+When acquiring hardware for the compute layer, there is one factor that
+many administrators do not take into consideration although they should:
+the required ratio of RAM and CPU cores for the expected workload. To
+explain the relevance of this, think of this example: If a server
+has 256 gigabytes of RAM and 16 CPU cores that split into 32 threads
+with hyper-threading enabled, a possible RAM-CPU-ratio for the host is
+32 VMs with one vCPU and 8 gigabytes of RAM. One could also create 16
+VMs with 16 gigabytes and two vCPUs or 8 VMs with 32 gigabytes of RAM
+and 4 vCPUs. The latter is a fairly common virtual hardware layout (this is
+called a _flavor_) example for a general purpose VM in cloud environments.
+
+Some workloads may be CPU-intense without the need for much RAM or
+may require lots of RAM but hardly CPU power. In those cases, users
+would likely want to use different flavors such as 4 CPU cores and 256
+Gigabytes of RAM or 16 CPU cores and 16 gigabytes of RAM. The issue
+with those is that if one VM with 4 CPU cores but 256 gigabytes of RAM
+or 16 CPU cores and 16 gigabytes of RAM runs on a server, the remaining
+resources on said machine are hardly useful for any other task as they
+blend together and may remain unused completely.
+
+Cloud providers need to consider the workload of a future setup in the 
+best possible way and plan compute nodes according to these requirements.
+If the setup to be created is a public cloud, pre-defined flavors should indicate
+to customers to the desired patterns of usage. If customers do
+insist on particular flavors, the cloud provider must take the hardware that
+remains unused in their calculation. If the usage pattern is hard to predict
+at all, a mixture of different hardware kinds likely make the most
+sense. It should be noted that from the operational point of view, the same
+hardware class is used. This helps to reduce the effort in mainetance and spare parts.
+
+OpenStack comes with a number of functions such as host aggregates
+to make maintaining such platforms convenient and easy. The ratio of CPU
+and RAM is generally considered 1:4 in the following examples.
+
+[[ReferenceArchitecture]]
+=== Reference Architecture
+
+The following paragraphs describe a basic design reference architecture
+for a large-scale SUSE OpenStack Cloud based on OpenStack and Ceph.
+
+.Highlevel Reference Architecure of a large-scale deployment with 108 Compute Nodes and 36 Storage Nodes
+image::cloudls_reference_arch_108.png[align="center",width=500]
+
+==== Basic Requirements
+
+To build a basic setup for a large-scale cloud with SUSE components, 
+the following criteria must be fulfilled:
+
+- Three failure domains (at least in different fire protection zones in the
+  same datacenter, although different datacenters would be better) that
+  are connected redundantly and independently from each other to power
+  and networking must be available.
+- OSI level 2 network hardware, spawning over the three failure domains
+  to ensure connectivity. For reasons of latency and
+  timing, the maximum distance between the three failure domains should
+  not exceed ten kilometers.
+- SUSE OpenStack Cloud must be deployed across all failure domains.
+- SUSE Enterprise Storage must be deployed across all failure domains.
+- SUSE Manager or a Subscription Management Tool (SMT) instance must be 
+  installed to mirror all the required software repositories (including all 
+  software channels and patches). This provides the setup with the latest 
+  features, enhancements, and security patches.
+- Adequate system management tools (as explained in chapter 5) must be
+  in place and working to guarantee efficient maintainability and to
+  ensure compliance and consistency.
+
+
+==== SUSE OpenStack Cloud roles
+
+SUSE OpenStack Cloud functions based on roles. By assigning a host a
+certain role, it automatically also has certain software and tasks
+installed and assigned to it. Four major roles exist:
+
+- *Administration Server*: The administration server contains the 
+  deployment nodes for SUSE OpenStack Cloud and SUSE Enterprise Storage. 
+  It is fundamental to the deployment and management of all
+  nodes and services as it hosts the required tools. The administration
+  servers can also be a KVM virtual machine. The administration services 
+  do not need to be redundant. A working backup and restore process is 
+  sufficient to ensure the operation. The virtualization of the nodes 
+  makes it easy to create snapshots and use them as a backup scenario. 
+
+- *Controller Node Clusters*: These run the control layers of the cloud.
+  SUSE OpenStack Cloud can distribute several OpenStack services onto as
+  many servers as the administrator sees fit. There must be one Controller Node
+  Cluster per failure domain.
+
+- *Compute Nodes*: As many compute nodes as necessary must be present;
+  how many depends on the expected workload. All compute nodes must be
+  distributed over the different failure domains.
+
+- *Storage Nodes*: Every failure domain must have a storage available.
+  This example assumes that SUSE Enterprise Storage is used for this
+  purpose. The minimum required number of storage nodes per
+  failure domain is 3.
+
+- *Management Nodes*: To run additional services such as Prometheus (a
+  time-series database for monitoring, alerting and trending) and the ELK
+  stack (ElasticSearch, LogStash, Kibana - a log collection and index
+  engine), further hardware is required. At least three machines per
+  failure domain should be made available for this purpose.
+
+- *Load Balancers*: In the central network that uplinks to the setup, a load
+  balancer must be installed -- this can either be an appliance or a
+  Linux server running Nginx, HAProxy, or other load balancing software.
+  The load balancer must be configured in a highly available manner as
+  loss of functionality on this level of the setup would make the
+  complete setup unreachable.
+
+The following picture shows a minimal implementation of this reference
+architecture for large-scale cloud environments. It is the ideal start
+for a Proof of Concept (PoC) setup or a test environment. For the final
+setup, remember to have dedicated control clusters in all 
+failure domains. Note that this is in contrast to what the diagram shows.
+
+// What picture? A.S
+
+=== SUSE OpenStack Cloud and SUSE Enterprise Storage
+
+The basic services of an IaaS Cloud offers Compute, Networking, and Storage 
+services. SUSE OpenStack Cloud is the base for the Compute and Networking 
+services. For the storage, it is recommended to use a software defined 
+solution and in most cases, a Ceph-based solution is used. SUSE Enterprise 
+Storage is such a Ceph-based distribution and fits perfectly to SUSE OpenStack 
+Cloud.
+
+Both products team up perfectly to build a large-scale OpenStack platform.
+Certain basic design tenets such as the distribution over multiple failure
+domains are integral design aspects of these solutions and implicitly included.
+Both products not only help you to set up OpenStack but also to run it in an effective and
+efficient way.
+
+For the reference architecture you need the following "Bill of Material"
+(BOM).
+
+.Minimal Bill of Material for a Reference Architecture
+[cols=">s,^m,^m",frame="topbot",options="header,footer",width="70%"]
+|===
+| Function | Minimal Reference Architecture | Large-Scale Environment
+| Failure Domains | 3 | 3
+|||
+| Hardware 2+^s|Number of Servers
+| Admin Server SOC | 1 | 1
+| Admin Server SES | 1 | 1
+| SUSE Manager     | 1 | 1
+| SOC Control Cluster | 3 | 3
+| SOC Network Cluster (Neutron) | 3 | 6
+| Prometheus, ELK  | 3 | 18
+| Compute Nodes | 15 | 240
+| Storage Nodes (OSD) | 9 | 60
+| Storage Monitors (MON) | 9 | 9
+|   |   |
+| Summary Servers ^s| 47 ^s| 2xx
+|===
+
+
+// vim:set syntax=asciidoc:

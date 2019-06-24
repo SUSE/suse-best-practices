@@ -1,12 +1,22 @@
 :docinfo:
+// Document Variables
+:slesProdVersion: 12
+//
+
 = SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide
 // == SAP S/4 HANA 1809 High Availability Cluster
 
 // Fabian Herschel Bernd Schubert
-// 2019/01/31
+// 2019/06/19
 
+// REVISION 1.0 2019/01
+//   - ENSA2 cluster setup 2 nodes
+// REVISION 1.1 2019/06
+//   - ENSA2 cluster setup 3+ nodes
+//   - ENSA2 cluster setup 3+ nodes for SLES12
+//   - Format corrections
 
-// :Revision: 1.0
+// :Revision: 1.1
 
 // Revision {Revision} from {docdate}
 
@@ -97,6 +107,9 @@ The document at hand explains how to:
 - Integrate the high availability cluster with the {sap} control framework via
   *{s4sClConnector3}* version 3, as certified by {sap}.
 
+NOTE: This guide implements the cluster architecture for enqueue replication version 2. For {sapS4Pl}
+ versions 1809 or newer enqueue replication version 2 is the default.
+
 This guide focuses on the high availability of the central services. For {saphana} system replication
 consult the guides for the performance-optimized or cost-optimized scenario (see <<sec.resource>>).
 
@@ -173,17 +186,14 @@ image::sles4sap_nw740_3nodes.svg[SVG]
 TODO: add the end if needed
 .Clustered machines Four-Node Scenario
 
-*    one machine ({my4nd1}) for ASCS
+*    one machine ({my3nd1}) for ASCS
 **    Hostname:   {myVipNAscs}
 
-*    one machine ({my4nd2}) for ERS
+*    one machine ({my3nd2}) for ERS
 **    Hostname:   {myVipNErs}
 
-*    one machine ({my4nd3}) for ASCS / ERS
+*    one machine ({my3nd3}) for ASCS / ERS
 **    Hostname:  not set during standby mode
-
-*    one machine ({my4nd4}) for ASCS / ERS
-**    Hostname:   not set during standby mode
 ////
 
 .Non-Clustered machine
@@ -227,7 +237,7 @@ image::sles4sap_nw740_cs+anydb.svg[SVG]
 .The following OS/database combinations are examples for this scenario
 [width="85%",options="header"]
 |=========================================================
-2+^|{sles4sap} 15
+2+^|{sles4sap} {slesProdVersion}
 ^| *Intel X86_64*
 |SAP HANA DATABASE 2.0
 |=========================================================
@@ -252,6 +262,8 @@ during some {sap} maintenance tasks. The new updated solution enables the centra
 as previously described.
 More details can be found in the blog article "Using sap_vendor_cluster_connector for interaction between cluster
 framework and sapstartsrv" at https://blogs.sap.com/2014/05/08/using-sapvendorclusterconnector-for-interaction-between-cluster-framework-and-sapstartsrv/comment-page-1/.
+
+NOTE: If you update from a {sapS4Pl} version less then 1809, please read SAP Note 2641019 carefully to adapt your cluster.
 
 .Cluster connector to integrate the cluster with the {sap} start framework
 image::sles4sap_clusterconnector.svg[SVG]
@@ -288,6 +300,8 @@ the shared drive {myDevA}:
 To create the partitions, you can use either YaST or available command line tools.
 The following script can be used for non-interactive setups.
 
+.Create Partitions and File Systems for SBD and ASCS/ERS on {my2nd1}
+========
 [subs="attributes"]
 ----
 # parted -s {myDevA} print
@@ -299,6 +313,7 @@ The following script can be used for non-interactive setups.
 # mkfs.xfs {myDevPartAscs}
 # mkfs.xfs {myDevPartErs}
 ----
+========
 
 For these file systems, we recommend using normal partitions to keep the cluster
 configuration as simple as possible. However, you can also place these file
@@ -341,7 +356,7 @@ TODO we used a non shared disk. Forgot to mount during installation?!?!?!
 You can either use YaST or available command-line tools to create the partitions.
 The following script can be used for non-interactive setups.
 
-.{myNode1}
+.Create Partitions and File Systems for DB and App Servers on {myNode1}
 ==============================================
 [subs="attributes"]
 ----
@@ -397,13 +412,12 @@ Add those entries if they are missing.
 
 ////
 TODO: multinode cluster extension
-# 4node cluster and divided application server
+# 3node cluster and divided application server
 {myIPNode2}  {myNode2}
 {myIPNode3}  {myNode3}
-{myIP4nd1}  {my4nd1}
-{myIP4nd2}  {my4nd2}
-{myIP4nd3}  {my4nd3}
-{myIP4nd4}  {my4nd4}
+{myIP3nd1}  {my3nd1}
+{myIP3nd2}  {my3nd2}
+{myIP3nd3}  {my3nd3}
 ----
 ////
 
@@ -418,9 +432,9 @@ shared file system between the cluster nodes.
 You need to create the directory structure on all nodes that should run the SAP resource.
 The SYS directory will be located on an NFS share for all nodes.
 
-- Create mount points and mounting NFS shares on all nodes:
+- Create mount points and mounting NFS shares on all nodes.
 
-.{sapS4}
+.Mount NFS Shares on all nodes
 ==============================================
 [subs="attributes"]
 ----
@@ -465,7 +479,7 @@ Prepare the three servers for the distributed {sap} installation. Server 1
 
 - Mount the instance and database file systems on one specific node:
 
-.{sapS4}
+.Mount several file systes for {sapS4} on different nodes
 =============================================================
 
 [subs="attributes"]
@@ -500,12 +514,15 @@ of them are owned by _root_.
 
 The overall procedure to install the distributed SAP system is as follows:
 
-. Install the ASCS instance for the central services.
-. Install the ERS to get a replicated enqueue scenario.
-. Prepare the ASCS and ERS installations for the cluster take-over.
-. Install the database.
-. Install the primary application server instance (PAS).
-. Install additional application server instances (AAS).
+.Tasks
+
+. Plan linux user and group number scheme
+. Install the ASCS instance for the central services
+. Install the ERS to get a replicated enqueue scenario
+. Prepare the ASCS and ERS installations for the cluster take-over
+. Install the database
+. Install the primary application server instance (PAS)
+. Install additional application server instances (AAS)
 
 The result will be a distributed {sap} installation as illustrated here:
 
@@ -635,10 +652,23 @@ LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstAscs}/exe:$LD_LIBRARY_PATH; export LD_LI
 LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstErs}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/{myInstErs}/exe/sapstartsrv pf=/usr/sap/{mySid}/{myInstErs}/profile/{mySid}_{myInstErs}_{myVipNErs} -D -u {mySapAdm}
 ----
 
-==== Integrating the Cluster Framework Using _{s4sClConnector3}_
+If entries are missing you can register them using sapstartsrv with options *pf=*<profile-of-the-sap-instance> and *-reg*.
+
+[subs="specialchars,attributes"]
+----
+# LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
+# /usr/sap/hostctrl/exe/sapstartsrv \
+ pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs> \
+ -reg
+# /usr/sap/hostctrl/exe/sapstartsrv \
+ pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameAscs> \
+ -reg
+----
+
+==== Integrating the Cluster Framework using _{s4sClConnector3}_
 
 Install the package *{s4sClConnector3}* version 3.1.0 from the SUSE
-repositories.
+repositories:
 
 [subs="attributes"]
 ----
@@ -713,7 +743,7 @@ On _{my2nd1}_, do the following:
 # sapcontrol -nr {myAscsIno} -function Start
 ----
 
-On _{my2nd2}_, do the following:
+On _{my2nd2}_, do the following
 
 [subs="attributes"]
 ----
@@ -722,7 +752,7 @@ On _{my2nd2}_, do the following:
 # sapcontrol -nr {myErsIno} -function Start
 ----
 
-=== Installing DB on {myNode1} (Example SAP HANA)
+=== Installing Database on {myNode1} 
 
 The HANA DB has very strict HW requirements. The storage sizing depends on many
 indicators. Check the supported configurations at
@@ -747,9 +777,9 @@ High-Availability System -> Database Instance
 * Database parameters : Database ID (DBSID) is {bsSidDB};
 Database Host is {myVipNDb}; Instance Number is {bsDBIno}
 * Database System ID enter Instance Number is {bsDBIno}; SAP Mount Directory is
-sapmnt/{mySID}/profile
+/sapmnt/{mySID}/profile
 * Account parameters: change them in case of custom values needed
-* Clean-up: select *Yes*, remove operating system users from the group `sapinst`
+* Clean-up: select *Yes*, remove operating system users from the group `sapinst`.
 * Double-check during the parameter review, if virtual name *{myVipNDb}* is
   used
 
@@ -765,7 +795,7 @@ sapmnt/{mySID}/profile
 
 * SWPM product installation path:
 ** Installing {sapS4in}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
-High-Availability System -> Primary Application Server Instance (PAS)
+High-Availability System -> Primary Application Server Instance
 * Use instance number {myPasIno}
 * Deselect using FQDN
 * For this example setup we have used a default secure store key
@@ -777,7 +807,7 @@ High-Availability System -> Primary Application Server Instance (PAS)
 
 [subs="attributes"]
 ----
-# ip a a {myVipADSec}{myVipNM} dev eth0
+# ip a a {myVipAAas}{myVipNM} dev eth0
 # mount {myDevPartSec} {myMPSec}
 # cd {mySAPinst}
 # ./sapinst SAPINST_USE_HOSTNAME={myVipNDSec}
@@ -785,7 +815,7 @@ High-Availability System -> Primary Application Server Instance (PAS)
 
 * SWPM product installation path:
 ** Installing {sapS4in}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
-High-Availability System -> Additional Application Server Instance (AAS)
+High-Availability System -> Additional Application Server Instance
 * Use instance number {myDSecIno}
 * Deselect using FQDN
 * Do not install Diagnostic Agent
@@ -795,12 +825,12 @@ High-Availability System -> Additional Application Server Instance (AAS)
 
 The main procedure to implement the cluster is as follows:
 
-* Install the cluster software, if not already done during the installation of
-the operating system.
-* Configure the cluster communication framework *corosync*.
-* Configure the cluster resource manager.
-* Configure the cluster resources.
-* Tune the cluster timing in special for the SBD.
+.Tasks
+
+. OS preparation and install the cluster software
+. Configure the cluster base including corosync and resource manager
+. Configure the cluster resources
+. Tune the cluster timing in special for the SBD.
 
 ///////////////////////////////
 TODO: Do we really need to stop, unconfigure and unmount?
@@ -816,9 +846,9 @@ NOTE: The SBD device/partition needs to be created beforehand. Double-check whic
 device/partition to use! In this setup guide a partition _{myDevPartSbd}_
 is already reserved for SBD usage.
 
-.Tasks
+=== OS Preparation and Cluster Software Installation
 
-- Set up and enable *chrony* with *yast2*.
+- Set up and enable *NTP* with *yast2*.
 
 - Install the RPM pattern *ha_sles* on both cluster nodes.
 +
@@ -847,14 +877,14 @@ The following example uses the software device but can be easily adapted to the 
 # lsmod | egrep "(wd|dog|i6|iT|ibm)"
 ----
 
-- Install and configure the cluster stack on the first machine.
+- Install and configure the cluster stack on the first machine
 
 [subs="attributes"]
 ----
-# ha-cluster-init -u -s /dev/sda1
+# ha-cluster-init -u -s  {myDevPartSbd}
 ----
 
-- Join the second node.
+- Join the second node
 
 On the second node, perform some preparation steps.
 
@@ -964,7 +994,7 @@ primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
   op monitor interval=11 timeout=60 on_fail=restart \
   params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
-     START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
+     START_PROFILE="/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}" \
      AUTOMATIC_RECOVER=false \
   meta resource-stickiness=5000
 ----
@@ -1014,7 +1044,7 @@ primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
   op monitor interval=11 timeout=60 on_fail=restart \
   params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
-         START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
+         START_PROFILE="/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}" \
          AUTOMATIC_RECOVER=false IS_ERS=true
 ----
 ================================================
@@ -1032,14 +1062,14 @@ Create a _txt_ file (like _crm_ers.txt_) with your preferred text editor. Add
 both examples (primitives and group) to that file and load the configuration to
 the cluster manager configuration.
 
-As user _root_, type the following command:
+_As user root_
 
 [subs="attributes"]
 ----
 # crm configure load update crm_ers.txt
 ----
 
-==== Configuring the Colocation Constraints Between ASCS and ERS
+==== Configuring the Colocation Constraints between ASCS and ERS
 
 Compared to the ENSA1 configuration, the constraints between the ASCS and ERS instances are changed.
 An ASCS instance should avoid starting up on the cluster node running the ERS instance if any other
@@ -1085,12 +1115,18 @@ As user _root_, type the following command:
 ----
 
 ////
+ TODO: Subsection "tune cluster timeouts and sbd"
+////
+
+
+////
 ############################
 #
 # ADMINISTRATION
 #TODO: renaming Do and Don't to Operational Tasks
 ############################
 ////
+
 
 == Administration
 
@@ -1111,7 +1147,7 @@ As user _{mysapadm}_, type the command:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HAFailoverToNode ""
+# sapcontrol -nr {myAscsIno} -function HAFailoverToNode ""
 ----
 
 ==== Never Block Resources
@@ -1157,25 +1193,25 @@ Type the following command:
 ==== Starting the Resource Maintenance Mode
 
 The procedure to start the resource maintenance mode can be executed as user _{mysapadm}_.
-This sets the ASCS and ERS cluster resource to 'unmanaged'.
+This sets the ASCS and ERS cluster resource to *unmanaged*.
 
 As user _{mysapadm}_, type the command:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HASetMaintenanceMode 1
+# sapcontrol -nr {myAscsIno} -function HASetMaintenanceMode 1
 ----
 
 ==== Stopping the Resource Maintenance Mode
 
 The procedure to start the resource maintenance mode can be executed as user _{mysapadm}_.
-This sets the ASCS and ERS cluster resource to 'managed'.
+This sets the ASCS and ERS cluster resource to *managed*.
 
 As user _{mysapadm}_, type the command:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HASetMaintenanceMode 0
+# sapcontrol -nr {myAscsIno} -function HASetMaintenanceMode 0
 ----
 
 ==== Cleaning Up Resources
@@ -1191,13 +1227,10 @@ As user _root_, type the following command:
 # crm resource cleanup RESOURCE-NAME
 ----
 
-WARNING: Do *not* clean up the complete group of the ASCS resources. This might lead to an unwanted cluster action
-and move the complete group to the node where the ERS instance is running.
-
 === Testing the Cluster
 
 It is strongly recommended to perform at least the following tests before you
-go into production with your cluster.
+go into production with your cluster:
 
 ==== Checking Product Names with HAGetFailoverConfig
 
@@ -1209,7 +1242,7 @@ As user _{mysapadm}_, type the following command:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HAGetFailoverConfig
+# sapcontrol -nr {myAscsIno} -function HAGetFailoverConfig
 ----
 
 ==== Running SAP Checks Using HACheckConfig and HACheckFailoverConfig
@@ -1220,8 +1253,8 @@ As user _{mysapadm}_, type the following commands:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HACheckConfig
-# sapcontrol -nr 00 -function HACheckFailoverConfig
+# sapcontrol -nr {myAscsIno} -function HACheckConfig
+# sapcontrol -nr {myAscsIno} -function HACheckFailoverConfig
 ----
 
 ==== Manually Migrating ASCS
@@ -1245,7 +1278,7 @@ As user _{mysapadm}_, type the following command:
 
 [subs="attributes"]
 ----
-# sapcontrol -nr 00 -function HAFailoverToNode ""
+# sapcontrol -nr {myAscsIno} -function HAFailoverToNode ""
 ----
 
 ==== Test ASCS Migration after OS Failure
@@ -1277,9 +1310,9 @@ As user _{mysapadm}_, do the following:
 [subs="attributes"]
 ----
 ## example for ASCS
-# sapcontrol -nr 00 -function Stop
+# sapcontrol -nr {myAscsIno} -function Stop
 ## wait till the ASCS is completely down
-# sapcontrol -nr 00 -function Start
+# sapcontrol -nr {myAscsIno} -function Start
 ----
 
 ==== Automated Restart of the ASCS Instance (Simulating Rolling Kernel Switch)
@@ -1293,18 +1326,29 @@ Optionally, you can set locks and verify that they still exist after the mainten
 ways to do that. One example test can be performed as follows:
 
 . Log in to your SAP system and open the transaction SU01.
-. Create a new user.
+. Create a new user. Don't finish the transaction to see the locks.
 . With the SAP MC / MMC, check if there are locks available.
 . Open the ASCS instance entry and go to _Enqueue Locks_.
 . With the transaction SM12, you can also see the locks.
 
 Do this test multiple times in a short time frame. The restart of the ASCS instance in the example below happens five times.
 
-As user _{mysapadm}_, do the following:
-
+As user _{mysapadm}_, create and execute the following script:
 [subs="attributes"]
 ----
-# bash -c 'for lo in 1 2 3 4 5; do echo LOOP "$lo - Restart {myInstAscs}"; sapcontrol -host {myVipNAscs} -nr {myAscsIno} -function StopWait 120 1; sleep 1; sapcontrol -host {myVipNAscs} -nr {myAscsIno} -function StartWait 120 1; sleep 1; done'
+$ cat ascs_restart.sh
+#!/bin/bash
+for lo in 1 2 3 4 5; do
+  echo LOOP "$lo - Restart ASCS{myAscsIno}"
+  sapcontrol -host sap{mySidLc}as -nr {myAscsIno} -function StopWait 120 1
+  sleep 1
+  sapcontrol -host sap{mySidLc}as -nr {myAscsIno} -function StartWait 120 1
+  sleep 1
+done
+----
+[subs="attributes"]
+----
+$ bash ascs_restart.sh
 ----
 
 ==== Do a Rolling Kernel Switch Procedure
@@ -1327,11 +1371,16 @@ As user _{mysapadm}_, type the following commands:
 ----
 ## sapcontrol [-user <sidadm psw>] -host <host> -nr <INSTANCE_NR> -function UpdateSystem 120 300 1
 # sapcontrol -user {mySapAdm} {mySapPwd} -host {myVipNAscs} -nr {myAscsIno} -function UpdateSystem 120 300 1
-# sapcontrol -nr {myAscsIno} -function GetSystemUpdateList -host {myVipNAscs} -user {mySapAdm} {mySapPwd}
-# sapcontrol -nr {myAscsIno} -function GetVersionInfo -host {myVipNAscs} -user {mySapAdm} {mySapPwd}
-# sapcontrol -nr {myErsIno} -function GetVersionInfo -host {myVipNErs} -user {mySapAdm} {mySapPwd}
-# sapcontrol -nr {myPasIno} -function GetVersionInfo -host {myVipNPas} -user {mySapAdm} {mySapPwd}
-# sapcontrol -nr {myDSecIno} -function GetVersionInfo -host {myVipNDSec} -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myAscsIno} -function GetSystemUpdateList -host {myVipNAscs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myAscsIno} -function GetVersionInfo -host {myVipNAscs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myErsIno} -function GetVersionInfo -host {myVipNErs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myPasIno} -function GetVersionInfo -host {myVipNPas} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myDSecIno} -function GetVersionInfo -host {myVipNDSec} \
+  -user {mySapAdm} {mySapPwd}
 ----
 
 
@@ -1353,206 +1402,285 @@ In addition to the already performed tests, you should do the following:
 
 //:leveloffset: 0
 
-////
-############################
-#
-# APENDIX
-#
-############################
-////
 
 
 
-== Appendix
+== Multi-Node Cluster Setups for an {sapS4}
 
-=== CRM Configuration
-
-Find below the complete crm configuration for {sap} system {mySid}.
-
-[subs="attributes"]
-----
-node 1084752231: {my2nd1}
-node 1084752232: {my2nd2}
-primitive rsc_fs_{mySID}_{myInstAscs} Filesystem \
-	params device="{myDevPartAscs}" directory="/usr/sap/{mySID}/{myInstAscs}" \
-     fstype=xfs \
-	op start timeout=60s interval=0 \
-	op stop timeout=60s interval=0 \
-	op monitor interval=20s timeout=40s
-primitive rsc_fs_{mySID}_{myInstErs} Filesystem \
-	params device="{myDevPartErs}" directory="/usr/sap/{mySID}/{myInstErs}" \
-     fstype=xfs \
-	op start timeout=60s interval=0 \
-	op stop timeout=60s interval=0 \
-	op monitor interval=20s timeout=40s
-primitive rsc_ip_{mySID}_{myInstAscs} IPaddr2 \
-	params ip={myVipAAscs} \
-	op monitor interval=10s timeout=20s
-primitive rsc_ip_{mySID}_{myInstErs} IPaddr2 \
-	params ip={myVipAErs} \
-	op monitor interval=10s timeout=20s
-primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
-	operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
-	op monitor interval=11 timeout=60 on_fail=restart \
-	params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
-    START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
-    AUTOMATIC_RECOVER=false \
-	meta resource-stickiness=5000
-primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
-    operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
-    op monitor interval=11 timeout=60 on_fail=restart \
-    params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
-    START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
-    AUTOMATIC_RECOVER=false IS_ERS=true \
-    meta priority=1000
-primitive stonith-sbd stonith:external/sbd \
-    params pcmk_delay_max=30s
-group grp_{mySID}_{myInstAscs} rsc_ip_{mySID}_{myInstAscs} rsc_fs_{mySID}_{myInstAscs} \
-    rsc_sap_{mySID}_{myInstAscs} \
-    meta resource-stickiness=3000
-group grp_{mySID}_{myInstErs} rsc_ip_{mySID}_{myInstErs} rsc_fs_{mySID}_{myInstErs} \
-    rsc_sap_{mySID}_{myInstErs}
-colocation col_sap_{mySid}_not_both -5000: grp_{mySID}_{myInstErs} grp_{mySID}_{myInstAscs}
-order ord_sap_{mySid}_first_ascs Optional: rsc_sap_{mySID}_{myInstAscs}:start \
-    rsc_sap_{mySID}_{myInstErs}:stop symmetrical=false
-property cib-bootstrap-options: \
-    have-watchdog=true \
-    dc-version="1.1.18+20180430.b12c320f5-1.14-b12c320f5" \
-    cluster-infrastructure=corosync \
-    cluster-name=hacluster \
-    stonith-enabled=true \
-    placement-strategy=balanced \
-    last-lrm-refresh=1548155187
-rsc_defaults rsc-options: \
-    resource-stickiness=1 \
-    migration-threshold=3
-op_defaults op-options: \
-    timeout=600 \
-    record-pending=true
-----
-
-=== Corosync Configuration
-
-Find below the Corosync configuration.
-
-[subs="attributes"]
-----
-# Read the corosync.conf.5 manual page
-totem {
-	version: 2
-	secauth: on
-	crypto_hash: sha1
-	crypto_cipher: aes256
-	cluster_name: hacluster
-	clear_node_high_bit: yes
-	token: 5000
-	token_retransmits_before_loss_const: 10
-	join: 60
-	consensus: 6000
-	max_messages: 20
-	interface {
-		ringnumber: 0
-		mcastport: 5405
-		ttl: 1
-	}
-
-	transport: udpu
-}
-
-logging {
-	fileline: off
-	to_stderr: no
-	to_logfile: no
-	logfile: /var/log/cluster/corosync.log
-	to_syslog: yes
-	debug: off
-	timestamp: on
-	logger_subsys {
-		subsys: QUORUM
-		debug: off
-	}
-
-}
-
-nodelist {
-	node {
-		ring0_addr: {myIP2nd1}
-		nodeid: 1
-	}
-
-	node {
-		ring0_addr: {myIP2nd2}
-		nodeid: 2
-	}
-}
-
-quorum {
-
-	# Enable and configure quorum subsystem (default: off)
-	# see also corosync.conf.5 and votequorum.5
-	provider: corosync_votequorum
-	expected_votes: 2
-	two_node: 1
-}
-----
-
-////
-TODO: 3node example
-
-=== The Multi-Node Cluster Setup for an {sapS4}
-
-Depending on your starting point, it is possible to extend a two-node cluster setup or directly start with
-more than two nodes for the ASCS / ERS.
-The example below will show the extension of an existing two-node cluster pair. The major configuration changes
+[[multicluster]]
+*Multinode cluster* setups mean cluster configurations with more than two nodes.
+Depending from the starting point it is possible to extend a two node cluster setup or directly start with
+more than two nodes for a ASCS / ERS high availability setup.
+The examples below will show the setting up of Multi-node cluster and the extension of an existing two node cluster pair. The major configuration changes
 will be shown and the basic preparation of the new cluster member node.
 
-==== Two-Node Configuration - Starting point
+The task list to setup the three node cluster is similar to the task list of the two node cluster. But some
+details are decribed different here to get a diskless SBD setup.
 
-- Backup your system
--- cluster configuration
--- corosync.conf
--- all data and configuration which are important and customized and not default
+////
+.Tasks
+
+. OS preparation and install the cluster software
+. Preparing watchdog and SBD parameters for diskless SBD
+. Configure the cluster base including corosync and resource manager with diskless SBD
+. Configure the cluster resources
+. Tune the cluster timing in special for the SBD.
+////
+
+////
+// BEGIN OF BLOCKED CHAPTERS FOR MULTINODE 2019-06-18
+=== Setup Multinode Cluster from the Top with Diskless SBD
+
+A fencing mechanism is essential for cluster controlled infrastructures. Sometimes there is no possibility
+to have a shared block device or an IPMI device. A solution for such environments could be the
+diskless SBD option. SBD can be operated in a diskless mode. In this mode, a watchdog device will be
+used to reset the node in the following cases: if it loses quorum, if any monitored daemon is lost and not
+recovered, or if Pacemaker decides that the node requires fencing. Diskless SBD is based on “self-fencing”
+of a node, depending on the status of the cluster, the quorum and some reasonable assumptions.
+
+IMPORTANT: Do not use diskless SBD as a fencing mechanism for two-node clusters. Use it only
+in clusters with three or more nodes. SBD in diskless mode cannot handle split brain scenarios for
+two-node clusters.
+
+==== OS preparation and Install the Cluster Software
+
+In general the OS preparation is similar to the procedure described for the two node cluster.
+This includes the setup of NTP as well as installing the software pattern *ha_sles* using *yast2* or *zypper*.
+
+==== Preparing watchdog and SBD Parameters for Diskless SBD
+
+Diskless SBD does not share a drive for exchanging SBD status. Thus we need to set up SBD parameters carefully
+before we initialize the cluster.
+
+.Checking watchdog and start values for diskless SBD
+==========
+All following commands are executed as user _root_ .
+Check if the correct watchdog device is loaded and active.
+
+[subs="specialchars,attributes,quotes"]
+----
+# lsmod | egrep "(wd|dog|i6|iT|ibm)"
+----
+
+Check and set the parameters in _/etc/sysconfig/sbd_
+
+[subs="specialchars,attributes,quotes"]
+----
+SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5
+----
+
+==========
+
+==== Configure the Multi Node Cluster Base with Diskless SBD
+
+.Creating a Multinode Cluster
+==========
+This example uses three node but can easily extend to more. A dedicate network interface is used for
+the corosync communication (eth1). The option *-S* is special for the diskless mode.
+
+On the first node, execute the following command:
+[subs="specialchars,attributes,quotes"]
+----
+# ha-cluster-init -u -i eth1 -S
+----
+
+On all remaining nodes, execute the following command:
+[subs="specialchars,attributes,quotes"]
+----
+# ha-cluster-join -i eth1 -c <first cluster node>
+----
+
+After all nodes have joined check the cluster status:
+
+[subs="specialchars,attributes,quotes"]
+----
+#  crm status
+
+	Stack: corosync
+	Current DC: <node1> (version 1.1.18+20180430.b12c320f5-3.3.1-b12c320f5) - partition with quorum
+	Last updated: Thu Apr 25 06:30:50 2019
+	Last change: Thu Apr 25 06:30:45 2019 by root via cibadmin on <node1>
+
+	3 nodes configured
+	0 resources configured
+
+	Online: [ <node1> <node2> <node3> ]
+
+	No resources
+----
+
+This is an example for a three node cluster _corosync.conf_ file:
+
+[subs="specialchars,attributes,quotes"]
+----
+	# Please read the corosync.conf.5 manual page
+	totem {
+		version: 2
+		secauth: on
+		crypto_hash: sha1
+		crypto_cipher: aes256
+		cluster_name: hacluster
+		clear_node_high_bit: yes
+		token: 5000
+		token_retransmits_before_loss_const: 10
+		join: 60
+		consensus: 6000
+		max_messages: 20
+		interface {
+			ringnumber: 0
+			mcastport: 5405
+			ttl: 1
+		}
+
+		transport: udpu
+	}
+
+	logging {
+		fileline: off
+		to_stderr: no
+		to_logfile: no
+		logfile: /var/log/cluster/corosync.log
+		to_syslog: yes
+		debug: off
+		timestamp: on
+		logger_subsys {
+			subsys: QUORUM
+			debug: off
+		}
+
+	}
+
+	nodelist {
+		node {
+			ring0_addr: {myIP3nd1}
+			nodeid: 1
+		}
+
+		node {
+			ring0_addr: {myIP3nd2}
+			nodeid: 2
+		}
+
+		node {
+			ring0_addr: {myIP3nd3}
+			nodeid: 3
+		}
+
+	}
+
+	quorum {
+
+		# Enable and configure quorum subsystem (default: off)
+		# see also corosync.conf.5 and votequorum.5
+		provider: corosync_votequorum
+		expected_votes: 3
+		two_node: 0
+	}
+----
+
+Verify the system and enable the SBD service if not done by the setup:
+
+[subs="specialchars,attributes,quotes"]
+----
+# systemctl enable sbd
+----
+
+Check if the parameter *have-watchdog=true* has been automatically set:
+
+[subs="specialchars,attributes,quotes"]
+----
+# crm configure show | grep have-watchdog
+----
+
+Adapt the cluster *stonith-watchdog-timeout* for diskless SBD:
+
+[subs="specialchars,attributes,quotes"]
+----
+# crm configure property stonith-watchdog-timeout=10
+----
+
+For diskless SBD, this parameter must not equal zero. It defines after how long it is assumed that the
+fencing target has already self-fenced. Therefore its value needs to be >= the value of
+SBD_WATCHDOG_TIMEOUT in _/etc/sysconfig/sbd_ .
+
+==========
+
+==== Configure the Cluster Resources
+
+The resources for the three node cluster are set up exactly in the same way as for the two node cluster.
+
+// TODO
+// ==== Tune the cluster timing in special for the SBD.
+
+// END OF BLOCKED CHAPTERS FOR MULTINODE 2019-06-17
+////
+
+=== Extend An Existing Two Node Cluster Configuration
+
+.Tasks
+
+. Backup the current cluster
+. OS installation new node
+. Patching the existing nodes
+. Preparing the New Node's Operating System
+. SAP preparation
+. Installing the cluster software on the new node
+. joining the cluster
+. Test the new cluster configuration
+
+==== Backup the current Cluster
+
+Backup the current. cluster
+==========
+
+* Backup your system
+** cluster configuration
+** corosync.conf
+** all data and configuration which are important and customized and not default
 
 The system is configured as described in the SUSE Best Practices document
 __SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide__.
 
 .Backing Up the Cluster Configuration
 
-Go to one of the cluster nodes and safe the cluster configuration with crm:
+Go to one of the cluster nodes and safe the cluster configuration with _crm_ and _crm report_ commands:
 
 [subs="attributes"]
 ----
 # crm configure save 2node.txt
 ----
 
-Back up the existing /etc/corosync/corosync.conf and all other files which may be important for a restore.
-This example is only one method to create a configuration backup.
-
 [subs="attributes"]
 ----
-# tar cvf /<path to an external storage>/bck_2nodes_configuration.tar /etc/corosync/corosync.conf 2node.txt ..
+# crm report
 ----
 
-==== Multi-Node Configuration
+Back up the existing /etc/corosync/corosync.conf and all other files which may be important for a restore.
+This example is one method creating a backup. The important point is using an *external* destination.
 
-- OS installation new node
-- Patching the existing nodes
-- OS preparation new node
--- installing packages
--- SAP preparation
--- joining the infrastructure
--- joining the cluster
-- Test the new cluster configuration
-- Pros and cons for odd and even numbers of cluster nodes
+[subs="specialchars,attributes,quotes"]
+----
+# tar cvf /<path to an *external* storage>/bck_2nodes_configuration.tar \
+      /etc/corosync/corosync.conf \
+      2node.txt \
+      <crm report files>
+      <add your additional files here>
+----
+==========
 
-===== OS installation of the new cluster node member.
+
+==== OS Installation of The New Cluster Node Member
 
 We recommend using automating the installation to ensure that the system setup across nodes is identical.
 Make sure to document any additional steps you take beyond the automated setup. In our example, we
 deploy our machines with an AutoYaST configuration file and run a post step script which does the basic
 configuration.
 
-===== Patching Existing Nodes
+==== Patching Existing Nodes
 
 If applicable, install the latest updates and patches on your existing nodes.
 Alternatively, if you are using frozen repositories such as those provided by SUSE Manager,
@@ -1561,12 +1689,12 @@ existing nodes.
 
 Use *zypper patch* or *zypper update* depending on your company's rules.
 
-- We recommended installing the latest available patches to guarantee system stability and hardening.
+- It is recommended installing the latest available patches to guarantee system stability and hardening.
 Bug fixing and security patches help avoid unplanned outages and make the system less vulnerable.
 
 There are multiple ways:
 
-[subs="attributes"]
+[subs="specialchars,attributes,quotes"]
 ----
 # zypper patch --category security
 ## or
@@ -1577,100 +1705,122 @@ There are multiple ways:
 # zypper update
 ----
 
-===== Preparing the New Node's Operating System
+==== Preparing the New Node's Operating System
 
-.Make sure to use valid DNS, time, network settings and verify the node's patch level.
-
+.Check for valid DNS, time synchronisation, network settings
+==========
 - Verify that DNS is working:
 +
-[subs="attributes"]
+[subs="specialchars,attributes,quotes"]
 ----
 # ping <hostname>
 ----
 
-- Set up *chrony* (this is best done with *yast2*) and enable it:
+- Set up *NTP Client* (this is best done with *yast2*) and enable it:
 +
-[subs="attributes"]
+[subs="specialchars,attributes,quotes"]
 ----
 # yast ntp-client
 ----
 
 - Check the network settings:
-
-[subs="attributes"]
++
+[subs="specialchars,attributes,quotes"]
 ----
 # ip r
 ----
+
+==========
 
 You may run into trouble if there is no valid or no default route configured.
 
 - Patch the new system like the existing nodes, verify that your systems have the same patch level and
  that all required reboots have been performed.
-After installing all necessary packages, compare installed package versions.
 
-.On the existing cluster nodes:
-+
-[subs="attributes"]
-----
-# rpm -qa | sort >rpm_valuga11.log
-----
-
-.On the new node:
-
-[subs="attributes"]
-----
-# rpm -qa | sort >rpm_valuga13.log
-----
-
-.Copy the file from one node to the other and compare the two versions:
-
-[subs="attributes"]
-----
-# vimdiff rpm_valuga13.log rpm_valuga11.log
-----
-
-NOTE: If there any differences fix them first before you proceed.
+==== Installing Cluster Software on the New Node
 
 .Installing packages
-
+============
 - Install the pattern *ha_sles* on the new cluster node:
-
-[subs="attributes"]
++
+[subs="specialchars,attributes,quotes"]
 ----
 # zypper in -t pattern ha_sles
 ----
 
-- Install and configure the watchdog device on the new machine.
+- Install the package *{s4sClConnector3}* version 3.1.0 from the SUSE repositories:
++
+[subs="specialchars,attributes,quotes"]
+----
+# zypper in {s4sClConnector3}
+----
+============
+
+// ////
+
+After installing all necessary packages, compare installed package versions.
+
+.Check that all nodes have the same software packages and versions
+============
+- On the existing cluster nodes:
++
+[subs="specialchars,attributes,quotes"]
+----
+# rpm -qa | sort >rpm_{my3nd1}.log
+----
+
+- On the new node:
++
+[subs="attributes"]
+----
+# rpm -qa | sort >rpm_{my3nd3}.log
+----
+
+- Copy the file from one node to the other and compare the two versions:
++
+[subs="attributes"]
+----
+# vimdiff rpm_{my3nd3}.log rpm_{my3nd1}.log
+----
+============
+
+
+NOTE: If there any differences fix them first before you proceed.
+
+.Install and configure the watchdog device on the new machine.
+============
 
 Instead of deploying the software-based solution, preferably use a hardware-based watchdog device.
 The following example uses the software device but can be easily adapted to the hardware device.
 
-[subs="attributes"]
+[subs="specialchars,attributes,quotes"]
 ----
 # modprobe softdog
 # echo softdog > /etc/modules-load.d/watchdog.conf
 # systemctl restart systemd-modules-load
 # lsmod | egrep "(wd|dog|i6|iT|ibm)"
 ----
-- Install the package *{s4sClConnector3}* version 3.1.0 from the SUSE repositories:
+============
+
+NOTE: Ensure that the new node is connected to the same SBD disk connected to the existing two nodes. Ensure that the new node has the same exact SBD configurations already exist on the two existing nodes
 
 [subs="attributes"]
 ----
-# zypper in {s4sClConnector3}
+# sbd -d {myDevPartSbd} dump
 ----
 
-.Preparing the SAP Installation on the New Node
+==== Preparing the SAP Installation on the New Node
 
-With SWPM 2.0, SAP provides a new option which can perform all necessary steps to prepare a fresh
+With SWPM 2.0 (SP4 or later), which is part of the SL Toolset, SAP provides a new option which can perform all necessary steps to prepare a fresh
 install server to be able to fit into an existing SAP system. This new option will help us to prepare a
 new host which can later run either the ASCS or ERS in the cluster environment.
 
 You need to create the directory structure that should run the SAP resource.
 The SYS directory is located on an NFS share for all nodes.
 
-- Create mount points and mount NFS shares on all nodes:
+- Create mount points and mount NFS shares on the new added node ({my3nd3}):
 
-.{sapS4}
+.Mount NFS Shares on {my3nd3}
 ==============================================
 [subs="attributes"]
 ----
@@ -1682,169 +1832,138 @@ The SYS directory is located on an NFS share for all nodes.
 ----
 ==============================================
 
-As this directory needs to be available at all time, make sure is is mounted during boot. This can be
+As this directory needs to be available at all time, make sure it is mounted during boot. This can be
 achieved by put the information into the /etc/fstab.
 
-[subs="attributes"]
+////
+//  BLOCKED SAP SWPM INFO TILL AVAILABILITY IN SEPTEMBER 2019-06-19
+In the next step the following information are required:
+- profile directory
+- password for SAP System Administrator
+- UID for sapadm
+
+[subs="specialchars,attributes,quotes"]
 ----
-#
 # cd {mySAPinst}
-# ./sapinst SAPINST_USE_HOSTNAME={myVipNAscs}
+# ./sapinst
 ----
 
 * SWPM product installation path:
 ** Installing {sapS4in}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP
--> High-Availability System -> ASCS Instance
-* Use SID {mySid}
-* Use instance number {myAscsIno}
-* Deselect using FQDN
-* All passwords: use {mySapPwd}
-* Double-check during the parameter review, if virtual name *{myVipNAscs}* is used
+-> High-Availability System -> Prepare Additional Host
+* Use /sapmnt/{mySid}/profile for the profile directory
+* All passwords: {mySapPwd}
+*  UID for sapadm: 2002
+// ==========
+//  BLOCKED SAP SWPM INFO TILL AVAILABILITY IN SEPTEMBER 2019-06-19
+////
 
-
-
-
-Add the user _{mySapAdm}_ to the unix user group _haclient_.
-
-[subs="attributes"]
+.Post Step Procedure after SAP Preparation Step
+==========
+- Add the user _{mySapAdm}_ to the unix user group _haclient_.
++
+[subs="specialchars,attributes,quotes"]
 ----
 # usermod -a -G haclient {mySapAdm}
 ----
 
-[subs="attributes"]
+- Create the file _/usr/sap/sapservices_  or copy it from one of your existing cluster nodes.
++
+NOTE: This must be done for each instance. Call sapstartsrv with parameters *pf=*<profile-of-the-sap-instance> and *-reg*.
++
+The following commans register the ASCS and the ERS {sap} instance:
++
+[subs="specialchars,attributes"]
 ----
-#
+##  create them with sapstartsrv
+# LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs> -reg
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameAscs> -reg
 ----
 
-[subs="attributes"]
+- Alternatively copy the file
++
+[subs="specialchars,attributes"]
 ----
-#
+# scp -p {my2nd1}:/usr/sap/sapservices /usr/sap/
 ----
 
+- Finally check the file
++
+[subs="specialchars,attributes"]
+----
+# cat /usr/sap/sapservices
+#!/bin/sh
+LD_LIBRARY_PATH=/usr/sap/{mySid}/ASCS{myAscsIno}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/ASCS{myAscsIno}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_ASCS{myAscsIno}_sap{mySidLc}as -D -u {mySidLc}adm
+LD_LIBRARY_PATH=/usr/sap/{mySid}/ERS{myErsIno}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/ERS{myErsIno}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_ERS{myErsIno}_sap{mySidLc}er -D -u {mySidLc}adm
+----
+==========
 
-===== Example of corosync.conf for Three Nodes
+.Add the New Node to the Cluster
+==========
+Please check if the SBD device is available in case the SBD stonith method is in place for the two nodes.
+If the existing cluster using a different, supported stonith mechanism check and verify them too for the
+new cluster node.
 
-valuga21:~ # cat /etc/corosync/corosync.conf
-# Read the corosync.conf.5 manual page
-totem {
-	version: 2
-	secauth: on
-	crypto_hash: sha1
-	crypto_cipher: aes256
-	cluster_name: hacluster
-	clear_node_high_bit: yes
-	token: 5000
-	token_retransmits_before_loss_const: 10
-	join: 60
-	consensus: 6000
-	max_messages: 20
-	interface {
-		ringnumber: 0
-		mcastport: 5405
-		ttl: 1
-	}
+[subs="specialchars,attributes,quotes"]
+----
+# sbd -d {myDevPartSbd} dump
+----
 
-	transport: udpu
-}
+- Joining the cluster with _ha-cluster-join_
 
-logging {
-	fileline: off
-	to_stderr: no
-	to_logfile: no
-	logfile: /var/log/cluster/corosync.log
-	to_syslog: yes
-	debug: off
-	timestamp: on
-	logger_subsys {
-		subsys: QUORUM
-		debug: off
-	}
+[subs="specialchars,attributes,quotes"]
+----
+# ha-cluster-join -c {my2nd1}
+----
 
-}
+After the new node has joined into the cluster the configuration must be adapted to the new situation.
+Double check if the join was successful and verify the _/etc/corosync/corosync.conf_
 
-nodelist {
-	node {
-		ring0_addr: 192.168.1.105
-		nodeid: 1
-	}
+[subs="specialchars,attributes,quotes"]
+----
+# grep votes -n2 /etc/corosync/corosync.conf
+----
 
-	node {
-		ring0_addr: 192.168.1.106
-		nodeid: 2
-	}
+The values *expected_votes* and *two_node* should now look like this on all nodes:
 
-	node {
-		ring0_addr: 192.168.1.107
-		nodeid: 3
-	}
+* expected_votes: 3
+* two_node: 0
 
-}
+Modify the cluster configuration and set a new colocation rule with _crm_:
 
-quorum {
+[subs="specialchars,attributes,quotes"]
+----
+# crm configure delete col_sap_{mySid}_no_both
+# crm configure colocation ASCS{myAscsIno}_ERS{myErsIno}_separated_{mySid} -5000: grp_{mySid}_ERS{myErsIno} grp_{mySid}_ASCS{myAscsIno}
+----
+==========
 
-	# Enable and configure quorum subsystem (default: off)
-	# see also corosync.conf.5 and votequorum.5
-	provider: corosync_votequorum
-	expected_votes: 3
-	two_node: 0
-}
+==== Test the New Cluster Configuration
 
-valuga21:~ # cat 3node.txt
-node 1: valuga21
-node 2: valuga22
-node 3: valuga23
-primitive rsc_fs_EN2_ASCS00 Filesystem \
-	params device="/dev/sda2" directory="/usr/sap/EN2/ASCS00" fstype=xfs \
-	op start timeout=60s interval=0 \
-	op stop timeout=60s interval=0 \
-	op monitor interval=20s timeout=40s
-primitive rsc_fs_EN2_ERS10 Filesystem \
-	params device="/dev/sda3" directory="/usr/sap/EN2/ERS10" fstype=xfs \
-	op start timeout=60s interval=0 \
-	op stop timeout=60s interval=0 \
-	op monitor interval=20s timeout=40s
-primitive rsc_ip_EN2_ASCS00 IPaddr2 \
-	params ip=192.168.1.112 \
-	op monitor interval=10s timeout=20s
-primitive rsc_ip_EN2_ERS10 IPaddr2 \
-	params ip=192.168.1.113 \
-	op monitor interval=10s timeout=20s
-primitive rsc_sap_EN2_ASCS00 SAPInstance \
-	operations $id=rsc_sap_EN2_ASCS00-operations \
-	op monitor interval=11 timeout=60 \
-	op_params on_fail=restart \
-	params InstanceName=EN2_ASCS00_sapen2as START_PROFILE="/sapmnt/EN2/profile/EN2_ASCS00_sapen2as" AUTOMATIC_RECOVER=false \
-	meta resource-stickiness=5000 target-role=Started maintenance=false
-primitive rsc_sap_EN2_ERS10 SAPInstance \
-	operations $id=rsc_sap_EN2_ERS10-operations \
-	op monitor interval=11 timeout=60 \
-	op_params on_fail=restart \
-	params InstanceName=EN2_ERS10_sapen2er START_PROFILE="/sapmnt/EN2/profile/EN2_ERS10_sapen2er" AUTOMATIC_RECOVER=false IS_ERS=true \
-	meta target-role=Started maintenance=false
-primitive stonith-sbd stonith:external/sbd \
-	params pcmk_delay_max=30s pcmk_action_limit=-1
-group grp_EN2_ASCS00 rsc_ip_EN2_ASCS00 rsc_fs_EN2_ASCS00 rsc_sap_EN2_ASCS00 \
-	meta resource-stickiness=3000 target-role=Started
-group grp_EN2_ERS10 rsc_ip_EN2_ERS10 rsc_fs_EN2_ERS10 rsc_sap_EN2_ERS10 \
-	meta target-role=Started
-colocation ASCS00_ERS10_separated_EN2 -50000: grp_EN2_ERS10 grp_EN2_ASCS00
-order ord_sap_EN2_first_start_ascs Optional: rsc_sap_EN2_ASCS00:start rsc_sap_EN2_ERS10:stop symmetrical=false
-property cib-bootstrap-options: \
-	have-watchdog=true \
-	dc-version="1.1.18+20180430.b12c320f5-1.14-b12c320f5" \
-	cluster-infrastructure=corosync \
-	cluster-name=hacluster \
-	stonith-enabled=true \
-	placement-strategy=balanced \
-	maintenance-mode=false \
-	last-lrm-refresh=1548243394
-rsc_defaults rsc-options: \
-	resource-stickiness=1 \
-	migration-threshold=3
-op_defaults op-options: \
-	timeout=600 \
-	record-pending=true
-////
+It is highly recommended to run certain test to verify that the new configuration is working as expected.
+A list of test can be found in the basic setup for the two node cluster above.
+
+=== Pro's and Con's for Odd and Even Numbers of Cluster Nodes
+
+There are certain use cases and infrastructure requirements which end up in different installation setup's.
+We will cover some advantages and disadvantages of special configuration below:
+
+* The two node cluster and two locations
+    - Advantage: symmetric spread of all nodes over all locations
+    - Disadvantage: no diskless SBD feature allowed for all two node clusters
+* The two node cluster and more than two locations
+    - Advantage: SBD device can be provided from there (must be HA himself)
+    - Advantage: cluster could operate with three SBD devices from different locations
+    - Disadvantage: no diskless SBD feature allowed for all two node clusters
+* The three node cluster and two locations
+    - Advantage: less complex infrastructure
+    - Advantage: diskless SBD feature is allowed
+    - Disadvantage: "pre selected" location (two node + one node)
+* The three node cluster and three locations
+    - Advantage: symmetric spread of all nodes over all locations
+    - Advantage: diskless SBD feature is allowed
+    - Disadvantage: higher planing effort and complexity for infrastructure planning
 
 == References
 
@@ -1861,7 +1980,222 @@ include::SAPNotes_s4_1809.adoc[]
 <?pdfpagebreak?>
 ++++
 
+////
+############################
+#
+# APENDIX
+#
+############################
+////
+
 :leveloffset: 0
+== Appendix
+
+=== CRM Configuration
+
+Find below the complete crm configuration for {sap} system {mySid}. This example
+is for the two node cluster. In multi node cluster you will find additonal node entries
+like *node 3: {my3nd3}*.
+
+[subs="attributes"]
+----
+node 1: {my2nd1}
+node 2: {my2nd2}
+primitive rsc_fs_{mySid}_{myInstAscs} Filesystem \
+    params device="{myDevPartAscs}" \
+    directory="/usr/sap/{mySid}/{myInstAscs}" \
+    fstype=xfs \
+    op start timeout=60s interval=0 \
+    op stop timeout=60s interval=0 \
+    op monitor interval=20s timeout=40s
+primitive rsc_fs_{mySid}_{myInstErs} Filesystem \
+    params device="{myDevPartErs}" \
+    directory="/usr/sap/{mySid}/{myInstErs}" \
+    fstype=xfs \
+    op start timeout=60s interval=0 \
+    op stop timeout=60s interval=0 \
+    op monitor interval=20s timeout=40s
+primitive rsc_ip_{mySid}_{myInstAscs} IPaddr2 \
+    params ip={myVipAAscs} \
+    op monitor interval=10s timeout=20s
+primitive rsc_ip_{mySid}_{myInstErs} IPaddr2 \
+    params ip={myVipAErs} \
+    op monitor interval=10s timeout=20s
+primitive rsc_sap_{mySid}_{myInstAscs} SAPInstance \
+    operations $id=rsc_sap_{mySid}_{myInstAscs}-operations \
+    op monitor interval=11 timeout=60 \
+    op_params on_fail=restart \
+    params InstanceName={mySid}_{myInstAscs}_{myVipNAscs} \
+    START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_{myInstAscs}_{myVipNAscs}" \
+    AUTOMATIC_RECOVER=false \
+    meta resource-stickiness=5000
+primitive rsc_sap_{mySid}_{myInstErs} SAPInstance \
+    operations $id=rsc_sap_{mySid}_{myInstErs}-operations \
+    op monitor interval=11 timeout=60 \
+    op_params on_fail=restart \
+    params InstanceName={mySid}_{myInstErs}_{myVipNErs} \
+    START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_{myInstErs}_{myVipNErs}" \
+    AUTOMATIC_RECOVER=false IS_ERS=true
+primitive stonith-sbd stonith:external/sbd \
+    params pcmk_delay_max=30s
+group grp_{mySid}_{myInstAscs} rsc_ip_{mySid}_{myInstAscs} rsc_fs_{mySid}_{myInstAscs} \
+    rsc_sap_{mySid}_{myInstAscs} \
+    meta resource-stickiness=3000
+group grp_{mySid}_{myInstErs} rsc_ip_{mySid}_{myInstErs} rsc_fs_{mySid}_{myInstErs} \
+    rsc_sap_{mySid}_{myInstErs}
+colocation col_sap_{mySid}_not_both -5000: grp_{mySid}_{myInstErs} grp_{mySid}_{myInstAscs}
+order ord_sap_{mySid}_first_ascs Optional: rsc_sap_{mySID}_{myInstAscs}:start \
+    rsc_sap_{mySID}_{myInstErs}:stop symmetrical=false
+property cib-bootstrap-options: \
+    have-watchdog=true \
+    cluster-infrastructure=corosync \
+    cluster-name=hacluster \
+    stonith-enabled=true \
+    placement-strategy=balanced
+rsc_defaults rsc-options: \
+    resource-stickiness=1 \
+    migration-threshold=3
+op_defaults op-options: \
+    timeout=600 \
+    record-pending=true
+----
+
+=== Corosync Configuration of the two Node Cluster
+
+Find below the Corosync configuration.
+
+[subs="specialchars,attributes"]
+----
+# cat /etc/corosync/corosync.conf
+# Please read the corosync.conf.5 manual page
+totem {
+    version: 2
+    secauth: on
+    crypto_hash: sha1
+    crypto_cipher: aes256
+    cluster_name: hacluster
+    clear_node_high_bit: yes
+    token: 5000
+    token_retransmits_before_loss_const: 10
+    join: 60
+    consensus: 6000
+    max_messages: 20
+    interface {
+        ringnumber: 0
+        mcastport: 5405
+        ttl: 1
+    }
+
+    transport: udpu
+}
+
+logging {
+    fileline: off
+    to_stderr: no
+    to_logfile: no
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: QUORUM
+        debug: off
+    }
+
+}
+
+nodelist {
+    node {
+        ring0_addr: {myIP2nd1}
+        nodeid: 1
+    }
+
+    node {
+        ring0_addr: {myIP2nd2}
+        nodeid: 2
+    }
+
+}
+
+quorum {
+
+    # Enable and configure quorum subsystem (default: off)
+    # see also corosync.conf.5 and votequorum.5
+    provider: corosync_votequorum
+    expected_votes: 2
+    two_node: 1
+}
+----
+
+=== Corosync Configuration of the multi Node Cluster
+
+[subs="specialchars,attributes,quotes"]
+----
+	# Please read the corosync.conf.5 manual page
+	totem {
+		version: 2
+		secauth: on
+		crypto_hash: sha1
+		crypto_cipher: aes256
+		cluster_name: hacluster
+		clear_node_high_bit: yes
+		token: 5000
+		token_retransmits_before_loss_const: 10
+		join: 60
+		consensus: 6000
+		max_messages: 20
+		interface {
+			ringnumber: 0
+			mcastport: 5405
+			ttl: 1
+		}
+
+		transport: udpu
+	}
+
+	logging {
+		fileline: off
+		to_stderr: no
+		to_logfile: no
+		logfile: /var/log/cluster/corosync.log
+		to_syslog: yes
+		debug: off
+		timestamp: on
+		logger_subsys {
+			subsys: QUORUM
+			debug: off
+		}
+
+	}
+
+	nodelist {
+		node {
+			ring0_addr: {myIP3nd1}
+			nodeid: 1
+		}
+
+		node {
+			ring0_addr: {myIP3nd2}
+			nodeid: 2
+		}
+
+		node {
+			ring0_addr: {myIP3nd3}
+			nodeid: 3
+		}
+
+	}
+
+	quorum {
+
+		# Enable and configure quorum subsystem (default: off)
+		# see also corosync.conf.5 and votequorum.5
+		provider: corosync_votequorum
+		expected_votes: 3
+		two_node: 0
+	}
+----
+
 // Standard SUSE Best Practices includes
 == Legal Notice
 include::common_sbp_legal_notice.adoc[]
@@ -1871,6 +2205,7 @@ include::common_sbp_legal_notice.adoc[]
 ++++
 
 // Standard SUSE Best Practices includes
+:leveloffset: 1
 include::common_gfdl1.2_i.adoc[]
 
 //

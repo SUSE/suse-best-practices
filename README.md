@@ -1,6 +1,7 @@
 # suse-best-practices
 New documentation series of SUSE Best Practices papers
 
+## Published Documents
 
 | DC File | Publication Status | Category | Product page links |
 | ------- | ------------------ | -------- | ------------------ |
@@ -39,7 +40,8 @@ New documentation series of SUSE Best Practices papers
 | DC-SLES4SAP-hana-sr-guide-PerfOpt-12-Alicloud | ext | SLES for SAP | https://www.suse.com/documentation/sles-for-sap-12/index.html |
 | DC-SLES-JeOS-12SP4-Quickstart | int | ELS | https://www.suse.com/documentation/sles-12/index.html |
 | DC-SLES-rpiquick | ext | ELS | https://www.suse.com/documentation/sles-12/index.html |
-
+| DC-SBP-Migrate-z-KVM | no | Virt | [outdated] |
+| DC-SBP-openFaaS | no | ? | [unfinished, outdated] |
 
 
 Papers not produced by documentation team, which exist only as PDF (no DC file available) but need to be posted

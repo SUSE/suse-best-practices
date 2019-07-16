@@ -14,6 +14,7 @@ New documentation series of SUSE Best Practices papers
 | DC-SBP-IaaS-SAP-Cloud | int | Cloud Computing | https://www.suse.com/documentation/suse-openstack-cloud-9/index.html, https://www.suse.com/documentation/suse-openstack-cloud-8/ |
 | DC-SBP-intelsupport | ext | ELS | https://www.suse.com/documentation/sles-12/index.html |
 | DC-SBP-KMP-Manual | ext | ELS | https://www.suse.com/documentation/sles-12/index.html, https://www.suse.com/documentation/sled-12/ |
+| DC-SBP-KMP-Manual-SLE12SP2 | ext | ELS | https://www.suse.com/documentation/sles-15/index.html, https://www.suse.com/documentation/sles-12/index.html, https://www.suse.com/documentation/sled-15/index.html, https://www.suse.com/documentation/sled-12/ |
 | DC-SBP-Multi-PXE-Install | ext | ELS | https://www.suse.com/documentation/sles-12/index.html |
 | DC-SBP-oraclerac | ext | ELS | https://www.suse.com/documentation/sles-12/index.html |
 | DC-SBP-oracleweblogic | ext | ELS | https://www.suse.com/documentation/sles-12/index.html |

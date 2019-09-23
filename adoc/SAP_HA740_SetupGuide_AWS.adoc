@@ -2563,13 +2563,8 @@ IMPORTANT: The Fault Manger is enhanced to work in this setup. The minimal versi
 The installation can be done with the SWPM which is provided by SAP.
 
 .Installing the primary database with SWPM:
-* Software Provisioning Manager 1.0 SP 25
-** SAP NetWeaver AS for ABAP 7.52
-*** SAP ASE
-**** Installation
-***** Application Server ABAP
-****** High-Availability System
-******* Database Instance
+* SWPM option depends on {sapNW} version and architecture
+** Software Provisioning Manager 1.0 SP 25 -> SAP NetWeaver AS for ABAP 7.52 -> SAP ASE -> Installation -> Application Server ABAP -> High-Availability System -> Database Instance
 
 The following information are requested from the wizard:
 
@@ -2608,12 +2603,16 @@ Activate HADR on primary node with a response file and enter the following comma
 # setuphadr /sybase/HA7/HA7_primary_lin.rs.txt
 ----
 
-NOTE: If there is an error message like this:
+NOTE: If the installation stops with an error message like this:
+
+[subs="specialchars,attributes"]
+----
 Clean up environment.
 Environment cleaned up.
-Error: Fail to connect to "PRIM" site SAP ASE at "<hostname>:4901".  Check the host name/port number are correct and server is running.
+Error: Fail to connect to "PRIM" site SAP ASE at "<hostname>:4901".  
+----
 
-and it seams the network connection should be possible. Try to add a new line in the _/sybase/<SID>/interfaces_ file for the <SID> section with the IP address.
+Check if the host name/port number are correct and database server is up and running. If the network connection should be possible it could help to modify the _interface_ file. Try to add a new line in the _/sybase/<SID>/interfaces_ file for the <SID> section with the IP address of the corresponding hostname.
 
 [subs="specialchars,attributes"]
 ----
@@ -2633,11 +2632,8 @@ Creating a secure store key entry for the database:
 
 
 .Installing the companion database with SWPM:
-* Software Provisioning Manager 1.0 SP 25
-** SAP NetWeaver AS for ABAP 7.52
-*** SAP ASE
-**** Database Replication
-***** Setup of Replication Environment
+* SWPM option depends on {sapNW} version and architecture
+** Software Provisioning Manager 1.0 SP 25 -> SAP NetWeaver AS for ABAP 7.52 -> SAP ASE -> Database Replication -> Setup of Replication Environment
 
 The following information are requested from the wizard:
 
@@ -2757,7 +2753,7 @@ Restart_Program_02 = local $(_SYBHAD) hadm pf=$(_SYBHA_PF)
 ----
 
 The status of the FM can be checked as below. Navigate to the ASCS work directory and the run
-_sybdbfm status_:
+_sybdbfm.sap.<SID>_ASCS<instance number> status_ :
 
 _As user {mysapadm}_
 
@@ -2827,8 +2823,8 @@ _As user {mysapadm}_
 
 Below are few parameters that needs to be updated in the _SYBHA.PFL_ to make the failover working.
 
-[subs="specialchars,attributes"]
-----
+[subs="specialchars,attributes,verbatim,quotes"]
+======
 ha/syb/support_cluster = 1
 ha/syb/failover_if_unresponsive = 1
 ha/syb/allow_restart_companion = 1
@@ -2838,17 +2834,18 @@ ha/syb/cluster_fmhost1 = **Hostname for Node 1 of the ASCS HA Setup**
 ha/syb/cluster_fmhost2 = **Hostname for Node 2 of the ASCS HA Setup**
 ha/syb/use_boot_file_always = 1
 ha/syb/dbfmhost = **virtual hostname of ASCS instance**
-----
+======
 
 Details of the all the FM parameters can be found in the *SAP ASE HA DR User Guide*. Those highlighted
-in bold are of interest for the setup on AWS. Since the FM is installed with the ASCS which can
-failover from Node 1 to Node 2 if Node 1 goes down, the parameters _ha/syb/cluster_fmhost1_ and
-_ha/syb/cluster_fmhost2_ provide the physical host names of both of the nodes where the FM can potentially run.
-In a scenario where the complete AZ, having the ASCS & Primary DB goes down. The DB failover is not triggered
-till the ASCS failover is complete and the FM is up and running on AZ2. The FM then needs to read the boot file
-to get the state of the ASE DB prior to failover so that it can trigger the failover correctly. The parameter
+in bold are of interest for the setup. Since the FM is installed with the ASCS which can
+failover from Node 1 to Node 2. The parameters _ha/syb/cluster_fmhost1_ and
+_ha/syb/cluster_fmhost2_ provide the physical host names of both nodes where the FM can potentially run.
+
+In a scenario where the complete Availability Zone (AZ1) goes down and the ASCS and Primary database are running there. The DB failover is not triggered
+till the ASCS failover is complete and the FM is up and running in the 2nd Availability Zone (AZ2). The FM then needs to read the boot file
+to get the state of the ASE DB prior. This is mandatory that FM can trigger the failover correctly. The parameter
 _ha/syb/use_boot_file_always=1_ makes sure that the FM always reads from the boot file which is part of the work
-directory and failover along with FM.
+directory (the same for ASCS and FM) and failover along with FM.
 
 === Operating a Pacemaker Controlled and FM Monitored ASE Replication Setup
 
@@ -2888,7 +2885,7 @@ _As user _root_ on the database host
 # /usr/sap/hostctrl/exe/saphostctrl -user sapadm <secure password> -dbname <SID> -dbtype syb -function LiveDatabaseUpdate -updatemethod Check -updateoption TASK=REPLICATION_STATUS
 ----
 
-_As user _syb<sid>_ on the database host
+_As user syb<sid>_ on the database host
 [subs="specialchars,attributes"]
 ----
 #  isql -UDR_admin -P <secure password> -S<db host>:4909 -X -w 1000
@@ -2935,7 +2932,7 @@ IMPORTANT: The instance must be restarted to activate the changes.
 The default tcp_retries value is to high and causes a very long takeover time. With ASE16 PL7 the behavior is modified.
 Up to this patch the change below improve the takeover time.
 
-_As user _root_
+_As user root_
 [subs="specialchars,attributes"]
 ----
 # echo 3 >/proc/sys/net/ipv4/tcp_retries2
@@ -2969,27 +2966,27 @@ If Fault Manager is monitoring the Primary and Companion database and Fault Mana
 
 
 
-_As user _root_ on companion database host
+_As user root_ on companion database host
 [subs="specialchars,attributes"]
 ----
 # /usr/sap/hostctrl/exe/saphostctrl -function StartDatabase -dbname <SID> -dbtype syb
 # /usr/sap/hostctrl/exe/saphostctrl -function StartDatabase -dbname <SID>_REP -dbtype syb
 ----
 
-_As user _root_ on primary database host
+_As user root_ on primary database host
 [subs="specialchars,attributes"]
 ----
 # /usr/sap/hostctrl/exe/saphostctrl -function StartDatabase -dbname <SID> -dbtype syb
 # /usr/sap/hostctrl/exe/saphostctrl -function StartDatabase -dbname <SID>_REP -dbtype syb
 ----
 
-_As user _root_ on one of the Pacemaker host for ASCS and ERS
+_As user root_ on one of the Pacemaker host for ASCS and ERS
 [subs="specialchars,attributes"]
 ----
 # crm configure property maintenance-mode=false
 ----
 
-_As user _<sid>adm_ on the host for PAS or AAS
+_As user <sid>adm_ on the host for PAS or AAS
 [subs="specialchars,attributes"]
 ----
 # sapcontrol -nr <instance number> -function StartSystem
@@ -3007,14 +3004,14 @@ NOTE: If the system should start one by one use the command _sapcontrol -nr <ins
 * Stop companion database + replication server
 
 
-_As user _root_
+_As user root_
 [subs="specialchars,attributes"]
 ----
 # crm configure property maintenance-mode=true
 # crm status
 ----
 
-_As user _<sid>adm_ on one of the Pacemaker host for ASCS and ERS or PAS / AAS
+_As user <sid>adm_ on one of the Pacemaker host for ASCS and ERS or PAS / AAS
 [subs="specialchars,attributes"]
 ----
 # sapcontrol -nr <instance number> -function StopSystem
@@ -3022,14 +3019,14 @@ _As user _<sid>adm_ on one of the Pacemaker host for ASCS and ERS or PAS / AAS
 
 NOTE: If the system should stopped one by one use the command _sapcontrol -nr <instance number> -function Stop_ on each instance host. The direction must be: AAS; PAS; ASCS; ERS.
 
-_As user _root_ on primary database host
+_As user root_ on primary database host
 [subs="specialchars,attributes"]
 ----
 # /usr/sap/hostctrl/exe/saphostctrl -function StopDatabase -dbname <SID> -dbtype syb
 # /usr/sap/hostctrl/exe/saphostctrl -function StopDatabase -dbname <SID>_REP -dbtype syb
 ----
 
-_As user _root_ on companion database host
+_As user root_ on companion database host
 [subs="specialchars,attributes"]
 ----
 # /usr/sap/hostctrl/exe/saphostctrl -function StopDatabase -dbname <SID> -dbtype syb
@@ -3038,13 +3035,13 @@ _As user _root_ on companion database host
 
 IMPORTANT: The Pacemaker controlled server must be stop in a proper way too. Depending on the stonith methode which is implemented different procedures are available.
 
-_As user _root_ on one cluster node
+_As user root_ on one cluster node
 [subs="specialchars,attributes"]
 ----
 # crm cluster run "crm cluster stop"
 ----
 
-_As user _root_ on each node
+_As user root_ on each node
 [subs="specialchars,attributes"]
 ----
 # reboot
@@ -3085,7 +3082,7 @@ And check the log file _dev_sybdbfm_
 * Now destroy the primary database server.
 * Monitor the takeover process with the FM on the ASCS host.
 
-_As user _{mysapadm}_ on the ASCS host
+_As user {mysapadm}_ on the ASCS host
 [subs="specialchars,attributes"]
 ----
 # cd /usr/sap/<SID>/ASCS<instance nr>/work
@@ -3094,8 +3091,9 @@ _As user _{mysapadm}_ on the ASCS host
 
 .Selected output from the takeover process.
 =========
-[subs="specialchars,attributes"]
-----
+
+[subs="specialchars,attributes,quotes,verbatim"]
+=====
 ...
     2019 09/13 11:08:38.301 (3290) *** sanity check report (270)***.
     2019 09/13 11:08:38.301 (3290) node 1: server sapdb1, site LeonRot.
@@ -3168,10 +3166,11 @@ _As user _{mysapadm}_ on the ASCS host
     **2019 09/13 11:22:43.677 (3290) db status OK hadr status STANDBY.**
     **2019 09/13 11:22:43.677 (3290) replication status: SYNC_OK.**
 ...
-----
+=====
+
 =========
 
-_As user _root_
+_As user root_
 [subs="specialchars,attributes"]
 ----
 # /usr/sap/hostctrl/exe/saphostctrl -user sapadm <secure password> -dbname <SID> -dbtype syb -function LiveDatabaseUpdate -updatemethod Check -updateoption TASK=REPLICATION_STATUS
@@ -3198,7 +3197,7 @@ Info: saphostcontrol: LiveDatabaseUpdate successfully executed
 
 Killing the FM process more than 5 times will bring pacemaker in action. Up to 5 time the saphostagent will take care of the SAP process. If this failcount is reached in a specific time windows the service will not be restart.
 
-_As user _{mysapadm}_
+_As user {mysapadm}_
 [subs="specialchars,attributes"]
 ----
 # pkill -9 sybdbfm
@@ -3213,7 +3212,7 @@ sybdbfm, , GRAY, Stopped, , , 11154
 ----
 
 Now pacemaker will restart the FM instance localy first.
-_As user _root_
+_As user root_
 [subs="specialchars,attributes"]
 ----
 # crm_mon -1rfn
@@ -3226,15 +3225,15 @@ rsc_sap_WAS_ASCS00: migration-threshold=3 fail-count=1 last-failure='Fri Sep 13 
 
 NOTE: If the *fail-count* reaches the defined threshold the ASCS is moved away from that host.
 ////
-_As user _root_
+_As user root_
 [subs="specialchars,attributes,quotes"]
 ----
 ----
 
-_As user _root_
-[subs="specialchars,attributes,quotes"]
-----
-----
+_As user root_
+[subs="specialchars,attributes,quotes,verbatim"]
+=====
+=====
 ////
 
 == Appendix

@@ -94,6 +94,43 @@
 :s4sClConnector3: sap-suse-cluster-connector
 :sapHanaSR: {sap}HanaSR
 
+:sap: SAP
+:sapreg: SAP*
+:saphana: SAP HANA
+:hana: SAP HANA
+:saphanasr: SAPHanaSR
+:saphanara: SAPHana
+:saphanatopra: SAPHanaTopology
+:b1: SAP BusinessOne
+:instmaster: Installation Master
+:instmedia: Installation Media
+:mediaset: Media Set
+:supmedia: Supplementary Media
+:sapin: SAP Installer
+:sapina: SAPinst
+:thirdmedia: Third-Party Media
+:pn12: 12
+:pn11: 11
+:psp12: SP1
+:psp11: SP4
+:file1: hanasr_appendix_docupdates.xml
+:sapnote12: 1984787
+:sapnote11: 1310037
+:usecase: perfomance optimized
+:deploymentGuide12: https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-sle-deployment.html
+:autoYastGuide12: https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-autoyast.html
+:haAdminGuide12: https://documentation.suse.com/sle-ha/12-SP4/html/SLE-HA-all/book-sleha.html
+:lauchPadNotes: https://launchpad.support.sap.com/#/notes/
+:reslibrary: https://documentation.suse.com/sbp/all/
+:refsidadm: <sidadm>
+:refHost1: <host1>
+:refInst: <instanceNumber>
+:refSidLc: <sid>
+:docScaleOut: SAP HANA System Replication Scale-Out - Performance Optimized Scenario
+:docCostOpt: Setting up a SAP HANA SR Cost Optimized Infrastructure
+:docPerfOpt: SAP HANA System Replication Scale-Up - Performance Optimized Scenario
+:sapHanaSrMinVers: 0.152
+
 
 :docinfo:
 
@@ -153,7 +190,8 @@ include::common_intro_feedback.adoc[]
 
 == Scope of This Document
 
-The document at hand explains how to:
+The document at hand explains how to integrate the central services with multi SID setups in one cluster.
+Other architectues like the {saphana} performance optimized scenario will follow.
 
 === Architecture Central Services
 .Integration of {sapS4} and {sapNW} into the Cluster Using the Cluster Connector
@@ -190,9 +228,102 @@ command line tool *sapcontrol* or even the {SAP} management consoles ({SAP} MMC 
 
 === Architecture DB Services
 
-////
-TODO:content missing
-////
+{SUSE} has developed multiple cluster architectures for {sap} databases running with
+high availability. Not all of those architectures are planned for multi SID configurations.
+In the following common {hana} scenarios are described. In addition you will find a note, if the
+architecture is available for multi SID.
+
+==== Scale-Up Scenarios and Resource Agents
+
+{SUSE} has implemented the scale-up scenario with the `{SAPHanaRA}` resource
+agent (RA), which performs the actual check of the {HANA} database
+instances. This RA is configured as a master/slave resource. In the
+scale-up scenario, the master assumes responsibility for the {hana}
+databases running in primary mode. The slave is responsible for
+instances that are operated in synchronous (secondary) status.
+
+To make configuring the cluster as simple as possible, SUSE also
+developed the `{SAPHanaTopRA}` resource agent. This RA runs on all nodes
+of a {sles4sap} cluster and gathers information about the
+statuses and configurations of {hana} system replications. It is
+designed as a normal (stateless) clone.
+
+{hana} System replication for Scale-Up is supported in the following
+scenarios or use cases:
+
+* *Performance optimized* (_A => B_). This scenario and setup *will be
+described in this document in a future update.*
++
+image::SAPHanaSR-ScaleUP-perfOpt.svg[scaledwidth=100.0%]
++
+In the performance optimized scenario an {hana} RDBMS site A is synchronizing
+with an {HANA} RDBMS site B on a second node. As the HANA RDBMS on the second node
+is configured to pre-load the tables, the takeover time is typically very
+short.
++
+One big advance of the performance optimized scenario of {hana} is the
+possibility to allow read access on the secondary database site. To support
+this *read enabled* scenario, a second virtual IP address is added to the cluster
+and bound to the secondary role of the system replication.
++
+NOTE: The performance optimized scenario could be implemeted also for multi SID setups,
+if it is guaranteed that all system replication pairs are handled by the cluster seperately.
+It is not allowed to force an {hana} system to process a takeover only because an other one is taking over.
+There is also no load balance for the primary sides.
+* *Cost optimized* (_A => B, Q_). This scenario and setup is described
+in another document available from the documentation Web page ({reslibrary}). The document for _cost optimized_ is named
+_"{docCostOpt}"_.
++
+image::SAPHanaSR-ScaleUP-costOpt2.svg[scaledwidth=100.0%]
++
+In the cost optimized scenario the second node is also used for a
+non-productive {hana} RDBMS system (like QAS or TST). Whenever a takeover
+is needed the non-productive system must be stopped first. As the
+productive secondary system on this node must be limited in using system
+resources, the table preload must be switched off. A possible
+takeover needs longer than in the performance optimized use case.
++
+In the cost optimized scenario the secondary needs to be running in a reduced
+memory consumption configuration. This why _read enabled_ must not be used in this
+scenario.
++
+NOTE: *The cost optimized scenario is not intended to be used for multi SID configuration.*
+The reason is that in that case a second memory setup for the primary systems would be needed
+when ever one of the primarys would need to be moved to the secondary node. Otherwise the 
+removed memory limitation would tell the {hana} to consume all available memory. Currently there
+is no globaly definded space where to set such parameters to be used after a takeover.
+
+* *Multi Tier* (_A => B -> C_) and *Multi Target* (_B <= A => C_).
++
+image::SAPHanaSR-ScaleUP-Chain.svg[scaledwidth=100.0%]
++
+A _Multi Tier_ system replication has an additional target. In the past this third
+side must have been connected to the secondary (chain topology). With current {saphana}
+versions also _multiple target topology_ is allowed by {sap}.
++
+image::SAPHanaSR-ScaleUP-MultiTarget.svg[scaledwidth=100.0%]
++
+Multi tier and multi target systems are implemented as described in this document.
+Only the first replication pair (A and B) is handled by the cluster itself.
+The main difference to the plain performance optimized scenario is that the auto
+registration must be switched off.
++
+NOTE: This type of scenarios is from cluster perspective very similar to the
+performance optimized scenario. As long as only A and B are driven by the cluster
+this scenario is also expected to work with multi SID setups. However so far this
+has not been tested in the labs. Support for this scenario is expected to be added in the
+future.
+
+* *Multi-tenancy* or MDC.
++
+Multi-tenancy is supported for all above scenarios and use cases. This
+scenario is supported since {hana} SPS09. The setup and configuration
+from a cluster point of view is the same for multi-tenancy and single
+container. Thus you can use the above documents for both kinds of
+scenarios.
++
+NOTE: Multi-tenancy has no direct side effect to multi SID setups. So multi-tenancy is
+supported in combination with multi SID, if the basic architecture is supported with multi SID.
 
 == Multi SID - Central Services
 This guide will cover the following scenarios:

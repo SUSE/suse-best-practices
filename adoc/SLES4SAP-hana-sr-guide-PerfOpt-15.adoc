@@ -1052,7 +1052,7 @@ of the corosync config and SBD parameters, start the cluster again.
 
 // TODO PRIO1: Remove this section and/or tell the reader to skip, if the cluster was already set up with unicast
 
-Adjust the following blocks in the file _/etc/corosync/corosync.conf_,
+Check the following blocks in the file _/etc/corosync/corosync.conf_,
 see also the example at the end of this document.
 
 [subs="attributes,quotes"]
@@ -1062,7 +1062,6 @@ totem {
 
     interface {
         ringnumber: 0
-        bindnetaddr:    {sapip1net1}
         mcastport:  5405
         ttl:        1
     }
@@ -1074,11 +1073,7 @@ nodelist {
         node {
         #ring0 address
         ring0_addr:     {sapip1node1}
-
-        }
-        node {
-        #ring0 address
-        ring0_addr:     {sapip1node2}
+        nodeid: 1
 
         }
     }
@@ -1110,47 +1105,55 @@ channels, you can also use the -P option (Check Pacemaker quorum and
 node health). This enables the cluster nodes not to self-fence if SBDs
 are lost, but pacemaker communication is still available.
 
-See the SBD man page for further details of the parameters -S
-<n>, -P, -W.
-
-.SBD Options
+.SBD Options in File /etc/sysconfig/SBD
 [cols=",",options="header",]
 |=======================================================================
 |Parameter |Description
-|-W a|
-Use watchdog. It is mandatory to use a watchdog. SBD does not work
+|SBD_WATCHDOG_DEV|
+Define the watchdog device. It is mandatory to use a watchdog. SBD does not work
 reliable without watchdog. Refer to the {slsa} manual and SUSE
 TIDs 7016880 for setting up a watchdog.
 
-This is equivalent to `SBD_WATCHDOG="yes"`
+|SBD_WATCHDOG_TIMEOUT|
+// from the file /etc/sysconfig/SBD (2020-02-05)
+Defines the timeout, in seconds, the watchdog will wait before panicking the node if no-one tickles it.
 
-|-S 1 a|
-Start mode. If set to one, sbd will only start if the node was
+This parameter must match your storage environemt. If you expect your storage could hang for 30s then
+this parameter must be set to a higher value. The typical setting of 5s could be to aggressive in
+you production environment.
+
+The parameter must also be alligned with the pacameker cluster property stonith-watchdog-timeout.
+The property stonith-watchdog-timeout must be set >= the value of SBD_WATCHDOG_TIMEOUT. 
+
+// from the product documentation - copied 2020-02-05
+Starting with SUSE Linux Enterprise High Availability Extension 15, if you set `stonith-watchdog-timeout` to a negative value, Pacemaker will automatically calculate this timeout and set it to twice the value of `SBD_WATCHDOG_TIMEOUT`. 
+
+|SBD_STARTMODE|
+Start mode. If set to `clean`, sbd will only start if the node was
 previously shut down cleanly or if the slot is empty.
 
-This is equivalent to `SBD_STARTMODE="clean"`
-
-|-P a|
+|SBD_PACEMAKER|
 Check Pacemaker quorum and node health.
-
-This is equivalent to `SBD_PACEMAKER="yes"`
 
 |=======================================================================
 
 In the following, replace {sapsbd1} and {sapsbd2} by your real sbd
-device names.
+device names. As an example the `SBD_WATCHDOG_TIMEOUT` is set to 15s to be less
+aggressive then the typical 5s.
 
 [subs="attributes,quotes"]
 ----
 # /etc/sysconfig/sbd
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
-SBD_WATCHDOG="yes"
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=15
 SBD_PACEMAKER="yes"
 SBD_STARTMODE="clean"
 SBD_OPTS=""
 ----
 
-NOTE: This equates to the {sle} 11 settings `SBD_OPTS="-W -P -S 1"`.
+IMPORTANT: Also read the SUSE product documentation about calculation of timeouts for more details:
+https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-storage-protect-watchdog-timings
 
 ===== Verifying the SBD Device
 
@@ -1175,6 +1178,8 @@ Timeout (loop)     : 1
 Timeout (msgwait)  : 40
 ==Header on disk {sapsbd1} is dumped
 ----
+
+// TODO Prio3: Check, if we need to explain the timeout parameters of the sbd device (watchdog, allocate, loop, msgwait)
 
 The timeout values in our sample are only start values, which need to be
 tuned to your environment.
@@ -1238,9 +1243,9 @@ that there are two nodes in the status "online" and the message
 [subs="attributes,quotes"]
 ----
 Stack: corosync
-Current DC: {sapnode1} (version 1.1.19+20180928.0d2680780-1.8-1.1.19+20180928.0d2680780) - partition with quorum
-Last updated: Fri Nov 29 12:41:16 2019
-Last change: Fri Nov 29 12:40:22 2019 by root via crm_attribute on {sapnode2}
+Current DC: {sapnode1} (version 2.0.1+20190417.13d370ca9-3.6.1-2.0.1+20190417.13d370ca9) - partition with quorum
+Last updated: Wed Feb  5 15:06:35 2020
+Last change: Wed Feb  5 15:04:42 2020 by hacluster via crmd on {sapnode2}
 2 nodes configured
 1 resource configured
 Online: [ {sapnode1} {sapnode2} ]

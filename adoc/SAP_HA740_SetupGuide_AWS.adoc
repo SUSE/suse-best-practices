@@ -390,6 +390,40 @@ _.bashrc_ file:
 export NO_PROXY=169.254.169.254
 ----
 
+==== Add a Second IP for each Cluster Instance
+
+The cluster configuration will require two IP addresses for each cluster instance.
+Adding a second IP address on the instance will allow the SUSE cluster to implement a
+two ring corosync configuration. The two ring corosync configuration will allow the
+cluster nodes to communicate with each other using the secondary IP address in the event
+that there is an issue communicating with each other over the primary IP address.
+
+Please refer to AWS documentation to understand how to assign a secondary IP address:
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/MultipleIP.html#assignIP-existing
+
+After the secondary IP address is associated to the cluster instance in AWS, you will need
+to add the secondary IP address to the cluster instance. Update the file
+_/etc/sysconfig/network/ifcfg-eth0_. Replace XX.XX.XX.XX with the new secondary IP address
+and replace 'XX' with the two digit subnet mask.
+
+[subs="attributes"]
+----
+IPADDR_1=‘XX.XX.XX.XX/XX'
+LABEL_1="1"
+----
+
+The system will read the file and add the secondary IP address after the cluster instance
+is rebooted. Additionally, executing the command below as root will add the IP address
+to the cluster instance network stack with out rebooting.
+
+[subs="attributes"]
+----
+ip address add XX.XX.XX.XX/XX dev eth0
+----
+
+Replace XX.XX.XX.XX with the new secondary IP address and replace 'XX' with the two digit
+subnet mask.
+
 ==== Disable the Source/Destination Check for the Cluster Instances
 
 The source/destination check can be disabled through scripts using
@@ -1661,8 +1695,8 @@ Reboot both nodes.
 ===== Configuration of the _corosync.conf_ File
 
 The configuration will have an IP address
-for node node-1 which is supposed to be ip-node-1. Node node-2 has an ip address to
-which we refer as ip-node-2.
+for node node-1 which is supposed to be ip-node-1 and ip2-node-1. Node node-2 has an ip address to
+which we refer as ip-node-2 and ip2-node-2.
 
 All cluster nodes are required to have a local configuration
 file _/etc/corosync/corosync.conf_ which will be structured as follows.
@@ -1681,6 +1715,7 @@ on both cluster nodes:
 # Read the corosync.conf.5 manual page
 totem {
   version: 2
+  rrp_mode: passive
   token: 30000
   consensus: 32000
   token_retransmits_before_loss_const: 10
@@ -1711,10 +1746,12 @@ totem {
 nodelist {
   node {
   ring0_addr: &lt;ip-node-1&gt;
+  ring1_addr: &lt;ip2-node-1&gt;
   nodeid: 1
   }
   node {
   ring0_addr: &lt;ip-node-2&gt;
+  ring1_addr: &lt;ip2-node-2&gt;
   nodeid: 2
   }
 }
@@ -1729,7 +1766,7 @@ quorum {
 
 ----
 
-Replace the variables _ip-node-1_ and _ip-node-2_ with the IP addresses of your
+Replace the variables _ip-node-1_ / _ip2-node-1_ and _ip-node-2_ / _ip2-node-2_ with the IP addresses of your
 two cluster instances. Replace _ip-local-node_ with the IP address of the server
 the file is being created.
 

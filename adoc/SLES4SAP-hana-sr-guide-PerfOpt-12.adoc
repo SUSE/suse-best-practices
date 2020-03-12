@@ -2,7 +2,7 @@
 //             the explanation is well understandable
 // TODO PRIO1: Adding addendum for read-enabled
 // TODO PRIO1: Adding addendum for seamless maintenance
-// TODO PRIO1: Adding addendum for diskless SBD setup
+// TODO PRIO1: Adding addendum for disk less SBD setup
 :docinfo:
 
 // Load document variables
@@ -19,7 +19,7 @@ include::Var_SLES4SAP-hana-sr-guide-PerfOpt-12-param.txt[]
 == About This Guide
 
 // TODO PRIO1: Review all lines with "TODO PRIOx:"
-// TODO PRIO1: Should we add a 3 nodes cluster variant with diskless fencing?
+// TODO PRIO1: Should we add a 3 nodes cluster variant with disk less fencing?
 // TODO PRIO1: Add information for active/active (read-enabled) to the document
 // DONE PRIO1: Adapt the document to include standard pages such as the document license
 // TODO PRIO1: Check all command examples + output, if they are still valid
@@ -975,7 +975,7 @@ Replace the {refsidLC} by the lowercase SAP system ID.
 
 .Entry in sudo permissions /etc/sudoers file
 ===================================
-Basic parameter option to allow <sidadm> to use the srHook.
+Basic sudoers entry to allow <sidadm> to use the srHook.
 
 // command to be allowed used in the hook:
 // "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
@@ -986,7 +986,7 @@ Basic parameter option to allow <sidadm> to use the srHook.
 {refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_*
 ----
 
-More specific parameters option to meet a high security level. All Cmnd_Alias entries must be each defined as a single line entry.
+More specific sudoers enties to meet a high security level. All Cmnd_Alias entries must be each defined as a single line entry.
 In the following example the lines might include a line-break forced by document formatting. In our example we would have
 four seperate lines with Cmnd_Alias entries, one line for the {refsidadm} user and one or more lines for comments.
 
@@ -1047,6 +1047,91 @@ The first step is to set up the basic cluster framework. For
 convenience, use YaST2 or the {slehainit} script. It is strongly
 recommended to add a second corosync ring, change to UCAST communication
 and adjust the timeout values to your environment.
+
+==== Set up Watchdog for "Storage-based Fencing"
+
+// TODO PRIO2: Should we add some more information here?
+
+If you use the SBD fencing mechanism (disk-less or disk-based) you must also
+configure a watchdog. The watchdog is needed to reset a node, if the system
+could not longer acces the SBD (disk-less or disk-based).
+It is mandatory that to configure the Linux system to load a
+watchdog driver with hardware assistance (as is available on most modern
+systems), such as hpwdt, iTCO_wdt, or others. As a fall-back, you can
+use the softdog module.
+
+.Set up for Watchdog
+====
+IMPORTANT: Access to the Watchdog Timer:
+No other software must access the watchdog timer; it can only be
+accessed by one process at any time. Some hardware vendors ship
+systems management software that use the watchdog for system resets
+(for example HP ASR daemon). Such software must be disabled if the watchdog
+is to be used by SBD.
+
+Determine the right watchdog module. Alternatively, you can find a list of
+installed drivers with your kernel version.
+
+----
+ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
+----
+
+Check if any watchdog module is already loaded.
+
+----
+lsmod | egrep "(wd|dog|i6|iT|ibm)"
+----
+
+If you get a result, the system has already a loaded watchdog. If the watchdog
+does not match your watchdog device, you need to unload the module.
+
+To safely unload the module, check first if an application is using the watchdog
+device.
+
+----
+lsof /dev/watchdog
+rmmod <wrong_module>
+----
+
+Enable your watchdog module and make it persistent. For the example below,
+_softdog_ has been used which has some restrictions and should not be used as
+first option.
+
+----
+echo softdog > /etc/modules-load.d/watchdog.conf
+systemctl restart systemd-modules-load
+----
+
+Check if the watchdog module is loaded correctly.
+
+----
+lsmod | grep dog
+----
+
+Testing the watchdog can be done with a simple action. Ensure to switch of your {sapHana}
+first because watchdog will force an unclean reset / shutdown of your system.
+
+In case of a hardware watchdog a desired action is predefined after the timeout of the watchdog has
+reached. If your watchdog module is loaded and not controlled by any other application, do the following:
+
+IMPORTANT: Triggering the watchdog without continuously updating the watchdog
+resets/switches off the system. This is the intended mechanism. The following
+commands will force your system to be reset/switched off.
+
+----
+touch /dev/watchdog
+----
+
+In case the softdog module is used the following action can be performed:
+
+----
+echo 1> /dev/watchdog
+----
+
+After your test was successful you must implement the watchdog on all cluster
+members.
+
+====
 
 ==== Initial Cluster Setup Using `{slehainit}`
 
@@ -1115,20 +1200,6 @@ nodelist {
     }
 ----
 
-===== Configuring a Watchdog
-
-// TODO PRIO2: Should we add some more information here?
-
-It is highly recommended that you configure your Linux system to load a
-watchdog driver with hardware assistance (as is available on most modern
-systems), such as hpwdt, iTCO_wdt, or others. As a fall-back, you can
-use the softdog module.
-
-No other software must access the watchdog timer; it can only be
-accessed by one process at any time. Some hardware vendors ship
-systems management software that use the watchdog for system resets
-(for example HP ASR daemon). Such software must be disabled if the watchdog
-is to be used by SBD.
 
 ===== Adapting SBD Config
 

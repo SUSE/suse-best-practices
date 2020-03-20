@@ -252,7 +252,7 @@ https://www.suse.com/c/tag/TowardsZeroDowntime/.
 === Errata
 
 To deliver urgent smaller fixes and important information in a timely manner,
-the Technical Information Document (TID) for this document
+the Technical Information Document (TID) for this setup guide
 will be updated, maintained and published at a higher frequency:
 
 - SAP HANA SR Performance Optimized Scenario - Setup Guide - Errata
@@ -287,7 +287,9 @@ is supported with SAPHanaSR.
 independent.
 ** If you use disk-based SBD as the fencing mechanism, you need one or more shared
 drives. For productive environments, we recommend more than one SBD
-device.
+device. For details on disk-based SBD look into our product documentation for
+SUSE Linux Enterprise High Availability Extension as well as the manual pages
+sbd.8 and stonith_sbd.8.
 ** For disk-less SBD you need at least three cluster nodes. The disk-less SBD mechanism
 has the benefit that you do not need a shared drive for fencing.
 * Both nodes are in the same network segment (layer 2). Similar methods provided
@@ -310,7 +312,7 @@ product documentation for SUSE Linux Enterprise High Availability Extension abou
 off the automated registration of a failed primary. The setup
 `AUTOMATED_REGISTER="false"` is the default. In this case, you need to
 register a failed primary after a takeover manually. Use SAP tools like
-_hanastudio_ or _hdbnsutil_.
+{saphana} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend `AUTOMATED_REGISTER="true"`.
 * Automated start of {hana} instances during system boot must be
 switched off.
@@ -328,7 +330,7 @@ you stop a tenant.
 ** Tests on Multi-tenancy databases could force a different test procedure
 if you are using strong separation of the tenants. As an example, killing the
 complete {hana} instance using _HDB kill_ does not work, because the tenants are
-running with different Linux user ids. {refsidadm} is not allowed to terminate the
+running with different Linux user UIDs. {refsidadm} is not allowed to terminate the
 processes of the other tenant users.
 
 You need at least {SAPHanaSR} version {sapHanaSrMinVers} and in best {sles4sap} {prodnr}
@@ -370,8 +372,8 @@ you stop a tenant.
 
 If you need to implement a different scenario, we strongly recommend to
 define a PoC with SUSE. This PoC will focus on testing the existing
-solution in your scenario. The limitation of most of the above items is
-mostly because of testing limits.
+solution in your scenario. Most of the above mentioned limitations are because
+careful testing is needed.
 
 Besides {hana}, you need SAP Host Agent to be installed on your system.
 
@@ -383,7 +385,7 @@ System Replication Scenarios. The document focuses on the steps to
 integrate an already installed and working {hana} with System
 Replication.
 
-This setup builds an {hana} HA cluster in two data centers in Walldorf
+The described example setup builds an {hana} HA cluster in two data centers in Walldorf
 ({sapsite1}) and in Rot ({sapsite2}), installed on two {sles4sapa}
 {prodnr} {prodsp} systems.
 
@@ -436,8 +438,8 @@ Planning the installation is essential for a successful {saphana} cluster setup.
 
 What you need before you start:
 
-- Software from {suse}: {sles4sap} installation media and a valid subscription
-  for getting updates
+- Software from {suse}: {sles4sap} installation media, a valid subscription,
+  and access to update channels
 - Software from {sap}: {saphana} installation media
 - Physical or virtual systems including disks
 - Filled parameter sheet (see below <<Parameter Sheet>>)
@@ -464,6 +466,7 @@ majority maker (2 node cluster):
 - 2 data disks (one per site) with a capacity of each 96GB for {saphana}
 - 1 additional IP address for takeover
 - 1 optional IP address for the read-enabled setup
+- 1 optional IP address for HAWK Admin Gui
 
 Requirements with 1 SAP instance per site (1 : 1) - with a
 majority maker (3 node cluster):
@@ -473,6 +476,7 @@ majority maker (3 node cluster):
 - 2 data disks (one per site) with a capacity of each 96GB for {saphana}
 - 1 additional IP address for takeover
 - 1 optional IP address for the read-enabled setup
+- 1 optional IP address for HAWK Admin Gui
 
 // pools size is calculated like:
 //     shared = 1 * MEM
@@ -495,9 +499,9 @@ the parameter sheet and then begin with the installation.
 
 |node 2 ||Cluster node name and IP address.
 
-|SID ||SAP Identifier
+|SID ||SAP System Identifier
 
-|Instance number ||Number of the {hana} database. For
+|Instance Number ||Number of the {hana} database. For
 system replication also Instance Number+1 is blocked.
 
 |Network mask ||
@@ -506,7 +510,7 @@ system replication also Instance Number+1 is blocked.
 the primary {hana} site
 
 |vIP secondary || Virtual IP address to be assigned to
-the read-enabled secondary {hana} site
+the read-enabled secondary {hana} site (optional)
 
 |Storage | |Storage for HDB data and log files is connected “locally”
 (per node; not shared)
@@ -528,9 +532,9 @@ IP address.
 |node 2 |`{sapnode2}`, `{sapip1node2}` |Cluster node name and
 IP address.
 
-|SID |`{sapsid}` |SAP Identifier
+|SID |`{sapsid}` |SAP System Identifier
 
-|Instance number |`{sapino}` |Number of the {hana} database. For
+|Instance Number |`{sapino}` |Number of the {hana} database. For
 system replication also Instance Number+1 is blocked.
 
 |Network mask |`255.255.255.0` |
@@ -584,7 +588,7 @@ SAP notes:
 
 ==== Installing Additional Software
 {SUSE} delivers with {sles4sap} special resource agents for {sapHana}. With the pattern _sap-hana_ the resource
-agent for {sapHana} *ScaleUP* is installed. For the *ScaleOut* scenario you need a special resource agent.
+agent for {sapHana} *scale-up* is installed. For the *scale-out* scenario you need a special resource agent.
 Follow the instructions below on each node if you have installed the systems based on SAP note 1984787.
 The pattern _High Availability_ summarizes all tools recommended to be installed on *all* nodes, including the
 _majority maker_.
@@ -1717,7 +1721,7 @@ on the exit state of the proceeding tests.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -1730,7 +1734,7 @@ take over as primary.
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -1770,7 +1774,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -1784,7 +1788,7 @@ take over as primary.
 primary (on node 2) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -1824,7 +1828,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -1838,7 +1842,7 @@ take over as primary.
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -1877,7 +1881,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -1891,7 +1895,7 @@ take over as primary.
 primary (on node 2) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -1945,7 +1949,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -1964,7 +1968,7 @@ primary (on node 2) as SFAIL.
 used to clear the fencing flag and restart pacemaker on the node.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 . The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -2021,7 +2025,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2040,7 +2044,7 @@ secondary (on node 2) as SFAIL.
 used to clear the fencing flag and restart pacemaker on the node.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed HANA database or register it against the new primary.
-.  After the manual register and resource cleanup the system
+.  After the manual register and resource refresh the system
 replication pair is marked as in sync (SOK).
 . The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -2066,12 +2070,12 @@ recovery procedure.
 ----
 
 .{testRecover}
-.  Cleanup the failed resource status of the secondary HANA database (on
+.  Refresh the failed resource status of the secondary HANA database (on
   node 2) as root.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2097,7 +2101,7 @@ recovery procedure.
   Simulate a complete break-down of the secondary database system.
 
 .{testProc}
-.  Kill the secodary database system using signals as _<sid>adm_.
+.  Kill the secondary database system using signals as _<sid>adm_.
 +
 [subs="attributes,quotes"]
 ----
@@ -2105,12 +2109,11 @@ recovery procedure.
 ----
 
 .{testRecover}
-.  Cleanup the failed resource status of the secondary HANA database (on
-  node 2) as root.
+.  Clean up the failed resource status of the secondary HANA database (on node 2) as root.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2208,7 +2211,7 @@ database (node 1).
 system replication takes place and is therefore no longer a valid take
 over destination.
 .  When the LAN connection is re-established, HDB automatically
-detects connectitvity between the HANA databases and restarts the
+detects connectivity between the HANA databases and restarts the
 system replication process
 .  The cluster detects that the system replication is in sync again
 and marks it as ok (SOK).
@@ -2243,11 +2246,11 @@ on the exit state of the proceeding tests.
 
 .{testRecover}
 . Not needed, everything is automated
-. Cleanup the cluster resources on node 1 as root.
+. Refresh the cluster resources on node 1 as root.
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -2260,7 +2263,7 @@ take over as primary.
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="true" the cluster does restart
 the failed HANA database and register it against the new primary.
-.  After the automated register and resource cleanup the system
+.  After the automated register and resource refresh the system
 replication pair is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
@@ -2304,11 +2307,11 @@ devices and subsequently start pacemaker.
 {sapnode2}# {clusterstart}
 ----
 
-* Cleanup the cluster resources on node 2 as root.
+* Refresh the cluster resources on node 2 as root.
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode2}# crm resource cleanup rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2367,7 +2370,7 @@ different command line tools for cluster status requests.
 
 You can use an Internet browser to check the cluster status.
 
-// TODO PRIO1: We need a SLE15 HAWK screenshot here
+// DONE PRIO1: We need a SLE15 HAWK screenshot here
 
 .Cluster Status in HAWK
 image::SAPHanaSR-ScaleUp-HAWK-Status-SLE12.png[scaledwidth=100%]
@@ -2383,7 +2386,7 @@ manuals for a complete documentation of this powerful user interface.
 Database-specific administration and checks can be done with {hana}
 studio.
 
-// TODO PRIO1: We need a newer HANA Studio screen-shot here
+// TODO PRIO1: We need a HANA Cockpit screen-shot here
 
 .{hana} Studio – Landscape
 image::hana_studio_landscape.png[scaledwidth=100%]

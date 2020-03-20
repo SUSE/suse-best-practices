@@ -1060,6 +1060,92 @@ convenience, use YaST2 or the {slehainit} script. It is strongly
 recommended to add a second corosync ring, change to UCAST communication
 and adjust the timeout values to your environment.
 
+==== Set up Watchdog for "Storage-based Fencing"
+
+// TODO PRIO2: Should we add some more information here?
+
+If you use the SBD fencing mechanism (disk-less or disk-based) you must also
+configure a watchdog. The watchdog is needed to reset a node, if the system
+could not longer access the SBD (disk-less or disk-based).
+It is mandatory that to configure the Linux system to load a
+watchdog driver. It's strongly recommended to use a watchdog with hardware #
+assistance (as is available on most modern systems), such as hpwdt, iTCO_wdt,
+or others. As a fall-back, you can use the softdog module.
+
+.Set up for Watchdog
+====
+IMPORTANT: Access to the Watchdog Timer:
+No other software must access the watchdog timer; it can only be
+accessed by one process at any time. Some hardware vendors ship
+systems management software that use the watchdog for system resets
+(for example HP ASR daemon). Such software must be disabled if the watchdog
+is to be used by SBD.
+
+Determine the right watchdog module. Alternatively, you can find a list of
+installed drivers with your kernel version.
+
+----
+ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
+----
+
+Check if any watchdog module is already loaded.
+
+----
+lsmod | egrep "(wd|dog|i6|iT|ibm)"
+----
+
+If you get a result, the system has already a loaded watchdog. If the watchdog
+does not match your watchdog device, you need to unload the module.
+
+To safely unload the module, check first if an application is using the watchdog
+device.
+
+----
+lsof /dev/watchdog
+rmmod <wrong_module>
+----
+
+Enable your watchdog module and make it persistent. For the example below,
+_softdog_ has been used which has some restrictions and should not be used as
+first option.
+
+----
+echo softdog > /etc/modules-load.d/watchdog.conf
+systemctl restart systemd-modules-load
+----
+
+Check if the watchdog module is loaded correctly.
+
+----
+lsmod | grep dog
+ls -l /dev/watchdog
+----
+
+Testing the watchdog can be done with a simple action. Ensure to switch of your {sapHana}
+first because watchdog will force an unclean reset / shutdown of your system.
+
+In case of a hardware watchdog a desired action is predefined after the timeout of the watchdog has
+reached. If your watchdog module is loaded and not controlled by any other application, do the following:
+
+IMPORTANT: Triggering the watchdog without continuously updating the watchdog
+resets/switches off the system. This is the intended mechanism. The following
+commands will force your system to be reset/switched off.
+
+----
+touch /dev/watchdog
+----
+
+In case the softdog module is used the following action can be performed:
+
+----
+echo 1> /dev/watchdog
+----
+
+After your test was successful you must implement the watchdog on all cluster
+members.
+
+====
+
 ==== Initial Cluster Setup Using `{slehainit}`
 
 For more information, see _Automatic Cluster Setup_, {uarr}SUSE Linux

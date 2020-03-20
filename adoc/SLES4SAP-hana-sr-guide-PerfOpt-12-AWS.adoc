@@ -894,17 +894,23 @@ pf=/hana/shared/HA1/profile/HA1_HDB10_suse02 -D -u s
 
 ==== Implementing the Python Hook SAPHanaSR
 
-This step must be done on both sites. SAP HANA must be stopped to change the global.ini
-and allow SAP HANA to integrate the HA/DR hook script during start.
+This step is mandatory to inform the cluster immediately, if secondary gets out of sync.
+The hook is called by {SAPHANA} using the HA/DR provider interface in point-of-time when the secondary gets out of
+sync. This is typically the case when the first commit pending is released. The hook is
+called by {SAPHANA} again when the system replication is back.
+
+This step must be done on both sites. {SAPHANA} must be stopped to change the global.ini
+and allow {SAPHANA} to integrate the HA/DR hook script during start.
 
 1. Use the hook from the SAPHanaSR package (available since version 0.153) or
 copy into a read/writable directory. The hook must be available on all SAP HANA cluster nodes.
 
-2. Integrate the hook into global.ini (SAP HANA needs to be stopped for doing that offline).
+2. Integrate the hook into global.ini ({SAPHANA} needs to be stopped for doing that offline).
 
 3. Check integration of the hook during start-up.
 
 Example: ADDING SAPHANASR VIA GLOBAL.INI
+
 [subs="attributes"]
 ----
 [ha_dr_provider_SAPHanaSR]
@@ -916,6 +922,46 @@ execution_order = 1
 ha_dr_saphanasr = info
 ----
 
+
+=== Allowing user _<sid>adm_ to access the Cluster
+
+The current version of the SAPHanaSR python hook uses the command `sudo` to allow
+the Linux user _<sid>adm_ to access the cluster attributes. In Linux you can use `visudo`
+to start the vi editor for the _/etc/sudoers_ configuration file.
+
+The user _<sid>adm_ must be able to set the cluster attributes hana_<sid>_site_srHook_*.
+The {SAPHANA} system replication hook needs password free access. The following
+example limits the sudo access to exactly setting the needed attribute.
+
+Replace the <sid> by the *lowercase* SAP system ID (like `{mySidLc}`).
+
+.Entry in sudo permissions /etc/sudoers file
+===================================
+Basic sudoers entry to allow <sidadm> to use the srHook.
+
+// command to be allowed used in the hook:
+// "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
+
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
+{mySapAdm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{mySidLc}_site_srHook_*
+----
+
+More specific sudoers entries to meet a high security level. All Cmnd_Alias entries must be each defined as a single line entry. The site names *WDF* and *ROT* in the example below must be adapt to the names of your setup. 
+In the following example the lines might include a line-break forced by document formatting. In our example we would have
+four separate lines with Cmnd_Alias entries, one line for the _{mySapAdm}_ user and one or more lines for comments.
+
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
+Cmnd_Alias SOK_SITEA   = /usr/sbin/crm_attribute -n hana_{mySidLc}_site_srHook_WDF -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEA = /usr/sbin/crm_attribute -n hana_{mySidLc}_site_srHook_WDF -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias SOK_SITEB   = /usr/sbin/crm_attribute -n hana_{mySidLc}_site_srHook_ROT -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_{mySidLc}_site_srHook_ROT -v SFAIL -t crm_config -s SAPHanaSR
+{mySapAdm} ALL=(ALL) NOPASSWD: SOK_SITEA, SFAIL_SITEA, SOK_SITEB, SFAIL_SITEB
+----
+===================================
 
 ==== Backing Up the Primary Database
 

@@ -1151,15 +1151,22 @@ members.
 For more information, see _Automatic Cluster Setup_, {uarr}SUSE Linux
 Enterprise High Availability Extension.
 
-// TODO PRIO1: Use the -U flag to already produce a valid unicast configuration at the first cluster configuration step
+// DONE PRIO1: Use the -u flag to already produce a valid unicast configuration at the first cluster configuration step
 
 Create an initial setup, using `{slehainit}` command and follow the
-dialogs. This is only to be done on the first cluster node.
+dialogs. This has only to be done on the first cluster node.
 
 [subs="specialchars,attributes,quotes"]
 ----
 {sapnode1}:~> {slehainit} -u -s <sbddevice>
 ----
+
+// TODO PRIO1: for disk less SBD: {slehainit} -u -S
+//
+// TODO PRIO1: for more than one corosync ring
+//      -u --unicast
+//      -S --enable-sbd
+//         --multi-heartbeats
 
 This command configures the basic cluster framework including:
 
@@ -1173,9 +1180,10 @@ IMPORTANT: As requested by `{slehainit}`, change the password of the user haclus
 
 ==== Adapting the Corosync and SBD Configuration
 
-It is recommended to add a second corosync ring. If you did not started {slehainit} with the _-u_ option
-you need to change corosync to use UCAST communication. To change to UCAST istop the already running cluster by using `{clusterstop}`. After setup
-of the corosync config and SBD parameters, start the cluster again.
+It is recommended to add a second corosync ring. If you did not started {slehainit}
+with the _-u_ option you need to change corosync to use UCAST communication.
+To change to UCAST stop the already running cluster by using `{clusterstop}`.
+After setup of the corosync config and SBD parameters, start the cluster again.
 
 ===== Corosync Configuration
 
@@ -1208,31 +1216,15 @@ nodelist {
     }
 ----
 
-===== Configuring a Watchdog
-
-// TODO PRIO2: Should we add some more information here?
-
-It is highly recommended that you configure your Linux system to load a
-watchdog driver with hardware assistance (as is available on most modern
-systems), such as hpwdt, iTCO_wdt, or others. As a fall-back, you can
-use the softdog module.
-
-No other software must access the watchdog timer; it can only be
-accessed by one process at any time. Some hardware vendors ship
-systems management software that use the watchdog for system resets
-(for example HP ASR daemon). Such software must be disabled if the watchdog
-is to be used by SBD.
 
 ===== Adapting SBD Config
 
 // TODO PRIO2: Should we add some information about SBD timing tunables?
 
 You can skip this section, if you do not have any SBD devices, but be
-sure to implement another supported fencing mechanism. If you use the
-newest updates of the pacemaker packages from the SUSE maintenance
-channels, you can also use the -P option (Check Pacemaker quorum and
-node health). This enables the cluster nodes not to self-fence if SBDs
-are lost, but pacemaker communication is still available.
+sure to implement another supported fencing mechanism.
+
+See man pages sbd.8 and stonith_sbd.7 for details.
 
 .SBD Options in File /etc/sysconfig/SBD
 [cols=",",options="header",]
@@ -1274,7 +1266,7 @@ aggressive then the typical 5s.
 ----
 # /etc/sysconfig/sbd
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
-SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_DEV="/dev/watchdog"
 SBD_WATCHDOG_TIMEOUT=15
 SBD_PACEMAKER="yes"
 SBD_STARTMODE="clean"
@@ -1286,7 +1278,7 @@ https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-st
 
 ===== Verifying the SBD Device
 
-You can skip this section if you do not have any sbd devices, but make
+You can skip this section if you do not have any SBD devices, but make
 sure to implement a supported fencing mechanism.
 
 It is a good practice to check if the SBD device can be accessed from
@@ -1321,7 +1313,6 @@ the SBD device.
 ----
 {sapnode1}:~ # sbd -d {sapsbd1} list
 0     {sapnode1}      clear
-1     {sapnode2}      clear
 ----
 
 For more information on SBD configuration parameters, read the
@@ -1351,8 +1342,10 @@ time on both nodes.
 [subs="attributes,quotes"]
 ----
 {sapnode1}:~ # {clusterstatus}
+{sapnode1}:~ # {sbdstatus}
 {sapnode2}:~ # {clusterstatus}
 {sapnode1}:~ # {clusterstart}
+{sapnode2}:~ # {sbdstatus}
 {sapnode2}:~ # {clusterstart}
 ----
 
@@ -1405,6 +1398,8 @@ The first example defines the cluster bootstrap options, the resource
 and operation defaults. The stonith-timeout should be greater than 1.2
 times the SBD msgwait timeout.
 
+// TODO PRIO2: LP asks, if that still works
+
 [subs="attributes,quotes"]
 ----
 {sapnode1}:~ # vi crm-bs.txt
@@ -1428,6 +1423,8 @@ Now we add the configuration to the cluster.
 ----
 
 ==== STONITH device
+
+Skip this section, if you are using disk-less SBD.
 
 The next configuration part defines an SBD disk STONITH resource.
 

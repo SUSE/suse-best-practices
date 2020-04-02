@@ -1,17 +1,15 @@
-= SAP NetWeaver Enqueue Replication 1 High Availability Cluster - Setup Guide for SAP NetWeaver 7.40 and 7.50 - SLE15
+:docinfo:
+// Document Variables
 :slesProdVersion: 15
-Fabian Herschel, Bernd Schubert
-2019/06/26
 
-
-:Revision: 1.1
-
-Revision {Revision} from {docdate}
-
+= SAP NetWeaver Enqueue Replication 1 High Availability Cluster - Setup Guide for SAP NetWeaver 7.40 and 7.50
+//Fabian Herschel, Bernd Schubert
+//2019/06/26
+//:Revision: 1.1
+//Revision {Revision} from {docdate}
 // Standard SUSE includes
-include::common_copyright_gfdl.adoc[]
-
-:toc:
+//include::common_copyright_gfdl.adoc[]
+//:toc:
 
 include::Variables_HA740.adoc[]
 
@@ -152,14 +150,14 @@ customers of different sizes and branches.
 Chapters in this manual contain links to additional documentation resources that
 are either available on the system or on the Internet.
 
-For the latest documentation updates, see http://www.suse.com/documentation.
+For the latest documentation updates, see https://documentation.suse.com .
 
 You can also find numerous whitepapers, a best-practices guide, and other
 resources at the {sles4sap} resource
-library: https://www.suse.com/products/sles-for-sap/resource-library/.
+library: https://www.suse.com/products/sles-for-sap/#resource .
 
 This guide and other SAP specific best practices could be downloaded via
-https://www.suse.com/products/sles-for-sap/resource-library/sap-best-practices/.
+https://documentation.suse.com/sbp/all .
 You can find at this landing page guides for {SAPHANA} system replication
 automation and HA scenarios for {SAPNw} and {s4hana}.
 
@@ -422,7 +420,7 @@ tools. The following script could be used for non-interactive setups.
 .To be mounted either by OS or an optional cluster
 - {myNode3}:   {myDevPartDb}   {myMpDb}
 
-- {myNode3}:   {myDevPartPas}   {myMpPas}
+- {myNode3}:   {myDevPartPas}   {myMpPas74}
 
 - {myNode3}:   {myDevPartSec}   {myMpSec}
 
@@ -440,11 +438,11 @@ directory has been renamed. (D<Instance_Number>)
 
 or
 
-- {myNfsSrv}:{bsNFSExpPathSapMedia750} /sapcd
+- {myNfsSrv}:{myNFSExpPathSapMedia750} /sapcd
 
 === IP Addresses and Virtual Names
 
-Check, if the /etc/hosts contains at least the following address resolutions.
+Check, if the _/etc/hosts_ contains at least the following address resolutions.
 Add those entries, if they are missing.
 
 [subs="attributes"]
@@ -708,6 +706,7 @@ _On {myNode2}_
 
 Ensure _/usr/sap/sapservices_ holds both entries (ASCS+ERS) on both cluster
 nodes. This allows the {sapstartsrv} clients to start the service like
+(do not execute this at this point in time).
 
 _As user {mySapAdm}_
 
@@ -758,7 +757,7 @@ Add the user {mySapAdm} to the unix user group haclient.
 
 [subs="attributes"]
 ----
-# usermod -a -G haclient {mySapAdm}
+# usermod -aG haclient {mySapAdm}
 ----
 
 ==== Adapting {sap} Profiles to match the {sapCert} Certification
@@ -864,7 +863,17 @@ Instance Number is {bsDBIno}
 [subs="attributes"]
 ----
 # ip a a {myVipAPas}{myVipNM} dev eth0
-# mount {myDevPartPas} {myMPPas}
+# mount {myDevPartPas} {myMPPas74}
+# cd /sapcd/SWPM/
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNPas}
+----
+
+or alternatively:
+
+[subs="attributes"]
+----
+# ip a a {myVipAPas}{myVipNM} dev eth0
+# mount {myDevPartPas} {myMPPas75}
 # cd /sapcd/SWPM/
 # ./sapinst SAPINST_USE_HOSTNAME={myVipNPas}
 ----
@@ -927,11 +936,11 @@ the (manual added) IP addresses on the cluster nodes and unmount the file system
 which will be controlled by the cluster later.
 
 NOTE: The SBD device/partition need to be created in beforehand. In this setup
-guide we already have reserved partition {myDevPartSbd} for SBD usage.
+guide we already have reserved partition _{myDevPartSbd}_ for SBD usage.
 
 .Tasks
 
-. Setup NTP (best with yast2) and enable it
+. Setup Chrony (best with yast2) and enable it
 
 . Install pattern ha_sles on both cluster nodes
 
@@ -957,6 +966,9 @@ automated setups.
 # systemctl enable sbd
 # ha-cluster-init -y -i eth0 -u -s {myDevPartSbd}
 ----
+
+Keep in mind that a hardware watchdog is prefered instead of the softdog method.
+
 
 - Join the second node
 
@@ -999,10 +1011,13 @@ Full list of resources:
  stonith-sbd    (stonith:external/sbd): Started {myNode1}
 ----
 
-- After both nodes listed in the overview please verify the property setting of the basic cluster configuration. Very important here is the setting: *record-pending=true*. 
+- After both nodes listed in the overview please verify the property setting of the basic cluster configuration. 
+Very important here is the setting: *record-pending=true*. 
 
 [subs="attributes"]
 ----
+# crm configure show
+...
 property cib-bootstrap-options: \
         have-watchdog=true \
         dc-version=1.1.18+20180430.b12c320f5-1.14-b12c320f5 \
@@ -1064,7 +1079,7 @@ instance. Of course you need to adapt the parameters to your environment.
 ----
 primitive rsc_fs_{mySID}_{myInstAscs} Filesystem \
   params device="{myDevPartAscs}" directory="/usr/sap/{mySID}/{myInstAscs}" \
-         fstype=xfs \
+   fstype=xfs \
   op start timeout=60s interval=0 \
   op stop timeout=60s interval=0 \
   op monitor interval=20s timeout=40s
@@ -1075,10 +1090,10 @@ primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
   op monitor interval=11 timeout=60 on-fail=restart \
   params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
-     START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
-     AUTOMATIC_RECOVER=false \
+   START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
+   AUTOMATIC_RECOVER=false \
   meta resource-stickiness=5000 failure-timeout=60 \
-     migration-threshold=1 priority=10
+   migration-threshold=1 priority=10
 ----
 ================================================
 
@@ -1126,8 +1141,8 @@ primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
   op monitor interval=11 timeout=60 on-fail=restart \
   params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
-         START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
-         AUTOMATIC_RECOVER=false IS_ERS=true \
+   START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
+   AUTOMATIC_RECOVER=false IS_ERS=true \
   meta priority=1000
 ----
 ================================================
@@ -1171,9 +1186,9 @@ ready for an additional take-over.
 ----
 colocation col_sap_{mysid}_no_both -5000: grp_{mySID}_{myInstErs} grp_{mySID}_{myInstAscs}
 location loc_sap_{mysid}_failover_to_ers rsc_sap_{mySID}_{myInstAscs} \
-         rule 2000: runs_ers_{mySID} eq 1
+  rule 2000: runs_ers_{mySID} eq 1
 order ord_sap_{mysid}_first_start_ascs Optional: rsc_sap_{mySID}_{myInstAscs}:start \
-      rsc_sap_{mySID}_{myInstErs}:stop symmetrical=false
+  rsc_sap_{mySID}_{myInstErs}:stop symmetrical=false
 ----
 ================================================
 
@@ -1554,8 +1569,27 @@ _As user {mysapadm}_
 
 * Check the simulation of cluster resource failures
 
-:leveloffset: 0
 
+== References
+
+For more information, see the documents listed below.
+
+=== Pacemaker
+
+- Pacemaker 1.1 Configuration Explained:
+https://clusterlabs.org/pacemaker/doc/en-US/Pacemaker/1.1/html/Pacemaker_Explained/
+
+- Pacemaker 2.0 Configuration Explained:
+https://clusterlabs.org/pacemaker/doc/en-US/Pacemaker/2.0/html-single/Pacemaker_Explained/index.html
+
+:leveloffset: 2
+
+include::SAPNotes_ha740.adoc[]
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
 ////
 ############################
 #
@@ -1583,14 +1617,12 @@ node 1084753932: {myNode2}
 # primitives for ASCS and ERS
 #
 primitive rsc_fs_{mySID}_{myInstAscs} Filesystem \
-	params device="{myDevPartAscs}" directory="/usr/sap/{mySID}/{myInstAscs}" \
-        fstype=xfs \
+	params device="{myDevPartAscs}" directory="/usr/sap/{mySID}/{myInstAscs}" fstype=xfs \
 	op start timeout=60s interval=0 \
 	op stop timeout=60s interval=0 \
 	op monitor interval=20s timeout=40s
 primitive rsc_fs_{mySID}_{myInstErs} Filesystem \
-	params device="{myDevPartErs}" directory="/usr/sap/{mySID}/{myInstErs}" \
-         fstype=xfs \
+	params device="{myDevPartErs}" directory="/usr/sap/{mySID}/{myInstErs}" fstype=xfs \
 	op start timeout=60s interval=0 \
 	op stop timeout=60s interval=0 \
 	op monitor interval=20s timeout=40s
@@ -1604,16 +1636,16 @@ primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
 	operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
 	op monitor interval=11 timeout=60 on-fail=restart \
 	params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
-     START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
-     AUTOMATIC_RECOVER=false \
+	 START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
+	 AUTOMATIC_RECOVER=false \
 	meta resource-stickiness=5000 failure-timeout=60 migration-threshold=1 \
-       priority=10
+	 priority=10
 primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
 	operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
 	op monitor interval=11 timeout=60 on-fail=restart \
 	params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
-    START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
-    AUTOMATIC_RECOVER=false IS_ERS=true \
+	 START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
+	 AUTOMATIC_RECOVER=false IS_ERS=true \
 	meta priority=1000
 primitive stonith-sbd stonith:external/sbd \
 	params pcmk_delay_max=30s
@@ -1648,8 +1680,17 @@ op_defaults op-options: \
 	record-pending=true
 ----
 
-:leveloffset: 2
-include::SAPNotes_ha740.adoc[]
+// Standard SUSE Best Practices includes
+== Legal Notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 1
+include::common_gfdl1.2_i.adoc[]
 
 ////
 Version 1.0 - Initial version based on SLE12 and NW 7.40
@@ -1661,3 +1702,7 @@ Version 1.1 - Including SLE15 preparation, NW 7.50, Unicast set-up
 //   - corr: StartService
 //   - removed no-quorum-policy=ignore
 //   - corr: upper/lowercase of section titles
+// Revision 1.1a 2020/04
+//   - migration to adoc build process
+//   - small adaption based on customer feedback
+

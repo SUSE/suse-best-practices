@@ -1,0 +1,784 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+<article role="sbp" xmlns="http://docbook.org/ns/docbook"
+ xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0"
+ xml:id="art-sbp-public-cloud" xml:lang="en">
+
+	<info>
+		<title>&suse; Update Infrastructure Guide</title>
+		<!--  <orgname>SUSE Best Practices</orgname>-->
+		<productname>&sls;, &suma;, &suse; Cloud, &cloud;</productname>
+		<author>
+			<personname>
+				<firstname>Jona</firstname>
+				<surname>Apelbaum</surname>
+			</personname>
+			<!--   <affiliation>-->
+			<!--    <jobtitle>Public Cloud Architect</jobtitle>-->
+			<!--    <orgname>&suse;</orgname>-->
+			<!--   </affiliation>-->
+		</author>
+
+		<date>27/03/2020</date>
+
+		<abstract>
+			<para>This guide describes the setup of the required infrastructure for
+    a SUSE cloud in generic terms that scale from small to large cloud 
+    installations. The guide is an optional, but highly recommended element
+     of a CSPs infrastructure. It allows for central license and repository 
+     management.</para>
+		</abstract>
+
+	</info>
+
+	<sect1 xml:id="sec-intro">
+		<title>Introduction</title>
+		<para>Use of public cloud resources is one of the fastest growing areas
+   of the IT industry. In many cases Infrastructure as a Service (IaaS) is
+   a leading use case of public cloud. The public cloud brings with it a
+			<quote>start and use</quote> expectation. This poses a challenge for an
+   Enterprise Linux distribution such as &sle; to provide access to the
+   update repositories without formal registration of the OS
+   installation.</para>
+		<para>In a traditional data center a &suse; customer will set up a
+   new machine (physical or virtual) and configure the system to connect to
+   a local RMT server, be managed by &suse; Manager, or connect to the
+   &scc; (SCC).</para>
+		<para>Generating registration entitlements for every instance for use
+   with SCC and providing these to the user would not meet the
+			<quote>fire up and use</quote> expectation. Automated generation of
+   entitlements and injection into instances, while possible, would provide
+   registration with SCC. But it may generate additional cost for the
+   customer as packages would need to be downloaded from outside the cloud
+   provider&#8217;s network for update purposes. Additionally a direct
+   registration of instances with SCC would put the burden of
+   verification concerning eligibility into the SCC code base.</para>
+		<para>This guide describes the setup of the required infrastructure in
+   generic terms that scale from small to large cloud installations.
+   Additionally this setup can also be implemented
+   in a private cloud setup.</para>
+	</sect1>
+
+	<sect1 xml:id="sec-overview">
+		<title>High Level Overview</title>
+
+		<figure>
+			<title>Update Infrastructure</title>
+			<mediaobject>
+				<imageobject role="fo">
+					<imagedata fileref="img1-csp_Update_- Infrastructure.png" width="70%"
+       format="PNG"/>
+				</imageobject>
+			</mediaobject>
+		</figure>
+
+		<para>The update infrastructure consists of 2 major components:</para>
+		<itemizedlist>
+			<listitem>
+				<para>Region Servers</para>
+			</listitem>
+			<listitem>
+				<para>SMT Servers</para>
+			</listitem>
+		</itemizedlist>
+		<para>Both run as VMs. All services run on
+   SUSE Linux Enterprise Server 15 SP1 or higher. These systems may be
+   registered directly to SCC or may be managed using SUSE Manager. 
+   Optionally, if using region servers, the systems must also have the
+   Public Cloud Module repository configured.</para>
+
+		<sect2 xml:id="sec-region-server-s">
+			<title>Region Server(s)</title>
+			<para>The function of the Region Server is to provide information about
+    the RMT Servers in a given region to the connecting guest. </para>
+			<para>For CSP&#8217;s operating in various geographical locations, the 
+   region servers provide instances information on RMT server to use for that 
+   location. </para>
+			<para>Note that the region server is an OPTIONAL component.  It is 
+   however advised to implement an automatic RMT server selection 
+   mechanism for automated registration to give end customers 
+				<quote>launch and use</quote> experience, without the need to manually 
+   enter or select a registration server.</para> 
+			<sect3>
+				<title>Behind the scenes</title>
+				<para>
+   	SUSE Linux Enterprise Server guest instances connect to a Region Server 
+   	to receive a list of RMT Servers available in the region in which the 
+   	guest instance was launched. The information provided to the client is 
+   	in XML format and is enough for the client to automatically register with 
+   	the region local RMT Server.
+				</para>
+			</sect3>   
+		</sect2>
+
+		<sect2 xml:id="sec-rmt-server-s">
+			<title>RMT Server(s)</title>
+			<para>The RMT (Repository Mirroring Tool) Server serves as cache for
+    the package repositories obtained from SCC (&scc;). The RMT Server
+    itself is registered with SCC, or managed via SUSE Manager, as it would
+    be in a traditional data center.</para>
+			<para>Given the data provided by a Region Server, the client proceeds
+    through a <quote>regular</quote> automated registration process. This
+    registration process is identical to the process an administrator in a
+    data center would complete when registering a new system against an RMT
+    Server operated in a traditional data center.</para>
+		</sect2>
+	</sect1>
+
+	<sect1 xml:id="sec-detailed-setup-guide">
+		<title>Detailed Setup Guide</title>
+		<para>Although the Region Server is the first service used by a client,
+   its setup and configuration is dependent on the setup of RMT Servers.
+   Therefore, the setup guide will describe the setup in reverse order as
+   compared to the previous section.</para>
+		<sect2>
+			<title>Prerequisite</title>
+			<itemizedlist>
+				<listitem>
+					<para>Retrieve SCC Mirroring Credentials</para>
+				</listitem>
+				<listitem>
+					<orderedlist>
+						<listitem>
+							<para>
+		   			Visit SUSE Customer Centre at http://scc.suse.com 
+		   			and log in.
+							</para>
+						</listitem>
+						<listitem>
+							<para>
+		   			If you are member of multiple organizations, chose 
+		   			the organization you want to work with from the sidebar 
+		   			on the left.
+							</para>
+						</listitem>
+						<listitem>
+							<para>
+		   			Select Proxies in the top menu.
+								<figure>
+									<title/>
+									<mediaobject>
+										<imageobject role="fo">
+											<imagedata fileref="img2-scc.png" width="70%"
+					       format="PNG"/>
+										</imageobject>
+									</mediaobject>
+								</figure>
+							</para>
+						</listitem>
+						<listitem>
+							<para>
+		   			The credentials are displayed in the top right corner.
+								<figure>
+									<title/>
+									<mediaobject>
+										<imageobject role="fo">
+											<imagedata fileref="img3-mirroring_credentials.png" width="70%"
+					       format="PNG"/>
+										</imageobject>
+									</mediaobject>
+								</figure>
+							</para>
+						</listitem>
+						<listitem>
+							<para>
+		   			To see the password, select the eye symbol.
+							</para>
+						</listitem>
+					</orderedlist>
+				</listitem>
+			</itemizedlist>
+		</sect2>
+
+		<sect2 xml:id="sec-general-setup">
+			<title>General Setup</title>
+			<para>Before any of the servers are set up and configured some general
+    preparations should be completed. Access restriction to the servers is
+    a multi-level process as described in more detail later. This is usually 
+    achieved with firewalls.
+			</para>
+			<para>
+    For each region there should be at least two RMT Servers. Additionally, 
+    there should be at least two Region Servers. Depending on the footprint 
+    of the cloud environment more Region Servers, with instances running in 
+    different regions, may be desired.
+			</para>
+
+			<screen>ssh-keygen -t rsa -f smt
+ssh-keygen -t rsa -f regionsrv</screen>
+		</sect2>
+
+		<sect2>
+
+			<title>Firewall Rules</title>
+
+			<sect3>
+
+				<title>RMT Servers</title>
+
+				<para>
+
+	These firewall rules for the RMT Server needs to allow incoming 
+	traffic on ports 22,80,and 443 from all addresses(<systemitem 
+	class="ipaddress">0.0.0.0/0</systemitem>; <systemitem
+
+	class="ipaddress">::/0</systemitem>). All other ports should be 
+	blocked. 
+
+				</para>
+
+			</sect3>
+
+			<sect3>	
+				<title>Region Servers</title>
+
+				<para>The firewall rules for the Region Service needs to allow 
+				incoming traffic on ports 22 and 443 from all addresses <systemitem 
+				class="ipaddress">0.0.0.0/0</systemitem>; <systemitem class="ipaddress">::/0</systemitem>). 
+				If you so desire, you can move SSH to run on a different port and configure your firewall rules accordingly.
+
+				</para>
+			</sect3>
+			<sect3>
+				<title>Prepare SSH Key Pairs for the Server</title>
+				<para>
+	The final preparatory step is to generate SSH key pairs for the servers. It is recommended 
+	to use different keys for the RMT Server and the Region Server.
+				</para>
+				<screen>ssh-keygen -t rsa -f smt
+
+	ssh-keygen -t rsa -f regionsrv</screen>
+			</sect3>
+
+		</sect2>
+
+		<sect2 xml:id="sec-smt-server-setup">
+			<title>RMT Server Setup</title>
+			<para> 
+   It is recommended to have 2 RMT servers per physical location (region). The number of RMT Servers 
+   depends on the bandwidth within the data center and the number of expected simultaneous users. As 
+   a reference, SUSE operates two RMT Servers per region in AWS and can satisfy throughput needs for 
+   registered clients. 
+			</para>
+			<para>
+   Thus, it is unlikely that more than two RMT Servers are needed in your setup. The setup of an RMT 
+   Server inside a virtual machine is no different than the setup of an RMT Server on a physical machine. 
+   A standard RMT server installation is described in the next chapter.  For detailed information on RMT 
+   Server please refer to <link xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-rmt.html" />. 
+   Step by step guide for a standard installation is provider in this chapter.
+			</para>
+			<para>
+				<emphasis>Alternatively, you can build an image with kiwi; a template used to build SUSE-operated RMT Servers is 
+   attached in appendix A.</emphasis>
+			</para>      
+			<sect3>
+				<title>Default RMT Server Installation</title>
+				<sect4>
+					<title>During system installation</title>
+					<para>During installation,make sure you select the rmt-server package:</para>
+					<procedure>
+						<step>
+			   On the software selection page click Details and then go to the Search Tab. Type �rmt� and select 
+			   rmt-server. The dependencies are automatically selected 
+							<figure>
+								<title/>
+								<mediaobject>
+									<imageobject role="fo">
+										<imagedata fileref="img4-installation_summary.png" width="70%" format="PNG"/>
+									</imageobject>
+								</mediaobject>
+							</figure>
+						</step>
+						<step>
+			   On the software selection page click Details and then go to the Search Tab. Type �rmt� 
+			   and select rmt-server. The dependencies are automatically selected
+							<figure>
+								<title/>
+								<mediaobject>
+									<imageobject role="fo">
+										<imagedata fileref="img5-rmt_software_selection.png" width="70%" format="PNG"/>
+									</imageobject>
+								</mediaobject>
+							</figure>
+						</step>
+						<step>
+		   Click on <quote>Accept</quote> and then Continue to accept the automatic dependencies added	
+						</step>
+						<step>
+		   ontinue with the installation
+						</step>
+					</procedure>	   
+				</sect4>
+				<sect4>
+					<title>Install RMT server on an existing system</title>
+					<para>To install RMT on a running SUSE Linux Enterprise Server installation, use zipper. Type the 
+		   following command in on the command shell:</para>
+					<screen>sudo zypper in rmt-server</screen>
+				</sect4>
+			</sect3>
+		</sect2>
+		<sect2>
+			<title>RMT Configuration</title>
+			<sect3>
+			<title>Initial Configuration</title>
+				<procedure>
+					<step>
+						<para>
+				Start YaST with the rmt module
+						</para>
+						<screen>sudo yast2 rmt</screen>
+					</step>
+					<step>Enter your organization credentials from SCC.</step>	
+					<step><para>Enter credentials for a new MariaDB user and database name. This user will then be created. 
+				Then select Next. If a password for the MariaDB root user is already set, you are required to enter it. 
+				If no password is set for root, you are asked to enter a new one.</para>
+					</step>
+					<step>
+				<para>Enter a common name for the SSL certificates. The common name should usually be the fully qualified 
+				domain name (FQDN) of the server. Enter all domain names and IP addresses with which you want to reach the 
+				RMT server as alternative common names. 
+				When all common names are entered, select Next.</para>
+					</step>
+					<step>
+				<para>Enter a common name for the SSL certificates. The common name should usually be the fully qualified domain 
+				name (FQDN) of the server. Enter all domain names and IP addresses with which you want to reach the RMT server 
+				as alternative common names. When all common names are entered, select Next.</para>
+					</step>
+					<step>To view the summary, click Next. Close YaST by clicking Finish. YaST then enables and starts all systemd 
+				services and timers.</step>
+				</procedure>
+			</sect3>
+			<sect3>
+				<title>Select Repositories and start initial sync</title>
+				<procedure>
+					<step>
+						<para>
+						Run the RMT synchronization to get the products and repositories data from SUSE Customer Center
+						</para>
+						<screen>sudo rmt-cli sync</screen>
+					</step>
+					<step>
+					<para>Enable products/repos to be mirrored:
+</para>
+						<substeps>
+							<step>
+							<para>Select using Products</para>
+								<substeps>
+									<step>
+									<para>Enter the following command to display the products available</para>
+									<screen>rmt-cli products list �all</screen>
+									</step>
+									<step>
+									<para>Note the id or product name of the products you want to enable</para>
+									</step>
+									<step>
+									<para>Enter the following command for each product you want to enable:</para>
+									<screen>rmt-cli products enable ID/name</screen>
+									</step>
+								</substeps>
+							</step>
+						</substeps>
+					</step>
+					<step>
+						<para>Select using repositories</para>
+						<substeps>
+							<step>
+								<para>Enter the following command to get a list of repositories to enable</para>
+								<screen>rmt-cli products list --all</screen>
+							</step>
+							<step>
+								<para>Note the id or product name of the repositories you want to enable</para>
+							</step>	
+							<step>
+								<para>Enter the following command to enable the repository</para>
+								<screen>rmt-cli repos enable ID</screen>
+							</step>						
+						</substeps>
+					</step>
+					<step>
+						<para>Initiate an initial mirroring using the following command</para>
+						<screen>sudo rmt-cli mirror</screen>
+					</step>
+				</procedure>
+			</sect3>
+			<sect3>
+				<title>Configure Data Disks to hold repositories and DB</title>
+				<para>After the installation of the RMT Server package (RMT) the directory structure required 
+				by RMT is set up in <filename>/var/lib/rmt/public/repo</filename>. Ideally, we want to use an 
+				extra disk to hold the repositories. The following process outlines the steps necessary to set 
+				the external device up to hold the repositories.</para>
+				<para>For the RMT Repo disk follow the following</para>
+				<procedure>
+					<step><para>Add the disk to the SLES instance that holds the RMT server</para></step>
+					<step>
+						<para>
+						Use <emphasis>sudo fdisk  -l</emphasis> to list the available block devices.
+						</para>
+					</step>
+					<step>
+						<para>Create a partition table (using YaST, gparted, or fdisk) and create one 
+						partition on the device
+						</para>
+					</step>
+					<step>
+						<para>
+							(Optional-recommended) Create a volume group, to easily add more storage for repo growth
+						</para>
+					</step>
+					<step>
+						<para>
+							Create a file system on the newly created partition; XFS is the recommended file system 
+							for this storage device.
+						</para>
+					</step>
+					<step>
+						<para>
+							Copy the content of the RMT directory to a �safe� place:
+						</para>
+						<screen>sudo mkdir /tmp/RMTData; rsync -av /var/lib/rmt/public/repo /tmp/RMTData</screen>
+					</step>
+					<step>
+						<para>Mount the storage partition</para>
+						<screen>sudo mount /dev/sd? /var/lib/rmt/public/repo</screen>
+					</step>
+					<step>
+						<para>Make sure to have the rmt user and the nginx group owners of the newly mounted 
+						directory</para>
+						<screen>
+						sudo chown _rmt /var/lib/rmt/public/repo -R
+						sudo chgrp nginx /var/lib/rmt/public/repo -R
+						</screen>
+					</step>
+					<step>
+						<para>Restore the content of the backed up repo directory</para>
+						<screen>rsync -av /tmp/RMTData/ /var/lib/rmt/public/repo; rm -rf /tmp/RMTData</screen>
+					</step>
+					<step>
+						<para>Make sure the disks are mounted on startup by having the entries in /etc/fstab</para>
+					</step>
+				</procedure>
+			</sect3>		
+		</sect2>
+		<sect2 xml:id="sec-region-server-setup">
+			<title>Region Server Setup</title>
+			<para>The function of the Region Server is to provide information about
+    the RMT Servers in a given region to the connecting guest. The Region
+    Server runs as a Python script using the Flask framework in Apache. The
+    Region Server is provided with the
+ <systemitem>cloud-regionsrv</systemitem> package. 
+    As with the SMT
+ server the region server should be access restricted to the IP address
+    ranges for the cloud framework. More on this access control in the
+    section <xref linkend="sec-server-access-control"/>.</para>
+			<para>The service itself uses two configuration files: </para>
+			<itemizedlist>
+				<listitem>
+				<para><filename>/etc/regionService/regionInfo.cfg</filename> is used to
+				configure the service and contains the location of the log file and the location of the
+				<filename>regionData.cfg</filename></para>
+				</listitem>
+				<listitem>
+				<para><filename>/etc/regionService/regionData.cfg</filename> provides the
+				data the Region Server will provide to the connecting client</para>
+				</listitem>
+			</itemizedlist>
+			<para>both
+ files are in the ini format.</para>			
+			<para>Example:</para>
+			<screen>[server]
+logFile = /var/log/regionService/regionInfo.log
+regionConfig = /etc/regionService/regionData.cfg</screen>
+			<para>The default <filename>regionData.cfg</filename> file provides a
+    template for the configuration file. This file can be maintained
+    manually or be auto-generated, depending on your setup for IP address
+    allocation within your cloud framework.</para> 
+    <para>The
+ <filename>regionData.cfg</filename> 
+    file needs to contain one
+ configuration section per region. The hint is processed with
+    string matching and thus having section names match the configured
+    region names is important. The server implementation has no option of
+    name mapping. For each region all options in the section must be
+    configured.</para>
+			<para>The section options are as follows:</para>
+			<variablelist>
+				<varlistentry>
+					<term> public-ips </term>
+					<listitem>
+						<para> The value for this option is a comma separated list of IP
+       ranges in CIDR format, for example: </para>
+						<screen>public-ips = 62.135.16.0/18,56.56.130.0/16</screen>
+						<para>These are the ranges the DHCP server in the given region is
+       configured to use. </para>
+					</listitem>
+				</varlistentry>
+				<varlistentry>
+					<term> rmt-server-ip </term>
+					<listitem>
+						<para> The value for this option is a comma separated list of the SMT
+       Server IP addresses in the region being configured. </para>
+					</listitem>
+				</varlistentry>
+				<varlistentry>
+					<term> rmt-server-name </term>
+					<listitem>
+						<para> The value for this option sets the host name of the RMT Server
+       that was encoded into the certificate during the setup of the RMT
+       Server. If only one value is supplied it will be used for all IP
+       addresses provided by the <option>rmt-server-ip</option> setting. If
+       more than one value is supplied the number of names must match the
+       number of IP addresses given with the <option>rmt-server-ip</option>
+       option. The order of the names and IP addresses must match as well.
+						</para>
+					</listitem>
+				</varlistentry>
+				<varlistentry>
+					<term> rmt-fingerprint </term>
+					<listitem>
+						<para> The value for this option is the fingerprint of the root CA
+       created during the RMT Server setup. On the RMT Server, the
+							<filename>/srv/www/htdocs</filename> includes the
+							<filename>rmt.crt</filename> file, which is the root CA transferred
+       to the client and verified prior to accepting the repositories from
+       the RMT Server. Obtain the fingerprint with the command: </para>
+						<screen>openssl x509 -in rmt.crt -noout -fingerprint | /usr/bin/cut -d= -f2</screen>
+						<para>Use this fingerprint for the <option>rmt-fingerprint</option>
+       value. As with the <option>rmt-server-name</option> supplying one
+       value is sufficient if all SMT Servers have the same root CA. If
+       each server has its own CA supply a comma separated list. The order
+       must match the order of the IP addresses or certificate acceptance
+       will fail and the guest cannot register with the RMT Server.</para>
+					</listitem>
+				</varlistentry>
+			</variablelist>
+			<para>The following shows an example of a completed section for a region
+    in a cloud setup.</para>
+			<screen>[nor-north]
+public-ips = 62.135.16.0/18,56.56.130.0/16
+smt-server-ip = 62.153.16.20,56.56.130.253
+smt-server-name = smt-nor.supertuxcloud.com
+smt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+			<para>In the example above both RMT Servers share the same certificate.
+    If this were not the case another value for the
+				<option>rmt-server-name</option> and for the
+				<option>rmt-fingerprint</option> options would need to be
+    configured.</para>
+			<screen>[mid-north]
+public-ips = 62.135.16.0/18,56.56.130.0/16
+rmt-server-ip = 62.153.16.20,56.56.130.253
+rmt-server-name = rmt-mid-a.supertuxcloud.com, rmt-mid-b.supertuxcloud.com
+rmt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+			<para>In this example the servers share the same certificate, but have
+    different names. The certificate in this case would contain a wild
+    card.</para>
+			<para>The Region Server reads the <filename>regionData.cfg</filename>
+    file as configured in the <filename>regionInfo.cfg</filename> file at
+    start-up and creates a hash table from the information provided in the
+				<filename>regionData.cfg</filename> file. Depending on the number of
+    IP address ranges this may result in a relatively large requirement of
+    memory. For estimation purposes one can use a requirement of 20 MB per
+    octet (254 IP addresses). The Region Server also creates a secondary
+    hash table that relates the region names to the RMT Server information.
+    The secondary hash table is consulted if the Region Server receives a
+    region hint from the client.</para>
+			<para>The Region Server provides the <option>regionInfo</option> REST
+    API, that is to obtain SMT information the client image will access the
+    Region Server via: <link
+     xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo"/>
+			</para>
+			<para>The knowledge of the IP addresses of the Region Servers and the
+    certificates for the Region Servers are built into the guest image. It
+    is recommended to create a package for the Region Service client;</para>
+			<para>As mentioned previously, for environments where the IP address
+    assignment per region is not stable or accessible via API the option
+    exists to let the client pass a region hint to the Region Server. If
+    the region hint is passed the Region Server will first try to provide
+    RMT information to the client based on the region name given in the
+    hint. If this fails the Region Server will fall back to using the IP
+    address. A request using the region hint option provides the region
+    hint as an argument with the URL: <link
+     xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo?regionHint=REGION_NAME"
+    />
+			</para>
+			<para>In this case <emphasis>REGION_NAME</emphasis> must match a name of
+    one of the sections in the <filename>regionData.cfg</filename> file as
+    indicated previously.</para>
+			<para>Instead of using IP addresses directly for the Region Servers in
+    the client it is also possible to use name resolution via DNS. One
+    potential advantage of using DNS for the Region Server is that no new
+    package would need to be released if a Region Server needs to move out
+    of a given region and into a new region where a new IP address would
+    need to be allocated. However, this implies that an entire cloud region
+    would be shut down, which is a very unlikely scenario. The Region
+    Server package (<systemitem>cloud-regionsrv</systemitem>) provides a
+    convenient executable to generate the server certificate. After the
+    region server instance is booted run:</para>
+			<screen>genRegionServerCert -c COUNTRY -d DEPARTMENT --host 
+			IP_ADDRESS_OR_HOSTNAME -l LOCATION -o ORGANIZATION -s STATE</screen>
+			<para>This will generate the server certificate and place the public
+    cert into <filename>/root/regionServCert/</filename>. The cert generation script 
+    will restart the Apache Web
+ server.</para>
+			<para>With the configuration in place and the certificate generated the
+    Region Server setup is complete.</para>
+		</sect2>
+	</sect1>
+	<sect1>
+		<title>Migrate from SMT to RMT</title>
+		<sect2>
+			<title>Export SMT Data</title>
+			<procedure>
+				<step>
+					<para>Update your SMT server installation by running the following command:</para>
+					<screen>sudo zypper up</screen>
+				</step>
+				<step>
+					<para>If you want to export your SSL certificates along with the rest of the data, run </para>
+					<screen>sudo smt data-export </screen>
+					<para>Remember to keep your certificates in a safe place.</para>
+					<para>If you do not want to export the SSL certificates from SMT run </para>
+					<screen>sudo smt-data-export –no-ssl-export</screen>
+				</step>
+				<step>
+					<para>3.	The exported configuration is now saved to <filename>smt-export.XXXXXX.tar.gz</filename>. 
+					Copy the file to a location which can be accessed by the new RMT server.</para>
+				</step>
+			</procedure>
+		</sect2>
+		<sect2>
+			<title>Importing SMT data to RMT</title>
+			<procedure>
+				<step>
+					<para>
+					Update your RMT server installation by running the following command:
+					</para>
+					<screen>sudo zypper up</screen>
+				</step>
+				<step>
+					<para>Copy the exported .tar.gz file to an empty directory, then unpack it:</para>
+					<screen>
+					sudo mkdir  EMPTY_DIR
+					sudo cd EMTPY_DIR
+					sudo cp /PATH/TO/smt-export.XXXXXX.tar.gz ./
+					sudo tar xf smt-export.XXXXXX.tar.gz
+					</screen>
+					<para>Whre EMPTY_DIR is an empty directory created</para>
+				</step>
+				<step>
+					<para>If you chose to export the SSL certificates from SMT, copy the CA private key and certificate 
+					to <filename>/etc/rmt/ssl/</filename>:</para>
+					<screen>
+						sudo cp ssl/cacert.key /etc/rmt/ssl/rmt-ca.key
+						sudo cp ssl/cacert.pem /etc/rmt/ssl/rmt-ca.crt
+					</screen>
+				</step>
+				<step>
+					<para>
+					Run the YaST RMT configuration module as described in Section 1.3, “RMT Configuration with YaST”. 
+					If you imported the SMT CA certificate, add the domain of the SMT server to the common names of the new SSL certificate.
+					</para>
+				</step>
+				<step>
+					<para>Run the RMT synchronization to get the products and repositories data from SUSE Customer Center.</para>
+					<screen>sudo rmt-cli sync</screen>
+				</step>
+				<step>
+					<para>Import the data from the SMT server:</para>
+					<screen>sudo rmt-data-import -d ./</screen>
+				</step>
+				<step>
+					<para>
+					Optional: Move the mirrored repository data from to RMT and adjust the ownership of the copied data:
+					</para>
+					<screen>
+					sudo cp -r /var/www/htdocs/repo/* /var/lib/rmt/public/repo
+					sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
+					</screen>
+				</step>
+				<step>
+					<para>Update the packages in the repositories by starting the mirroring process:</para>
+					<screen>sudo rmt-cli mirror</screen>
+				</step>
+			</procedure>
+		</sect2>
+		<sect2>
+			<title>(optional): Moving the mirrored data from the SMT to the RMT server </title>
+			<procedure>
+				<step>
+					<para>Option 1: If a separate disk has been used for the mirrored data on the SMT server</para>
+					<substeps>
+						<step>
+							<para>Unmount the disk from the SMT server</para>
+							<screen>sudo umount /dev/sdX</screen>
+						</step>
+						<step>
+							<para>Mount it to the new RMT server (this can be the same in case of an in-place upgrade)</para>
+							<screen>Mount  /dev/sdX/ /var/lib/rmt/public/repo</screen>
+						</step>
+					</substeps>
+				</step>
+				<step>
+					<para>Option 2: In case of an in place upgrade and no separate disk has been used</para>
+					<substeps>
+						<step>Copy the mirrored data from the location SMT uses to the location RMT uses</step>
+						<step>sudo cp -r /var/www/htdocs/repo/* /var/lib/rmt/public/repo</step>
+					</substeps>
+				</step>
+				<step>
+					Set the permissions on the repo directory so the rmt server can access it.
+					<screen>sudo chown -R _rmt:nginx /var/lib/rmt/public/repo</screen>				
+				</step>
+			</procedure>
+		</sect2>
+	</sect1>	
+
+	<sect1 xml:id="sec-legal-notice">
+		<title>Legal Notice</title>
+		<para>Copyright &copy;2006�2020 SUSE LLC and contributors. All
+   rights reserved. </para>
+		<para>Permission is granted to copy, distribute and/or modify this
+   document under the terms of the GNU Free Documentation License,
+   Version 1.2 or (at your option) version 1.3; with the Invariant
+   Section being this copyright notice and license. A copy of the
+   license version 1.2 is included in the section entitled <quote>GNU
+    Free Documentation License</quote>.</para>
+		<para>SUSE, the SUSE logo and YaST are registered trademarks of SUSE
+   LLC in the United States and other countries. For SUSE trademarks,
+   see <link xlink:href="http://www.suse.com/company/legal/"
+    >http://www.suse.com/company/legal/</link>. Linux is a registered
+   trademark of Linus Torvalds. All other names or trademarks mentioned
+   in this document may be trademarks or registered trademarks of their
+   respective owners.</para>
+		<para>This article is part of a series of documents called "SUSE Best
+   Practices". The individual documents in the series were contributed
+   voluntarily by SUSE's employees and by third parties.</para>
+		<!--  <para>The articles are intended only to be one example of how a particular action could be
+   taken. They should not be understood to be the only action and certainly not to be the
+   action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+   in the articles do what they claim to do or that they don't have unintended
+   consequences.</para>-->
+		<para> All information found in this article has been compiled with
+   utmost attention to detail. However, this does not guarantee complete
+   accuracy.
+			<!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+    for possible errors or the consequences thereof. -->
+		</para>
+		<para>Therefore, we need to specifically state that neither SUSE LLC,
+   its affiliates, the authors, nor the translators may be held liable
+   for possible errors or the consequences thereof. Below we draw your
+   attention to the license under which the articles are
+   published.</para>
+	</sect1>
+
+
+	<?pdfpagebreak style="suse2013" formatter="fop"?>
+
+	<xi:include href="license-gfdl.xml"/>
+
+</article>

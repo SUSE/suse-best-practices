@@ -39,7 +39,6 @@ New documentation series of SUSE Best Practices papers
 | DC-SLES12SP3-rpiquick | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SLES4SAP-hana-scaleOut-PerfOpt-12 | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
 | DC-SLES4SAP-hana-sr-guide-PerfOpt-12-Alicloud | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
-| DC-SLES-JeOS-12SP4-Quickstart | int | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SLES-rpiquick | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-Migrate-z-KVM | not published | Virt | [none, outdated] |
 | DC-SBP-openFaaS | not published | ? | [none, unfinished, outdated] |

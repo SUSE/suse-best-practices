@@ -24,8 +24,8 @@ New documentation series of SUSE Best Practices papers
 | DC-SBP-Quilting-OSC | ext | Building Packages | https://documentation.suse.com/sles-12/ |
 | DC-SBP-RPM-Packaging | ext | Sys Man | https://documentation.suse.com/sles-12/, https://documentation.suse.com/sles-15/ |
 | DC-SBP-SAP-AzureSolutionTemplates | ext | SAP | https://documentation.suse.com/sles-sap-12/, https://documentation.suse.com/sles-sap-15/ |
-| DC-SBP-scominstallguide | ext | Sys Man | https://documentation.suse.com/suma/4/ |
-| DC-SBP-scomusermanual | ext | Sys Man | https://documentation.suse.com/suma/4/ |
+| DC-SBP-scominstallguide | ext | Sys Man | https://documentation.suse.com/suma/4.0/ |
+| DC-SBP-scomusermanual | ext | Sys Man | https://documentation.suse.com/suma/4.0/ |
 | DC-SBP-securitymodule | ext | ELS | https://documentation.suse.com/sles-11/ |
 | DC-SBP-SLE15-Custom-Installation-Medium | ext | Sys Man | https://documentation.suse.com/sles-15/, https://documentation.suse.com/sled-15/ |
 | DC-SBP-SLE-OffLine-Upgrade-Local-Boot | ext | Sys Man | https://documentation.suse.com/sles-15/, https://documentation.suse.com/sled-15/ |
@@ -34,12 +34,11 @@ New documentation series of SUSE Best Practices papers
 | DC-SBP-Spectre-Meltdown-L1TF | ext | ELS | https://documentation.suse.com/sles-15/ plus all other SLE-based products |
 | DC-SBP-strategy-short | int | Internal | [none] |
 | DC-SBP-sumaforrhel | not published | Sys Man | [none, outdated] |
-| DC-SBP-SUMA-on-IBM-PowerVM | ext | Sys Man | https://documentation.suse.com/suma/4/ |
-| DC-SBP-susemanager | ext | Sys Man | https://documentation.suse.com/suma/4/ |
+| DC-SBP-SUMA-on-IBM-PowerVM | ext | Sys Man | https://documentation.suse.com/suma/4.0/ |
+| DC-SBP-susemanager | ext | Sys Man | https://documentation.suse.com/suma/4.0/ |
 | DC-SLES12SP3-rpiquick | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SLES4SAP-hana-scaleOut-PerfOpt-12 | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
 | DC-SLES4SAP-hana-sr-guide-PerfOpt-12-Alicloud | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
-| DC-SLES-JeOS-12SP4-Quickstart | int | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SLES-rpiquick | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-Migrate-z-KVM | not published | Virt | [none, outdated] |
 | DC-SBP-openFaaS | not published | ? | [none, unfinished, outdated] |

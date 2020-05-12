@@ -1666,7 +1666,7 @@ order ord_SAPHana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTopology_{sapsid}_HD
     msl_SAPHana_{sapsid}_HDB{sapino}
 ----
 
-We load the file to the cluster.
+Load the file to the cluster.
 
 [subs="attributes,quotes"]
 ----
@@ -1674,6 +1674,9 @@ We load the file to the cluster.
 ----
 
 ==== Add the cluster resource for the non-productive {SAPHANA} database
+
+// TODO PRIO1: CostOpt12 - Check the resource priories (of all resources)
+// TODO PRIO1: CostOpt12 - Use variables as placeholders
 
 For the non-productive {SAPHANA} database a new resource is added to the cluster.
 In former documents we used the resource agent `SAPDatabase` to control that
@@ -1685,7 +1688,42 @@ communicate with the cluster. This configuration is to complex and error prone.
 The new concept has already been published a {SUSE} towardsZeroDoentime blog at:
 https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
 
+[subs="attributes,quotes"]
+----
+# vi crm-si.txt
+# enter the following to crm-si.txt
 
+primitive rsc_SAP_QAS_HDB20 ocf:heartbeat:SAPInstance \
+  params InstanceName="QAS_HDB20_sapqasdb" \
+        MONITOR_SERVICES="hdbindexserver|hdbnameserver" \
+        START_PROFILE="/usr/sap/QAS/SYS/profile/QAS_HDB20_sapqasdb" \
+  op start interval="0" timeout="600" \
+  op monitor interval="120" timeout="700" \
+  op stop interval="0" timeout="300" \
+  meta priority="100"
+----
+
+Load the resource definition into the cluster
+
+[subs="attributes,quotes"]
+----
+{sapnode1}:~ # crm configure load update crm-si.txt
+----
+
+==== Adding the cluster rules for the automatic shutdown of the non-productive {SAPHANA}
+
+// We refer to the cluster nodes as suse01 and suse02 respectively:
+// TODO PRIO1: CostOpt12 - Use variables as placeholders
+In the following again {sapnode1} and {sapnode2} are used as the two active cluster nodes.
+
+[subs="attributes,quotes"]
+----
+location loc_QAS_never_on_suse01 rsc_SAP_QAS_HDB20 -inf: suse01
+colocation col_QAS_never_with_HA1ip -inf: rsc_SAP_QAS_HDB20:Started \
+  rsc_ip_HA1_HDB10
+order ord_QASstop_before_HA1-promote inf: rsc_SAP_QAS_HDB20:stop \
+  msl_SAPHana_HA1_HDB10:promote
+----
 
 ==== Active/Active Read-Enabled Scenario
 

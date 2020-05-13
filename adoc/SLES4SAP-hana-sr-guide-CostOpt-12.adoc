@@ -193,21 +193,51 @@ scenarios.
 ==== The Concept of the Cost Optimized Scenario
 
 // TODO PRIO1: CostOpt12 - Describe Cost optimized not performance optimized scenario !!
+// TODO PRIO1: CostOpt12 - Still only non-productive databases on the secondary side?
 
-IMPORTANT: "Cost Optimized" TBD
+{SAP} allows to run a non-productive instance of {SAPHANA} on the system replication site on
+the secondary site. Such a non-productive database could be development (DEV), test (TST), or
+quality assurance system (QAS).
 
-In case of failure of the primary {HANA} on node 1 (node or database
-instance) the cluster first tries to start the takeover process. This
-allows to use the already loaded data at the secondary site. Typically
-the takeover is much faster than the local restart.
+In case of failure of the primary {SAPHANA} on the primary site the cluster first tries to restart
+the failed {SAPHANA} database locally on this node. If the restart is not possible or if the complete
+primary node crashed, the takeover process will be triggered.
 
-To achieve an automation of this resource handling process, you must
-use the {hana} resource agents included in {SAPHanaSR}. System
-replication of the productive database is automated with {SAPHanaRA} and
-{SAPHanaTopRA}.
+In case of a takeover the secondary (replica) of this {SAPHANA} on node 2 is promoted *after* the
+shutdown of the non-productive {SAPHANA}.
 
-The cluster only allows a takeover to the secondary site if the {hana}
-system replication was in sync until the point when the service of the primary
+Alternatively you could also configure a different resource handling procedure, but we recommend
+to try to restart {SAPHANA} locally first, as a takeover with non preloaded tables could
+consume much time and also the needed graceful stop of the non-productive system will take additional time. Thus
+in many environments the local restart will be faster.
+
+To achieve an automation of this resource handling process, we can utilize the {SAPHANA}
+resource agents included in SAPHanaSR. System replication of the productive database is done
+using the resource agents `SAPHana` and `SAPHanaTopology`. The handling of the non-productive database
+is implemented using the `SAPInstance` resource agent.
+
+So while `SAPHana` and `SAPHanaTopology` are driving the automation of the {SAPHANA} system replication,
+`SAPInstance` is used for the non-synchronized {SAPHANA} database. In the past the architecture used
+`SAPDatabase` instead, but the move to `SAPInstance` was needed to get rid of the error-prune
+user secure store keys setup procedure. See also our blog "SAP HANA Cost-optimized – An alternative Route is available" available at https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
+
+The automated shutdown of the non-productive {SAPHANA} database (e.g. QAS) is achieved by cluster
+rules. Concrete it is an anti-collocation of {SAPHANA} promoted vs. {SAPHANA} non-prod. This means
+if the primary {SAPHANA} system (like HA1) fails the anti-collocation rules for the {SAPHANA} non-prod (like QAS) are triggered
+and the `SAPInstance` resource agent shuts down the non-productive {SAPHANA} database.
+
+The takeover to the secondary site takes a long period of time, because the non-productive database needs to
+be stopped gracefully prior to takeover the productive database. This prolonged takeover time
+is the main disadvantage of the cost optimization scenario.
+
+NOTE: If you like to achieve a very fast takeover you need to go with the performance optimized scenario.
+
+Beside the description of the concept in this best practice, please also read the corresponding
+{SAP} documentation like "Using Secondary Servers for Non-Productive systems", ↑SAP HANA Master
+Guide.
+
+The cluster *only allows a takeover* to the secondary site if the {hana}
+system replication *was in sync* until the point when the service of the primary
 got lost. This ensures that the last commits processed on the primary site are
 already available at the secondary site.
 
@@ -221,10 +251,12 @@ to include such {saphana} hooks to optimize the cluster interface. Using the
 if the {saphana} system replication brakes. In addition to the {saphana} hook status
 the cluster continues to poll the system replication status on regular base.
 
-You can set up the level of automation by setting the parameter
-`AUTOMATED_REGISTER`. If automated registration is activated, the cluster
-will also automatically register a former failed primary to get the new
-secondary.
+You can set up the level of automation by setting the parameter `AUTOMATED_REGISTER`.
+If automated registration is activated, the cluster will also automatically register
+a former failed primary to get the new secondary.
+
+// TODO PRIO1: CostOpt12 - Check the limitation of "manual migrations", also if we
+//      explain the procedure in the referenced section
 
 IMPORTANT: The solution is not designed to manually 'migrate' the primary or
 secondary instance using HAWK or any other cluster client commands. In the

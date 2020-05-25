@@ -2,7 +2,7 @@
 
 :slesProdVersion: 12
 
-= SAP NetWeaver Enqueue Replication 1 High Availability Cluster - Setup Guide for SAP NetWeaver 7.40 and 7.50
+= SAP NetWeaver Enqueue Replication 1 High Availability Cluster - Setup Guide for SAP NetWeaver 7.40 and 7.50 on Alibaba Cloud
 
 //:toc:
 include::Variables_HA740_AliCoud.adoc[]
@@ -117,7 +117,7 @@ For {saphana} system replication, follow the guides for the performance- or cost
 == Overview
 
 This guide describes how to set up a pacemaker cluster using {sles4sap}
-{slesProdVersion} for the Enqueue Replication scenario. The goal is to match
+{slesProdVersion} for the Enqueue Replication scenario on Alibaba Cloud. The goal is to match
 the {sapCert} certification specifications and goals.
 
 These goals include:
@@ -280,6 +280,8 @@ command line tool sapcontrol or the {SAP} management consoles ({SAP} MMC or
 For all {sap} file systems beside the file systems on NFS we are using XFS.
 
 ==== Shared Disk for Cluster ASCS and ERS
+
+////
 //TODO: using NFS disk here!!!!!
 The disk for the ASCS and ERS instances need to be shared and assigned to the
 cluster nodes {myNode1} and {myNode2}.
@@ -322,9 +324,24 @@ partition table rescan on {myNode2}.
 
 During the SAP installation we need {myMpAscs} to be mounted on {myNode1} and
 {myMpErs} to be mounted on {myNode2}.
+
 ////
-TODO: non line break with in command or variables
-////
+Create two NAS storage  via **Console->nas->File System List->Create File System->General Purpose NAS(Pay-as-you-go)**, in this example following two NAS have been created:
+
+image::alicloud_HA740_nas1[PNG]
+
+Afterwards, please execute below command to mount the created NAS storage:
+[subs="attributes"]
+----
+#sapapp1: mkdir {myMpAscs}
+#sapapp1: mount {myDevPartAscs} {myMpAscs}
+
+#sapapp2: mkdir {myMpErs}
+#sapapp2: mount {myDevPartErs} {myMpErs}
+----
+
+Then, you will have below 2 mount settings.
+
 - {myNode1}:   {myDevPartAscs}   {myMpAscs}
 - {myNode2}:   {myDevPartErs}   {myMpErs}
 
@@ -333,7 +350,7 @@ TODO: non line break with in command or variables
 The disk for the database and primary application server is assigned to
 {myNode3}. In an advanced setup this disk should be shared between {myNode3}
 and an optional additional node building an own cluster.
-
+////
 * partition one ({myDevPartSbd}) for SBD (7M) - not used here but a reservation
 for an optional second cluster
 * partition two ({myDevPartDb}) for the Database (60GB) formatted with XFS
@@ -369,18 +386,28 @@ tools. The following script could be used for non-interactive setups.
 NOTE:  {myInstPas750} => Since NetWeaver 7.5, the primary application server instance
 directory has been renamed. (D<Instance_Number>)
 
-
-.NFS server
-- {myNfsSrv}:{myNFSExpPath}/{mySid}/sapmnt   /sapmnt
-
-- {myNfsSrv}:{myNFSExpPath}/{mySid}/usrsapsys /usr/sap/{mySid}/SYS
-
+////
+//.NFS server
+//- {myNfsSrv}:{myNFSExpPath}/{mySid}/sapmnt   /sapmnt
+//
+//- {myNfsSrv}:{myNFSExpPath}/{mySid}/usrsapsys /usr/sap/{mySid}/SYS
+////
 .Media
 - {myNfsSrv}:{myNFSExpPathSapMedia740} /sapcd
 
 or
 
 - {myNfsSrv}:{myNFSExpPathSapMedia750} /sapcd
+////
+In our example, we use block storage for database storage. Please kindly execute below command:
+[subs="attributes"]
+----
+#sapdb1: mkdir {myMPDb}
+#sapdb1: echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
+
+#sapdb2: mkdir {myMPDb}
+#sapdb2: echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
+----
 
 === IP Addresses and Virtual Names
 
@@ -412,7 +439,7 @@ We need to create the directory structure on all nodes which might be able to
 run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 
 - Creating mount points and mounting NFS share on all nodes
-
+////
 .{sapNW} 7.4
 ==============================================
 [subs="attributes"]
@@ -425,25 +452,23 @@ run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 # mount -t nfs {myNfsSrv}:{myNFSExpPathSapMedia740} /sapcd
 ----
 ==============================================
-
+////
 .{sapNW} 7.5
 ==============================================
 [subs="attributes"]
 ----
-# mkdir -p /sapcd
 # mkdir -p /sapmnt
 # mkdir -p /usr/sap/{mySid}/{{myInstAscs},{myInstPas750},{myInstDSec},{myInstErs},SYS}
-# mount -t nfs {myNfsSrv}:{myNFSExpPath}/{mySid}/sapmnt    /sapmnt
-# mount -t nfs {myNfsSrv}:{myNFSExpPath}/{mySid}/usrsapsys /usr/sap/{mySid}/SYS
-# mount -t nfs {myNfsSrv}:{myNFSExpPathSapMedia750} /sapcd
+# mount -t nfs {myNfsSrv}:{myNFSExpPath}    /sapmnt
+# mount -t nfs {myNfsSrv}:{myDevPartSYS} /usr/sap/{mySid}/SYS
 ----
 ==============================================
 
-- Only MaxDB:  creating mount points for the database at {myNode3}:
+- Only ASEDB:  creating mount points for the database at {myNode3}:
 
 [subs="attributes"]
 ----
-# mkdir -p /sapdb
+# mkdir -p /sybase/SSA/srsdata
 ----
 
 - Only HANA: creating mount points for database at {myNode3}:
@@ -472,20 +497,20 @@ We prepare the three servers for the distributed {sap} installation. Server 1
 
 - Mounting the instance and database file systems at one specific node:
 
-.{sapNW} 7.40 on x86_64 architecture with MaxDB
+.{sapNW} 7.50 on x86_64 architecture with ASEDB
 =============================================================
 
 [subs="attributes"]
 ----
 (ASCS   {myNode1}) # mount {myDevPartAscs} {myMpAscs}
 (ERS    {myNode2}) # mount {myDevPartErs} /usr/sap/{mySid}/{myInstErs}
-(DB     {myNode3}) # mount {myDevPartDb} /sapdb
-(Dialog {myNode3}) # mount {myDevPartPas} /usr/sap/{mySid}/{myInstPas740}
+(DB     {myNode3}) # mount {myDevPartDb} /sybase/SSA/srsdata
+(Dialog {myNode3}) # mount {myDevPartPas} /usr/sap/{mySid}/{myInstPas750}
 (Dialog {myNode3}) # mount {myDevPartSec} /usr/sap/{mySid}/{myInstDSec}
 ----
 =============================================================
-
-.{sapNW} 7.50 on PowerLE architecture with HANA
+////
+.{sapNW} 7.50 on x86_64 architecture with HANA
 =============================================================
 
 [subs="attributes"]
@@ -499,7 +524,7 @@ We prepare the three servers for the distributed {sap} installation. Server 1
 (Dialog {myNode3}) # mount {myDevPartSec} /usr/sap/{mySid}/{myInstDSec}
 ----
 =============================================================
-
+////
 - As a result the directory _/usr/sap/{mySid}/_ should now look like:
 
 [subs="attributes"]

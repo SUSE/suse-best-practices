@@ -660,25 +660,58 @@ podAntiAffinity:​
 		</sect2>
 		<sect2 xml:id="sec-resource-req-osd-ram">
 			<title>Resource Requests - OSD RAM</title>
-			<para> OSD RAM usage comes with the same cluster-wide Resource note. Also note that Ceph
-				OSDs self-inspect the Kubernetes Pod Resource <emphasis>Request</emphasis>, and they
-				will try not to overconsume the detected <emphasis>Request</emphasis> on a
-				best-effort basis. Select the greatest of the below options considering all the OSDs
-				in your cluster: </para>
+			<para>
+				There are node hardware recommendations for OSD RAM usage, and this
+				needs to be translated to RAM requests on a per-OSD basis. The
+				node-level recommendation below describes
+				<literal>osd_memory_target</literal>.
+				This is a Ceph configuration that will be described further on.
+			</para>
+<screen>
+Total RAM required = [number of OSDs] x (1 GB + osd_memory_target) + 16 GB
+</screen>
 
-			<itemizedlist>
-				<listitem>
-					<para> 1 GB x [OSD size] </para>
-				</listitem>
-				<listitem>
-					<para> 2 GB = [Bluestore cache size] </para>
-				</listitem>
-			</itemizedlist>
-
-			<note>
-				<para> Default BlueStore cache is 1 GB for HDDs and 3 GB for SSDs. </para>
-			</note>
-
+			<para>
+				Ceph OSDs will attempt to keep heap memory usage under a designated
+				target size set via the <literal>osd_memory_target</literal> configuration option.
+				Ceph’s default <literal>osd_memory_target</literal> is 4GB, and we do not recommend
+				decreasing the <literal>osd_memory_target</literal> below 4GB. You may wish to
+				increase this value to improve overall Ceph read performance by
+				allowing the OSDs to use more RAM. While the total amount of heap
+				memory mapped by the process should stay close to this
+				target, there is no guarantee that the kernel will actually
+				reclaim memory that has been unmapped.
+			</para>
+			<para>
+				For example, a node hosting 8 OSDs, memory <emphasis>Requests</emphasis>
+				would be calculated as such:
+			</para>
+<screen>
+8 OSDs x (1GB + 4GB) + 16GB = 56GB per node
+</screen>
+			<para>
+				Allowing resource usage for each OSD:
+			</para>
+<screen>
+56GB / 8 OSDs = 7GB
+</screen>
+      <para>
+				Ceph has a feature that allows it to set <literal>osd_memory_target</literal>
+				automatically when a Rook OSD Resource Request is set. However,
+				Ceph sets this value <literal>1:1</literal> and does not leave overhead for waiting
+				for the kernel to free memory. Therefore, we recommend setting
+				<literal>osd_memory_target</literal> in Ceph explicitly, even if
+				you wish to use the default value. Set Rook’s OSD
+				resource requests accordingly and to a higher value than
+				<literal>osd_memory_target</literal> by at least an additional 1GB. This is so
+				Kubernetes does not schedule more applications or Ceph daemons
+				onto a node than the node is likely to have RAM available for.
+			</para>
+			<para>
+				OSD RAM <emphasis>Resource Requests</emphasis> come with the same cluster-wide
+				<emphasis>Resource Requests</emphasis> note as for OSD CPU. Use the highest <emphasis>Requests</emphasis>
+				for a cluster consisting of multiple different configurations of OSDs.
+			</para>
 		</sect2>
 		<sect2 xml:id="sec-resource-req-gateways">
 			<title>Resource Requests - Gateways</title>

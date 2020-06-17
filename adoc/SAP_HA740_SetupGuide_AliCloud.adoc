@@ -256,6 +256,7 @@ If your database is {sapHana}, we recommend to set up the performance optimized
 system replication scenario using our automation solution {sapHanaSR}. The
 {sapHanaSR} automation should be set up in an own two node cluster. The setup is
 described in a separate best practices document available at http://documentation.suse.com/sbp/all.
+In case of using ASE database together with an HADR setup there is an example in this document.
 
 .Three systems for the certification setup
 image::sles4sap_nw740_3nodes.svg[SVG]
@@ -366,6 +367,9 @@ an {sap} instance. The integration between the cluster software and the
 command line tool sapcontrol or the {SAP} management consoles ({SAP} MMC or
 {sap} MC).
 
+=== Instances and Services
+??? more details what we need for the setup ???
+
 === Disks and Partitions
 
 For all {sap} file systems beside the file systems on NFS we are using XFS.
@@ -419,22 +423,28 @@ During the SAP installation we need {myMpAscs} to be mounted on {myNode1} and
 ////
 Create two NAS storage  via **Console->nas->File System List->Create File System->General Purpose NAS(Pay-as-you-go)**, in this example following two NAS have been created:
 
-image::alicloud_HA740_nas1[PNG]
+image::Alicloud_HA740_nas1.png[scaledwidth=100.0%]
 
-Afterwards, please execute below command to mount the created NAS storage:
+Afterwards, please execute below command to mount the created NAS storage to {myNode1}:
 [subs="attributes"]
 ----
-#sapapp1: mkdir {myMpAscs}
-#sapapp1: mount {myDevPartAscs} {myMpAscs}
-
-#sapapp2: mkdir {myMpErs}
-#sapapp2: mount {myDevPartErs} {myMpErs}
+# mkdir {myMpAscs}
+# mount {myDevPartAscs} {myMpAscs}
 ----
 
-Then, you will have below 2 mount settings.
+Afterwards, please execute below command to mount the created NAS storage to {myNode2}:
+[subs="attributes"]
+----
+# mkdir {myMpErs}
+# mount {myDevPartErs} {myMpErs}
+----
 
-- {myNode1}:   {myDevPartAscs}   {myMpAscs}
-- {myNode2}:   {myDevPartErs}   {myMpErs}
+The mount points are like this:
+
+* {myNode1}:   
+** {myDevPartAscs}   {myMpAscs}
+* {myNode2}:   
+** {myDevPartErs}   {myMpErs}
 
 ==== Disk for DB and Dialog Instances (ASE DB Example)
 
@@ -490,15 +500,21 @@ or
 
 - {myNfsSrv}:{myNFSExpPathSapMedia750} /sapcd
 ////
-In our example, we use block storage for database storage. Please kindly execute below command:
+
+In our example, we use block storage for database storage. Please execute below command on node {myNode3}:
 [subs="attributes"]
 ----
-#sapdb1: mkdir {myMPDb}
-#sapdb1: echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
-
+# mkdir {myMPDb}
+# echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
+----
+////
 #sapdb2: mkdir {myMPDb}
 #sapdb2: echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
 ----
+////
+
+NOTE:  {myInstPas750} => Since NetWeaver 7.5, the primary application server instance
+directory has been renamed. (D<Instance_Number>)
 
 === IP Addresses and Virtual Names
 
@@ -530,6 +546,7 @@ We need to create the directory structure on all nodes which might be able to
 run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 
 - Creating mount points and mounting NFS share on all nodes
+
 ////
 .{sapNW} 7.4
 ==============================================
@@ -667,16 +684,15 @@ User  {mysapadm}       3000
 User  sdb          3002
 User  sqd{mySidLc}       3003
 User  sapadm       3004
-User  {bsDBadm}       4001
 ----
-
+//TODO: is this correct?
 
 === Installing ASCS on {myNode1}
 
 Temporarily we need to set the service IP address used later in the
 cluster as local IP, because the installer wants to resolve or use it.
 Make sure to use the right virtual host name for each installation step.
-Take care for file systems like {myDevPartAscs} and /sapcd/ which might also need
+Take care for the ASCS file systems like {myDevPartAscs} and /sapcd/ (where the installation sources live) which might also need
 to be mounted.
 
 [subs="attributes"]
@@ -688,9 +704,7 @@ to be mounted.
 ----
 
 * SWPM option depends on {sapNW} version and architecture
-** Installing {sapNW} 7.40 SR2 -> MaxDB -> SAP-Systems ->
-Application Server ABAP -> High-Availability System -> ASCS Instance
-** Installing {sapNW} 7.5 -> SAP HANA Database -> Installation ->
+** Installing {sapNW} 7.5 -> SAP ASE -> Installation ->
 Application Server ABAP -> High-Availability System -> ASCS Instance
 * SID id {mySid}
 * Use instance number {myAscsIno}
@@ -713,10 +727,7 @@ Make sure to use the right virtual host name for each installation step.
 ----
 
 * SWPM option depends on {sapNW} version and architecture
-** Installing {sapNW} 7.40 SR2 -> MaxDB -> SAP-Systems ->
-Application Server ABAP -> High-Availability System -> Enqueue Replication
-Server Instance
-** Installing {sapNW} 7.5 -> SAP HANA Database -> Installation ->
+** Installing {sapNW} 7.5 -> SAP ASE -> Installation ->
 Application Server ABAP -> High-Availability System -> Enqueue Replication
 Server Instance
 * Use instance number {myErsIno}
@@ -871,6 +882,9 @@ _On {myNode2}_
 The MaxDB needs min.40 GB. We use {myDevPartDb} and mount the partition to
 _/sapdb_.
 
+A detailed description can be found link:https://documentation.suse.com/sbp/all/single-html/SAP_NW740_SLE12_SetupGuide/#_installing_db_on_hacert03_example_maxdb[here]
+
+////
 [subs="attributes"]
 ----
 # ip a a {myVipADb}{myVipNM} dev eth0
@@ -886,6 +900,7 @@ _/sapdb_.
 * Volume Media Type *keep* File (not raw)
 * Deselect using FQDN
 * Double-check during the parameter review, if virtual name *{myVipNDb}* is used
+////
 
 === Installing DB on {myNode3} (Example SAP HANA)
 
@@ -894,6 +909,9 @@ indicators. Check the supported configurations at
 https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html[SAP HANA Hardware Directory]
 and https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html[SAP HANA TDI].
 
+A detailed description can be found at https://documentation.suse.com/sbp/all/single-html/SAP_NW740_SLE12_SetupGuide/#_installing_db_on_hacert03_example_sap_hana[Example HANA DB].
+
+////
 [subs="attributes"]
 ----
 # ip a a {myVipADb}{myVipNM} dev eth0
@@ -919,12 +937,15 @@ Application Server ABAP -> High-Availability System -> Database Instance
 * Clean up: select *Yes*, remove operating system users from group'sapinst'....
 * Double-check during the parameter review, if virtual name *{myVipNDb}* is
   used
+////
 
 === Installing DB on {myNode3} (Example ASE DB)
-//TODO: content for that and change MAXDB back to original???
+
+TODO: content for that liegt bei SAP, back to original
 
 === Installing the Primary Application Server (PAS) on {myNode3}
 
+////
 [subs="attributes"]
 ----
 # ip a a {myVipAPas}{myVipNM} dev eth0
@@ -934,6 +955,7 @@ Application Server ABAP -> High-Availability System -> Database Instance
 ----
 
 or alternatively:
+////
 
 [subs="attributes"]
 ----
@@ -944,10 +966,7 @@ or alternatively:
 ----
 
 * SWPM option depends on {sapNW} version and architecture
-** Installing SAP NetWeaver 7.40 SR2 -> MaxDB -> SAP-Systems ->
-Application Server ABAP -> High-Availability System -> Primary Application Server Instance
-(PAS)
-** Installing {sapNW} 7.5 -> SAP HANA Database -> Installation ->
+** Installing {sapNW} 7.5 -> SAP ASE -> Installation ->
 Application Server ABAP -> High-Availability System -> Primary Application Server Instance
 (PAS)
 * Use instance number {myPasIno}
@@ -968,10 +987,7 @@ Application Server ABAP -> High-Availability System -> Primary Application Serve
 ----
 
 * SWPM option depends on {sapNW} version and architecture
-** Installing SAP NetWeaver 7.40 SR2 -> MaxDB -> SAP-Systems ->
-Application Server ABAP -> High-Availability System -> Additional Application Server
-Instance (AAS)
-** Installing {sapNW} 7.5 -> SAP HANA Database -> Installation ->
+** Installing {sapNW} 7.5 -> SAP ASE -> Installation ->
 Application Server ABAP -> High-Availability System -> Additional Application Server
 Instance (AAS)
 * Use instance number {myDSecIno}
@@ -994,14 +1010,14 @@ the operating system
 TODO: Do we really need to stop, unconfigure and unmount?
 Maybe we find a way to configure the resources that the cluster just
 accepts the already started resource groups - lets see ;-)
-///////////////////////////////
 
 NOTE: Before we continue to set up the cluster, we first stop all SAP instances, remove
 the (manual added) IP addresses on the cluster nodes and unmount the file systems
 which will be controlled by the cluster later.
+///////////////////////////////
 
 NOTE: The SBD device/partition need to be created in beforehand. In this setup
-guide we already have reserved partition _{myDevPartSbd}_ for SBD usage.
+guide we do not use the SBD device.
 
 .Tasks
 

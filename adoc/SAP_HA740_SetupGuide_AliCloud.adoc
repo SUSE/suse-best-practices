@@ -114,6 +114,97 @@ documentation and resources").
 
 For {saphana} system replication, follow the guides for the performance- or cost-optimized scenario.
 
+
+== Infrastructure Preparation
+
+The next sections contain information about how to prepare the infrastructure.
+
+=== Infrastructure List
+
+To set up your infrastructure, the following components are required:
+
+* 1 Virtual Private Cloud (VPC) network;
+https://www.alibabacloud.com/product/vpc[Virtual Private Cloud]
+* 4 Elastic Compute Service (ECS) instances in different zones of the same VPC;
+https://www.alibabacloud.com/product/ecs[Elastic Compute Service]
+* Alibaba Cloud specific Virtual IP Resource Agent and STONITH device;
+* NAT Gateway and SNAT entry;
+https://www.alibabacloud.com/help/product/44413.htm[NAT Gateway]
+
+=== Creating VPC
+First, create a VPC via *Console->Virtual Private Cloud->VPCs->Create VPC*.
+In this example, a VPC named *ASEHADR* in the Region *EU Central 1 (Frankfurt)* has been created:
+
+image::Alicloud_VPC_ASE.png[vpc,width="46%"]
+
+There should be at least two VSwitches (subnets) defined within the VPC network. Each VSwitch should be bound to a different Zone. In this example, the following two VSwitches (subnets) are defined:
+
+* Switch1 "vs_a" 192.168.1.0/24  Zone A, for SAP HANA Primary Node;
+* Switch2 "vs_b" 192.168.2.0/24  Zone B, for SAP HANA Secondary Node;
+
+image::Alicloud_VS_ASE.png[vpc,width="46%"]
+
+=== Creating ECS Instances
+4 ECS instances are created in different Zones of the same VPC via *Console->Elastic Compute Service ECS->Instances->Create Instance*. Choose the "SUSE Linux Enterprise Server for SAP Applications" image from the Image Market place.
+
+In this example, 2 ECS instances (hostname: {myNode1} and {myNode3}) are created in the Region *EU Central 1*, Zone A , within the VPC: *ASEHADR*, with SUSE Linux Enterprise Server for SAP Applications 15 SP1 image from the Image Market Place. In contrast, 2 ECS 2 ECS instances (hostname: {myNode2} and {myNode4}) are created in the Region *EU Central 1*, Zone A , within the VPC: *ASEHADR*, with SUSE Linux Enterprise Server for SAP Applications 15 SP1 image from the Image Market Place.
+
+image::Alicloud_ECS_ASE.png[instance,width="45%"]
+
+=== Creating NAT Gateway and configure SNAT entry
+Now create an NAT Gateway attached to the given VPC. In the example at hand, an NAT Gateway named *ASEHADR* has been created:
+
+image::Alicloud_NAT_GW_ASE.png[NATGW,width="53%"]
+
+After having creating the NAT Gateway, you need to create a corresponding SNAT entry to allow ECS instances within the VPC to access public addresses on the Internet.
+
+NOTE: An Alibaba Cloud specific STONITH device and Virtual IP Resource Agent are mandatory for the cluster. They need to access Alibaba Cloud OpenAPI through a public domain.
+
+In the example at hand, two SNAT entries have been created, for ECS instances located in a different network range:
+
+image::Alicloud_SNAT_ASE.png[SNAT,width="50%"]
+
+=== Creating STONITH Device and Virtual IP Resource Agent
+Download the STONITH fencing software with the following command:
+
+----
+wget https://sh-test-hangzhou.oss-cn-hangzhou.aliyuncs.com/sap_packages/pacemaker-2.0.3%2B20200511.2b248d828-1.2.x86_64.rpm
+----
+
+For an HA solution, a fencing device is an essential requirement. Alibaba Cloud provides its own STONITH device, which allows the servers in the HA cluster to shut down the node that is not responsive. The STONITH device leverages Alibaba Cloud OpenAPI underneath the ECS instance, which is similar to a physical reset / shutdown in an on-premise environment.
+
+``` shell
+curl https://raw.githubusercontent.com/ClusterLabs/fence-agents/master/agents/aliyun/fence_aliyun.py > /usr/sbin/fence_aliyun
+# Add permission
+chmod 755 /usr/sbin/fence_aliyun
+chown root:root /usr/sbin/fence_aliyun
+# set python
+sed -i "1s|@PYTHON@|$(which python)|" /usr/sbin/fence_aliyun
+# set Fence agents lib directory
+sed -i "s|@FENCEAGENTSLIBDIR@|/usr/share/fence|" /usr/sbin/fence_aliyun
+# Installation verfication
+stonith_admin -I |grep fence_aliyun
+#return fence_aliyun as correct
+100 devices found
+ fence_aliyun
+```
+
+Install Alibaba Cloud OpenAPI SDK.
+----
+pip install aliyun-python-sdk-ecs aliyun-python-sdk-vpc aliyuncli
+----
+image::Alicloud_image021.png[SDKInstall,width="73%"]
+
+Configure Alibaba Cloud OpenAPI SDK and Client.
+----
+aliyuncli configure
+----
+//image::Alicloud_image023.png[SDKConfigure,width="100%"]
+
+Get your Access Key as shown below:
+
+image::Alicloud_AK_ASE.png[AccessKey,width="45%"]
+
 == Overview
 
 This guide describes how to set up a pacemaker cluster using {sles4sap}

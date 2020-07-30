@@ -67,7 +67,7 @@ NB Having only one master node is not recommended for production environments. F
 //It is recommended to do the installation of SAP Data Hub Foundation from an external "Jump" host and not from within the SUSE CaaS Platform Cluster.
 //The hardware and operating system specifications for the jump host can be e.g.
 
-//- SUSE Linux Enterprise Server 12 SP4 or SUSE Linux Enterprise Server 15 SP1 (or even openSUSE Leap 15.X)
+//- SUSE Linux Enterprise Server 12 SP5 or SUSE Linux Enterprise Server 15 SP1 (or even openSUSE Leap 15.X)
 - 2 Cores
 - 16 GiB RAM
 - Diskspace: 80 GiB for /, including the space for the SAP Data Hub 2 software and at least 100 GiB for /var/lib/docker (needed for the SAP Data Hub 2 installation)
@@ -79,13 +79,15 @@ NB Having only one master node is not recommended for production environments. F
 
 Following software is needed
 
-* SUSE CaaS Platform 4
+* SUSE CaaS Platform 4.0.3
 
-* SAP Data Hub 2.7 or higher
+** N.B. For SAP Data Hub it is required to stay on SUSE CaaS Platform 4.0.x, x=0,1,2,3 because of the Kubernetes version delivered with our CaaSP product. SAP Data Hub 2 needs Kubernetes version not higher than 1.15.
+
+* SAP Data Hub 2.7.1 or higher
+
+* SAP Hostagent
 
 * access to SAP Maintenance Planner
-
-* SAP Host Agent
 
 * connection to a secure private Docker registry
 
@@ -129,11 +131,31 @@ The following Modules/Products are required on the respective hosts:
 
 * Management host
 
+** SLE 15 SP1
+** SLE 15 SP1 Containers Modules
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
+
+
 * Kubernetes master nodes
+
+** SLE 15 SP1
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
 
 * Kubernetes worker nodes
 
+** SLE 15 SP1
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
+
 * Loadbalancer host
+
+** SLES 15 SP1 for SAP applications
+
+or
+
+** SLE 15 SP1 plus High Availability Extension
 
 
 ==== Installation of the Management Node
@@ -154,11 +176,11 @@ The following Modules/Products are required on the respective hosts:
 
 This is only necessary if no other loadbalancing device is available.
 In our setup we describe the setup of a haproxy instance.
-haproxy is available in the SLE HA Extension.
+haproxy is available in the SLE HA Extension or SLES for SAP Applications.
 
 * Install SLE 15 SP1
 
-* add SLE 15 SP1 HA repository
+* add SLE 15 SP1 HA repository (in case of SLES for SAP Applications this automatically added)
 
 * create haproxy configuration
 
@@ -233,7 +255,7 @@ skuba node bootstrap --user sles --sudo --target <IP/FQDN> <NODE_NAME>
 skuba node join --role master --user sles --sudo --target <IP/FQDN> <NODE_NAME>
 ----
 
-** add worker nodes to the k8s Cluster
+** add worker nodes to the Kubernetes Cluster
 
 ----
 skuba node join --role worker --user sles --sudo --target <IP/FQDN> <NODE_NAME>
@@ -245,12 +267,19 @@ skuba cluster status
 
 //FIXME command output????
 
+* Modifactions needed to install SAP Data Haub 2 on CaaSP 4 cluster
+
+** change pid parameter in /etc/crio/crio.conf to 8192 (was 1024)
+
+** edit /etc/containers/registry.conf to reflect your private registry, e.g.:
+
+// add example configuration
 
 
 
 == Installation of SAP Data Hub 2
 
-Description of the preparation and installation of SAP Data Hub 2 on SUSE CaaS Platform 3 Cluster
+Description of the preparation and installation of SAP Data Hub 2 on SUSE CaaS Platform 4 Cluster
 
 
 === Prepare the SAP Data Hub 2 installation
@@ -284,7 +313,7 @@ This document will focus on the Maintenance Planner and SL Plugin installation m
 
 The following steps are done on the jump host if not stated otherwise:
 
-Create the namespace in the Kubernetes cluster to install SAP Data Hub 2 into:
+Create a new namespace in the Kubernetes cluster to install SAP Data Hub 2 into:
 
 ----
 $ kubectl create namespace datahub
@@ -440,10 +469,11 @@ link:
 $ cd SAP-Datahub-2.7.155-Foundation
 $ export DOCKER_REGISTRY=<URI of your registry>
 $ export NAMESPACE=<YOUR NAME SPACE HERE>
-$ ./install.sh --enable-kaniko=yes  --docker-log-path='/var/log/containers'  -e vora-vsystem.vRep.nfsv4MinorVersion=1 -e vora-diagnostic.fluentd.logDriverFormat=regexp
+// $ ./install.sh --enable-kaniko=yes  --docker-log-path='/var/log/containers'  -e vora-vsystem.vRep.nfsv4MinorVersion=1 -e vora-diagnostic.fluentd.logDriverFormat=regexp
+$ ./install.sh --enable-kaniko=yes  --docker-log-path='/var/log/containers' -e vora-diagnostic.fluentd.logDriverFormat=regexp
 ----
 
-This interactive script configures the install of SAP Data Hub.
+This interactive script configures the install of SAP Data Hub 2
 You should have the following information at a hand.
 //TODO namespace, login on registry, S-User
 The name and credentials of your SAP S-User , the login credentials to your secure registry.
@@ -456,9 +486,12 @@ The name and credentials of your SAP S-User , the login credentials to your secu
 After successful installation you can connect to the SAP Data Hub web UI.
 You need to identify the service IP and port of the SAP Data Hub UI.
 
+// Refer to SAP Documentation, create ingress, or edit service vsystem to be of type NodePort.
+// Or create software loadbalancer, e.g. Metalllb, see nginx ingress docs.
+
 ----
-kubectl get services
-kubectl describe service
+kubectl -n $NAMESPACE get services
+kubectl -n $NAMESPACE describe service vsystem
 ----
 
 Point your browser to the IP and port you gained from the steps above.

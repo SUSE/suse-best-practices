@@ -92,6 +92,10 @@ or
 
 ** Do not configure swap space for the Kubernetes nodes!
 
+
+
+
+
 === Installing the loadbalancer for the Kubernetes cluster
 
 * Install SLE 15 SP1
@@ -103,27 +107,42 @@ or
 * Install SLE 15 SP1
 
 * Add necessary SLE 15 SP1 modules
-
+----
+$ sudo SUSEConnect -r CAASP_REGISTRATION_CODE
+$ sudo SUSEConnect -p sle-module-containers/15.1/x86_64
+$ sudo SUSEConnect -p caasp/4.0/x86_64 -r CAASP_REGISTRATION_CODE
+$ sudo SUSEConnect -p sle-module-python2/15.1/x86_64
+----
 === Bootstrap the SUSE CaaSP 4 Cluster
 
 Run skuba tool for initialisation of the cluster.
 Make sure that ssh is working between all nodes without using passwords and configure ssh-agent.
 
+$ eval `ssh-agent`
+$ ssh-add <path to key>
+
 ----
-$ skuba init --target <FQDN / IP of loadbalancer>
+$ skuba cluster init --control-plane <LB IP/FQDN> my-cluster
 ----
 
-Add additional master nodes
+Bootstrap the cluster
 
 ----
 $ cd my-cluster
-$ skuba --role master --target
+$ skuba node bootstrap --target <IP/FQDN> <NODE NAME>
 ----
+
+Add additional master nodes
+----
+$ cd my-cluster
+$ skuba node join --role master  --target <IP/FQDN> <NODE NAME>
+----
+Repeat for all master nodes
 
 Add worker nodes
 ----
 $ cd my-cluster
-$ skuba
+$ skuba node join --role worker --target <IP/FQDN> <NODE NAME>
 ----
 Repeat for all worker nodes.
 
@@ -131,12 +150,335 @@ Finally check cluster status.
 ----
 $ cd my-cluster
 $ skuba cluster status
+$ cp -av  ~/my-cluster/admin.conf  ~/.kube/config
 $ kubectl get nodes -o wide
 ----
 
-== Secure private registry for container images (optional if you aleady own a private secure registry)
+== Secure private Docker Registry for container images (optional if you already own a private secure registry)
+
+To satisfy Data Intelligence 3 requirements you also need a Docker Registry.
+The easiest way to build and manage it comes with the project Portus.
+
+** link:http://port.us.org/[Portus]
+
+First you need to create a dedicated server for your Docker registry and Portus stack.
+
+----
+# sudo virt-install --name portus-dr --ram 8192 --disk path=/var/lib/libvirt/VMS/portus-dr.qcow2,size=40 --vcpus 4 --os-type linux --os-variant generic --network bridge=common --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/isos/SLE-12-SP4-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial ifcfg=eth0=10.10.10.11/24,10.10.10.1,10.10.10.11,suse-sap.net hostname=portus-dr domain=suse-sap.net Textmode=1'
+----
+
+In our example this server will be connected to another local bridge which provides common services (DNS, SMT, Docker-registry) for the Datahub stack.
+
+Our Portus deployment will be based on Container, and orchestrated locally with docker-compose.
+
+Portus docker-compose deployment requires an up-to-date release of docker-compose.
+
+----
+sudo curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+----
+
+Now you could simply clone the Portus repository, adapt the .env and the nginx configuration to your naming convention.
+
+----
+# git clone https://github.com/SUSE/Portus.git /tmp/Portus-DR
+# mv /tmp/Portus-DR/examples/compose ./portus
+# cd portus
+----
+
+Now you could edit both .env and nginx/nginx.conf.
+This is how our configuration looks like :
+
+----
+# cat .env
+MACHINE_FQDN=portus-dr.suse-sap.net
+SECRET_KEY_BASE=b494a25faa8d22e430e843e220e424e10ac84d2ce0e64231f5b636d21251eb6d267adb042ad5884cbff0f3891bcf911bdf8abb3ce719849ccda9a4889249e5c2
+PORTUS_PASSWORD=XXXXXXXX
+DATABASE_PASSWORD=YYYYYYYY
+----
+
+In the nginx/nginx.conf file, you should now adapt the following section :
+
+----
+server {
+    listen 443 ssl http2;
+    server_name portus-dr.suse-sap.net;
+    root /srv/Portus/public;
+----
+
+Now, you could pull the latest docker-compose.yml.
+
+----
+# rm docker-compose.*
+# wget https://gist.githubusercontent.com/Patazerty/d05652294d5874eddf192c9b633751ee/raw/6bf4ac6ba14192a1fe5c337494ab213200dd076e/docker-compose.yml
+----
+
+To avoid dealing with Docker insecure registry configuration we'll add SSL to our setup.
+
+----
+echo "subjectAltName = DNS:portus-dr.suse-sap.net" > extfile.cnf
+openssl genrsa -out secrets/rootca.key 2048
+openssl req -x509 -new -nodes -key secrets/rootca.key -subj "/C=FR/ST=FR/O=SUSE"  -sha256 -days 1024 -out secrets/rootca.crt
+openssl genrsa -out secrets/portus.key 2048
+openssl req -new -key secrets/portus.key -out secrets/portus.csr -subj "/C=FR/ST=FR/O=SUSE/CN
+openssl req -new -key secrets/portus.key -out secrets/portus.csr -subj "/C=FR/ST=FR/O=SUSE/CN=portus-dr.suse-sap.net"
+openssl x509 -req -in secrets/portus.csr -CA secrets/rootca.crt -extfile extfile.cnf -CAkey secrets/rootca.key -CAcreateserial  -out secrets/portus.crt -days 500 -sha256
+----
+
+Now all we have to do is to make the servers aware of this certificate
+
+----
+cp -p secrets/rootca.crt /etc/pki/trust/anchors/.net-ca.crt
+scp secrets/rootca.crt root@jumpbox.suse-sap.net:/etc/pki/trust/anchors/portus-dr.suse-sap.net-ca.crt
+----
+
+Then on all servers that will needs to interact with the docker-registry :
+
+----
+sudo update-ca-certificates
+sudo systemctl restart docker
+----
+
+It's time now to start your Portus setup.
+
+----
+docker-compose up -d
+----
+
+You could now log on Portus and set the registry.
+
+image::portus-registry.png[portus-registry.png,480,640]
+
+Installation and configuration of a secure private registry using SLES, SLE-Container-Module
+The needed componentes are docker, registry and portus.
+Create SSL certificates as needed.
+Distribute the CA certificate to all your kubernetes nodes.
+Run
+
+----
+# update-ca-certificates
+# systemctl restart docker
+----
+
+
+Create the namespaces on your registry that are needed for SAP Data Intelligence 3:
+
+* com.sap.hana.container
+
+* com.sap.datahub.linuxx86_64
+
+* com.sap.datahub.linuxx86_64.gcc6
+
+* consul
+
+* elasticsearch
+
+* fabric8
+
+* google_containers
+
+* grafana
+
+* kibana
+
+* prom
+
+* vora
+
+* kaniko-project
+
+* com.sap.bds.docker
+
 
 == SUSE Enterprise Storage (optional if you have a storage that provides rbd volumes and/or s3 buckets)
+
+SAP Data Hub 2 installation on premise require SUSE Enterprise Storage 5 or higher.
+If you plan to use SUSE Enterprise Storage not only for your Kubernetes dynamic storageclass but also for your Kubernetes Control plan, virtualised or not, you should reserve enough resources to address etcd requirements regarding
+** link:https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/hardware.md.[etcd Hardware]
+
+Follow the next steps to deploy a minimalistic, virtualised, test oriented, SUSE Enterprise Storage 5.5.
+
+In the following exemple, we’re going to build a 4 nodes (1 admin + 3 OSD) Ceph Cluster.
+
+Before starting :
+
+* Collect your SUSE Linux Enterprise Server 12 SP3 and SUSE Enterprise Storage registration code from scc.suse.com or have a SMT/RMT properly set up and already mirroring theses products.
+
+** link:https://scc.suse.com[SCC]
+** link:https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-smt.html[SMT]
+
+image::scc-sle.png[scc-sle,480,640]
+image::scc-ses.png[scc-ses,480,640]
+
+Your DNS zone should be already set, in our exemple where all Datahub components are in the same dns zone and same subnet, it should looks like :
+
+image::dns.png[dns,480,640]
+
+Also, in order to be as efficient as possible when using interactive shell scripted infrastructure deployment, we advice you to use an advanced terminal client or multiplexer which permits to address multiple shells at once.
+
+image::multi-s-virtinstall.png[multi-s-virtinstall,480,640]
+
+----
+# sudo virt-install --name ses55-admin --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.200/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+
+# sudo virt-install --name ses55-osd0 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.230/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+
+# sudo virt-install --name ses55-osd1 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.231/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+
+# sudo virt-install --name ses55-osd2 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.232/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+----
+
+image::multi-s-smt.png[multi-s-smt.png,480,640]
+
+Select the SUSE Entreprise Storage 5 Extension
+
+image::multi-s-addon.png[multi-s-addon.png,480,640]
+
+On the hypervisor you should also be able to route or bridge ( either a traditional bridge using brctl or a virtual-bridge) your upcoming SUSE Enterprise Storage 5.5 network segment. In our example, for simplicity, we’re using the same bridge and network address than our CaaSP cluster "--network bridge=caasp3”
+
+In the following example, each node is powered by 16GB of RAM, 4 VCPU, 40 GB for the root disk, 4 * 20GB OSDB disk.
+
+image::multi-s-default.png[multi-s-default.png,480,640]
+
+NTP must be configured on each nodes
+
+image::multi-s-ntp.png[multi-s-ntp.png,480,640]
+
+Unselect AppArmor and unnecessary X and Gnome Patterns, but select the SUSE Enterprise Storage pattern
+
+image::multi-s-patterns.png[multi-s-patterns.png,480,640]
+
+Desactivate the Firewall on the nodes.
+Start the Installation on all nodes.
+
+image::multi-s-install.png[multi-s-install.png,480,640]
+
+Once nodes have reboot, log in and finish network/hostname and NTP configurations so that
+
+----
+# hostname -f
+----
+
+returns the FQDN of the nodes and
+
+----
+#ntpq -p
+----
+
+returns a stratum less than 16
+
+image::multi-s-hostname-ntp.png[multi-s-hostname-ntp.png,480,640]
+
+Using ssh-keygen then ssh-copy-id, spread your SUSE Entreprise Storage Admin node ssh pub key to all other nodes.
+
+Verify that the drive we’re going to allocate for SUSE Entreprise Storage OSDs are clean by wiping them (refer to 4.3.12 of the deployment guide)
+
+** link:https://documentation.suse.com/ses/5.5/html/ses-all/ceph-install-saltstack.html#ceph-install-stack[Wipe disk]
+
+Install salt-minion on all nodes (admin also) and salt-master only on admin (in our example ses55-admin.suse-sap.net). Install also deepsea on admin node.
+
+Then restart salt-minion on all nodes and restart salt-master on admin
+
+image::multi-s-salt-install-restart.png[multi-s-salt-install-restart.png,480,640]
+
+Accept related pending Salt key.
+
+image::salt-key.png[salt-key.png,480,640]
+
+Verify that /srv/pillar/ceph/master_minion.sls point to your admin node, in our example it contains our salt-master FQDN : master_minion: ses55-admin.suse-sap.net
+
+Prepare the cluster
+
+----
+# salt-run state.orch ceph.stage.0
+----
+
+image::ceph-stage-0.png[ceph-stage-0.png,480,640]
+
+Collect informations about the nodes :
+
+----
+# salt-run state.orch ceph.stage.1
+----
+
+image::ceph-stage-1.png[ceph-stage-1.png,480,640]
+
+Adapt the file  /srv/pillar/ceph/proposals/policy.cfg to your needs.
+
+In our example where the only deployed service is OpenAttic it contains the following :
+
+----
+cluster-ceph/cluster/ses55-osd2.suse-sap.net.sls
+config/stack/default/ceph/cluster.yml
+config/stack/default/global.yml
+profile-default/cluster/ses55-admin.suse-sap.net.sls
+profile-default/cluster/ses55-osd0.suse-sap.net.sls
+profile-default/cluster/ses55-osd1.suse-sap.net.sls
+profile-default/cluster/ses55-osd2.suse-sap.net.sls
+profile-default/stack/default/ceph/minions/ses55-admin.suse-sap.net.yml
+profile-default/stack/default/ceph/minions/ses55-osd0.suse-sap.net.yml
+profile-default/stack/default/ceph/minions/ses55-osd1.suse-sap.net.yml
+profile-default/stack/default/ceph/minions/ses55-osd2.suse-sap.net.yml
+role-admin/cluster/ses55-admin.suse-sap.net.sls
+role-admin/cluster/ses55-osd0.suse-sap.net.sls
+role-admin/cluster/ses55-osd1.suse-sap.net.sls
+role-admin/cluster/ses55-osd2.suse-sap.net.sls
+role-master/cluster/ses55-admin.suse-sap.net.sls
+role-mgr/cluster/ses55-osd0.suse-sap.net.sls
+role-mgr/cluster/ses55-osd1.suse-sap.net.sls
+role-mgr/cluster/ses55-osd2.suse-sap.net.sls
+role-mon/cluster/ses55-osd0.suse-sap.net.sls
+role-mon/cluster/ses55-osd1.suse-sap.net.sls
+role-mon/cluster/ses55-osd2.suse-sap.net.sls
+role-openattic/cluster/ses55-admin.suse-sap.net.sls
+----
+
+Prepare the final state of configuration files set.
+
+----
+# salt-run state.orch ceph.stage.2
+----
+
+image::ceph-stage-2.png[ceph-stage-2.png,480,640]
+
+You can now safely deploy your configuration
+
+----
+# salt-run state.orch ceph.stage.3
+----
+
+image::ceph-stage-3.png[ceph-stage-3.png,480,640]
+
+Once the stage 3 has been successfully passed, check the cluster health to insure that all is running properly
+
+----
+# ceph -s
+----
+
+image::ceph-health.png[ceph-health.png,480,640]
+
+In order to take benefits of the OpenAttic WebUI you now have to initiate the ceph.stage.4 which will install OpenAttic service.
+
+----
+# salt-run state.orch ceph.stage.4
+----
+
+image::ceph-stage-4.png[ceph-stage-4.png,480,640]
+
+You can now manage your cluster through the WebUI
+
+image::openattic-dash.png[openattic-dash.png,480,640]
+
+To provide a Datahub RBD device we need first to create a related pool.
+
+image::openattic-pool.png[openattic-pool.png,480,640]
+
+And provide access to this pool through a RBD device.
+
+image::openattic-rbd.png[openattic-rbd.png,480,640]
+
+//You could now go to Section 4.1.2 of this documentation and follow the Prerequisites on the SUSE CaaS Platform 3 Cluster
 
 
 == Installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2
@@ -209,6 +551,12 @@ image::SAP-DI-30-CaaSP42-0015.png[title="SAP Maintenance Planner: Example for ho
 $ ./SLCB01_50-70003322.EXE init --SAP_REPO_STAGE val
 ----
 
+image::SAP-DI-30-CaaSP42-0017.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
+
+In this interactive script all necessary information to run the SAP SLC Bridge is gathered and at the end deployed in the CaaSP cluster.
+
+image::SAP-DI-30-CaaSP42-0025.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
+
 Identify the service port for the slc bridge:
 ----
 $ kubectl -n sap-slcbridge get svc
@@ -218,8 +566,9 @@ Example output:
  kubectl -n sap-slcbridge get svc
  output here.
 ----
+image::SAP-DI-30-CaaSP42-0026.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
 
-//add images
+
 
 
 === Installation of SAP Data Intelligence 3
@@ -229,6 +578,8 @@ This section describes the installation of SAP Data Intelligence 3 on top of SUS
 ==== Preparations
 
 Before the installation of SAP DI 3 can start, some preparation work has to be done.
+All these tasks are run from the management workstation.
+
 
 * Create a namespace on Kubernetes cluster
 
@@ -238,7 +589,7 @@ Before the installation of SAP DI 3 can start, some preparation work has to be d
 
 * create ClusterRoleBindings
 
-* in case of using self signed certifcates, a special secret has to be created
+* in case of using self signed certificates for the private registry, a special secret has to be created
 
 ===== Create namespace for SAP DI 3 on Kubernetes
 
@@ -312,7 +663,8 @@ type: "kubernetes.io/rbd"
 data:
    key: <YOUR BASE64 ENCODED KEY HERE>
 EOF
-image::002-SCT-CaaSP.png
+----
+----
 $ cat > ceph-user-secret.yaml <<EOF
 apiVersion: v1
 kind: Secret
@@ -338,15 +690,73 @@ $ kubectl -n di303 create -f ceph-user-secret.yaml
 
 * PodSecurityPolicies
 ----
+$ kubectl edit psp suse.caasp.psp.priviledged
 ----
-
+Change the pathPrefix in allowedHostPaths to /
 
 * ClusterRoleBindings
 ----
+$ cat > clusterrolebinding.yaml << EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: suse:caasp:psp:priviliged:default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: suse:caasp:psp:privileged
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vsystem-XXX
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vsystem-XXX-vrep
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-elasticsearch
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-fluentd
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-nodeexporter
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vflow-server
+  namespace: XXX
+- kind: ServiceAccount
+  name: mlf-deployment-api
+  namespace: XXX
+EOF
+$ sed -i s/XXX/<your-di-namespace>/g clusterrolebinding.yaml
+$ kubectl apply -f clusterrolebinding.yaml
 ----
 
 * additional changes
 
+----
+$ kubectl edit clusterrolebinding system:node
+----
+
+Insert the following at the end of the file:
+
+----
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:nodes
+----
+
+* in case selfsigned ssl certificates are used create a secret for the secure private registry follow this procedure:
+
+** The certificate chain should be saved in pem format into one file called cert.
+** export DI installation namespace into variable NAMESPACE
+** mv cert cert_with_carriage_return
+** tr -d '\r' < cert_with_carriage_return > cert
+** kubectl create secret generic cmcertificates --from-file=cert -n $NAMESPACE
 
 ==== Installation of SAP DI 3
 
@@ -356,14 +766,14 @@ $ kubectl -n di303 create -f ceph-user-secret.yaml
 
 ** https://<yournode>:<yourport>/docs/index.html
 
-* fill in your credentials
+* fill in your credentials you created during the deployment of the SLC Bridge.
 
 
 ===== Installation work flow
 
 // FIXME lots of images
 
-/*
+
 // FIXME Parameters used in the installation workflow
 // from SAP Note:
 // -e Choose "Configure container log path" for "Docker Container Log Path Configuration"
@@ -373,8 +783,6 @@ $ kubectl -n di303 create -f ceph-user-secret.yaml
 // container log path
 // enable kaniko
 // load kernel module nfsd and nfsv4 !! CAVE !! 5.x kernels might crash when container tries to load these modules. This for future releases on SLE 15 SP2.
-*/
-/*
 
 //    If the registry certificate is untrusted or self-signed, follow the steps below in order to create necessary Kubernetes secret with the certificates so that SAP Data Intelligence installation procedure can import it into SAP Data Intelligence Connection Manager.
 //        Certificate chain should be saved into file named "cert" in PEM format.
@@ -387,7 +795,6 @@ $ kubectl -n di303 create -f ceph-user-secret.yaml
 //
 //        run "kubectl create secret generic cmcertificates --from-file=cert -n $NAMESPACE" command.
 
-*/
 
 
 == Appendix

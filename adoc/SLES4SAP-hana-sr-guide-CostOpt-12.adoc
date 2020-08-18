@@ -1,6 +1,6 @@
-// TODO PRIO1: Check if now the recommendation for the SAP HANA hook is clear and
+// DONE PRIO1: Check if now the recommendation for the SAP HANA hook is clear and
 //             the explanation is well understandable
-// TODO PRIO1: Adding addendum for read-enabled
+// DONE PRIO1: Adding addendum for read-enabled (for PerfOpt, not CostOpt)
 // TODO PRIO1: Adding addendum for seamless maintenance
 // TODO PRIO1: Adding addendum for disk less SBD setup
 // TODO PRIO1: Cluster-init with more than one ring
@@ -59,7 +59,7 @@ For an overview about supported scenarios see also section <<Scale-Up Scenarios 
 {SAPHANA} is the only database platform for prominent SAP platforms like
 {S4HANA}. {SAP} NetWeaver can also use {SAPHANA} as database back-end.
 While {SAPHANA} is only available on the Linux platform this triggers
-lots of Unix-to-Linux and Windows-to-Linux migrations. 
+lots of Unix-to-Linux and Windows-to-Linux migrations.
 
 {SUSE} is also accommodating this development by providing {sles4sap}
 – the recommended and supported operating system for {hana}. In close
@@ -97,6 +97,12 @@ From the infrastructure perspective the following variants are covered:
 
 - 3-node cluster with disk-less SBD
 
+- on-premise deployment on physical and virtual machines
+
+- public cloud deployment
+
+See <<Supported Scenarios and Prerequisites>> for details.
+
 ==== Scale-Up Versus Scale-Out
 
 The first set of scenarios includes the architecture and development of
@@ -129,7 +135,7 @@ at {reslibrary}. The document for scale-out is named _"{docScaleOut}"_.
 
 {SUSE} has implemented the scale-up scenario with the `{SAPHanaRA}` resource
 agent (RA), which performs the actual check of the {HANA} database
-instances. This RA is configured as a master/slave resource. In the
+instances. This RA is configured as a multi-state resource. In the
 scale-up scenario, the master assumes responsibility for the {hana}
 databases running in primary mode. The slave is responsible for
 instances that are operated in synchronous (secondary) status.
@@ -237,7 +243,7 @@ and the `SAPInstance` resource agent shuts down the non-productive {SAPHANA} dat
 
 The takeover to the secondary site takes a long period of time, because the non-productive database needs to
 be stopped gracefully prior to takeover the productive database. This prolonged takeover time
-is the main disadvantage of the cost optimization scenario.
+is the main disadvantage of the cost optimization scenario. So, the cost optimized scenario might be combined with persitent memory to benefit from SAP HANA’s persistent memory features.
 
 NOTE: If you like to achieve a very fast takeover you need to go with the performance optimized scenario.
 
@@ -311,7 +317,7 @@ SUSE also publishes blog articles about {sap} and high availability.
 Join us by using the hashtag #TowardsZeroDowntime. Use the following link:
 https://www.suse.com/c/tag/TowardsZeroDowntime/.
 
-=== Errata
+==== Errata
 
 To deliver urgent smaller fixes and important information in a timely manner,
 the Technical Information Document (TID) for this setup guide
@@ -329,7 +335,7 @@ In addition to this guide, check the SUSE SAP Best Practice Guide Errata for oth
 (https://www.suse.com/support/kb/doc/?id=7023713).
 
 // Standard SUSE includes
-=== Feedback
+==== Feedback
 include::common_intro_feedback.adoc[]
 
 [[cha.hana-sr.scenario]]
@@ -401,13 +407,13 @@ processes of the other tenant users.
 ** Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodnr} SP4.
 // Intel Optane DCPMM (aka PMEM) is supported since SLES-for-SAP 12 SP4 and 15 GA.
 // IBM Power vPMEM is supported since SLES-for-SAP 15 SP1
-{prodsp} or newer. 
+{prodsp} or newer.
 * {hana} versions
 ** {hana} 1.0 is supported since SPS09 (095) for all mentioned setups. {hana} 1.0 does not support the HA/DR provider hook method srConnectionChanegd() with multi-target aware parameters. These parameters are needed for the HA/DR hook in the package.
 ** {hana} 2.0 is supported with all known SPS versions.
 ** {hana} 2.0 SPS03 or later provides the needed HA/DR provider hook method srConnectionChanegd() with multi-target aware parameters.
 ** The multi-target setup has been tested with {hana} 2.0 SPS04.
-* Particularly the {HANA} system replication cost optimized scenario can
+** Particularly the {HANA} system replication cost optimized scenario can
 benefit from {HANA}'s persistent memory features. Local restart and take-over
 are affected by the time {HANA} needs for shutdown and loading column store.
 {HANA} 2.0 SPS04 and later do support persitent memory.
@@ -420,7 +426,17 @@ define a PoC with SUSE. This PoC will focus on testing the existing
 solution in your scenario. Most of the above mentioned limitations are because
 careful testing is needed.
 
-Besides {hana}, you need SAP Host Agent to be installed on your system.
+Besides {hana}, you need {SAP} Host Agent to be installed on your system.
+
+For informaton on supported hardware and virtualisation see {SUSE} release notes and hardware compatibility database
+ https://www.suse.com/releasenotes/
+ https://www.suse.com/yessearch/
+
+See also {HANA} product availability matrix, e.g. by following
+ https://support.sap.com/en/release-upgrade-maintenance.html#section_1969201630
+
+Additional information for deploying the {usecase} scenario in particular public clouds is available either from the respective cloud provider or at {SUSE}:
+  {reslibrary}
 
 [[cha.hana-sr.scope]]
 == Scope of This Documentation
@@ -684,6 +700,10 @@ _majority maker_.
 ----
 
 ====
+
+Optionally the ClusterTools2 package can be installed. It contains cmdline tools
+for simplyfing common adminstrative tasks. For more information, see Installation
+and Basic Setup, {sleha}.
 
 For more information, see _Installation and Basic Setup_, {uarr}SUSE
 Linux Enterprise High Availability Extension.
@@ -1139,6 +1159,8 @@ integration.
 
 === Basic Cluster Configuration
 
+// TODO PRIO1: From ENSA2 take the -u / -S ... optiona and skip UDP reconfiguration
+
 The first step is to set up the basic cluster framework. For
 convenience, use YaST2 or the {slehainit} script. It is strongly
 recommended to add a second corosync ring, change to UCAST communication
@@ -1218,7 +1240,7 @@ commands will force your system to be reset/switched off.
 In case the softdog module is used the following action can be performed:
 
 ----
-echo 1> /dev/watchdog
+sync; cat /dev/watchdog & while date; do sleep 10; done
 ----
 
 After your test was successful you must implement the watchdog on all cluster
@@ -1339,7 +1361,9 @@ SBD_STARTMODE="clean"
 SBD_OPTS=""
 ----
 
-// TODO PRIO2: Add reference to product doc (theamatic calculation of timeouts)
+In your system the file might have additional parameters not discussed here.
+
+// TODO PRIO2: Add reference to product doc (thematic calculation of timeouts)
 
 ===== Verifying the SBD Device
 
@@ -1348,7 +1372,7 @@ sure to implement a supported fencing mechanism.
 
 It is a good practice to check if the SBD device can be accessed from
 both nodes and does contain valid records. Check this for all devices
-configured in _/etc/sysconfig/sbd_.
+configured in _/etc/sysconfig/sbd_, e.g. by calling `cs_show_sbd_devices`.
 
 [subs="attributes,quotes"]
 ----
@@ -1414,8 +1438,22 @@ time on both nodes.
 {sapnode2}:~ # {clusterstart}
 ----
 
-Check the cluster status with crm_mon. We use the option "-r" to also
-see resources, which are configured but stopped.
+Check the cluster status.
+First check if all nodes have used the SBD devices.
+To check the current SBD entries for the various cluster nodes, you can use `sbd list`. If all
+entries are _clear_ , no fencing task is marked in the SBD device.
+
+[subs="attributes,quotes"]
+----
+ {sapnode1}:~ # sbd -d {sapsbd1} list
+ 0     {sapnode1}      clear
+ 1     {sapnode2}      clear
+----
+
+Or just call `cs_show_sbd_devices` again.
+Next check if all nodes have joined the cluster.
+To do so call `crm_mon`. We use the option _"-r"_ to also see resources, which are
+configured but stopped.
 
 [subs="attributes,quotes"]
 ----
@@ -1447,7 +1485,7 @@ bootstrap and STONITH using the `crm configure` shell command as described
 in section _Configuring and Managing Cluster Resources (Command Line)_ of the
 {uarr}SUSE Linux Enterprise High Availability Extension documentation.
 
-Use the command `crm` to add the objects to CRM. Copy the following
+Use the command `crm` to add the objects to the cluster information base (CIB). Copy the following
 examples to a local file, edit the file and then load the configuration
 to the CIB:
 
@@ -1493,14 +1531,15 @@ Now we add the configuration to the cluster.
 
 Skip this section if you are using disk-less SBD.
 
-The next configuration part defines an SBD disk STONITH resource.
+The next configuration part defines an SBD disk STONITH resource with a appropriate
+_pcmk_delay_max_.
 
 [subs="attributes,quotes"]
 ----
 # vi crm-sbd.txt
 # enter the following to crm-sbd.txt
 primitive stonith-sbd stonith:external/sbd \
-    params pcmk_delay_max="15"
+    params pcmk_delay_max="30"
 ----
 
 Again we add the configuration to the cluster.
@@ -1510,9 +1549,20 @@ Again we add the configuration to the cluster.
 {sapnode1}:~ # crm configure load update crm-sbd.txt
 ----
 
+For an advanced SBD setup please refer to the {sleha} product documentation ({haAdminGuide12}).
+
+For an advanced SBD setup please refer to the SLE-HA product documentation, e.g.
+https://documentation.suse.com/sle-ha/12-SP4/html/SLE-HA-all/cha-ha-storage-protect.html#pro-ha-storage-protect-fencing
+If the preferred node running the primary HANA database always should win in case of
+split-brain, look for the "Predictable Static Delays" configuration example.
+See also <<Example for Determenistic SBD STONITH>>.
+
 For fencing with IPMI/ILO see section <<Using IPMI as fencing mechanism>>.
 
 ==== Using IPMI as fencing mechanism
+
+This section is only relevant, if the recommended disk-based or disk-less SBD
+fencing is not used.
 
 For details about IPMI/ILO fencing see our cluster product documentation ({haAdminGuide12}).
 An example for an IPMI STONITH resource can be found in section <<Example for the IPMI STONITH Method>>
@@ -1531,8 +1581,11 @@ run its own STONITH resource.
 
 ==== Using Other Fencing Mechanisms
 
+This section is only relevant, if the recommended disk-based or disk-less SBD
+fencing is not used.
+
 We recommend to use SBD (best practice) or IPMI (second choice) as
-STONITH mechanism. The SUSE Linux Enterprise High Availability product
+STONITH mechanism. The {sleha} product
 also supports additional fencing mechanism not covered here.
 
 For further information about fencing, see SUSE Linux Enterprise High
@@ -1659,7 +1712,8 @@ We add the configuration to the cluster.
 
 The most important parameters here are again SID and InstanceNumber.
 Beside these parameters the timeout values for the operations (start,
-promote, monitors, stop) are typical tuneables.
+promote, monitors, stop) are typical tuneables. The parameter _AUTOMATED_REGISTER_
+can used to adapt the level of system replication automation.
 
 ==== The virtual IP address for The Primary Site
 
@@ -1683,8 +1737,9 @@ We load the file to the cluster.
 {sapnode1}:~ # crm configure load update crm-vip.txt
 ----
 
-In most installations, only the parameter ip needs to be set to the
-virtual IP address to be presented to the client systems.
+In most on-premise installations, only the parameter ip needs to be set to the
+virtual IP address to be presented to the client systems. Public cloud environments
+often need specific settings.
 
 ==== Constraints for SAPHanaSR
 

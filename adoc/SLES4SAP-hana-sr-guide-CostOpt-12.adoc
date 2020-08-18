@@ -3273,21 +3273,22 @@ In your project, you should:
 * Define STONITH before adding other resources to the cluster
 * Do intensive testing.
 * Tune the timeouts of operations of SAPHana and SAPHanaTopology.
-* Start with PREFER_SITE_TAKEOVER=”true”, AUTOMATED_REGISTER=”false” and
+* Start with PREFER_SITE_TAKEOVER=”false”, AUTOMATED_REGISTER=”false” and
 DUPLICATE_PRIMARY_TIMEOUT=”7200”.
+* Set up a test cluster for testing configuration changes and administrative procedure before applying them on the production cluster.
 
 In your project, avoid:
 
 * Rapidly changing/changing back cluster configuration, such as: Setting
-nodes to standby and online again or stopping/starting the master/slave
+nodes to standby and online again or stopping/starting the multi-state
 resource.
 * Creating a cluster without proper time synchronization or unstable
 name resolutions for hosts, users and groups
-* Adding location rules for the clone, master/slave or IP resource. Only
-location rules mentioned in this setup guide are allowed.
+* Adding location rules for the clone, multi-state or IP resource. Only
+location rules mentioned in this setup guide are allowed. For public cloud please refer to the cloud specific documentation.
 * As "migrating" or "moving" resources in crm-shell, HAWK or other tools
-would add client-prefer location rules this activities are completely
-forbidden.
+would add client-prefer location rules, support is limited to maintenance procedures described in this document. See <<Testing the Cluster>> and
+<<Maintenance>> for proven procedures.
 
 === Monitoring and Tools
 
@@ -3296,7 +3297,7 @@ different command line tools for cluster status requests.
 
 ==== HAWK – Cluster Status and more
 
-You can use an Internet browser to check the cluster status.
+You can use an web browser to check the cluster status.
 
 // DONE PRIO1: We need a SLE12 HAWK screenshot here
 
@@ -3307,7 +3308,8 @@ If you set up the cluster using {slehainit} and you have installed all
 packages as described above, your system will provide a very useful Web
 interface. You can use this graphical Web interface to get an overview
 of the complete cluster status, perform administrative tasks or configure resources and cluster bootstrap parameters. Read our product
-manuals for a complete documentation of this powerful user interface.
+manuals for a complete documentation of this user interface.
+For the {HANA} system replication :usecase: scenario the use of HAWK should follow the guidance given in this guide.
 
 ==== {hana} Studio
 
@@ -3349,6 +3351,8 @@ Full list of resources:
 ----
 
 See the manual page crm_mon(8) for details.
+In case you have installed the ClusterTools2 package, you might also look
+into manual pages cs_clusterstate(8) and cs_show_hana_info(8).
 
 ==== SAPHanaSR Command Line Tools
 To show some SAPHana or SAPHanaTopology resource agent internal
@@ -3414,7 +3418,7 @@ At 21:11 (CET) suddenly the primary on {sapnode1} died - it was falling down to 
 
 The cluster did jump-in and initiated a takeover. At 21:12 (CET) the former secondary
 was detected as new running master (changing from 4:S to 4:P).
-
+See manual pages SAPHanaSR-showAttr(8), SAPHanaSR-replay-archive(8) and crm_report(8) for more information.
 
 ==== {hana} LandscapeHostConfiguration
 
@@ -3462,13 +3466,20 @@ down by intention, this could trigger a takeover.
 
 To receive updates for the operating system or the SUSE Linux Enterprise High Availability Extension,
 it is recommended to register your systems to either a local SUSE Manager or SMT or remotely with SUSE Customer Center.
+or remotely with SUSE Customer Center.
+More information is available at respective websites, e.g.
+https://www.suse.com/products/suse-manager/
+https://documentation.suse.com/sles/12-SP4/html/SLES-all/smt-client.html
+https://scc.suse.com/docs/help
+Examples for maintenance tasks are also given in manual page SAPHanaSR_maintenance_examples(7).
 
 ==== Updating the OS and Cluster
 
 For an update of {sles4sap} packages including cluster software follow the
 rolling update procedure defined in the product documentation
-of {sle} {ha} Extension _Upgrading Your Cluster and Updating Software Packages_
-{uarr} {ha} Administration Guide.
+of {sle} {ha} Extension Administration Guide chapter _Upgrading Your Cluster and Updating Software Packages_.
+
+https://documentation.suse.com/sle-ha/12-SP4/html/SLE-HA-all/cha-ha-migration.html
 
 ==== Updating {hana} - Seamless {hana} Maintenance
 
@@ -3478,7 +3489,7 @@ done before and after the update procedure to get the system replication
 automated again.
 
 {SUSE} has optimized the {hana} maintenance process in the cluster.
-The improved procedure only sets the master-slave-resource to maintenance and
+The improved procedure only sets the multi-state-resource to maintenance and
 keep the rest of the cluster (SAPHanaTopology clones and IPaddr2 vIP resource)
 still active. Using the updated procedure allows a seamless {hana} maintenance
 in the cluster as the virtual IP address can automatically follow the running
@@ -3487,7 +3498,7 @@ primary.
 //TODO: PRIO2 HINT for new wizard?!?!?!
 
 Prepare the cluster not to react on the maintenance work to be done on
-the SAP HANA database systems. Set the master/slave resource to be
+the SAP HANA database systems. Set the multi-state resource to be
 unmanaged and the cluster nodes in maintenance mode.
 
 
@@ -3496,14 +3507,14 @@ unmanaged and the cluster nodes in maintenance mode.
 
 .Main {hana} Update procedure
 ==============================
-Pre Update Task:: For the master-slave-resource set the maintenance mode:
+Pre Update Task:: For the multi-state-resource set the maintenance mode:
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <master-slave-resource>
+crm resource maintenance <multi-state-resource>
 ----
 +
-The <master-slave-resource> in the given guide is `msl_SAPHana_{sapsid}_HDB{sapino}`.
+The <multi-state-resource> in the given guide is `msl_SAPHana_{sapsid}_HDB{sapino}`.
 
 Update:: Process the SAP Update for both SAP HANA database systems. This
 procedure is described by SAP.
@@ -3514,7 +3525,7 @@ reprobe the updated SAP HANA database systems.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource refresh <master-slave-resource>
+crm resource refresh <multi-state-resource>
 ----
 +
 After the SAP HANA update is complete on both sites, tell the cluster
@@ -3523,7 +3534,7 @@ actively control and monitor the {sap} again.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <master-slave-resource> off
+crm resource maintenance <multi-state-resource> off
 ----
 
 ==============================
@@ -3543,12 +3554,12 @@ change via native HANA commands.
 
 .Migrating an {HANA} primary using {sap} Toolset
 ==============================
-Pre move:: Set the master-slave-resource to be maintenance. This could be done on any
+Pre move:: Set the multi-state-resource to be maintenance. This could be done on any
 cluster node.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <master-slave-resource-name>
+crm resource maintenance <multi-state-resource-name>
 ----
 
 // TODO PRIO1: Check -sr_takeover with 'hands-chake'
@@ -3593,21 +3604,21 @@ Post Migrate::
 systems to be up again (field roles must start with the digit 4). The new
 secondary should have role "S" (for secondary).
 +
-* Tell the cluster to forget about the former master-slave roles and to
+* Tell the cluster to forget about the former multi-state roles and to
 re-monitor the failed master. The command could be submitted on any
 cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource refresh master-slave-resource-name
+crm resource refresh multi-state-resource-name
 ----
 +
-* Set the master/slave resource to the status managed again. The command
+* Set the multi-state resource to the status managed again. The command
 could be submitted on any cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <master-slave-resource-name> off
+crm resource maintenance <multi-state-resource-name> off
 ----
 ==============================
 

@@ -1865,16 +1865,770 @@ cases derived from customer expectations are implemented and passed
 fully. Otherwise the project is likely to fail in production.
 
 The test prerequisite, if not described differently, is always that both
-nodes are booted, normal members of the cluster and the HANA RDBMS is
-running. The system replication is in sync (SOK).
+nodes are booted, normal members of the cluster and the HANA RDBMS is running.
+There are no left-over migration constraints or resource failures contained in
+the cluster information base (CIB). The system replication is in sync (_SOK_).
+
+This can be checked, for example, with the following command sequence:
+
+[subs="attributes,quotes"]
+----
+ # crm_mon -1r
+ # crm configure show | grep cli-
+ # SAPHanaSR-showAttr
+ # cs_clusterstate -i
+----
+
+See also manual pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_clusterstate(8)`,
+`SAPHanaSR_maintenance_examples(7)`.
+
+////
+  ______          __      
+ /_  __/__  _____/ /______
+  / / / _ \/ ___/ __/ ___/
+ / / /  __(__  ) /_(__  ) 
+/_/  \___/____/\__/____/ 
+////
 
 === Test Cases for Semi Automation
 
 In the following test descriptions we assume
-`PREFER_SITE_TAKEOVER="true"` and `AUTOMATED_REGISTER="false".`
+`PREFER_SITE_TAKEOVER="false"` and `AUTOMATED_REGISTER="false".`
 
 NOTE: The following tests are designed to be run in sequence and depend
-on the exit state of the proceeding tests.
+on the exit state of the preceeding tests.
+
+==== Tests for Primary Database or Node
+===== Test: Stop Primary Database on Site A (Node 1)
+
+.Test STOP_PRIMARY_DB_SITE_A_SEMI
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Stop Primary on siteA (node 1)
+
+.{testProc}
+. Stop the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB stop
+----
+
+.{testExpect}
+ * Primary restarts on siteA (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * If takeover occurs 
+ ** non-replicated database is stopped on node 2 (siteB) 
+ ** Secondary is Promoted as Primary
+
+.{testRecover}
+ * No recovery needed, if no takeover did occur
+ * Recovery after takeover:
+. Register siteA to siteB
+. Resource cleanup for siteA
+==========
+
+===== Test: Stop Primary Database on Site B (Node 2)
+
+.Test STOP_PRIMARY_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Stop Primary on siteB (node 2)
+
+.{testProc}
+. Stop the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB stop
+----
+
+.{testExpect}
+ * Primary restarts on siteB (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * Non-replicated database still stopped on node 2 (siteB)
+ * If takeover occurs 
+ ** Secondary is Promoted as Primary
+ ** non-replicated database is started on node 2 (siteB) 
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
++
+ - Recovery after takeover:
+. Register siteB to siteA
+. Resource cleanup for siteB
+==========
+
+===== Test: Crash Primary Database on Site A (Node 1)
+
+.Test CRASH_PRIMARY_DB_SITE_A_SEMI
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Kill Primary on siteA (node 1)
+
+.{testProc}
+. Kill (send signal to) the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB kill-9
+----
+
+.{testExpect}
+ - Primary restarts on siteA (PREFER_SITE_TAKEOVER==false) till failcount >= migration-threshold
+ - If takeover occurs: Non-replicated database is stopped on node 2 (siteB) and Secondary is Promoted as Primary
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
+ - Recovery after takeover:
+. Register siteA to siteB
+. Register cleanup for siteA
+==========
+
+===== Test: Crash Primary Database on Site B (Node 2)
+
+.Test CRASH_PRIMARY_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Kill Primary on siteB (node 2)
+
+.{testProc}
+. Kill Primary on siteB (node 2)
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ - Primary restarts on siteB (PREFER_SITE_TAKEOVER==false) till failcount >= migration-threshold
+ - Non-replicated database still stopped on node 2 (siteB)
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
+ - Recovery after takeover:
+. Register siteB to siteA
+. Resource cleanup for siteB
+==========
+
+===== Test: Crash Primary Node on Site A (Node 1)
+
+.Test CRASH_PRIMARY_NODE_SITE_A_SEMI
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 1 (is siteA)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ - Non-replicated SAP HANA stopped on node 2 
+ - Cluster takeover to siteB
+ - Non-replicated database is stopped on node 2 (siteB)
+ - Secondary is Promoted as Primary
+
+.{testRecover}
+ -  Recovery after takeover:
+. Optionally cleanup sbd slot for node 1
+. Start cluster framework
+. Wait till node 1 joins the cluster
+. Register siteA to siteB
+==========
+
+===== Test: Crash Primary Node on Site B (Node 2)
+
+.Test CRASH_PRIMARY_NODE_SITE_B_SEMI
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 2 (is siteB)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ - Cluster takeover to siteA
+ - Non-replicated database not available (no takeover to siteA)
+
+.{testRecover}
+ - Recovery after takeover:
+. Optionally cleanup sbd slot for node 2
+. Start cluster framework
+. Wait till node 2 joins the cluster
+. Register siteB to siteA
+==========
+
+==== Tests for Secondary Database or Node
+===== Test: Stop the Secondary Database on Site B (Node 2)
+
+.Test STOP_SECONDARY_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Secondary Database
+
+.{testDescr}
+ - Stop Secondary Database on node 2 (is siteB)
+
+.{testProc}
+. Stop the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB stop
+----
+
+.{testExpect}
+ - Cluster restarts Secondary on node 2 (siteB)
+ - non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Wait and see
+==========
+
+===== Test: Crash the Secondary Database on Site B (Node 2)
+
+.Test CRASH_SECONDARY_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Secondary Database
+
+.{testDescr}
+ - Crash Secondary Database on node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ - Cluster restarts Secondary on node 2 (siteB)
+ - Non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Wait and see
+==========
+
+===== Test: Crash the Secondary Node on Site B (Node2)
+
+.Test CRASH_SECONDARY_NODE_SITE_B_SEMI
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 2 (is siteB)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ - No takeover of node 2 resources to siteA
+ - Non-replicated database not available (no takeover to siteA)
+
+.{testRecover}
+ - Recovery after node 2 is back:
+. Optionally cleanup sbd slot for node 2
+. Start cluster framework
+. Wait till node 2 joins the cluster
+==========
+
+
+==== Tests for Non-Replicated Database
+===== Test: Stop Non-Replicated Database on SiteB (Node 2)
+
+.Test STOP_NONSR_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Non-Replicated Database
+
+.{testDescr}
+ - Stop non-replicated database node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB stop
+----
+
+.{testExpect}
+ - Cluster restart non-replicated database on node 2 (siteB)
+ - Secondary database is not affected
+
+.{testRecover}
+. cleanup non-replicated database resource
+==========
+
+===== Test: Crash  Non-Replicated Database on Site B (Node 2)
+
+.Test CRASH_NONSR_DB_SITE_B_SEMI
+==========
+.{testComp}
+ - Non-Replicated Database
+
+.{testDescr}
+ - Crash non-replicated database on node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the non-replicated {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ - Cluster restart non-replicated database on node 2 (siteB)
+ - Secondary database is not affected
+
+.{testRecover}
+. cleanup non-replicated database resource
+==========
+
+==== Tests for other Components
+===== Test: Failure of Dedicated Replication LAN
+
+.Test FAIL_NETWORK_SR_SEMI
+==========
+.{testComp}
+ - Replication Network
+
+.{testDescr}
+ - Pull LAN port down or block SR packages. Corosync network still available
+
+// .{testProc}
+ 
+.{testExpect}
+ - System replication status fall down to status _SFAIL_
+ - Primary stays on node 1 (siteA) 
+ - No cluster takeover
+ - Non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Reestablish network connection
+. Wait till System replication status is _SOK_ again
+==========
+
+==== Additional Generic Cluster Tests should be performed
+
+////
+    ____      ____   ___         __                        __  _           
+   / __/_  __/ / /  /   | __  __/ /_____  ____ ___  ____ _/ /_(_)___  ____ 
+  / /_/ / / / / /  / /| |/ / / / __/ __ \/ __ `__ \/ __ `/ __/ / __ \/ __ \
+ / __/ /_/ / / /  / ___ / /_/ / /_/ /_/ / / / / / / /_/ / /_/ / /_/ / / / /
+/_/  \__,_/_/_/  /_/  |_\__,_/\__/\____/_/ /_/ /_/\__,_/\__/_/\____/_/ /_/ 
+
+////
+
+=== Test Cases for Full Automation
+
+In the following test descriptions we assume
+`PREFER_SITE_TAKEOVER="false"` and `AUTOMATED_REGISTER="true".`
+
+NOTE: The following tests are designed to be run in sequence and depend
+on the exit state of the preceeding tests.
+
+==== Tests for Primary Database or Node
+===== Test: Stop Primary Database on Site A (Node 1)
+
+.Test STOP_PRIMARY_DB_SITE_A_FULL
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Stop Primary on siteA (node 1)
+
+.{testProc}
+. Stop the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB stop
+----
+
+.{testExpect}
+ * Primary restarts on siteA (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * If takeover occurs 
+ ** non-replicated database is stopped on node 2 (siteB) 
+ ** Secondary is Promoted as Primary
+ ** SiteA is automatically registered to SiteB 
+
+.{testRecover}
+ - No recovery needed, if no takeover did occur
+ - Recovery after takeover:
+. Resource cleanup for siteA
+==========
+
+===== Test: Stop Primary Database on Site B (Node 2)
+
+.Test STOP_PRIMARY_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Stop Primary on siteB (node 2)
+
+.{testProc}
+. Stop the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB stop
+----
+
+.{testExpect}
+ * Primary restarts on siteB (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * Non-replicated database still stopped on node 2 (siteB)
+ * If takeover occurs 
+ ** Secondary is Promoted as Primary
+ ** non-replicated database is started on node 2 (siteB) 
+ ** SiteB is automatically registered to SiteA 
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
+ - Recovery after takeover:
+. Resource cleanup for siteB
+==========
+
+===== Test: Crash Primary Database on Site A (Node 1)
+
+.Test CRASH_PRIMARY_DB_SITE_A_FULL
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Kill Primary on siteA (node 1)
+
+.{testProc}
+. Kill (send signal to) the {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# HDB kill-9
+----
+
+.{testExpect}
+ * Primary restarts on siteA (PREFER_SITE_TAKEOVER==false) till failcount >= migration-threshold
+ * If takeover occurs: 
+ ** Non-replicated database is stopped on node 2 (siteB) 
+ ** Secondary is Promoted as Primary
+ ** SiteA is registered to SiteB
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
+ - Recovery after takeover:
+. Register cleanup for siteA
+==========
+
+===== Test: Crash Primary Database on Site B (Node 2)
+
+.Test CRASH_PRIMARY_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+ - Kill Primary on siteB (node 2)
+
+.{testProc}
+. Kill Primary on siteB (node 2)
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ * Primary restarts on siteB (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * Non-replicated database still stopped on node 2 (siteB)
+ * If takeover occurs 
+ ** Secondary is Promoted as Primary
+ ** non-replicated database is started on node 2 (siteB) 
+ ** SiteB is automatically registered to SiteA 
+
+.{testRecover}
+ - No recovery needed if no takeover did occur
+ - Recovery after takeover:
+. Resource cleanup for siteB
+==========
+
+===== Test: Crash Primary Node on Site A (Node 1)
+
+.Test CRASH_PRIMARY_NODE_SITE_A_FULL
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 1 (is siteA)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode1}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ * Non-replicated SAP HANA stopped on node 2 
+ * Cluster takeover to siteB
+ * Non-replicated database is stopped on node 2 (siteB)
+ * Secondary is Promoted as Primary
+ * Later, once node 1 joins the cluster again
+ ** SiteA is registered to SiteB
+
+.{testRecover}
+ -  Recovery after takeover:
+. Optionally cleanup sbd slot for node 1
+. Start cluster framework
+. Wait till node 1 joins the cluster
+==========
+
+===== Test: Crash Primary Node on Site B (Node 2)
+
+.Test CRASH_PRIMARY_NODE_SITE_B_FULL
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 2 (is siteB)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ * Cluster takeover to siteA
+ * Non-replicated database not available (no takeover to siteA)
+ * Later, once node 2 joins the cluster again
+ ** SiteB is registered to SiteA 
+ ** Non-replicated database will be started
+
+.{testRecover}
+ - Recovery after takeover:
+. Optionally cleanup sbd slot for node 2
+. Start cluster framework
+. Wait till node 2 joins the cluster
+==========
+
+==== Tests for Secondary Database or Node
+===== Test: Stop the Secondary Database on Site B (Node 2)
+
+.Test STOP_SECONDARY_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Secondary Database
+
+.{testDescr}
+ - Stop Secondary Database on node 2 (is siteB)
+
+.{testProc}
+. Stop the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB stop
+----
+
+.{testExpect}
+ * Cluster restarts Secondary on node 2 (siteB)
+ * Non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Wait and see
+==========
+
+===== Test: Crash the Secondary Database on Site B (Node 2)
+
+.Test CRASH_SECONDARY_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Secondary Database
+
+.{testDescr}
+ - Crash Secondary Database on node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ * Cluster restarts Secondary on node 2 (siteB)
+ * Non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Wait and see
+==========
+
+===== Test: Crash the Secondary Node on Site B (Node2)
+
+.Test CRASH_SECONDARY_NODE_SITE_B_FULL
+==========
+.{testComp}
+ - Cluster Node
+
+.{testDescr}
+ - Crash node 2 (is siteB)
+
+.{testProc}
+. Crash the node by proc-sysrq-trigger
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# echo b > /proc/sysrq-trigger
+----
+
+.{testExpect}
+ * No takeover of node 2 resources to siteA
+ * Non-replicated database not available (no takeover to siteA)
+
+.{testRecover}
+ - Recovery after node 2 is back:
+. Optionally cleanup sbd slot for node 2
+. Start cluster framework
+. Wait till node 2 joins the cluster
+==========
+
+
+==== Tests for Non-Replicated Database
+===== Test: Stop Non-Replicated Database on SiteB (Node 2)
+
+.Test STOP_NONSR_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Non-Replicated Database
+
+.{testDescr}
+ - Stop non-replicated database node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the secondary {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB stop
+----
+
+.{testExpect}
+ * Cluster restart non-replicated database on node 2 (siteB)
+ * Secondary database is not affected
+
+.{testRecover}
+. cleanup non-replicated database resource
+==========
+
+===== Test: Crash  Non-Replicated Database on Site B (Node 2)
+
+.Test CRASH_NONSR_DB_SITE_B_FULL
+==========
+.{testComp}
+ - Non-Replicated Database
+
+.{testDescr}
+ - Crash non-replicated database on node 2 (is siteB)
+
+.{testProc}
+. Kill (send signal to) the non-replicated {hana} database
++
+[subs="attributes,quotes"]
+----
+{sapnode2}# HDB kill-9
+----
+
+.{testExpect}
+ - Cluster restart non-replicated database on node 2 (siteB)
+ - Secondary database is not affected
+
+.{testRecover}
+. cleanup non-replicated database resource
+==========
+
+==== Tests for other Components
+===== Test: Failure of Dedicated Replication LAN
+
+.Test FAIL_NETWORK_SR_FULL
+==========
+.{testComp}
+ - Replication Network
+
+.{testDescr}
+ - Pull LAN port down or block SR packages. Corosync network still available
+
+// .{testProc}
+ 
+.{testExpect}
+ - System replication status fall down to status _SFAIL_
+ - Primary stays on node 1 (siteA) 
+ - No cluster takeover
+ - Non-replicated database not affected on node 2 (siteB)
+
+.{testRecover}
+. Reestablish network connection
+. Wait till System replication status is _SOK_ again
+==========
+
+==== Additional Generic Cluster Tests should be performed
+
+
+
+////
+        __    __   ______          __      
+  ____  / /___/ /  /_  __/__  _____/ /______
+ / __ \/ / __  /    / / / _ \/ ___/ __/ ___/
+/ /_/ / / /_/ /    / / /  __(__  ) /_(__  ) 
+\____/_/\__,_/    /_/  \___/____/\__/____/
+////
+
+////
+// BEGIN COMMENT-OUT TESTS FROM PERFOPT
+// TODO Delete these tests later
 
 ==== Test: Stop Primary Database on Site A (Node 1)
 
@@ -1895,37 +2649,19 @@ on the exit state of the proceeding tests.
 ----
 
 .{testRecover}
-. Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance=10 \
-          --replicationMode=sync --operationMode=logreplay \
-          --name={sapsite1}
-----
-+
-. Restart the HANA database (now secondary) on node 1 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
-----
+. Wait and see. After the cluster has locally re-started the HANA primary, the resource failure needs to be cleared.
 
 .{testExpect}
 .  The cluster detects the stopped primary HANA database (on node 1)
 and marks the resource failed.
 .  The cluster promotes the secondary HANA database (on node 2) to
 take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped
-primary (on node 1) as SFAIL.
-.  Because AUTOMATED_REGISTER="false" the cluster does not restart
-the failed HANA database or register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the
-recovery procedure.
+.  The cluster initiates a local re-start (PREFER_SITE_TAKEOVER="false").
 ==========
+
+
+==== Test: Repeat previous test till Primary migrates
+
 
 ==== Test: Stop Primary Database on Site B (Node 2)
 

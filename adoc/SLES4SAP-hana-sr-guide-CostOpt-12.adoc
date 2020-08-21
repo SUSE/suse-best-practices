@@ -35,11 +35,11 @@ TODO:
 ////
 
 ////
-   ____      __                 __           __  _           
-   /  _/___  / /__________  ____/ /_  _______/ /_(_)___  ____ 
+   ____      __                 __           __  _
+   /  _/___  / /__________  ____/ /_  _______/ /_(_)___  ____
    / // __ \/ __/ ___/ __ \/ __  / / / / ___/ __/ / __ \/ __ \
  _/ // / / / /_/ /  / /_/ / /_/ / /_/ / /__/ /_/ / /_/ / / / /
-/___/_/ /_/\__/_/   \____/\__,_/\__,_/\___/\__/_/\____/_/ /_/ 
+/___/_/ /_/\__/_/   \____/\__,_/\__,_/\___/\__/_/\____/_/ /_/
 ////
 
 === Introduction
@@ -105,6 +105,8 @@ See <<Supported Scenarios and Prerequisites>> for details.
 
 ==== Scale-Up Versus Scale-Out
 
+// TODO PRIO2: add stonith resource to the graphic
+
 The first set of scenarios includes the architecture and development of
 _scale-up_ solutions.
 
@@ -136,8 +138,8 @@ at {reslibrary}. The document for scale-out is named _"{docScaleOut}"_.
 {SUSE} has implemented the scale-up scenario with the `{SAPHanaRA}` resource
 agent (RA), which performs the actual check of the {HANA} database
 instances. This RA is configured as a multi-state resource. In the
-scale-up scenario, the master assumes responsibility for the {hana}
-databases running in primary mode. The slave is responsible for
+scale-up scenario, the promoted RA instance assumes responsibility for the {hana}
+databases running in primary mode. The non-promoted RA instance is responsible for
 instances that are operated in synchronous (secondary) status.
 
 To make configuring the cluster as simple as possible, SUSE also
@@ -169,8 +171,8 @@ and bound to the secondary role of the system replication.
 image::SAPHanaSR-ScaleUP-costOpt2.svg[scaledwidth=100.0%]
 +
 In the cost optimized scenario the second node is also used for a
-non-productive {hana} RDBMS system (like QAS or TST). Whenever a takeover
-is needed the non-productive system must be stopped first. As the
+non-replicated {hana} RDBMS system (like QAS or TST). Whenever a takeover
+is needed the non-replicated system must be stopped first. As the
 productive secondary system on this node must be limited in using system
 resources, the table preload must be switched off. A possible
 takeover needs longer than in the performance optimized use case.
@@ -208,10 +210,10 @@ scenarios.
 ==== The Concept of the Cost Optimized Scenario
 
 // DONE PRIO1: CostOpt12 - Describe Cost optimized not performance optimized scenario !!
-// TODO PRIO1: CostOpt12 - Still only non-productive databases on the secondary side?
+// TODO PRIO1: CostOpt12 - Still only non-replicated databases on the secondary side?
 
-{SAP} allows to run a non-productive instance of {SAPHANA} on the system replication site on
-the secondary site. Such a non-productive database could be development (DEV), test (TST), or
+{SAP} allows to run a non-replicated instance of {SAPHANA} on the system replication site on
+the secondary site. Such a non-replicated database could be development (DEV), test (TST), or
 quality assurance system (QAS).
 
 In case of failure of the primary {SAPHANA} on the primary site the cluster first tries to restart
@@ -219,16 +221,16 @@ the failed {SAPHANA} database locally on this node. If the restart is not possib
 primary node crashed, the takeover process will be triggered.
 
 In case of a takeover the secondary (replica) of this {SAPHANA} on node 2 is promoted *after* the
-shutdown of the non-productive {SAPHANA}.
+shutdown of the non-replicated {SAPHANA}.
 
 Alternatively you could also configure a different resource handling procedure, but we recommend
 to try to restart {SAPHANA} locally first, as a takeover with non preloaded tables could
-consume much time and also the needed graceful stop of the non-productive system will take additional time. Thus
+consume much time and also the needed graceful stop of the non-replicated system will take additional time. Thus
 in many environments the local restart will be faster.
 
 To achieve an automation of this resource handling process, we can utilize the {SAPHANA}
 resource agents included in SAPHanaSR. System replication of the productive database is done
-using the resource agents `SAPHana` and `SAPHanaTopology`. The handling of the non-productive database
+using the resource agents `SAPHana` and `SAPHanaTopology`. The handling of the non-replicated database
 is implemented using the `SAPInstance` resource agent.
 
 So while `SAPHana` and `SAPHanaTopology` are driving the automation of the {SAPHANA} system replication,
@@ -236,14 +238,14 @@ So while `SAPHana` and `SAPHanaTopology` are driving the automation of the {SAPH
 `SAPDatabase` instead. The move to `SAPInstance` was needed to get rid of the error-prone
 user secure store keys setup procedure. See also our blog "SAP HANA Cost-optimized – An alternative Route is available" available at https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
 
-The automated shutdown of the non-productive {SAPHANA} database (e.g. QAS) is achieved by cluster
-rules. Concrete it is an anti-collocation of {SAPHANA} promoted vs. {SAPHANA} non-prod. This means
-if the primary {SAPHANA} system (like HA1) fails the anti-collocation rules for the {SAPHANA} non-prod (like QAS) are triggered
-and the `SAPInstance` resource agent shuts down the non-productive {SAPHANA} database.
+The automated shutdown of the non-replicated {SAPHANA} database (e.g. QAS) is achieved by cluster
+rules. Concrete it is an anti-collocation of {SAPHANA} promoted vs. {SAPHANA} non-replicated. This means
+if the primary {SAPHANA} system (like HA1) fails the anti-collocation rules for the {SAPHANA} non-replicated system (like QAS) are triggered
+and the `SAPInstance` resource agent shuts down the non-replicated {SAPHANA} database.
 
-The takeover to the secondary site takes a long period of time, because the non-productive database needs to
+The takeover to the secondary site takes a long period of time, because the non-replicated database needs to
 be stopped gracefully prior to takeover the productive database. This prolonged takeover time
-is the main disadvantage of the cost optimization scenario. So, the cost optimized scenario might be combined with persitent memory to benefit from SAP HANA’s persistent memory features.
+is the main disadvantage of the cost optimized scenario. So, the cost optimized scenario might be combined with persistent memory to benefit from SAP HANA’s persistent memory features.
 
 NOTE: If you like to achieve a very fast takeover you need to go with the performance optimized scenario.
 
@@ -281,7 +283,7 @@ using {sap} and cluster commands.
 ==== Customers Receive Complete Package
 
 Using the SAPHana and SAPHanaTopology resource agents, customers
-are be able to integrate {hana} system replications in their
+are able to integrate {hana} system replications in their
 cluster. This has the advantage of enabling companies to use not only
 their business-critical SAP systems but also their {hana} databases
 without interruption while noticeably reducing needed budgets. SUSE
@@ -292,12 +294,12 @@ SAP and hardware partners who do not have their own {hana}
 high availability solution will also benefit from this development of SUSE.
 
 ////
-    ______                           __               
-   / ____/________  _______  _______/ /____  ____ ___ 
+    ______                           __
+   / ____/________  _______  _______/ /____  ____ ___
   / __/ / ___/ __ \/ ___/ / / / ___/ __/ _ \/ __ `__ \
  / /___/ /__/ /_/ (__  ) /_/ (__  ) /_/  __/ / / / / /
-/_____/\___/\____/____/\__, /____/\__/\___/_/ /_/ /_/ 
-                      /____/      
+/_____/\___/\____/____/\__, /____/\__/\___/_/ /_/ /_/
+                      /____/
 ////
 
 === Ecosystem of the Document
@@ -359,19 +361,18 @@ independent.
 drives. For productive environments, we recommend more than one SBD
 device. For details on disk-based SBD, read the product documentation for
 SUSE Linux Enterprise High Availability Extension and the manual pages
-sbd.8 and stonith_sbd.8.
+sbd(8) and stonith_sbd(8).
 ** For disk-less SBD you need at least three cluster nodes. The disk-less SBD mechanism
 has the benefit that you do not need a shared drive for fencing.
 * Both nodes are in the same network segment (layer 2). Similar methods provided
 by cloud environments such as overlay IP addresses and load balancer functionality
 are also fine. Follow the cloud specific guides to set up your {sles4sap} cluster.
 * Technical users and groups, such as _<sid>adm_ are defined
-locally in the Linux system.
-* Name resolution of the cluster nodes and the virtual IP address must
-be done locally on all cluster nodes.
+locally in the Linux system. If that is not possible, additional measures are needed to ensure reliable
+resolution of users, groups and permissions at any time. This might include caching.
+* Name resolution of the cluster nodes and the virtual IP address must be done locally on all cluster nodes. If that is not possible, additional measures are need to ensure reliable resolution of hostnames at any time.
 * Time synchronization between the cluster nodes like NTP.
-* Both {hana} instances (primary and secondary) have the same SAP Identifier (SID) and instance
-number.
+* Both {hana} instances of the system replication pair (primary and secondary) have the same SAP Identifier (SID) and instance number.
 * If the cluster nodes are installed in different data centers or data
 center areas, the environment must match the requirements of the SUSE Linux Enterprise High Availability Extension
 cluster product. Of particular concern are the network latency and

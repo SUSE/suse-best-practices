@@ -394,30 +394,25 @@ setup (performance based, cost optimized and multi-tier).
 system including all database containers. Therefore cluster takeover
 decisions are based on the complete RDBMS status independent of the
 status of individual database containers.
-** For {hana} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop
-tenants during production and you want the cluster to be able to take over.
-Older {hana} versions are marking the system replication as failed if
-you stop a tenant.
 ** Tests on Multi-tenancy databases could force a different test procedure
 if you are using strong separation of the tenants. As an example, killing the
 complete {hana} instance using _HDB kill_ does not work, because the tenants are
 running with different Linux user UIDs. {refsidadm} is not allowed to terminate the
 processes of the other tenant users.
 * {sles4sap} versions
-** You need at least {SAPHanaSR} version {sapHanaSrMinVers} and in best {sles4sap} {prodnr}
-** Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodnr} SP4.
+** You need at least {SAPHanaSR} version {sapHanaSrMinVers} and at least {sles4sap} {prodnr} {prodsp}.
+** Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodnr} {prodsp} or newer.
 // Intel Optane DCPMM (aka PMEM) is supported since SLES-for-SAP 12 SP4 and 15 GA.
 // IBM Power vPMEM is supported since SLES-for-SAP 15 SP1
-{prodsp} or newer.
+// 
 * {hana} versions
 ** {hana} 1.0 is supported since SPS09 (095) for all mentioned setups. {hana} 1.0 does not support the HA/DR provider hook method srConnectionChanegd() with multi-target aware parameters. These parameters are needed for the HA/DR hook in the package.
-** {hana} 2.0 is supported with all known SPS versions.
-** {hana} 2.0 SPS03 or later provides the needed HA/DR provider hook method srConnectionChanegd() with multi-target aware parameters.
-** The multi-target setup has been tested with {hana} 2.0 SPS04.
+** For {hana} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop tenants during production and you want the cluster to be able to take over.  Older {hana} versions are marking the system replication as failed if you stop a tenant.
+** {hana} 2.0 SPS04 or later provides the needed HA/DR provider hook method srConnectionChanegd() with multi-target aware parameters.
 ** Particularly the {HANA} system replication cost optimized scenario can
 benefit from {HANA}'s persistent memory features. Local restart and take-over
 are affected by the time {HANA} needs for shutdown and loading column store.
-{HANA} 2.0 SPS04 and later do support persitent memory.
+{HANA} 2.0 SPS04 and later do support persistent memory.
 
 IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
 and will not work properly.
@@ -476,7 +471,7 @@ to give you the possibility to create your own automation.
 
 The seven main setup steps are:
 
-// DONE PRIO1: CostOpt12 - Should we add a step for CostOpt (install non-productive DB) at this level or should we 'hide' the step in 'stepHANA'?  => keep it inline
+// DONE PRIO1: CostOpt12 - Should we add a step for CostOpt (install non-replicated DB) at this level or should we 'hide' the step in 'stepHANA'?  => keep it inline
 
 :stepPlanning: Planning the Installation
 :stepOS: Operating System Setup
@@ -497,7 +492,7 @@ image::SAPHanaSR-ScaleOut-Plan-Phase0.svg[scaledwidth="100%"]
 - Testing (see <<{stepTest}>>)
 
 // TODO PRIO1: CostOpt12 - Should we mention the 'QAS'-DB in the Database installation title like
-//        Database installation including non-productive (or non-SR SAP HANA system)
+//        Database installation including non-replicated (or non-SR SAP HANA system)
 == {stepPlanning}
 
 image::SAPHanaSR-ScaleOut-Plan-Phase1.svg[scaledwidth="100%"]
@@ -669,9 +664,8 @@ The main installation guides for {sles4sap} that fit all requirements for {sapHa
 SAP notes:
 
 // SUSE and SAP are kept literal here not by the reference, because its a quote of an external title
-- 1984787 SUSE LINUX Enterprise Server 12: Installation notes and
-- 2205917 SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12.
-
+* 1984787 SUSE LINUX Enterprise Server 12: Installation notes 
+* 2205917 SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12.
 
 ==== Installing Additional Software
 {SUSE} delivers with {sles4sap} special resource agents for {sapHana}. With the pattern _sap-hana_ the resource
@@ -703,8 +697,7 @@ _majority maker_.
 ====
 
 Optionally the ClusterTools2 package can be installed. It contains cmdline tools
-for simplyfing common adminstrative tasks. For more information, see Installation
-and Basic Setup, {sleha}.
+for simplifying common administrative tasks. 
 
 For more information, see _Installation and Basic Setup_, {uarr}SUSE
 Linux Enterprise High Availability Extension.
@@ -778,7 +771,7 @@ the {hana} Administration Guide.
 
 . Back up the primary database
 . Enable primary database
-. Register the secondary database
+. Register and start the secondary database
 . Verify the system replication
 
 === Back Up the Primary Database
@@ -884,15 +877,15 @@ To stop the secondary you can use the command line tool _HDB_.
 
 .Copy the KEY and KEY-DATA file from the primary to the secondary site
 ==========
-Beginning with {hana} 2.0 the system replication is running encrypted. This
-is why the key files needs to copied-over from the primary to the secondary
+Beginning with {hana} 2.0 the system replication is running encrypted.
+The key files need to copied-over from the primary to the secondary
 site.
 
 [subs="specialchars,attributes,quotes"]
 ----
 cd /usr/sap/{refSID}/SYS/global/security/rsecssfs
-rsync -va {,<node1-site B>:}$PWD/data/SSFS_{refSID}.DAT
-rsync -va {,<node1-site B>:}$PWD/key/SSFS_{refSID}.KEY
+rsync -va {<node1-site A>:,}$PWD/data/SSFS_{refSID}.DAT
+rsync -va {<node1-site A>:,}$PWD/key/SSFS_{refSID}.KEY
 ----
 ==========
 
@@ -920,9 +913,8 @@ the database instance number (here {sapino}).
 
 Now start the database instance again and verify the system replication
 status. On the secondary node, the mode should be one of "SYNC" or
-"SYNCMEM". "ASYNC" is also a possible replication mode *but not supported with
-automated cluster takeover*. The mode depends on the *sync* option defined during
-the registration of the secondary.
+"SYNCMEM". "ASYNC" is *not supported with automated cluster takeover*. 
+The mode depends on the *replicationMode* option defined during the registration of the secondary.
 
 .Start Secondary and Check SR Configuration
 ==========
@@ -1071,7 +1063,7 @@ ha_dr_saphanasr = info
 ----
 ===================================
 
-=== Configuring System Replication Operation Mode
+===== Configuring System Replication Operation Mode
 
 When your system is connected as an {sapHanaSR} target you can find an entry in the _global.ini_
 which defines the operation mode. Up to now there are the following modes available.
@@ -1101,7 +1093,7 @@ operation_mode = logreplay
 ----
 ===================================
 
-=== Allowing {refsidadm} to access the Cluster
+===== Allowing {refsidadm} to access the Cluster
 
 The current version of the SAPHanaSR python hook uses the command `sudo` to allow
 the {refsidadm} user to access the cluster attributes. In Linux you can use `visudo`
@@ -1115,7 +1107,7 @@ Replace the {refsidLC} by the *lowercase* SAP system ID (like `{sapssid}`).
 
 .Entry in sudo permissions /etc/sudoers file
 ===================================
-Basic sudoers entry to allow <sidadm> to use the srHook.
+Basic sudoers entry to allow <sid>adm to use the srHook.
 
 // command to be allowed used in the hook:
 // "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
@@ -1285,6 +1277,9 @@ integration.
 . Basic Cluster Configuration.
 
 . Configure Cluster Properties and Resources.
+
+. Test the hook integration
+// TODO PRIO2: Describe the hook test (e.g. restart secondary) to trigger the write of cluster attributes
 
 
 === Basic Cluster Configuration
@@ -1458,7 +1453,7 @@ nodelist {
 You can skip this section if you do not have any SBD devices, but be
 sure to implement another supported fencing mechanism.
 
-See man pages sbd.8 and stonith_sbd.7 for details.
+See man pages sbd(8) and stonith_sbd(7) for details.
 
 .SBD Options
 [cols=",",options="header",]
@@ -1897,12 +1892,12 @@ Load the file to the cluster.
 {sapnode1}:~ # crm configure load update crm-cs.txt
 ----
 
-==== Add the cluster resource for the non-productive {SAPHANA} database
+==== Add the cluster resource for the non-replicated {SAPHANA} database
 
 // TODO PRIO1: CostOpt12 - Check the resource priories (of all resources)
 // TODO PRIO1: CostOpt12 - Use variables as placeholders
 
-For the non-productive {SAPHANA} database a new resource is added to the cluster.
+For the non-replicated {SAPHANA} database a new resource is added to the cluster.
 In former documents we used the resource agent `SAPDatabase` to control that
 database. The new architecture now uses `SAPInstance` to start, stop and monitor this
 cluster component. The reason for that change is that `SAPDatabase` is using the
@@ -1934,7 +1929,7 @@ Load the resource definition into the cluster
 {sapnode1}:~ # crm configure load update crm-si.txt
 ----
 
-==== Adding the cluster rules for the automatic shutdown of the non-productive {SAPHANA}
+==== Adding the cluster rules for the automatic shutdown of the non-replicated {SAPHANA}
 
 // We refer to the cluster nodes as suse01 and suse02 respectively:
 // TODO PRIO1: CostOpt12 - Use variables as placeholders
@@ -2013,11 +2008,11 @@ See also manual pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_clust
 `SAPHanaSR_maintenance_examples(7)`.
 
 ////
-  ______          __      
+  ______          __
  /_  __/__  _____/ /______
   / / / _ \/ ___/ __/ ___/
- / / /  __(__  ) /_(__  ) 
-/_/  \___/____/\__/____/ 
+ / / /  __(__  ) /_(__  )
+/_/  \___/____/\__/____/
 ////
 
 === Test Cases for Semi Automation
@@ -2049,9 +2044,9 @@ on the exit state of the preceeding tests.
 
 .{testExpect}
  * Primary restarts on site A (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
- * If takeover occurs 
- ** non-replicated database is stopped on node 2 (site B) 
- ** Secondary is Promoted as Primary
+ * If takeover occurs
+ ** non-replicated database is stopped on node 2 (site B)
+ ** Secondary database is promoted as primary
 
 .{testRecover}
  * No recovery needed, if no takeover did occur
@@ -2081,9 +2076,9 @@ on the exit state of the preceeding tests.
 .{testExpect}
  * Primary restarts on site B (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
  * Non-replicated database still stopped on node 2 (site B)
- * If takeover occurs 
- ** Secondary is Promoted as Primary
- ** non-replicated database is started on node 2 (site B) 
+ * If takeover occurs
+ ** Secondary database is promoted as primary
+ ** non-replicated database is started on node 2 (site B)
 
 .{testRecover}
  - No recovery needed if no takeover did occur
@@ -2112,14 +2107,16 @@ on the exit state of the preceeding tests.
 ----
 
 .{testExpect}
- - Primary restarts on site A (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
- - If takeover occurs: Non-replicated database is stopped on node 2 (site B) and Secondary is Promoted as Primary
+ * Primary restarts on site A (PREFER_SITE_TAKEOVER=false) till failcount >= migration-threshold
+ * If takeover occurs:
+ ** Non-replicated database is stopped on node 2 (site B)
+ ** Secondary database is promoted as primary
 
 .{testRecover}
  - No recovery needed if no takeover did occur
  - Recovery after takeover:
 . Register site A to site B
-. Register cleanup for site A
+. Resource cleanup for site A
 ==========
 
 ===== Test: Crash Primary Database on Site B (Node 2)
@@ -2170,15 +2167,15 @@ on the exit state of the preceeding tests.
 ----
 
 .{testExpect}
- - Non-replicated SAP HANA stopped on node 2 
+ - Non-replicated SAP HANA stopped on node 2
  - Cluster takeover to site B
  - Non-replicated database is stopped on node 2 (site B)
- - Secondary is Promoted as Primary
+ - Secondary database is promoted as primary
 
 .{testRecover}
  -  Recovery after takeover:
 . Optionally cleanup sbd slot for node 1
-. Start cluster framework
+. Start cluster framework on node 1
 . Wait till node 1 joins the cluster
 . Register site A to site B
 ==========
@@ -2208,7 +2205,7 @@ on the exit state of the preceeding tests.
 .{testRecover}
  - Recovery after takeover:
 . Optionally cleanup sbd slot for node 2
-. Start cluster framework
+. Start cluster framework on node 2
 . Wait till node 2 joins the cluster
 . Register site B to site A
 ==========
@@ -2238,6 +2235,7 @@ on the exit state of the preceeding tests.
 
 .{testRecover}
 . Wait and see
+. Resource cleanup for site B
 ==========
 
 ===== Test: Crash the Secondary Database on Site B (Node 2)
@@ -2264,6 +2262,7 @@ on the exit state of the preceeding tests.
 
 .{testRecover}
 . Wait and see
+. Resource cleanup for site B
 ==========
 
 ===== Test: Crash the Secondary Node on Site B (Node2)
@@ -2291,7 +2290,7 @@ on the exit state of the preceeding tests.
 .{testRecover}
  - Recovery after node 2 is back:
 . Optionally cleanup sbd slot for node 2
-. Start cluster framework
+. Start cluster framework on node 2
 . Wait till node 2 joins the cluster
 ==========
 
@@ -2316,7 +2315,7 @@ on the exit state of the preceeding tests.
 ----
 
 .{testExpect}
- - Cluster restart non-replicated database on node 2 (site B)
+ - Cluster restarts non-replicated database on node 2 (site B)
  - Secondary database is not affected
 
 .{testRecover}
@@ -2342,7 +2341,7 @@ on the exit state of the preceeding tests.
 ----
 
 .{testExpect}
- - Cluster restart non-replicated database on node 2 (site B)
+ - Cluster restarts non-replicated database on node 2 (site B)
  - Secondary database is not affected
 
 .{testRecover}
@@ -2361,10 +2360,10 @@ on the exit state of the preceeding tests.
  - Pull LAN port down or block SR packages. Corosync network still available
 
 // .{testProc}
- 
+
 .{testExpect}
  - System replication status fall down to status _SFAIL_
- - Primary stays on node 1 (site A) 
+ - Primary stays on node 1 (site A)
  - No cluster takeover
  - Non-replicated database not affected on node 2 (site B)
 

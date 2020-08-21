@@ -1141,6 +1141,135 @@ Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_
 
 ===================================
 
+==== Implementing SAPHanaSR Hook for srPostTakeover
+
+The parameters added to global.ini imply that there should be a srTakeover hook installed on
+the second node. We provide a sample code which needs to be adapted for your environment.
+Currently you need to provide a user name / password combination inside the hook. We are
+trying to improve that in the future together with SAP at the LinuxLab.
+
+The srTakeover-Hook is based on sample code of {SAP} as well as the hook provided by DELL
+in SAP Note 2196941.
+
+// TODO PRIO1: Check for the bugzilla entry regarding CostOpt12
+// TODO PRIO2: Check best place to install the hook
+// TODO PRIO2: Check if we can provide an example of the hook within the SAPHanaSR package
+// DONE PRIO2: Check the statement: This file will be overwritten with each hdbupd call! - Is that a left-over of a copy from an SAP HANA installed sample file?
+//             Was a left-over of file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/HADRDummy.py
+// TODO PRIO2: Study file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/client.py
+//             This file is naming more details about the HADR methods
+// TODO PRIO3: Get rid of the reference to DELL SAP Note 2196941?
+
+NOTE: This hook is given "as-it-is". It must be installed at node 2 as
+/hana/shared/srHook/srTakeover.py to undo the changes to global_allocation_limit and preload_column_tables in case
+of a takeover.
+
+[subs="specialchars,attributes"]
+----
+#!/usr/bin/env python2
+
+"""
+Sample for a HA/DR hook provider for method srPreTakeover().
+When using your own code in here, please copy this file to location on /hana/shared
+outside the HANA installation.
+
+To configure your own changed version of this file, please add to your global.ini lines similar to this:
+
+[ha_dr_provider_<className>]
+provider = <className>
+path = /hana/shared/haHook
+execution_order = 2
+
+For all hooks, 0 must be returned in case of success.
+Set the following variables:
+* dbinst Instance Number [e.g. 00 - 99 ]
+* dbuser Username [ e.g. SYSTEM ]
+* dbpwd
+* user password [ e.g. SLES4sap ]
+* dbport port where db listens for SQL connctions [e.g 30013 or 30015]
+"""
+#
+# parameter section
+#
+dbuser="SYSTEM"
+dbpwd="<yourPassword1234>"
+dbinst="00"
+dbport="30013"
+#
+# prepared SQL statements to remove memory allocation limit
+#    and pre-load of column tables
+#
+stmnt1 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('memorymanager','global_allocation_limit') WITH RECONFIGURE"
+stmnt2 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('system_replication','preload_column_tables') WITH RECONFIGURE"
+#
+# loading classes and libraries
+#
+import os, time, dbapi
+from hdb_ha_dr.client import HADRBase, Helper
+#
+# class definition srTakeover
+#
+class srTakeover(HADRBase):
+  def __init__(self, *args, **kwargs):
+       # delegate construction to base class
+       super(srTakeover, self).__init__(*args, **kwargs)
+
+  def about(self):
+      return {"provider_company" : "<customer>",
+              "provider_name" : "srTakeover", # provider name = class name
+              "provider_description" : "Replication takeover script to set parameters to default.",
+              "provider_version" : "1.0"}
+
+  def startup(self, hostname, storage_partition, system_replication_mode, **kwargs):
+      self.tracer.debug("called startup hook; %s" % locals())
+      return 0
+
+  def shutdown(self, hostname, storage_partition, system_replication_mode, **kwargs):
+      self.tracer.debug("called shutdown hook; %s" % locals())
+      return 0
+
+  def failover(self, hostname, storage_partition, system_replication_mode, **kwargs):
+      self.tracer.debug("called failover hook; %s" % locals())
+      return 0
+
+  def stonith(self, failingHost, **kwargs):
+      self.tracer.debug("called stonith hook; %s" % locals())
+      return 0
+
+  def preTakeover(self, isForce, **kwargs):
+      self.tracer.info("%s.preTakeover method called with isForce=%s" % (self.__class__.__name__, isForce))
+      return 0
+
+  def postTakeover(self, rc, **kwargs):
+      """Post takeover hook."""
+      self.tracer.info("%s.postTakeover method called with rc=%s" % (self.__class__.__name__, rc))
+      if rc == 0:
+         # normal takeover succeeded
+         conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
+         cursor = conn.cursor()
+         cursor.execute(stmnt1)
+         cursor.execute(stmnt2)
+         return 0
+      elif rc == 1:
+          # waiting for force takeover
+          conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
+          cursor = conn.cursor()
+          cursor.execute(stmnt1)
+          cursor.execute(stmnt2)
+          return 0
+      elif rc == 2:
+          # error, something went wrong
+          return 0
+----
+
+In the same directory (/hana/shared/srHook) you need to install some python files from the
+{hana} client software to enable the hook to run the database connect and sql queries.
+
+You need the following files: dbapi.py, __init__.py, resultrow.py
+
+After changing the global.ini on node 2 and implementing the srTakeover hook you should start
+the productive {HANA} database secondary and check if the parameters are working.
+
 //[[cha.s4s.configure-cluster]]
 == {stepCluster}
 

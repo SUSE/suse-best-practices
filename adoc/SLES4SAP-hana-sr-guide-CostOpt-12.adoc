@@ -750,6 +750,23 @@ pf=/usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/wdisp/sapwebdisp.pfl -f /usr/sap/SL
 pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2} -D -u s
 ----
 
+=== Installing the non-replicated {HANA} on the secondary site
+
+// TODO PRIO1: Describe the installation of the non-replicated database with memory limits
+
+* Stop secondary (unlimitted database)
+* Install non-replicated {HANA} with memeory limits
+* Stop the non-repliated {HANA}
+
+.Check the memory limitations for the non-replicated {hana}
+=========
+[subs="specialchars,attributes,quotes"]
+----
+[memorymanager]
+global_allocation_limit = <size_in_mb_for_non_replicated_hana>
+----
+=========
+
 == {stepHSR}
 
 image::SAPHanaSR-ScaleOut-Plan-Phase4.svg[scaledwidth="100%"]
@@ -761,7 +778,7 @@ the {hana} Administration Guide.
 
 . Back up the primary database
 . Enable primary database
-. Register and start the secondary database
+. Register, limit and start the secondary database
 . Verify the system replication
 
 === Back Up the Primary Database
@@ -903,8 +920,30 @@ the database instance number (here {sapino}).
 
 Now start the database instance again and verify the system replication
 status. On the secondary node, the mode should be one of "SYNC" or
-"SYNCMEM". "ASYNC" is *not supported with automated cluster takeover*. 
+"SYNCMEM". "ASYNC" is *not supported with automated cluster takeover*.
 The mode depends on the *replicationMode* option defined during the registration of the secondary.
+
+.Set Memory Limits for the {HANA} Secondary
+==========
+Add the memoty limits to the global.ini. Again SUSE could not provide a sizing guide here. {HANA} sizing needs to be done ...
+// TODO PRIO1: Add sizing refrence here
+[subs="specialchars,attributes,quotes"]
+----
+[memorymanager]
+global_allocation_limit = <size_in_mb_for_secondary>
+----
+==========
+
+.Switch table pre-load to off
+==========
+To allow the {HANA} secondary with less memory we need to switch-off table pre-load.
+[subs="attributes,quotes"]
+----
+[system_replication]
+preload_column_tables = false
+----
+==========
+
 
 .Start Secondary and Check SR Configuration
 ==========
@@ -1009,8 +1048,6 @@ called by {SAPHANA} again when the system replication is back.
 
 // TODO PRIO2: Steps "Start" and "Test" are missing
 
-=== Implementing the Python Hooks
-
 We implement two {hana} HA/DR provider hooks. One hook is named SAPHanaSR and shipped with the SAPHanaSR
 package. The other is named srTakeover and needs to be adopted to your database according to
 your specific username/password and connection.
@@ -1022,7 +1059,7 @@ global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
 - Integrate the hooks into global.ini ({saphana} needs to be stopped for doing that offline)
 - Check integration of the hooks during start-up
 
-==== Implementing SAPHanaSR Hook for srConnectionChanged
+=== Implementing SAPHanaSR Hook for srConnectionChanged
 
 Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py. Optionally copy it to your preferred
 directory like /hana/share/myHooks. The hook must be available on all SAP HANA cluster nodes.
@@ -1059,7 +1096,7 @@ ha_dr_saphanasr = info
 ----
 ===================================
 
-===== Configuring System Replication Operation Mode
+==== Configuring System Replication Operation Mode
 
 When your system is connected as an {sapHanaSR} target you can find an entry in the _global.ini_
 which defines the operation mode. Up to now there are the following modes available.
@@ -1089,7 +1126,7 @@ operation_mode = logreplay
 ----
 ===================================
 
-===== Allowing {refsidadm} to access the Cluster
+==== Allowing {refsidadm} to access the Cluster
 
 The current version of the SAPHanaSR python hook uses the command `sudo` to allow
 the {refsidadm} user to access the cluster attributes. In Linux you can use `visudo`
@@ -1130,7 +1167,7 @@ Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_
 
 ===================================
 
-==== Implementing SAPHanaSR Hook for srPostTakeover
+=== Implementing Hook for srPostTakeover
 
 The parameters added to global.ini imply that there should be a srTakeover hook installed on
 the second node. We provide a sample code which needs to be adapted for your environment.
@@ -1148,6 +1185,8 @@ in SAP Note 2196941.
 // TODO PRIO2: Study file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/client.py
 //             This file is naming more details about the HADR methods
 // TODO PRIO3: Get rid of the reference to DELL SAP Note 2196941?
+// TODO PRIO2: Dont quote the complete hook, once it has been added to the package (as example)
+// TODO PRIO1: should srTakeover be names srCostOptMemConfig?
 
 NOTE: This hook is given "as-it-is". It must be installed at node 2 as
 /hana/shared/srHook/srTakeover.py to undo the changes to global_allocation_limit and preload_column_tables in case
@@ -1209,26 +1248,6 @@ class srTakeover(HADRBase):
               "provider_description" : "Replication takeover script to set parameters to default.",
               "provider_version" : "1.0"}
 
-  def startup(self, hostname, storage_partition, system_replication_mode, **kwargs):
-      self.tracer.debug("called startup hook; %s" % locals())
-      return 0
-
-  def shutdown(self, hostname, storage_partition, system_replication_mode, **kwargs):
-      self.tracer.debug("called shutdown hook; %s" % locals())
-      return 0
-
-  def failover(self, hostname, storage_partition, system_replication_mode, **kwargs):
-      self.tracer.debug("called failover hook; %s" % locals())
-      return 0
-
-  def stonith(self, failingHost, **kwargs):
-      self.tracer.debug("called stonith hook; %s" % locals())
-      return 0
-
-  def preTakeover(self, isForce, **kwargs):
-      self.tracer.info("%s.preTakeover method called with isForce=%s" % (self.__class__.__name__, isForce))
-      return 0
-
   def postTakeover(self, rc, **kwargs):
       """Post takeover hook."""
       self.tracer.info("%s.postTakeover method called with rc=%s" % (self.__class__.__name__, rc))
@@ -1251,13 +1270,24 @@ class srTakeover(HADRBase):
           return 0
 ----
 
-In the same directory (/hana/shared/srHook) you need to install some python files from the
-{hana} client software to enable the hook to run the database connect and sql queries.
+In the same directory (/hana/shared/srHook) you need to install (link) some python files from the
+{hana} client software to enable the hook to run the database connect and SQL queries.
 
 You need the following files: dbapi.py, __init__.py, resultrow.py
 
+It is recommended to use symlink to have those python libraries available. Using symlink the files are
+always up to date, if you update {hana}.
+
+[subs="specialchars,attributes"]
+----
+cd /hana/shared/srHook
+ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/dbapi.py .
+ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/__init__.py .
+ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/resultrow.py .
+----
+
 After changing the global.ini on node 2 and implementing the srTakeover hook you should start
-the productive {HANA} database secondary and check if the parameters are working.
+the productive {HANA} secondary database and check if the parameters are working.
 
 //[[cha.s4s.configure-cluster]]
 == {stepCluster}

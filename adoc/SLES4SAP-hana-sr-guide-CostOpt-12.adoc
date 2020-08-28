@@ -345,6 +345,7 @@ additional decision maker in case of cluster separation.
 * The cluster must include a valid STONITH method.
 ** Any STONITH mechanism supported by SUSE Linux Enterprise {prodnr} High Availability Extension (like SBD, IPMI)
 is supported with SAPHanaSR.
+// TODO PRIO2: Is stonith-ssh a supported scenario?
 ** This guide is focusing on the SBD fencing method as this is hardware
 independent.
 ** If you use disk-based SBD as the fencing mechanism, you need one or more shared
@@ -846,6 +847,7 @@ done.
 
 .Check SR Configuration on the Primary
 ==========
+// TODO PRIO2: Check if the command-output is still valid
 Check the primary using the command `hdbnsutil -sr_stateConfiguration`.
 
 [subs="specialchars,attributes,quotes"]
@@ -1038,7 +1040,8 @@ called by {SAPHANA} again when the system replication is back.
 
 **Procedure**
 
-// TODO PRIO1: CostOpt12 - We add. need a second Hook to unlimit the secondary
+// DONE PRIO1: CostOpt12 - We add. need a second Hook to unlimit the secondary
+// TODO PRIO1: CostOpt12 - Check the following procedure - still correct steps and order?
 
 . Implement the python hook SAPHanaSR
 . Configure system replication operation mode
@@ -1932,15 +1935,16 @@ communicate with the cluster. This configuration is to complex and error prone.
 The new concept has already been published a {SUSE} towardsZeroDoentime blog at:
 https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
 
+// DONE PRIO1: Lars asked: is the hostname part of the instance profile name or not?
+
 [subs="attributes,quotes"]
 ----
 # vi crm-si.txt
 # enter the following to crm-si.txt
-
-primitive rsc_SAP_QAS_HDB20 ocf:heartbeat:SAPInstance \
-  params InstanceName="QAS_HDB20_sapqasdb" \
+primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
+  params InstanceName="{sapnpsid}_HDB{sapnpino}_{sapnode2}" \
         MONITOR_SERVICES="hdbindexserver|hdbnameserver" \
-        START_PROFILE="/usr/sap/QAS/SYS/profile/QAS_HDB20_sapqasdb" \
+        START_PROFILE="/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_{sapnode2}" \
   op start interval="0" timeout="600" \
   op monitor interval="120" timeout="700" \
   op stop interval="0" timeout="300" \
@@ -1962,11 +1966,20 @@ In the following again {sapnode1} and {sapnode2} are used as the two active clus
 
 [subs="attributes,quotes"]
 ----
+# vi crm-con.txt
+# enter the following to crm-con.txt
 location loc_QAS_never_on_suse01 rsc_SAP_QAS_HDB20 -inf: suse01
 colocation col_QAS_never_with_HA1ip -inf: rsc_SAP_QAS_HDB20:Started \
   rsc_ip_HA1_HDB10
-order ord_QASstop_before_HA1-promote inf: rsc_SAP_QAS_HDB20:stop \
+order ord_QASstop_before_HA1-promote mandatory: rsc_SAP_QAS_HDB20:stop \
   msl_SAPHana_HA1_HDB10:promote
+----
+
+Load the resource definition into the cluster
+
+[subs="attributes,quotes"]
+----
+{sapnode1}:~ # crm configure load update crm-con.txt
 ----
 
 ////
@@ -3490,6 +3503,8 @@ image::hana_studio_landscape.png[scaledwidth=100%]
 A simple overview can be obtained by calling `crm_mon`. Using option
 `-r` shows also stopped but already configured resources. Option `-1`
 tells `crm_mon` to output the status once instead of periodically.
+
+// TODO PRIO2: Replace command output by current output (here non-replicated resource is missing)
 
 [subs="attributes,quotes"]
 ----

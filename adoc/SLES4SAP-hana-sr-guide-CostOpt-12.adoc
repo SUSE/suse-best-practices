@@ -1052,7 +1052,7 @@ called by {SAPHANA} again when the system replication is back.
 // TODO PRIO2: Steps "Start" and "Test" are missing
 
 We implement two {hana} HA/DR provider hooks. One hook is named SAPHanaSR and shipped with the SAPHanaSR
-package. The other is named srTakeover and needs to be adopted to your database according to
+package. The other is named {haDrCostOptMem} and needs to be adopted to your database according to
 your specific username/password and connection.
 
 This steps in this section must be done on both sites. {SAPHANA} must be stopped to change the
@@ -1170,127 +1170,88 @@ Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_
 
 ===================================
 
-=== Implementing Hook for srPostTakeover
+=== Implementing Hook {haDrCostOptMem} for srPostTakeover method
 
-The parameters added to global.ini imply that there should be a srTakeover hook installed on
-the second node. We provide a sample code which needs to be adapted for your environment.
-Currently you need to provide a user name / password combination inside the hook. We are
-trying to improve that in the future together with SAP at the LinuxLab.
+The parameters added to global.ini imply that the hook {haDrCostOptMem} needs to be installed on the second node.
+This document provides a sample code (see <<{haDrCostOptMem}>>) which needs to be adapted for your environment.
+Currently you need to provide a user name / password combination inside the hook.
+It is recommended to use a  database user with minimum permissions.
 
-The srTakeover-Hook is based on sample code of {SAP} as well as the hook provided by DELL
-in SAP Note 2196941.
-
-// TODO PRIO1: Check for the bugzilla entry regarding CostOpt12
-// TODO PRIO2: Check best place to install the hook
+// TODO PRIO1: Check for the bugzilla entry regarding CostOpt12 - check, if the solution does work with SAP HANA 2.0
+// DONE PRIO2: Check best place to install the hook
 // TODO PRIO2: Check if we can provide an example of the hook within the SAPHanaSR package
 // DONE PRIO2: Check the statement: This file will be overwritten with each hdbupd call! - Is that a left-over of a copy from an SAP HANA installed sample file?
 //             Was a left-over of file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/HADRDummy.py
 // TODO PRIO2: Study file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/client.py
 //             This file is naming more details about the HADR methods
 // TODO PRIO3: Get rid of the reference to DELL SAP Note 2196941?
-// TODO PRIO2: Dont quote the complete hook, once it has been added to the package (as example)
-// TODO PRIO1: should srTakeover be names srCostOptMemConfig?
+// TODO PRIO2: Don not quote the complete hook here, once it has been added to the package. So long keep it as example in the appendix
+// DONE PRIO1: Move source code of the hook to the appendix (as long as we do not have the sample in the package)
+// DONE PRIO1: should srTakeover be named srCostOptMemConfig?
+// TODO PRIO1: Name minimum permissions of database user!!
 
-NOTE: This hook is given "as-it-is". It must be installed at node 2 as
-/hana/shared/srHook/srTakeover.py to undo the changes to global_allocation_limit and preload_column_tables in case
-of a takeover.
-
+.Installing {haDrCostOptMemPy}
+========
+Copy example, adapt to your environment and set restrictive file permissions
 [subs="specialchars,attributes"]
 ----
-#!/usr/bin/env python2
+# cd /hana/shared/srHook
+## copy the example from the appendix of this document
+## set restricted file permissions
+# chown {refsidadm}.users {haDrCostOptMemPy}
+# chmod 500 {haDrCostOptMemPy}
 
-"""
-Sample for a HA/DR hook provider for method srPreTakeover().
-When using your own code in here, please copy this file to location on /hana/shared
-outside the HANA installation.
+## change the connection setting to your local environment
+# vi {haDrCostOptMemPy}
+dbuser="SYSTEM"
+dbpwd="<yourPassword>"
+dbinst="<yourInstanceNr>"
+dbport="30013"
+----
 
-To configure your own changed version of this file, please add to your global.ini lines similar to this:
+In the same directory (/hana/shared/srHook) you need to install (link) some python files from the {hana} client software
+to enable the hook to run the database connect and SQL queries. You need the following files: dbapi.py, __init__.py, resultrow.py
 
-[ha_dr_provider_<className>]
-provider = <className>
-path = /hana/shared/haHook
+It is recommended to use symlink to have those python libraries available. Using symlink the files are always up to date, if you update {hana}.
+[subs="specialchars,attributes"]
+----
+# cd /hana/shared/srHook
+# ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/dbapi.py .
+# ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/__init__.py .
+# ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/resultrow.py .
+----
+========
+
+.Enable use of {haDrCostOptMem}
+========
+
+Enable use of {haDrCostOptMem} by adpating global.ini on node 2
+[subs="specialchars,attributes"]
+----
+[ha_dr_provider_{haDrCostOptMem}]
+provider = {haDrCostOptMem}
+path = /hana/shared/srHook/
 execution_order = 2
 
-For all hooks, 0 must be returned in case of success.
-Set the following variables:
-* dbinst Instance Number [e.g. 00 - 99 ]
-* dbuser Username [ e.g. SYSTEM ]
-* dbpwd
-* user password [ e.g. SLES4sap ]
-* dbport port where db listens for SQL connctions [e.g 30013 or 30015]
-"""
-#
-# parameter section
-#
-dbuser="SYSTEM"
-dbpwd="<yourPassword1234>"
-dbinst="00"
-dbport="30013"
-#
-# prepared SQL statements to remove memory allocation limit
-#    and pre-load of column tables
-#
-stmnt1 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('memorymanager','global_allocation_limit') WITH RECONFIGURE"
-stmnt2 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('system_replication','preload_column_tables') WITH RECONFIGURE"
-#
-# loading classes and libraries
-#
-import os, time, dbapi
-from hdb_ha_dr.client import HADRBase, Helper
-#
-# class definition srTakeover
-#
-class srTakeover(HADRBase):
-  def __init__(self, *args, **kwargs):
-       # delegate construction to base class
-       super(srTakeover, self).__init__(*args, **kwargs)
-
-  def about(self):
-      return {"provider_company" : "<customer>",
-              "provider_name" : "srTakeover", # provider name = class name
-              "provider_description" : "Replication takeover script to set parameters to default.",
-              "provider_version" : "1.0"}
-
-  def postTakeover(self, rc, **kwargs):
-      """Post takeover hook."""
-      self.tracer.info("%s.postTakeover method called with rc=%s" % (self.__class__.__name__, rc))
-      if rc == 0:
-         # normal takeover succeeded
-         conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
-         cursor = conn.cursor()
-         cursor.execute(stmnt1)
-         cursor.execute(stmnt2)
-         return 0
-      elif rc == 1:
-          # waiting for force takeover
-          conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
-          cursor = conn.cursor()
-          cursor.execute(stmnt1)
-          cursor.execute(stmnt2)
-          return 0
-      elif rc == 2:
-          # error, something went wrong
-          return 0
+[trace]
+ha_dr_saphanasr = info
 ----
 
-In the same directory (/hana/shared/srHook) you need to install (link) some python files from the
-{hana} client software to enable the hook to run the database connect and SQL queries.
+After changing the global.ini on node 2 and implementing {haDrCostOptMem} hook you should start
+the productive {HANA} secondary database and check if the parameters are working.
 
-You need the following files: dbapi.py, __init__.py, resultrow.py
-
-It is recommended to use symlink to have those python libraries available. Using symlink the files are
-always up to date, if you update {hana}.
-
+As user {refsidadm} on node 2 you might do
 [subs="specialchars,attributes"]
 ----
-cd /hana/shared/srHook
-ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/dbapi.py .
-ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/__init__.py .
-ln -s /hana/shared/{refSid}/exe/linuxx86_64/hdb/python_support/hdbcli/resultrow.py .
+{sapnode2} > cdtrace
+{sapnode2} > grep  {haDrCostOptMem} nameserver_*.trc
 ----
+========
 
-After changing the global.ini on node 2 and implementing the srTakeover hook you should start
+////
+After changing the global.ini on node 2 and implementing the {haDrCostOptMem} hook you should start
 the productive {HANA} secondary database and check if the parameters are working.
+////
 
 //[[cha.s4s.configure-cluster]]
 == {stepCluster}
@@ -4297,6 +4258,91 @@ primitive rsc_{sapnode2}_stonith stonith:external/ipmi \
 location loc_{sapnode1}_stonith rsc_{sapnode1}_stonith -inf: {sapnode1}
 location loc_{sapnode2}_stonith rsc_{sapnode2}_stonith -inf: {sapnode2}
 ----
+
+==== {haDrCostOptMem}
+
+NOTE: This hook is given "as-it-is". It must be installed at node 2 as
+/hana/shared/srHook/{haDrCostOptMemPy} to undo the changes to global_allocation_limit and preload_column_tables in case
+of a takeover.
+
+[subs="specialchars,attributes"]
+----
+#!/usr/bin/env python2
+
+"""
+Sample for a HA/DR hook provider for method srPreTakeover().
+When using your own code in here, please copy this file to location on /hana/shared
+outside the HANA installation.
+
+To configure your own changed version of this file, please add to your global.ini lines similar to this:
+
+[ha_dr_provider_<className>]
+provider = <className>
+path = /hana/shared/haHook
+execution_order = 2
+
+For all hooks, 0 must be returned in case of success.
+Set the following variables:
+* dbinst Instance Number [e.g. 00 - 99 ]
+* dbuser Username [ e.g. SYSTEM ]
+* dbpwd
+* user password [ e.g. SLES4sap ]
+* dbport port where db listens for SQL connctions [e.g 30013 or 30015]
+"""
+#
+# parameter section
+#
+dbuser="SYSTEM"
+dbpwd="<yourPassword1234>"
+dbinst="00"
+dbport="30013"
+#
+# prepared SQL statements to remove memory allocation limit
+#    and pre-load of column tables
+#
+stmnt1 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('memorymanager','global_allocation_limit') WITH RECONFIGURE"
+stmnt2 = "ALTER SYSTEM ALTER CONFIGURATION ('global.ini','SYSTEM') UNSET ('system_replication','preload_column_tables') WITH RECONFIGURE"
+#
+# loading classes and libraries
+#
+import os, time, dbapi
+from hdb_ha_dr.client import HADRBase, Helper
+#
+# class definition {haDrCostOptMem}
+#
+class {haDrCostOptMem}(HADRBase):
+  def __init__(self, *args, **kwargs):
+       # delegate construction to base class
+       super({haDrCostOptMem}, self).__init__(*args, **kwargs)
+
+  def about(self):
+      return {"provider_company" : "<customer>",
+              "provider_name" : "{haDrCostOptMem}", # provider name = class name
+              "provider_description" : "Replication takeover script to set parameters to default.",
+              "provider_version" : "1.0"}
+
+  def postTakeover(self, rc, **kwargs):
+      """Post takeover hook."""
+      self.tracer.info("%s.postTakeover method called with rc=%s" % (self.__class__.__name__, rc))
+      if rc == 0:
+         # normal takeover succeeded
+         conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
+         cursor = conn.cursor()
+         cursor.execute(stmnt1)
+         cursor.execute(stmnt2)
+         return 0
+      elif rc == 1:
+          # waiting for force takeover
+          conn = dbapi.connect('localhost',dbport,dbuser,dbpwd)
+          cursor = conn.cursor()
+          cursor.execute(stmnt1)
+          cursor.execute(stmnt2)
+          return 0
+      elif rc == 2:
+          # error, something went wrong
+          return 0
+----
+
 
 :leveloffset: 0
 // Standard SUSE Best Practices includes

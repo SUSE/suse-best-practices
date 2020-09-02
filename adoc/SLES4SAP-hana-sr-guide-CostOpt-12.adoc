@@ -375,6 +375,9 @@ off the automated registration of a failed primary. The setup
 register a failed primary after a takeover manually. Use SAP tools like
 {saphana} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend `AUTOMATED_REGISTER="true"`.
+** The cluster automates one single takeover in case of failed primary.
+After that happend, the initial state has to be restored by administrative
+procedure outlined in this guide.
 * Automated start of {hana} instances during system boot must be
 switched off.
 * Multi-tenancy (MDC) databases are supported.
@@ -1864,13 +1867,13 @@ Two constraints are organizing the correct placement of the virtual IP
 address for the client database access and the start order between the
 two resource agents SAPHana and SAPHanaTopology.
 
-// TODO PRIO1: CostOpt12 - Check colocation score 2000 (PerfOpt) vs 3000 (CostOpt)
+// DONE PRIO1: CostOpt12 - Check colocation score 2000 (PerfOpt) vs 3000 (CostOpt)
 
 [subs="attributes,quotes"]
 ----
 # vi crm-cs.txt
 # enter the following to crm-cs.txt
-colocation col_saphana_ip_{sapsid}_HDB{sapino} 3000: rsc_ip_{sapsid}_HDB{sapino}:Started \
+colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: rsc_ip_{sapsid}_HDB{sapino}:Started \
     msl_SAPHana_{sapsid}_HDB{sapino}:Master
 order ord_SAPHana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTopology_{sapsid}_HDB{sapino} \
     msl_SAPHana_{sapsid}_HDB{sapino}
@@ -3473,8 +3476,8 @@ tells `crm_mon` to output the status once instead of periodically.
 ----
 Stack: corosync
 Current DC: {sapnode1} (version 1.1.19+20180928.0d2680780-1.8-1.1.19+20180928.0d2680780) - partition with quorum
-Last updated: Fri Nov 29 13:37:12 2019
-Last change: Fri Nov 29 13:37:06 2019 by root via crm_attribute on {sapnode2}
+Last updated: Fri Sep 13 11:55:12 2020
+Last change: Fri Sep 13 11:55:06 2020 by root via crm_attribute on {sapnode2}
 
 2 nodes configured
 6 resources configured
@@ -3483,7 +3486,8 @@ Online: [ {sapnode1} {sapnode2} ]
 
 Full list of resources:
 
- stonith-sbd    (stonith:external/sbd): Started {sapnode1}
+ rsc_stonith_sbd    (stonith:external/sbd): Started {sapnode1}
+ rsc_SAPInst_{sapnpsid}_HDB{sapnpino}      (ocf::heartbeat:SAPInstance):   Started {sapnode2}
  Clone Set: cln_SAPHanaTopology_{sapsid}_HDB{sapino} [rsc_SAPHanaTopology_{sapsid}_HDB{sapino}]
      Started: [ {sapnode1} {sapnode2} ]
  Master/Slave Set: msl_SAPHana_{sapsid}_HDB{sapino} [rsc_SAPHana_{sapsid}_HDB{sapino}]
@@ -3814,7 +3818,7 @@ hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource clear <multi-state-resource-name>
+# crm resource clear <multi-state-resource-name>
 ----
 +
 NOTE: The crm resource command *clear* was previously named *unmigrate*. The *unmigrate*
@@ -3835,6 +3839,55 @@ Mon Nov 11 20:38:50 2019; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:mas
 * You might want to revert the {HANA} roles back soon, to get the non-replicated database also up and running again.
 
 ==============================
+
+.Revert {HANA} Roles back after Failure on {sapnode1}
+==============================
+
+* Register former primary as new secondary as user _<sid>adm_
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode1} > hdbnsutil -sr_register --name={sapsite1} \
+ 	--remoteHost={sapnode2} --remoteInstance={sapino} \
+	--replicationMode=syncmem --operationMode=logreplay
+----
+
+* Cleanup failcount for {HANA} resource as user root
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm configure show rsc_SAPHana_{sapsid}_HDB{sapino} | grep AUTOMATED_REGISTER
+# crm resource cleanup msl_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+----
+
+* Recover {HANA} global.ini back to initial state, as user _<sid>adm_
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode2} > cdcoc
+{sapnode2} > cp global.ini global.ini.bak
+{sapnode2} > vi global.ini
+[memorymanager]
+global_allocation_limit = <size_in_mb_for_secondary_hana>
+...
+[system_replication]
+preload_column_tables = false
+---
+
+* Move {HANA} Primary back to {sapnode1}, as root user 
++
+[subs="specialchars,attributes,quotes"]
+# crm resource move <multi-state-resource-name> force
+----
+Wait until the cluster has finihed the transition and is idle.
+Then remove the migration constraint from CIB.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource clear <multi-state-resource-name>
+----
+==============================
+
 
 === Support
 // TODO PRIO3: To be combined with section "Feedback"

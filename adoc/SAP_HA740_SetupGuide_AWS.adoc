@@ -2886,6 +2886,40 @@ to get the prior state of the ASE DB. This is mandatory to ensure that FM can tr
 _ha/syb/use_boot_file_always=1_ makes sure that the FM always reads from the boot file which is part of the work
 directory (the same for ASCS and FM) and failover along with FM.
 
+=== Cluster Integration of Fault Manager
+
+We implement the FM in the pacemaker environment as part of the ASCS instance.
+
+.FM is integrated as included service along with the ASCS.
+==============================================
+The cluster configuration for the _primitive rsc_sap____<SID>____ASCS<instance number>_ have to be modified.
+In the example we use:
+
+- <SID> => {mySid}
+- <instance number> => {myAscsIno}
+- virtual hostname => {myVipNAscs}
+
+[subs="specialchars,attributes,quotes,verbatim"]
+----
+# crm configure edit rsc_sap_{mySid}_ASCS{myAscsIno}
+----
+
+[subs="specialchars,attributes,quotes,verbatim"]
+----
+primitive rsc_sap_{mySid}_ASCS{myAscsIno} SAPInstance \
+        operations $id=rsc_sap_{mySid}_ASCS{myAscsIno}-operations \
+        op monitor interval=11 timeout=60 on-fail=restart \
+        params InstanceName={mySid}_ASCS{myAscsIno}_{myVipNAscs} START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_ASCS{myAscsIno}_{myVipNAscs}" \
+        AUTOMATIC_RECOVER=false MONITOR_SERVICES="sybdbfm|msg_server|enserver" \
+        meta resource-stickiness=5000 failure-timeout=60 migration-threshold=1 priority=10
+----
+The FM service is not part of the default observed SAP instance services. If we specify the *MONITOR_SERVICES*
+all default settings are overwritten by the named services. That means we have to count all services which are shown
+as a result of the _sapcontrol -nr {myAscsIno} -function GetProcessList_ command. The example above is for an ENSA1 configuration.
+
+NOTE: The cluster configuration is different for ENSA1 and ENS2 installation. The names for the MONITOR_SERVICES differ between this two versions.
+==============================================
+
 === Operating a Pacemaker-Controlled and FM-Monitored ASE Replication Setup
 
 To implement an FM controlled ASE replication setup with pacemaker integration for FM some special rules need to be followed. First of all it needs to be detailed how to check the status of the replication and FM itself.

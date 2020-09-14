@@ -90,10 +90,9 @@ Logging & reporting:: Changes the behavior of the system logging, syslog forward
 
 Hardening Settings for SAP HANA systems
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-IMPORTANT: The measures in this chapter are described for the x86 architecture only, but might apply for the Power architecture with changes as well. +
+IMPORTANT: The measures in this chapter are described for the x86 architecture (x86 and AMD64/Intel 64), but apply for the POWER architecture as well.
+Due to differences in the hardware it might be necessary to adapt them (different device names, etc.) + 
 Also the graphical user interface is not covered. Running a GUI on a secure server should be avoided. +
-Please also read the "Security Guide" and the "Hardening Guide" for additional measures: https://documentation.suse.com/ +
-(Choose "SUSE Linux Enterprise Server" instead of "SUSE Linux Enterprise Server for SAP Applications".
 
 The following hardening settings improve the security of SUSE Linux Enterprise Server systems running SAP HANA database based on the recommendations of a security audit, which was performed on a SUSE Linux Enterprise Server standard installation, running SAP HANA database.
 
@@ -115,32 +114,6 @@ IMPORTANT: Disclaimer: We strongly recommend to execute all described hardening 
 
 If it is not possible to test the settings on a non-productive system, the changes should only be made within a maintenance window, that leaves enough time for a proper system functionality test and to restore a system if necessary.
 
-Prohibit login as root via ssh
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Description::
-By default, the user 'root' is allowed to remotely login via ssh. This has two disadvantages:
-* Firstly, root logins are logged, but cannot be associated with a particular user. This is especially a disadvantage, if there are more than one System Administrators that do changes on the system.
-* Secondly, a stolen root password allows an attacker to login directly to the system. Instead of logging in as a normal user first, then doing `su` or a `sudo`, an attacker just requires the root password.
-
-Procedure::
-Edit `/etc/ssh/sshd_config` and set parameter:
-+
-----
-PermitRootLogin no
-----
-+
-After the change a restart of the sshd service is required:
-+
-----
-systemctl restart sshd.service
-----
-
-Impact::
-Root is not allowed to login remotely anymore, which require users to use `su` or `sudo` to gain root access when using ssh.
-+
-TIP: It is also possible to allow a root login only with key authentication. Please read the man page of `sshd_config` for different `PermitRootLogin` values.
-
-Priority:: high
 
 Install SUSE security checker
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -433,63 +406,6 @@ Some `login.defs` settings, like the password expiration time, rejects users to 
 Priority:: medium
 
 
-Set default inactive time to 1 day
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Description::
-By default, there is no timeout for idle user sessions. We recommend to set the timeout to one day. + 
-+
-It is possible to set a timeout for most shells to terminate automatically, usually by a variable. 
-You can set the timeout for login shells only or for all interactive shells. 
-If set for all interactive shells the timeout is individual for each instance. +
-Keep this in mind when cascade shell instances. 
-+
-The following table contains details for all shells shipped with SLES for SAP Applications:
-+
-[cols="1m,1m,^1m,^1,1m,1m,1m", options="header"]
-|===    
-| package | incarnation | shell variable | unit | Setting variable readonly ^a| 
-config file +
-(only login shell) ^a| 
-config file +
-(every shell)
-
-| bash | bash, sh | TMOUT | seconds | readonly TMOUT= | /etc/profile.local, /etc/profile.d/ | /etc/bash.bashrc
-|mksh | ksh, lksh, mksh, pdksh | TMOUT | seconds | readonly TMOUT= | /etc/profile.local, /etc/profile.d/ | /etc/ksh.kshrc.local
-|tcsh | csh, tcsh | autologout | minutes | set -r autologout= | /etc/csh.login.local | /etc/csh.cshrc.local
-|zsh | zsh | TMOUT | seconds | readonly TMOUT= | /etc/profile.local, /etc/profile.d/ | /etc/zsh.zshrc.local 
-|===    
-
-
-Procedure::
-Set the timeout variable readonly in the appropriate configuration file. +
-This is an example for `bash`, `sh`, `ksh`, `lksh`, `mksh`, `pdksh` and `zsh` to only have login shells (no sub-shells) timeout after one day.
-+
-Create the file `/etc/profile.d/timeout.sh` with the following content:
-+
-----
-# /etc/profile.d/timeout.sh for SUSE Linux
-#
-# Timeout in seconds until the bash session is terminated
-# in case of inactivity.
-# 24h = 86400 sec
-readonly TMOUT=86400
-----
-
-NOTE: You can export the variable to have sub-shells, which support the variable, also time out. +
-Each sub-shell has its own counter, which means that after terminating a sub-shell the timeout counter of the parent shell would start. Depending of the amout of sub-shells the timeout value is multiplied. 
-
-
-TIP: There is a risk of breaking out of the shell initialization to avoid setting the timeout. +
-As an alternative you can set the variables in a shell script called by `pam_exec.so`. 
-
-
-Impact::
-Long running idle user sessions, mostly forgotten, are terminated after 1 day. +
-+
-We recommend to use `screen` in order detach sessions before logging out. Screen sessions are not terminated and can be re-attached whenever it is required. Active session can be locked without logging out (read about `C-a x` / `lockscreen` in `man screen` for details).
-+
-Priority: medium
-
 
 Set up password failure counts for users
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -650,36 +566,6 @@ Impact::
 Changes the behavior of the IP network stack, which might cause some network problems or performance issues with certain network setups and devices (such as firewalls) in some rare cases.
 
 Priority:: high
-
-
-Allow 'root' login only via the first local console (tty1)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Description::
-The TTY's provide system access via the console, typically a connected keyboard via a KVM switch or a remote management card (ILO, DRAC, etc). By default, Linux offers 6 different consoles, that can be switched via the key-combinations Alt+F1 - Alt+F6. This setting restricts the access only via a single console (tty1). This access method is only meant for emergency access to the system and should never be used for general system administration tasks.
-
-Procedure::
-. Ensure that `/etc/pam.d/login` contains the 'pam_securetty' module in the 'auth' block:
-+
-----
-auth     requisite      pam_nologin.so
-auth [user_unknown=ignore success=ok ignore=ignore auth_err=die default=bad] pam_securetty.so
-auth     include        common-auth
-----
-+
-. Comment out or remove all tty's in the file `/etc/securetty` except of tty1.
-+
-----
-#
-# This file contains the device names of tty lines (one per line,
-# without leading /dev/) on which root is allowed to login.
-#
-tty1
-----
-
-Impact::
-It is not possible to open multiple login-sessions via local KVM sessions or remote-management sessions anymore. This might reduce the administrative comfort, when working locally on a system.
-
-Priority:: low
 
 
 Change home directory permissions from 775 to 700
@@ -1215,7 +1101,10 @@ This chapter lists content changes for this document since its first release.
 
 v1.3
 
-- Rework of "Set default inactive time to 1 day"
+- Removal of the folowing chapters (moved to the general SLES "Hardening Guide":
+  * "Allow root login only via the first local console (tty1)"
+  * "Prohibit login as root via ssh"
+  * "2.2.11 Set default inactive time to 1"
 - Add comment about x86/Power and GUI on top of "SUSE Linux Enterprise Security Hardening Settings for HANA"
 
 v1.2

@@ -154,6 +154,9 @@ $ cp -av  ~/my-cluster/admin.conf  ~/.kube/config
 $ kubectl get nodes -o wide
 ----
 
+++++
+<?pdfpagebreak?>
+++++
 == Secure private Docker Registry for container images (optional if you already own a private secure registry)
 
 To satisfy Data Intelligence 3 requirements you also need a Docker Registry.
@@ -290,167 +293,296 @@ Create the namespaces on your registry that are needed for SAP Data Intelligence
 
 * com.sap.bds.docker
 
+++++
+<?pdfpagebreak?>
+++++
+== SUSE Enterprise Storage
 
-== SUSE Enterprise Storage (optional if you have a storage that provides rbd volumes and/or s3 buckets)
+TIP: This step is optional if you already have a storage that provides rbd volumes and/or S3 buckets. If you do skip this chapter and follow the instructions at <<Installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2>>
 
-SAP Data Hub 2 installation on premise require SUSE Enterprise Storage 5 or higher.
+SAP Data Intelligence 3 installation on premise requires SUSE Enterprise Storage 5.5 or higher.
 If you plan to use SUSE Enterprise Storage not only for your Kubernetes dynamic storageclass but also for your Kubernetes Control plan, virtualised or not, you should reserve enough resources to address etcd requirements regarding
-** link:https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/hardware.md.[etcd Hardware]
+** link:https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/hardware.md[etcd Hardware]
 
-Follow the next steps to deploy a minimalistic, virtualised, test oriented, SUSE Enterprise Storage 5.5.
+Follow the next steps to deploy a minimalistic, virtualised, test oriented, SUSE Enterprise Storage 6.
 
 In the following exemple, we’re going to build a 4 nodes (1 admin + 3 OSD) Ceph Cluster.
 
-Before starting :
+=== Before starting
 
-* Collect your SUSE Linux Enterprise Server 12 SP3 and SUSE Enterprise Storage registration code from scc.suse.com or have a SMT/RMT properly set up and already mirroring theses products.
+* Collect your SUSE Linux Enterprise Server 15 SP1 and SUSE Enterprise Storage registration code from scc.suse.com or have a SMT/RMT properly set up and already mirroring theses products.
 
 ** link:https://scc.suse.com[SCC]
-** link:https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-smt.html[SMT]
+** link:https://documentation.suse.com/smt/11.3/html/SLE-smt/index.html[SMT]
 
-image::scc-sle.png[scc-sle,480,640]
+++++
+<?pdfpagebreak?>
+++++
+image::scc-sles.png[scc-sle,480,640]
 image::scc-ses.png[scc-ses,480,640]
 
-Your DNS zone should be already set, in our exemple where all Datahub components are in the same dns zone and same subnet, it should looks like :
 
-image::dns.png[dns,480,640]
+=== Setup the machines
 
-Also, in order to be as efficient as possible when using interactive shell scripted infrastructure deployment, we advice you to use an advanced terminal client or multiplexer which permits to address multiple shells at once.
+Download the installation media for SLES 15 SP1 e.g. from:
 
-image::multi-s-virtinstall.png[multi-s-virtinstall,480,640]
+** link:https://www.suse.com/de-de/products/server/download/[]
+** link:https://www.suse.com/de-de/products/suse-enterprise-storage/download/[]
 
-----
-# sudo virt-install --name ses55-admin --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.200/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+To install boot the desired machine and insert the installation media.
+After boot, you should see a screen like this:
 
-# sudo virt-install --name ses55-osd0 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.230/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+image::SLES_Setup_Init.png[SLES Setup Initial Page,480,640]
 
-# sudo virt-install --name ses55-osd1 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd1-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.231/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
+Select your prefered language and keyboard layout. Then select 
+the option *"*SUSE Linux Enterprise Server 15 SP1* and click the *Next* button.
 
-# sudo virt-install --name ses55-osd2 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.232/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
-----
+You then need to agree to the license agreement and click the *Next* button again.
 
-image::multi-s-smt.png[multi-s-smt.png,480,640]
+The registration screen is now to be displayed.
 
-Select the SUSE Entreprise Storage 5 Extension
+image::SLES_Setup_Registration.png[SLES Setup Registration Page,480,640]
 
-image::multi-s-addon.png[multi-s-addon.png,480,640]
+Now either enter your email + registration code you collected from the SCC as described in the chapter before, or select *Register System via local SMT Server* and enter the URL of your SMT server.
 
-On the hypervisor you should also be able to route or bridge ( either a traditional bridge using brctl or a virtual-bridge) your upcoming SUSE Enterprise Storage 5.5 network segment. In our example, for simplicity, we’re using the same bridge and network address than our CaaSP cluster "--network bridge=caasp3”
+If required, you can use the *Network Configuration* button at the top right, to configure your network settings.
 
-In the following example, each node is powered by 16GB of RAM, 4 VCPU, 40 GB for the root disk, 4 * 20GB OSDB disk.
+image::SLES_Setup_AddOn.png[SLES Setup Add On Product Page, 480,640]
 
-image::multi-s-default.png[multi-s-default.png,480,640]
+When registered the system, you will be shown the *Add On Product* page which you can skip by clicking the *Next* button again.
 
-NTP must be configured on each nodes
+image::SLES_Setup_Partitioning.png[SLES Setup Partitioning Page, 480,640]
 
-image::multi-s-ntp.png[multi-s-ntp.png,480,640]
+The *Suggested Partitioning* page will be shown. You may now edit the proposed partitioning if needed. For this guide, we'll use the proposal and continue by clicking the *Next* button.
 
-Unselect AppArmor and unnecessary X and Gnome Patterns, but select the SUSE Enterprise Storage pattern
+image::SLES_Setup_TimeZone.png[SLES Setup Clock and Time Zone Page, 480,640]
 
-image::multi-s-patterns.png[multi-s-patterns.png,480,640]
+On the *Clock and Time Zone* page you should select your prefered Region and TimeZone. Then click *Other Settings* to open the *Change Date and Time* page. Select the *Synchronize with NTP-Server* option. You can then choose a NTP server of your choice and click the *Accept* button.
 
-Desactivate the Firewall on the nodes.
-Start the Installation on all nodes.
+image::SLES_Setup_NTP.png[SLES Setup Change Date and Time Page, 480,640]
 
-image::multi-s-install.png[multi-s-install.png,480,640]
+IMPORTANT: All machines in the cluster should synchronize with the same NTP-Server!
 
-Once nodes have reboot, log in and finish network/hostname and NTP configurations so that
+image::SLES_Setup_User.png[SLES Setup Create User Page, 480,640]
 
+Next, you can create a user with name and password of your choice. When done confirm and again click the *Next* button.
+
+image::SLES_Setup_Firewall.png[SLES Setup Installation Settings Page, 480,640]
+
+You now will see the *Installation Settings* page, where you need to disable the firewall. You can achieve this by clicking the *disable* button after *Firewall will be enabled*.
+
+image::SLES_Setup_Extensions.png[SLES Setup Extension Page, 480,640]
+
+Last installation step is the *Extension and Module Selection* where you can pick the option for *SUSE Enterprise Storage 6 x86_64*.
+
+Setup at least four machines this way.
+
+=== Setup SUSE Enterprise Storage
+
+Check that your machines have correctly entered hostnames:
 ----
 # hostname -f
 ----
 
-returns the FQDN of the nodes and
-
+This should output the FQDN of the machine. If this is not the case, you can use following command to set it:
 ----
-#ntpq -p
-----
-
-returns a stratum less than 16
-
-image::multi-s-hostname-ntp.png[multi-s-hostname-ntp.png,480,640]
-
-Using ssh-keygen then ssh-copy-id, spread your SUSE Entreprise Storage Admin node ssh pub key to all other nodes.
-
-Verify that the drive we’re going to allocate for SUSE Entreprise Storage OSDs are clean by wiping them (refer to 4.3.12 of the deployment guide)
-
-** link:https://documentation.suse.com/ses/5.5/html/ses-all/ceph-install-saltstack.html#ceph-install-stack[Wipe disk]
-
-Install salt-minion on all nodes (admin also) and salt-master only on admin (in our example ses55-admin.suse-sap.net). Install also deepsea on admin node.
-
-Then restart salt-minion on all nodes and restart salt-master on admin
-
-image::multi-s-salt-install-restart.png[multi-s-salt-install-restart.png,480,640]
-
-Accept related pending Salt key.
-
-image::salt-key.png[salt-key.png,480,640]
-
-Verify that /srv/pillar/ceph/master_minion.sls point to your admin node, in our example it contains our salt-master FQDN : master_minion: ses55-admin.suse-sap.net
-
-Prepare the cluster
-
-----
-# salt-run state.orch ceph.stage.0
+# hostnamectl --set-hostname <FQDN>
 ----
 
-image::ceph-stage-0.png[ceph-stage-0.png,480,640]
+For this guide we'll use the *admin.example.com, mon1.example.com, mon2.example.com* and *mon3.example.com* as the machines names.
 
-Collect informations about the nodes :
+To ensure the DNS for those names works properly, you might edit the `/etc/hosts` file on the nodes as followed: +
+----
+127.0.0.1   localhost
+<Admin-IP>  admin.example.com admin
+<Mon1-IP>   mon1.example.com  mon1
+<Mon2-IP>   mon2.example.com  mon2
+<Mon3-IP>   mon3.example.com  mon3
+----
+
+If you don't know the ip of your machine, run:
+----
+$ ip a
+----
+
+which outputs something like:
+
+image::fetch_ip.png[Fetch IP, 480,640]
+
+On the OSD nodes install salt-minion and deepsea:
+----
+# zypper in -y salt-minion deepsea
+----
+
+On the admin node install salt-minion, salt-master and deepsea:
+----
+# zypper in -y salt-minion salt-master deepsea
+----
+
+
+Set the salt master on all machines by editing the associated line: 
+----
+# echo "master: admin.example.com" > /etc/salt/minion
+----
+
+
+On the admin node, enable the salt-master service: 
+----
+# systemctl enable salt-master --now
+----
+
+Enable the salt-minion service:
+----
+# systemctl enable salt-minion --now
+----
+
+Now accept the salt-keys on the admin node:
+----
+# salt-key --accept-all -y
+----
+
+
+To check the keys, the following command can be used:
+----
+# salt-key -L
+----
+
+This should output something like:
+
+image::salt-key.png[salt-key.png,240,319]
+
+
+Make all nodes deepsea minions:
+----
+# echo "deepsea_minions: '*'" > /srv/pillar/ceph/deepsea_minions.sls
+----
+
+Sync your salt-minions:
+----
+# salt '*' saltutil.sync_all
+----
+
+Make sure your desired disks are all cleared. Therefore you can use something like:
+----
+# wipefs -a /dev/vdb
+----
+
+Be aware, that you might need to change the device (vdb) here.
+Also make sure you clear your disks on all nodes.
+
+Next, apply the cleared disks by using:
+----
+# salt '*' state.apply ceph.subvolume
+----
+
+++++
+<?pdfpagebreak?>
+++++
+You now can run the first stages to deploy the CEPH cluster.
+First, prepare the cluster: +
+----
+# salt-run state.orch ceph.stage.prep
+----
+
+If you want, you can watch the progress of your ceph stages in a seperated terminal with:
+----
+$ deepsea monitor
+----
+
+
+++++
+<?pdfpagebreak?>
+++++
+The result for the preparation stage then looks like:
+
+image::ceph-stage-0.png[ceph-stage-0.png,480,500]
+
+++++
+<?pdfpagebreak?>
+++++
+Next stage to run is to collect informations about the nodes:
 
 ----
-# salt-run state.orch ceph.stage.1
+# salt-run state.orch ceph.stage.discovery
 ----
 
 image::ceph-stage-1.png[ceph-stage-1.png,480,640]
 
-Adapt the file  /srv/pillar/ceph/proposals/policy.cfg to your needs.
 
-In our example where the only deployed service is OpenAttic it contains the following :
+++++
+<?pdfpagebreak?>
+++++
+Before you can run the last three stages, you will need to provide a role configuration for the nodes, which will be stored in  `/srv/pillar/ceph/proposals/policy.cfg`.
+The following configuration is used for this example: 
 
 ----
-cluster-ceph/cluster/ses55-osd2.suse-sap.net.sls
-config/stack/default/ceph/cluster.yml
+#General config
 config/stack/default/global.yml
-profile-default/cluster/ses55-admin.suse-sap.net.sls
-profile-default/cluster/ses55-osd0.suse-sap.net.sls
-profile-default/cluster/ses55-osd1.suse-sap.net.sls
-profile-default/cluster/ses55-osd2.suse-sap.net.sls
-profile-default/stack/default/ceph/minions/ses55-admin.suse-sap.net.yml
-profile-default/stack/default/ceph/minions/ses55-osd0.suse-sap.net.yml
-profile-default/stack/default/ceph/minions/ses55-osd1.suse-sap.net.yml
-profile-default/stack/default/ceph/minions/ses55-osd2.suse-sap.net.yml
-role-admin/cluster/ses55-admin.suse-sap.net.sls
-role-admin/cluster/ses55-osd0.suse-sap.net.sls
-role-admin/cluster/ses55-osd1.suse-sap.net.sls
-role-admin/cluster/ses55-osd2.suse-sap.net.sls
-role-master/cluster/ses55-admin.suse-sap.net.sls
-role-mgr/cluster/ses55-osd0.suse-sap.net.sls
-role-mgr/cluster/ses55-osd1.suse-sap.net.sls
-role-mgr/cluster/ses55-osd2.suse-sap.net.sls
-role-mon/cluster/ses55-osd0.suse-sap.net.sls
-role-mon/cluster/ses55-osd1.suse-sap.net.sls
-role-mon/cluster/ses55-osd2.suse-sap.net.sls
-role-openattic/cluster/ses55-admin.suse-sap.net.sls
+config/stack/default/ceph/cluster.yml
+
+#CEPH Cluster members
+cluster-ceph/cluster/admin.example.com.sls
+cluster-ceph/cluster/mon1.example.com.sls
+cluster-ceph/cluster/mon2.example.com.sls
+cluster-ceph/cluster/mon3.example.com.sls
+
+#CEPH Admin nodes
+role-admin/cluster/mon1.example.com.sls
+role-admin/cluster/mon2.example.com.sls
+role-admin/cluster/mon3.example.com.sls
+
+#CEPH Master node
+role-master/cluster/admin.example.com.sls
+
+#CEPH Manager nodes
+role-mgr/cluster/mon1.example.com.sls
+role-mgr/cluster/mon2.example.com.sls
+role-mgr/cluster/mon3.example.com.sls
+
+#CEPH Monitor nodes
+role-mon/cluster/mon1.example.com.sls
+role-mon/cluster/mon2.example.com.sls
+role-mon/cluster/mon3.example.com.sls
+
+#CEPH RGW nodes
+role-rgw/cluster/admin.example.com.sls
+role-rgw/cluster/mon1.example.com.sls
+role-rgw/cluster/mon2.example.com.sls
+role-rgw/cluster/mon3.example.com.sls
+
+#CEPH Storage nodes
+role-storage/cluster/admin.example.com.sls
+role-storage/cluster/mon1.example.com.sls
+role-storage/cluster/mon2.example.com.sls
+role-storage/cluster/mon3.example.com.sls
 ----
 
-Prepare the final state of configuration files set.
-
+++++
+<?pdfpagebreak?>
+++++
+You can now safely deploy your configuration:
 ----
-# salt-run state.orch ceph.stage.2
-----
-
-image::ceph-stage-2.png[ceph-stage-2.png,480,640]
-
-You can now safely deploy your configuration
-
-----
-# salt-run state.orch ceph.stage.3
+# salt-run state.orch ceph.stage.configure
 ----
 
-image::ceph-stage-3.png[ceph-stage-3.png,480,640]
+image::ceph-stage-2.png[ceph-stage-2.png,480,500]
 
-Once the stage 3 has been successfully passed, check the cluster health to insure that all is running properly
+++++
+<?pdfpagebreak?>
+++++
+
+Deploy your configuration to the cluster
+----
+# salt-run state.orch ceph.stage.deploy
+----
+
+image::ceph-stage-3.png[ceph-stage-3.png,480,500]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Once the deployment stage  has been successfully passed, check the cluster health to insure that all is running properly.
 
 ----
 # ceph -s
@@ -458,29 +590,86 @@ Once the stage 3 has been successfully passed, check the cluster health to insur
 
 image::ceph-health.png[ceph-health.png,480,640]
 
-In order to take benefits of the OpenAttic WebUI you now have to initiate the ceph.stage.4 which will install OpenAttic service.
+
+++++
+<?pdfpagebreak?>
+++++
+Last stage to run is to deploy the service roles, which where specified in the policy.cfg:
 
 ----
-# salt-run state.orch ceph.stage.4
+# salt-run state.orch ceph.stage.services
 ----
 
-image::ceph-stage-4.png[ceph-stage-4.png,480,640]
 
-You can now manage your cluster through the WebUI
+image::ceph-stage-4.png[ceph-stage-4.png,480,500]
 
-image::openattic-dash.png[openattic-dash.png,480,640]
+=== Access the Dashboard and create a new pool
 
-To provide a Datahub RBD device we need first to create a related pool.
+After the CEPH cluster is now up and running, a pool needs to be created for Data Intelligence.
+In this example we'll use the dashboard for this purpose.
 
-image::openattic-pool.png[openattic-pool.png,480,640]
+The dashboard is published by any of the monitor nodes.
+To access it, use the browser of your choice to address the dashboard:
 
-And provide access to this pool through a RBD device.
+image::ceph-dashboard-login.png[ceph-dashboard-login.png,480,640]
 
-image::openattic-rbd.png[openattic-rbd.png,480,640]
+The credentials to login can be fetched by running the following command on the admin node:
 
-//You could now go to Section 4.1.2 of this documentation and follow the Prerequisites on the SUSE CaaS Platform 3 Cluster
+----
+# salt-call grains.get dashboard_creds
+----
 
+image::ceph-dashboard-creds.png[ceph-dashboard-creds.png,480,640]
 
+After login the landing page should be shown. Select the pools tab at the top of the page:
+
+image::ceph-dashboard-landing.png[ceph-dashboard-creds.png,480,640]
+
+The pools page gives an overview of the currently defined pools. Click the button *Create* at the top of the table to create a new pool:
+
+image::ceph-dashboard-pools.png[ceph-dashboard-pools.png,480,640]
+
+Enter the name of the pool and select *replicated* for the *Pool type*. Click on the pencil on the left hand side of *Applications* and choose *rbd*. Confirm the creation of the pool by clicking the *CreatePool* Button at the bottom.
+
+IMPORTANT: Remember the name of the pool as it's needed in chapter <<Create Storage Class>>
+
+image::ceph-dashboard-create-pool.png[ceph-dashboard-create-pool.png,480,640]
+
+++++
+<?pdfpagebreak?>
+++++
+
+After this the pools page is shown again and the newly created pool is shown in the table of pools.
+
+image::ceph-dashboard-pools2.png[ceph-dashboard-pools2.png,480,640]
+
+Now it's needed to provide access to this pool through a RBD device.
+Therefore access the rdb overview page by selecting *Block->Images*
+
+image::ceph-dashboard-access-rbd.png[ceph-dashboard-access-rbd.png,480,640]
+
+An overview of the configured rdb's is now displayed.
+Click on the *Create* button.
+
+image::ceph-dashboard-rbd.png[ceph-dashboard-rbd.png,480,640]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Enter the name and choose the previously created pool if it itn't already. Choose the size of the RBD and confirm the creation by clicking the *CreateRBD* button to create the RBD. 
+
+image::ceph-dashboard-create-rbd.png[ceph-dashboard-create-rbd.png,480,640]
+
+The overview page of the RBD's is shown again containg your newly created RBD.
+
+image::ceph-dashboard-rbd2.png[ceph-dashboard-rbd2.png,480,640]
+
+The SUSE Enterprise Storage cluster is now ready for the usage with SAP Data Intelligence. 
+
+++++
+<?pdfpagebreak?>
+++++
 == Installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2
 
 === Documentation

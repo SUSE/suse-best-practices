@@ -199,100 +199,104 @@ rbd create reppool/veeam -size 5T -data-pool ecpool
 
 === Create and configure Linux repository virtual machines
 
-* Create virtual machines on ESX
-** Configure resource reservations
-* Perform base linux install
+. Create virtual machines on ESX
+  * Configure resource reservations
+. Perform base linux install
++
 SLES 12 SPx::
-** Select KVM Host install pattern
-** Unselect KVM Host from Software Selection on Summary Screen
-** Disable spectre/meltdown post install
-*** Information regarding diabling Spectre and Meltdown mitigations can be found here: https://www.suse.com/support/kb/doc/?id=7023480
-**** Disabling these mitigations on the storage nodes and the Linux target may result in enhanced performance.
-** Enable Multi-queue block IO
-*** Do this on the Ceph OSD nodes and the Linux target VM(s)
-*** Information on blk-mq on enabling it can be found here: https://www.suse.com/documentation/sles-12/book_sle_tuning/data/cha_tuning_io_scsimq.html
+.. Select KVM Host install pattern
+.. Unselect KVM Host from Software Selection on Summary Screen
+.. Disable spectre/meltdown post install
+//*** Information regarding diabling Spectre and Meltdown mitigations can be found here: https://www.suse.com/support/kb/doc/?id=7023480
+//**** Disabling these mitigations on the storage nodes and the Linux target may result in enhanced performance.
+.. Enable Multi-queue block IO
+//*** Do this on the Ceph OSD nodes and the Linux target VM(s)
+//*** Information on blk-mq on enabling it can be found here: https://www.suse.com/documentation/sles-12/book_sle_tuning/data/cha_tuning_io_scsimq.html
++
 SLES 15 SPx::
 //FIXME validate the following
-** Select the base server pattern
-** Select to disable mitigations during install
-** Disable Spectre/Meltdown
+.. Select the base server pattern
+.. Select to disable mitigations during install
+.. Disable Spectre/Meltdown
++
 All::
-* Set network tuning parameters in /etc/sysctl.conf for SUSE Enterprise Storage nodes and Linux target(s) as found in <<appendix>> A. 
-* Add repositories and packages for veeam
-** Veeam requires perl modules be present for the Linux repository to function. These are detailed in: https://www.veeam.com/kb2216 
-* Modify /etc/ssh/sshd_config to enable Veeam service to work correctly
-** https://www.veeam.com/kb1512
-** Find the PasswordAuthentication parameter and set the value to yes
-** Save and restart the sshd daemon
-[source]
-systemctl restart sshd.service
-* To add the required perl-SOAP-Lite, the SDK repos will need to be added.
-
-For SLES12SP3:::
-[source]
-SUSEConnect -p sle-sdk/12.3/x86_64
-zypper in perl-SOAP-Lite
-
-
-For SLES15:::
-[source]
-SUSEConnect -p PackageHub/15/x86_64
-zypper in perl-SOAP-Lite
-
-* The following script can be used to validate that all packages/perl modules are installed.  If any are missing, they should be added.
+.. Set network tuning parameters in /etc/sysctl.conf for SUSE Enterprise Storage nodes and Linux target(s) as found in <<appendix>> A. 
+... Add repositories and packages for veeam
+... Veeam requires perl modules be present for the Linux repository to function. These are detailed in: https://www.veeam.com/kb2216 
+.. Modify /etc/ssh/sshd_config to enable Veeam service to work correctly
+... https://www.veeam.com/kb1512
+... Find the PasswordAuthentication parameter and set the value to yes
+... Save and restart the sshd daemon
 +
 [source]
-#!/bin/bash
-for i in constant Carp Cwd Data::Dumper Encode Encode::Alias Encode::Config Encode::Encoding Encode::MIME::Name Exporter Exporter::Heavy File::Path File::Spec File::Spec::Unix File::Temp List::Util Scalar::Util SOAP::Lite Socket Storable threads
-do
-echo "Checking for perl $i;..."
-perldoc -lm $i >/dev/null
-perlpkgfound=$?
-if [ ! $perlpkgfound -eq 1 ]
-then
-echo Installed
-fi
-done
+systemctl restart sshd.service
+
+. To add the required perl-SOAP-Lite, the SDK repos will need to be added.
+// +
+// For SLES12SP3::
+// [source]
+// SUSEConnect -p sle-sdk/12.3/x86_64
+// zypper in perl-SOAP-Lite
 
 
-* Add ceph-common to the Linux target
+// For SLES15:::
+// [source]
+// SUSEConnect -p PackageHub/15/x86_64
+// zypper in perl-SOAP-Lite
+// 
+// * The following script can be used to validate that all packages/perl modules are installed.  If any are missing, they should be added.
+// +
+// [source]
+// #!/bin/bash
+// for i in constant Carp Cwd Data::Dumper Encode Encode::Alias Encode::Config Encode::Encoding Encode::MIME::Name Exporter Exporter::Heavy File::Path File::Spec File::Spec::Unix File::Temp List::Util Scalar::Util SOAP::Lite Socket Storable threads
+// do
+// echo "Checking for perl $i;..."
+// perldoc -lm $i >/dev/null
+// perlpkgfound=$?
+// if [ ! $perlpkgfound -eq 1 ]
+// then
+// echo Installed
+// fi
+// done
+
+
+. Add ceph-common to the Linux target
 [source]
 zypper in ceph-common 
 
-* Add client key and ceph.conf to /etc/ceph 
-** From the admin node:
+. Add client key and ceph.conf to /etc/ceph From the admin node:
 [source]
 scp /etc/* root@vtarget:/etc/ceph/
 
-* Edit /etc/ceph/rbdmap on the Linux Repository nodes and add the rbd.
+. Edit /etc/ceph/rbdmap on the Linux Repository nodes and add the rbd.
 [source]
 RbdDevice Parameters
 poolname/imagename	id=client,keyring=/etc/ceph/ceph.client.keyring
 reppool/veeam		id=admin,keyring=/etc/ceph/ceph.client.admin.keyring
 
 
-* Enable and start systemd rbdmap service
+. Enable and start systemd rbdmap service
 [source]
 systemctl enable rbdmap
 systemctl start rbdmap
 
-* Mkfs.xfs the target
+. Mkfs.xfs the target
 [source]
 mkfs.xfs /dev/rbd0
 
-* Add mount point
+. Add mount point
 [source]
 mkdir /veeam
 
-* Add entry to fstab (include any tuning desired)
+. Add entry to fstab (include any tuning desired)
 [source]
 /dev/rbd0 /veeam xfs _netdev 1 1
 
-* Mount the filesystem
+. Mount the filesystem
 [source]
 mount -a
 
-* Verify it mounted
+. Verify it mounted
 [source]
 mount
 
@@ -320,12 +324,12 @@ Output should be:
 8.	Finish the process by selecting a Mount server (Veeam Backup Server or proxy) and enabling a vPower NFS service as desired and selecting Finish
 
 
-==== Disable Multiple Streams
+=== Disable Multiple Streams
 
 Multiple streams are designed to enhance performance for higher latency environments. It may be desireable to disable this for the local deployment. This can be done when defining the job, by setting it for the proxy, or globally. In all cases, it involves selecting the Network Traffic Rules and de-selecting Multiple Streams.
 
 
-==== Define a Backup Job
+=== Define a Backup Job
 
 Create a backup job. When on the Storage setting tab, select the correct proxy and repository. While on the Storage screen, select Advanced. On the Storage tab, set the appropriate rules for your environment. Veeam Ready testing was performed using the information shown at the right.
 
@@ -357,7 +361,7 @@ root@master # salt-run state.orch ceph.stage.2
 root@master # salt-run state.orch ceph.stage.3
 root@master # salt-run state.orch ceph.stage.4
 
-==== Install and configure the RGW daemons
+=== Install and configure the RGW daemons
 
 * IMPORTANT: Ensure that HTTPS/SSL is enabled on the target pool to allow {v} {vplatform1} to connect. This allows for secure communication supported by {v}. Please see the following section for https://www.suse.com/documentation/suse-enterprise-storage-5/book_storage_admin/data/ceph_rgw_https.html[enabling HTTPS/SSL for Object Gateways].
 
@@ -390,7 +394,7 @@ systemctl status ceph-radosgw@example.ses5
 // * You can verify this has worked properly by accessing the {SUSEproduct} (Open Attic) dashboard. You should see the Rados Gateway listed under the "Nodes" tab.  
 
 
-==== Configure the Storage Pools
+=== Configure the Storage Pools
 
 * Storage pools need to be created to host the {vplatform1} data. We must create a Ceph Object Pool for the Rados Gateway. You can do this via Open Attic dashboard or command line. The dashboard can help with your pg calculation, in our example we use 2048 (depends on environment). Examples of both are as follows:
 
@@ -409,7 +413,7 @@ ceph osd pool create default.rgw.veeam.data 2048 2048 erasure veeam_ec
 ceph osd pool create default.rgw.veeam.index 2048 2048 erasure veeam_ec
 ceph osd pool create default.rgw.veeam.non-ec 2048 2048 replicated
 
-===== Creating an S3 user
+==== Creating an S3 user
 
 * When accessing the Object Gateway through the S3 interface you need to create an S3 user by running the below command and adjusting the options in <> brackets. This can also be done using the Open Attic dashboard by going to 'Object Gateway > User' tab. 
 [source] 
@@ -436,7 +440,7 @@ radosgw-admin metadata get user:veeam > user.json
 [source] 
 radosgw-admin metadata put user:<user-id> <user.json
 
-==== {v} {vplatform1} Configuration
+=== {v} {vplatform1} Configuration
 After succesfully completing the steps above for {SUSEproduct} preperation, you can proceed to properly configuring {v} {vplatform1}. {v} documents this process very well and you can follow step-by-step instructions via https://helpcenter.veeam.com/docs/backup/vsphere/new_object_storage.html?ver=95u4[this link to their help center site.]
 
 Tips and reminders::
@@ -506,7 +510,9 @@ In the Veeam Ready Testing, a performance issue was encountered when using SSDs 
 <?pdfpagebreak?>
 ++++
 
-== [[appendix]] Appendix A: OS Networking Configuration 
+[appendix]
+[[appendix]]
+== Appendix A: OS Networking Configuration
 [source] 
 net.ipv4.ip_forward = 0 
 net.ipv6.conf.all.forwarding = 0 
@@ -537,6 +543,7 @@ net.ipv4.tcp_syn_retries = 5
 <?pdfpagebreak?>
 ++++
 
+[appendix]
 == Resources
 •	Veeam KB – SUSE KB Articles
 https://www.veeam.com/kb_search_results.html?product=Backup_Replication&kb-search-type=&search=suse

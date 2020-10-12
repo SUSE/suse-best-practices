@@ -5,15 +5,23 @@
 %entity;
 ]>
 
-<article role="sbp" xmlns="http://docbook.org/ns/docbook" 
-  xmlns:xi="http://www.w3.org/2001/XInclude"
-  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" 
-  xml:id="art-sbp-amdepyc2-sles15sp1" xml:lang="en">
+<article role="sbp" xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art-sbp-amdepyc2-sles15sp1"
+  xml:lang="en">
 
   <info>
-    <title>Optimizing Linux for AMD EPYC™ 7002 Series Processors with SUSE Linux Enterprise 15 SP1</title>
+    <title>Optimizing Linux for AMD EPYC™ 7002 Series Processors with SUSE Linux Enterprise 15
+      SP1</title>
     <productname>SUSE Linux Enterprise Server</productname>
     <productnumber>15 SP1</productnumber>
+    <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+      <dm:bugtracker>
+        <dm:url>https://github.com/SUSE/suse-best-practices/issues</dm:url>
+        <dm:product>Optimizing Linux for AMD EPYC™ 7002 Series Processors with SUSE Linux Enterprise
+          15 SP1</dm:product>
+      </dm:bugtracker>
+      <dm:editurl>https://github.com/SUSE/suse-best-practices/blob/master/xml/MAIN-SBP-AMD-EPYC-2-SLES15SP1.xml</dm:editurl>
+    </dm:docmanager>
 
     <author>
       <personname>
@@ -53,8 +61,8 @@
         <surname>Hollingsworth, Alliance Manager, AMD</surname>
       </personname>
     </author>
-    
-<!--    <cover role="logos">
+
+    <!--    <cover role="logos">
       <mediaobject>
         <imageobject>
           <imagedata fileref="suse.svg"/>
@@ -70,50 +78,62 @@
     <date>November 13, 2019</date>
 
     <abstract>
-      <para>The document at hand provides an overview of the AMD EPYC* 7002 Series
-        Processors and how some computational-intensive workloads can be tuned on SUSE
-        Linux Enterprise Server 15 SP1.</para>
+      <para>The document at hand provides an overview of the AMD EPYC* 7002 Series Processors and
+        how some computational-intensive workloads can be tuned on SUSE Linux Enterprise Server 15
+        SP1.</para>
+
+      <para><emphasis role="strong">Disclaimer</emphasis>: This document is part of the SUSE Best
+        Practices series. All documents published in this series were contributed voluntarily by
+        SUSE employees and by third parties. If not stated otherwise inside the document, the
+        articles are intended only to be one example of how a particular action could be taken.
+        Also, SUSE cannot verify either that the actions described in the articles do what they
+        claim to do or that they do not have unintended consequences. All information found in this
+        document has been compiled with utmost attention to detail. However, this does not guarantee
+        complete accuracy. Therefore, we need to specifically state that neither SUSE LLC, its
+        affiliates, the authors, nor the translators may be held liable for possible errors or the
+        consequences thereof. </para>
+
+
     </abstract>
   </info>
 
   <sect1 xml:id="sec-overview">
     <title>Overview</title>
-    <para>The AMD EPYC 7002 Series Processor is the latest generation of the AMD64 System-on-Chip (SoC) processor
-      family. It is based on the Zen 2 microarchitecture introduced in 2019, supporting up
-      to 64 cores (128 threads) and 8 memory channels per socket. At the time of writing,
-      1-socket and 2-socket models are available from Original Equipment Manufacturers
-      (OEMs). This document provides an overview of the AMD EPYC 7002 Series Processor and
-      how computational-intensive workloads can be tuned on SUSE Linux Enterprise Server
-      15 SP1.</para>
+    <para>The AMD EPYC 7002 Series Processor is the latest generation of the AMD64 System-on-Chip
+      (SoC) processor family. It is based on the Zen 2 microarchitecture introduced in 2019,
+      supporting up to 64 cores (128 threads) and 8 memory channels per socket. At the time of
+      writing, 1-socket and 2-socket models are available from Original Equipment Manufacturers
+      (OEMs). This document provides an overview of the AMD EPYC 7002 Series Processor and how
+      computational-intensive workloads can be tuned on SUSE Linux Enterprise Server 15 SP1.</para>
   </sect1>
 
   <sect1 xml:id="sec-epyc-architecture">
     <title>AMD EPYC 7002 Series Processor Architecture</title>
 
     <para><emphasis role="italic">Symmetric multiprocessing (SMP)</emphasis> systems are those that
-      contain two or more physical processing cores. Each core may have two threads if
-      Symmetric Multi-Threading (SMT) is enabled with some resources being shared between SMT siblings.
-      To minimize access latencies, multiple layers of caches are used with each level being larger but
+      contain two or more physical processing cores. Each core may have two threads if Symmetric
+      Multi-Threading (SMT) is enabled with some resources being shared between SMT siblings. To
+      minimize access latencies, multiple layers of caches are used with each level being larger but
       with higher access costs. Cores may share different levels of cache which should be considered
       when tuning for a workload.</para>
 
     <para>Historically, a single socket contained several cores sharing a hierarchy of caches and
       memory channels and multiple sockets were connected via a memory interconnect. Modern
       configurations may have multiple dies as a <emphasis role="italic">Multi-Chip Module
-      (MCM)</emphasis> with one set of interconnects within the socket and a separate interconnect
+        (MCM)</emphasis> with one set of interconnects within the socket and a separate interconnect
       for each socket. In practical terms, it means that some CPUs and memory are faster to access
       than others depending on the <quote>distance</quote>. This should be considered when tuning
       for <emphasis role="italic">Non-Uniform Memory Architecture (NUMA)</emphasis> as all memory
       accesses are not necessarily to local memory incurring a variable access penalty.</para>
 
-    <para>The 2nd Generation AMD EPYC Processor has an MCM design with up to nine dies on each package. This is significantly
-      different to the 1st Generation AMD EPYC Processor design. One die is a central IO die through which all off-chip
-      communication passes through. The basic building block of a compute die is a four-core
-      Core CompleX (CCX) with its own L1-L3 cache hierarchy. One Core Complex Die (CCD)
-      consists of two CCXs with an Infinity Link to the IO die. A 64-core 2nd Generation AMD EPYC Processor socket therefore
-      consists of 8 CCDs consisting of 16 CCXs or 64 cores in total with one additional IO
-      die for 9 dies in total. <xref linkend="fig-epyc_topology_highlevel"/>
-      shows a high-level view of the CCD.</para>
+    <para>The 2nd Generation AMD EPYC Processor has an MCM design with up to nine dies on each
+      package. This is significantly different to the 1st Generation AMD EPYC Processor design. One
+      die is a central IO die through which all off-chip communication passes through. The basic
+      building block of a compute die is a four-core Core CompleX (CCX) with its own L1-L3 cache
+      hierarchy. One Core Complex Die (CCD) consists of two CCXs with an Infinity Link to the IO
+      die. A 64-core 2nd Generation AMD EPYC Processor socket therefore consists of 8 CCDs
+      consisting of 16 CCXs or 64 cores in total with one additional IO die for 9 dies in total.
+        <xref linkend="fig-epyc_topology_highlevel"/> shows a high-level view of the CCD.</para>
 
     <figure xml:id="fig-epyc_topology_highlevel">
       <title>AMD EPYC 7002 Series Processor High Level View of CCD</title>
@@ -127,45 +147,42 @@
       </mediaobject>
     </figure>
 
-    <para>Communication between the chip and memory happens via the IO die. Each CCD has
-      one dedicated Infinity Fabric link to the die and two memory channels per CCD located
-      on the die. The practical consequence of this architecture versus the 1st Generation
-      AMD EPYC Processor is that the topology is simpler. The first generation had separate memory channels
-      per die and links between dies giving two levels of NUMA distance within a
-      single socket and a third distance when communicating between sockets. This
-      meant that a two-socket machine for EPYC had 4 NUMA nodes (3 levels of NUMA distance).
-      The 2nd Generation AMD EPYC Processor has only 2 NUMA nodes (2 levels of NUMA distance) which makes it easier to
-      tune and optimize.</para>
+    <para>Communication between the chip and memory happens via the IO die. Each CCD has one
+      dedicated Infinity Fabric link to the die and two memory channels per CCD located on the die.
+      The practical consequence of this architecture versus the 1st Generation AMD EPYC Processor is
+      that the topology is simpler. The first generation had separate memory channels per die and
+      links between dies giving two levels of NUMA distance within a single socket and a third
+      distance when communicating between sockets. This meant that a two-socket machine for EPYC had
+      4 NUMA nodes (3 levels of NUMA distance). The 2nd Generation AMD EPYC Processor has only 2
+      NUMA nodes (2 levels of NUMA distance) which makes it easier to tune and optimize.</para>
 
-    <para>The IO die has a total of 8 memory controllers, each with 2 channels supporting 1
-      DDR4 <emphasis role="italic">Dual Inline Memory Modules (DIMMs)</emphasis> each
-      (16 DIMMs in total). With a peak DDR4 frequency of 3.2GHz, this yields a total of
-      204.8 GB/sec peak theoretical bandwidth. The exact bandwidth, however, depends on the
-      DIMMs selected, the number of memory channels populated and the efficiency of the
-      application. The maximum total capacity is 4 TB.</para>
+    <para>The IO die has a total of 8 memory controllers, each with 2 channels supporting 1 DDR4
+        <emphasis role="italic">Dual Inline Memory Modules (DIMMs)</emphasis> each (16 DIMMs in
+      total). With a peak DDR4 frequency of 3.2GHz, this yields a total of 204.8 GB/sec peak
+      theoretical bandwidth. The exact bandwidth, however, depends on the DIMMs selected, the number
+      of memory channels populated and the efficiency of the application. The maximum total capacity
+      is 4 TB.</para>
 
-    <para>Power management on the links is careful to minimize the amount of power
-      required. If the links are idle then the power may be used to boost the frequency
-      of individual cores. Hence, minimizing access is not only
-      important from a memory access latency point of view, but it also has an impact on
-      the speed of individual cores.</para>
+    <para>Power management on the links is careful to minimize the amount of power required. If the
+      links are idle then the power may be used to boost the frequency of individual cores. Hence,
+      minimizing access is not only important from a memory access latency point of view, but it
+      also has an impact on the speed of individual cores.</para>
 
-    <para>There are eight IO x16 PCIe 4.0 lanes per socket where lanes
-      can be used as Infinity links, PCI Express links or SATA links with a limit of 32
-      SATA or NVMe devices. This allows very large IO configurations and a high degree
-      of flexibility given that either IO bandwidth can be optimized, or the bandwidth
-      between sockets depending on the OEM requirements. The most likely configuration
-      is that the number of PCIe links will be the same for 1 and socket machines given
-      that some lanes per socket will be used for inter-socket communication. The upshot
-      is that a 1 or 2 socket configuration does not need to compromise on the available
-      IO channels. The exact configuration used depends on the platform.</para>
+    <para>There are eight IO x16 PCIe 4.0 lanes per socket where lanes can be used as Infinity
+      links, PCI Express links or SATA links with a limit of 32 SATA or NVMe devices. This allows
+      very large IO configurations and a high degree of flexibility given that either IO bandwidth
+      can be optimized, or the bandwidth between sockets depending on the OEM requirements. The most
+      likely configuration is that the number of PCIe links will be the same for 1 and socket
+      machines given that some lanes per socket will be used for inter-socket communication. The
+      upshot is that a 1 or 2 socket configuration does not need to compromise on the available IO
+      channels. The exact configuration used depends on the platform.</para>
   </sect1>
 
   <sect1 xml:id="sec-epyc7002-topology">
     <title>AMD EPYC 7002 Series Processor Topology</title>
 
-    <para><xref linkend="fig-epyc-topology"/> below shows the topology of an example
-      machine generated by the <package>lstopo</package> tool. </para>
+    <para><xref linkend="fig-epyc-topology"/> below shows the topology of an example machine
+      generated by the <package>lstopo</package> tool. </para>
 
     <figure xml:id="fig-epyc-topology">
       <title>AMD EPYC 7002 Series Processor Topology</title>
@@ -181,20 +198,20 @@
 
     <para>This tool is part of the <package>hwloc</package> package which is not supported in SUSE
       Linux Enterprise Server 15 SP1 but can be installed for illustration. The two
-      <quote>packages</quote> correspond to each socket. The CCXs consisting of 4 cores (8 threads)
-      each should be clear as each CCX has 1 L3 cache. What is not obvious is the links to the IO
-      die, but it should be taken into account when splitting a workload to optimize bandwidth to
-      memory. In this example, the IO channels are not heavily used, but the focus will be CPU and
-      memory-intensive loads. If optimizing for IO, it is recommended, where possible, that the
-      workload is located on the nodes local to the IO channel.</para>
+        <quote>packages</quote> correspond to each socket. The CCXs consisting of 4 cores (8
+      threads) each should be clear as each CCX has 1 L3 cache. What is not obvious is the links to
+      the IO die, but it should be taken into account when splitting a workload to optimize
+      bandwidth to memory. In this example, the IO channels are not heavily used, but the focus will
+      be CPU and memory-intensive loads. If optimizing for IO, it is recommended, where possible,
+      that the workload is located on the nodes local to the IO channel.</para>
 
     <para>The computer output below shows a conventional view of the topology using the
-      <package>numactl</package> tool which is slightly edited for clarify. The CPU IDs that
-      map to each node are reported on the <quote>node X cpus:</quote> lines and note the NUMA
-      distances on the table at the bottom of the computer output. Node 0 and node 1 are a distance
-      of 32 apart as they are on separate sockets. The distance is a not a guarantee of the access
-      latency. But it is a rule of thumb that accesses between sockets are roughly twice the cost
-      of accessing another die on the same socket.</para>
+        <package>numactl</package> tool which is slightly edited for clarify. The CPU IDs that map
+      to each node are reported on the <quote>node X cpus:</quote> lines and note the NUMA distances
+      on the table at the bottom of the computer output. Node 0 and node 1 are a distance of 32
+      apart as they are on separate sockets. The distance is a not a guarantee of the access
+      latency. But it is a rule of thumb that accesses between sockets are roughly twice the cost of
+      accessing another die on the same socket.</para>
 
     <screen>epyc:~ # numactl --hardware
 available: 2 nodes (0-1)
@@ -238,15 +255,15 @@ node   0   1
         role="italic">Automatic NUMA Balancing (NUMAB)</emphasis> is enabled. When NUMAB is enabled,
       unbound process accesses are sampled and if there are enough remote accesses then the data
       will be migrated to local memory. This mechanism is not perfect and incurs overhead of its
-      own. This can be important for performance for thread and process migrations between
-      nodes to be minimized and for memory placement to be carefully considered and tuned.</para>
+      own. This can be important for performance for thread and process migrations between nodes to
+      be minimized and for memory placement to be carefully considered and tuned.</para>
 
     <para>The <package>taskset</package> tool is used to set or get the CPU affinity for new or
       existing processes. An example use is to confine a new process to CPUs local to one node.
       Where possible, local memory will be used. But if the total required memory is larger than the
       node, then remote memory can still be used. In such configurations, it is recommended to size
-      the workload such that it fits in the node. This avoids that any of the data is being paged out when
-        <package>kswapd</package> wakes to reclaim memory from the local node.</para>
+      the workload such that it fits in the node. This avoids that any of the data is being paged
+      out when <package>kswapd</package> wakes to reclaim memory from the local node.</para>
 
     <para><package>numactl</package> controls both memory and CPU policies for processes that it
       launches and can modify existing processes. In many respects, the parameters are easier to
@@ -264,10 +281,10 @@ node   0   1
       data belonging to a large task.</para>
 
     <para>Further improvements can be made to access latencies by binding a workload to a single
-      <emphasis role="italic">CPU Complex (CCX)</emphasis> within a node. Since L3 caches are not
+        <emphasis role="italic">CPU Complex (CCX)</emphasis> within a node. Since L3 caches are not
       shared between CCXs, binding a workload to a CCX avoids L3 cache misses caused by workload
-      migration. However, it should be carefully considered whether binding on a per CCD basis
-      to share memory bandwidth between multiple processes is preferred.</para>
+      migration. However, it should be carefully considered whether binding on a per CCD basis to
+      share memory bandwidth between multiple processes is preferred.</para>
 
     <para>Find examples below on how <package>taskset</package> and <package>numactl</package> can
       be used to start commands bound to different CPUs depending on the topology.</para>
@@ -307,18 +324,18 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
       <para>There are three major hazards to consider with CPU binding.</para>
 
       <para>The first is to watch for remote memory nodes being used where the process is not
-        allowed to run on CPUs local to that node. Going more in detail here is outside the
-        scope of this paper. However, the most common scenario is an IO-bound thread communicating with a
-        kernel IO thread on a remote node bound to the IO controller whose accesses are never local.</para>
+        allowed to run on CPUs local to that node. Going more in detail here is outside the scope of
+        this paper. However, the most common scenario is an IO-bound thread communicating with a
+        kernel IO thread on a remote node bound to the IO controller whose accesses are never
+        local.</para>
 
-      <para>While tasks may be bound to CPUs, the resources they are accessing such as
-	network or storage devices may not have interrupts routed locally.
-	<package>irqbalance</package> generally makes good decisions. But in cases where
-	network or IO is extremely high performance or the application has very low latency
-	requirements, it may be necessary to disable <package>irqbalance</package> using
-	<command>systemctl</command>. When that is done, the IRQs for the target device
-	need to be routed manually to CPUs local to the target workload for optimal
-	performance.</para>
+      <para>While tasks may be bound to CPUs, the resources they are accessing such as network or
+        storage devices may not have interrupts routed locally. <package>irqbalance</package>
+        generally makes good decisions. But in cases where network or IO is extremely high
+        performance or the application has very low latency requirements, it may be necessary to
+        disable <package>irqbalance</package> using <command>systemctl</command>. When that is done,
+        the IRQs for the target device need to be routed manually to CPUs local to the target
+        workload for optimal performance.</para>
 
       <para>The second is that guides about CPU binding tend to focus on binding to a single CPU.
         This is not always optimal when the task communicates with other threads, as fixed bindings
@@ -326,39 +343,38 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
         cache. This is particularly true when dispatching IO, be it to disk or a network interface
         where a task may benefit from being able to migrate close to the related threads but also
         applies to pipeline-based communicating threads for a computational workload. Hence, focus
-        initially on binding to CPUs sharing L3 cache. Then consider whether to
-        bind based on a L1/L2 cache or a single CPU using the primary metric of the workload to
-        establish whether the tuning is appropriate. </para>
+        initially on binding to CPUs sharing L3 cache. Then consider whether to bind based on a
+        L1/L2 cache or a single CPU using the primary metric of the workload to establish whether
+        the tuning is appropriate. </para>
 
-      <para>The final hazard is similar: if many tasks are bound to a smaller set of CPUs,
-        then the subset of CPUs could be over-saturated even though the machine overall has spare
+      <para>The final hazard is similar: if many tasks are bound to a smaller set of CPUs, then the
+        subset of CPUs could be over-saturated even though the machine overall has spare
         capacity.</para>
     </sect2>
 
     <sect2 xml:id="sec-cpusets-memory-control-groups">
       <title>CPUsets and Memory Control Groups</title>
 
-      <para><emphasis role="italic">CPUsets</emphasis> are ideal when multiple workloads
-        must be isolated on a machine in a predictable fashion. CPUsets allow a machine to
-        be partitioned into subsets. These sets may overlap, and in that case they suffer
-        from similar problems as CPU affinities. In the event there is no overlap, they
-        can be switched to <quote>exclusive</quote> mode which treats them completely in
-        isolation with relatively little overhead. Similarly, they are well suited when
-        a primary workload must be protected from interference because of low-priority
-        tasks in which case the low priority tasks can be placed in a CPUset. The caveat
-        with CPUsets is that the overhead is higher than using scheduler and memory
-        policies. Ordinarily, the accounting code for CPUsets is completely disabled. But
-        when a single CPUset is created, there is a second layer of checks against scheduler
-        and memory policies.</para>
+      <para><emphasis role="italic">CPUsets</emphasis> are ideal when multiple workloads must be
+        isolated on a machine in a predictable fashion. CPUsets allow a machine to be partitioned
+        into subsets. These sets may overlap, and in that case they suffer from similar problems as
+        CPU affinities. In the event there is no overlap, they can be switched to
+          <quote>exclusive</quote> mode which treats them completely in isolation with relatively
+        little overhead. Similarly, they are well suited when a primary workload must be protected
+        from interference because of low-priority tasks in which case the low priority tasks can be
+        placed in a CPUset. The caveat with CPUsets is that the overhead is higher than using
+        scheduler and memory policies. Ordinarily, the accounting code for CPUsets is completely
+        disabled. But when a single CPUset is created, there is a second layer of checks against
+        scheduler and memory policies.</para>
 
       <para>Similarly <package>memcg</package> can be used to limit the amount of memory that can be
         used by a set of processes. When the limits are exceeded then the memory will be reclaimed
         by tasks within <package>memcg</package> directly without interfering with any other tasks.
         This is ideal for ensuring there is no inference between two or more sets of tasks. Similar
-        to CPUsets, there is some management overhead incurred. This means if tasks can simply be isolated on
-        a NUMA boundary then this is preferred from a performance perspective. The major hazard is
-        that, if the limits are exceeded, then the processes directly stall to reclaim the memory
-        which can incur significant latencies. </para>
+        to CPUsets, there is some management overhead incurred. This means if tasks can simply be
+        isolated on a NUMA boundary then this is preferred from a performance perspective. The major
+        hazard is that, if the limits are exceeded, then the processes directly stall to reclaim the
+        memory which can incur significant latencies. </para>
 
       <note>
         <title/>
@@ -380,25 +396,24 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
       controller are designed to take advantage of parallel IO submission. These devices typically
       support a large number of submit and receive queues, which are tied to <emphasis role="italic"
         >MSI-X</emphasis> interrupts. Ideally these devices should provide as many MSI-X vectors as
-      CPUs are in the system. To achieve the best performance each MSI-X vector should be
-      assigned to an individual CPU.</para>
+      CPUs are in the system. To achieve the best performance each MSI-X vector should be assigned
+      to an individual CPU.</para>
   </sect1>
 
   <sect1 xml:id="sec-auto-numa-balancing">
     <title>Automatic NUMA Balancing</title>
 
-    <para>Automatic NUMA Balancing will ignore any task that uses memory policies. If the
-      workloads can be manually optimized with policies, then do so and disable automatic NUMA
-      balancing by specifying <command>numa_balancing=disable</command> on the kernel command line
-      or via <command>sysctl</command>. There are many cases where it is impractical or impossible
-      to specify policies in which case the balancing should be sufficient for
-      throughput-sensitive workloads. For latency sensitive workloads, the sampling for NUMA
-      balancing may be too high in which case it may be necessary to disable balancing. The final
-      corner case where NUMA balancing is a hazard is a case where the number of runnable tasks
-      always exceeds the number of CPUs in a single node. In this case, the load balancer (and
-      potentially affine wakes) will constantly pull tasks away from the preferred node as
-      identified by automatic NUMA balancing resulting in excessive sampling and CPU
-      migrations.</para>
+    <para>Automatic NUMA Balancing will ignore any task that uses memory policies. If the workloads
+      can be manually optimized with policies, then do so and disable automatic NUMA balancing by
+      specifying <command>numa_balancing=disable</command> on the kernel command line or via
+        <command>sysctl</command>. There are many cases where it is impractical or impossible to
+      specify policies in which case the balancing should be sufficient for throughput-sensitive
+      workloads. For latency sensitive workloads, the sampling for NUMA balancing may be too high in
+      which case it may be necessary to disable balancing. The final corner case where NUMA
+      balancing is a hazard is a case where the number of runnable tasks always exceeds the number
+      of CPUs in a single node. In this case, the load balancer (and potentially affine wakes) will
+      constantly pull tasks away from the preferred node as identified by automatic NUMA balancing
+      resulting in excessive sampling and CPU migrations.</para>
   </sect1>
 
   <sect1 xml:id="sec-evaluating-_workloads">
@@ -443,27 +458,27 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
         it may be possible to tune the workload to use fewer threads.</para>
 
       <para>Overall, the initial intent should be to use CPUs from as few NUMA nodes as possible to
-        reduce access latency but there are exceptions. The AMD EPYC 7002 Series Processor has an exceptional number of high-speed
-        memory channels to main memory. Thus consider the workload thread activity. If they are
-        co-operating threads or sharing data, isolate them on as few nodes as possible to
-        minimize cross-node memory accesses. If the threads are completely independent with no
-        shared data, it may be best to isolate them on a subset of CPUs from each node. This is to maximize
-        the number of available memory channels and throughput to main memory. For some
-        computational workloads, it may be possible to use hybrid models such as MPI for
-        parallelization across nodes and using openMP for threads within nodes.</para>
+        reduce access latency but there are exceptions. The AMD EPYC 7002 Series Processor has an
+        exceptional number of high-speed memory channels to main memory. Thus consider the workload
+        thread activity. If they are co-operating threads or sharing data, isolate them on as few
+        nodes as possible to minimize cross-node memory accesses. If the threads are completely
+        independent with no shared data, it may be best to isolate them on a subset of CPUs from
+        each node. This is to maximize the number of available memory channels and throughput to
+        main memory. For some computational workloads, it may be possible to use hybrid models such
+        as MPI for parallelization across nodes and using openMP for threads within nodes.</para>
     </sect2>
 
     <sect2 xml:id="sec-transparent-huge-pages">
       <title>Transparent Huge Pages</title>
 
-      <para>Huge pages are a mechanism by which performance can be improved. This is done by reducing the number
-        of page faults, the cost of translating virtual addresses to physical addresses because of
-        fewer layers in the page table and being able to cache translations for a larger portion of
-        memory. <emphasis role="italic">Transparent Huge Pages (THP)</emphasis> is supported for
-        private anonymous memory that automatically backs mappings with huge pages where anonymous
-        memory could be allocated as <command>heap</command>, <command>malloc()</command>,
-          <command>mmap(MAP_ANONYMOUS)</command>, etc. While the feature has existed for a long
-        time, it has evolved significantly.</para>
+      <para>Huge pages are a mechanism by which performance can be improved. This is done by
+        reducing the number of page faults, the cost of translating virtual addresses to physical
+        addresses because of fewer layers in the page table and being able to cache translations for
+        a larger portion of memory. <emphasis role="italic">Transparent Huge Pages (THP)</emphasis>
+        is supported for private anonymous memory that automatically backs mappings with huge pages
+        where anonymous memory could be allocated as <command>heap</command>,
+          <command>malloc()</command>, <command>mmap(MAP_ANONYMOUS)</command>, etc. While the
+        feature has existed for a long time, it has evolved significantly.</para>
 
       <para>Many tuning guides recommend disabling THP because of problems with early
         implementations. Specifically, when the machine was running for long enough, the use of THP
@@ -486,8 +501,9 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
         using THP. This could result in premature reclaim or fallback to remote nodes. An example
         would be HPC workloads operating on large sparse matrices. If memory usage is much higher
         than expected then compare memory usage with and without THP to decide if the trade off is
-        not worthwhile. This may be critical on the AMD EPYC 7002 Series Processor given that any spillover will congest the
-        Infinity links and potentially cause cores to run at a lower frequency. </para>
+        not worthwhile. This may be critical on the AMD EPYC 7002 Series Processor given that any
+        spillover will congest the Infinity links and potentially cause cores to run at a lower
+        frequency. </para>
 
       <note>
         <title>Sparsely Addressed Memory</title>
@@ -510,13 +526,13 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
         deterministic fashion can be hindered by THP. While there are fewer faults, the time for
         each fault is higher as memory must be allocated and cleared before being visible. The
         increase in fault times may be in the microsecond granularity. Ensure this is a relevant
-        problem as it typically only applies to extremely latency-sensitive applications. The secondary problem
-        is that a kernel daemon periodically scans a process looking for contiguous regions that can
-        be backed by huge pages. When creating a huge page, there is a window during which that
-        memory cannot be accessed by the application and new mappings cannot be created until the
-        operation is complete. This can be identified as a problem with thread-intensive
-        applications that frequently allocate memory. In this case consider effectively disabling
-          <package>khugepaged</package> by setting a large value in
+        problem as it typically only applies to extremely latency-sensitive applications. The
+        secondary problem is that a kernel daemon periodically scans a process looking for
+        contiguous regions that can be backed by huge pages. When creating a huge page, there is a
+        window during which that memory cannot be accessed by the application and new mappings
+        cannot be created until the operation is complete. This can be identified as a problem with
+        thread-intensive applications that frequently allocate memory. In this case consider
+        effectively disabling <package>khugepaged</package> by setting a large value in
           <filename>/sys/kernel/mm/transparent_hugepage/khugepaged/alloc_sleep_millisecs</filename>.
         This will still allow THP to be used opportunistically while avoiding stalls when calling
           <command>malloc()</command> or <command>mmap()</command>.</para>
@@ -614,23 +630,22 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
           <command>numa_miss</command> counters are the most important to pay attention to. An
         application that is allocating memory that starts incrementing the
           <command>numa_miss</command> implies that the first level of saturation has been reached.
-	If monitoring the <filename>proc</filename> is undesirable then the <command>numastat</command>
-	provides the same information.
-        If this is observed on the AMD EPYC 7002 Series Processor, it may be valuable to bind the application to nodes that
+        If monitoring the <filename>proc</filename> is undesirable then the
+          <command>numastat</command> provides the same information. If this is observed on the AMD
+        EPYC 7002 Series Processor, it may be valuable to bind the application to nodes that
         represent dies on a single socket. If the ratio of hits to misses is close to 1, consider an
         evaluation of the interleave policy to avoid unnecessary reclaim.</para>
 
       <note>
         <title>NUMA Statistics</title>
-        <para>These NUMA statistics only apply at the time a physical
-          page is allocated and is not related to the reference behaviour of the workload. For
-          example, if a task running on node 0 allocates memory local to node 0 then it will be
-          accounted for as a <command>node_hit</command> in the statistics. However, if the memory
-          is shared with a task running on node 1, all the accesses may be remote, which is a miss
-          from the perspective of the hardware but not accounted for in
-            <filename>/proc/vmstat</filename>. Detecting remote and local accesses at a hardware
-          level requires using the hardware's <emphasis role="italic">Performance Management
-            Unit</emphasis> to detect.</para>
+        <para>These NUMA statistics only apply at the time a physical page is allocated and is not
+          related to the reference behaviour of the workload. For example, if a task running on node
+          0 allocates memory local to node 0 then it will be accounted for as a
+            <command>node_hit</command> in the statistics. However, if the memory is shared with a
+          task running on node 1, all the accesses may be remote, which is a miss from the
+          perspective of the hardware but not accounted for in <filename>/proc/vmstat</filename>.
+          Detecting remote and local accesses at a hardware level requires using the hardware's
+            <emphasis role="italic">Performance Management Unit</emphasis> to detect.</para>
       </note>
 
       <para>When the first saturation point is reached then reclaim will be active. This can be
@@ -681,35 +696,37 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
       power idle states <emphasis role="italic">(C-States)</emphasis> can be selected to further
       conserve power. However this comes with higher exit latencies when lower power states are
       selected. It is further complicated by the fact that, if individual cores are idle and running
-      at low power, the additional power can be used to boost the performance of active cores.
-      This means this scenario is not a straight-forward balance between power consumption and
-      performance. More complexity is added on the AMD EPYC 7002 Series Processor whereby spare power may be used to boost either
-      cores or the Infinity links.</para>
+      at low power, the additional power can be used to boost the performance of active cores. This
+      means this scenario is not a straight-forward balance between power consumption and
+      performance. More complexity is added on the AMD EPYC 7002 Series Processor whereby spare
+      power may be used to boost either cores or the Infinity links.</para>
 
-    <para>The 2nd Generation AMD EPYC Processor provides <emphasis role="italic">SenseMI</emphasis> which, among other capabilities,
-      enables CPUs to make adjustments to voltage and frequency depending on the historical state of
-      the CPU. There is a latency penalty when switching P-States, but the AMD EPYC 7002 Series Processor is capable of
-      fine-grained in the adjustments that can be made to reduce likelihood that the latency is a
-      bottleneck. On SUSE Linux Enterprise Server, the AMD EPYC 7002 Series Processor uses the <command>acpi_cpufreq</command>
+    <para>The 2nd Generation AMD EPYC Processor provides <emphasis role="italic">SenseMI</emphasis>
+      which, among other capabilities, enables CPUs to make adjustments to voltage and frequency
+      depending on the historical state of the CPU. There is a latency penalty when switching
+      P-States, but the AMD EPYC 7002 Series Processor is capable of fine-grained in the adjustments
+      that can be made to reduce likelihood that the latency is a bottleneck. On SUSE Linux
+      Enterprise Server, the AMD EPYC 7002 Series Processor uses the <command>acpi_cpufreq</command>
       driver. This allows P-states to be configured to match requested performance. However, this is
       limited in terms of the full capabilities of the hardware. It cannot boost the frequency
-      beyond the maximum stated frequencies, and if a target is specified, then the highest frequency
-      below the target will be used. A special case is if the governor is set to <emphasis role="strong">performance</emphasis>. In
-      this situation the hardware will use the highest available frequency in an attempt to
-      work quickly and then return to idle.</para>
+      beyond the maximum stated frequencies, and if a target is specified, then the highest
+      frequency below the target will be used. A special case is if the governor is set to <emphasis
+        role="strong">performance</emphasis>. In this situation the hardware will use the highest
+      available frequency in an attempt to work quickly and then return to idle.</para>
 
     <para>What should be determined is whether power management is likely to be a factor for a
       workload. One that is limited to a subset of active CPUs and nodes will have high enough
-      utilization. This means that power management will not be active on those cores and no action is
-      required. Hence, with CPU binding, the issue of power management may be side-stepped.</para>
+      utilization. This means that power management will not be active on those cores and no action
+      is required. Hence, with CPU binding, the issue of power management may be
+      side-stepped.</para>
 
     <para>Secondly, a workload that does not communicate heavily with other processes and is mostly
       CPU-bound will also not experience any side effects because of power management.</para>
 
-    <para>The workloads that are most likely to be affected are those that synchronously communicate 
+    <para>The workloads that are most likely to be affected are those that synchronously communicate
       between multiple threads or those that idle frequently and have low CPU utilization overall.
-      It will be further compounded if the threads are sensitive to wakeup latency. However, there are
-      secondary effects if a workload must complete quickly but the CPU is running at a low
+      It will be further compounded if the threads are sensitive to wakeup latency. However, there
+      are secondary effects if a workload must complete quickly but the CPU is running at a low
       frequency.</para>
 
     <para>The P-State and C-State of each CPU can be examined using the <command>turbostat</command>
@@ -720,7 +737,7 @@ epyc:~ # taskset -c `cat /sys/devices/system/cpu/cpu1/cache/index3/shared_cpu_li
       either minimizing the number of CPUs available to the workload or configuring power
       management. </para>
 
-   <screen>
+    <screen>
 Package Core    CPU     Avg_MHz Busy%   Bzy_MHz TSC_MHz IRQ     POLL    C1      C2      POLL%   C1%     C2%
 -       -       -       197     6.29    3132    1997    25214   4       48557   3055    0.00    0.06    93.68
 0       0       0       15      0.82    1859    1997    74      0       0       68      0.00    0.00    99.23
@@ -748,13 +765,14 @@ Setting cpu: 2
       deemed to be necessary. Note that <command>turbostat</command> will still show that idling
       CPUs use a low frequency. The impact of the policy is that the highest P-State will be used as
       soon as possible when the CPU is active. In some cases, a latency bottleneck will occur
-      because of a CPU exiting idle. If this is identified on the AMD EPYC 7002 Series Processor, restrict the C-state by
-      specifying <command>processor.max_cstate=2</command> on the kernel command line. This will
-      prevent CPUs from entering lower C-states. It is expected on the AMD EPYC 7002 Series Processor that the exit latency from
-      C1 is very low. But by allowing C2, it reduces interference from the idle loop injecting
-      micro-operations into the pipeline and should be the best state overall. It is also possible
-      to set the max idle state on individual cores using <command>cpupower idle-set</command>. If
-      SMT is enabled, the idle state should be set on both siblings.</para>
+      because of a CPU exiting idle. If this is identified on the AMD EPYC 7002 Series Processor,
+      restrict the C-state by specifying <command>processor.max_cstate=2</command> on the kernel
+      command line. This will prevent CPUs from entering lower C-states. It is expected on the AMD
+      EPYC 7002 Series Processor that the exit latency from C1 is very low. But by allowing C2, it
+      reduces interference from the idle loop injecting micro-operations into the pipeline and
+      should be the best state overall. It is also possible to set the max idle state on individual
+      cores using <command>cpupower idle-set</command>. If SMT is enabled, the idle state should be
+      set on both siblings.</para>
   </sect1>
 
   <sect1 xml:id="sec-security-_mitigations">
@@ -762,17 +780,18 @@ Setting cpu: 2
 
     <para>On occasion, a security fix is applied to a distribution that has a performance impact.
       The most recent notable examples are <emphasis role="strong">Meltdown</emphasis> and two
-      variants of <emphasis role="strong">Spectre</emphasis>. The AMD EPYC 7002 Series Processor is immune to the Meltdown
-      variant. Page table isolation is never active. However, it is vulnerable to both Spectre
-      variants. The following table lists all security vulnerabilities that affect the 2nd Generation AMD EPYC Processor and which
-      mitgations are enabled by default for SUSE Linux Enterprise Server 15 SP1.</para>
+      variants of <emphasis role="strong">Spectre</emphasis>. The AMD EPYC 7002 Series Processor is
+      immune to the Meltdown variant. Page table isolation is never active. However, it is
+      vulnerable to both Spectre variants. The following table lists all security vulnerabilities
+      that affect the 2nd Generation AMD EPYC Processor and which mitgations are enabled by default
+      for SUSE Linux Enterprise Server 15 SP1.</para>
 
     <table>
       <title>Security mitigations for AMD EPYC 7002 Series Processors</title>
       <tgroup cols="3">
         <colspec colname="col_1" colwidth="33*"/>
         <colspec colname="col_2" colwidth="33*"/>
-        <colspec colname="col_2" colwidth="33*"/>
+        <colspec colname="col_3" colwidth="33*"/>
         <thead>
           <row>
             <entry>Vulnerability</entry>
@@ -818,7 +837,7 @@ Setting cpu: 2
             <entry>
               <para>Speculative Store Bypass</para>
             </entry>
-	    <entry>
+            <entry>
               <para>Yes</para>
             </entry>
             <entry>
@@ -829,7 +848,7 @@ Setting cpu: 2
             <entry>
               <para>Spectre v1</para>
             </entry>
-	    <entry>
+            <entry>
               <para>Yes</para>
             </entry>
             <entry>
@@ -840,7 +859,7 @@ Setting cpu: 2
             <entry>
               <para>Spectre v2</para>
             </entry>
-	    <entry>
+            <entry>
               <para>Yes</para>
             </entry>
             <entry>
@@ -851,47 +870,50 @@ Setting cpu: 2
       </tgroup>
     </table>
 
-    <para>If it can be guaranteed that the server is in a trusted environment running
-      only known code that is not malicious, the <parameter>mitigations=off</parameter> parameter can
-      be specified on the kernel command line. This option disables all security mitigations and might
-      improve performance, but the gains for the AMD EPYC 7002 Series Processor will only be marginal when compared against
-      other CPUs.</para>
+    <para>If it can be guaranteed that the server is in a trusted environment running only known
+      code that is not malicious, the <parameter>mitigations=off</parameter> parameter can be
+      specified on the kernel command line. This option disables all security mitigations and might
+      improve performance, but the gains for the AMD EPYC 7002 Series Processor will only be
+      marginal when compared against other CPUs.</para>
   </sect1>
 
   <sect1 xml:id="sec-hw-based-profiling">
     <title>Hardware-based Profiling</title>
-    <para>The AMD EPYC 7002 Series Processor has extensive Performance Monitoring Unit (PMU) capabilities, and
-      advanced monitoring of a workload can be conducted via <command>oprofile</command>
-      or <command>perf</command>. Both commands support a range of hardware events including
-      cycles, L1 cache access/misses, TLB access/misses, retired branch instructions and mispredicted branches.
-      To identify what subsystem may be worth tuning in the OS, the most useful invocation is
-      <command>perf record -a -e cycles sleep 30</command> to capture 30 seconds of data for the entire system.
-      You can also call <command>perf record -e cycles command</command> to gather a profile of a given
-      workload. Specific information on the OS can be gathered through tracepoints or creating probe points with
-      <command>perf</command> or <command>trace-cmd</command>. But the details on how to conduct such analysis
-      are beyond the scope of this paper.</para> </sect1>
+    <para>The AMD EPYC 7002 Series Processor has extensive Performance Monitoring Unit (PMU)
+      capabilities, and advanced monitoring of a workload can be conducted via
+        <command>oprofile</command> or <command>perf</command>. Both commands support a range of
+      hardware events including cycles, L1 cache access/misses, TLB access/misses, retired branch
+      instructions and mispredicted branches. To identify what subsystem may be worth tuning in the
+      OS, the most useful invocation is <command>perf record -a -e cycles sleep 30</command> to
+      capture 30 seconds of data for the entire system. You can also call <command>perf record -e
+        cycles command</command> to gather a profile of a given workload. Specific information on
+      the OS can be gathered through tracepoints or creating probe points with
+        <command>perf</command> or <command>trace-cmd</command>. But the details on how to conduct
+      such analysis are beyond the scope of this paper.</para>
+  </sect1>
 
   <sect1 xml:id="sec-candidate-workloads">
     <title>Candidate Workloads</title>
-    <para>The workloads that will benefit most from the 2nd Generation AMD EPYC Processor architecture are those that can be
-      parallelized and are either memory or IO-bound. This is particularly true for workloads that
-      are <quote>NUMA friendly</quote>. They can be parallelized, and each thread can
-      operate independently for the majority of the workloads lifetime. For memory-bound workloads,
-      the primary benefit will be taking advantage of the high bandwidth available on each channel.
-      For IO-bound workloads, the primary benefit will be realised when there are multiple storage
-      devices, each of which is connected to the node local to a task issuing IO.</para>
+    <para>The workloads that will benefit most from the 2nd Generation AMD EPYC Processor
+      architecture are those that can be parallelized and are either memory or IO-bound. This is
+      particularly true for workloads that are <quote>NUMA friendly</quote>. They can be
+      parallelized, and each thread can operate independently for the majority of the workloads
+      lifetime. For memory-bound workloads, the primary benefit will be taking advantage of the high
+      bandwidth available on each channel. For IO-bound workloads, the primary benefit will be
+      realised when there are multiple storage devices, each of which is connected to the node local
+      to a task issuing IO.</para>
 
     <sect2 xml:id="sec-test-setup">
       <title>Test Setup</title>
 
       <para>The following sections will demonstrate how an OpenMP and MPI workload can be configured
-	and tuned on an AMD EPYC 7002 Series Processor reference platform. The system has two AMD EPYC 7702P processors, each
-	with 64 cores and SMT enabled for a total of 128 cores (256 logical CPUs). Half the
-	memory banks are populated with DDR4 2666 MHz RDIMMs, with a theoretical maximum transfer
-	speed of 21.3 GB/sec each. With single ranking, the peak memory transfer speed is 341 GB/sec.
-	Note that the peak theoretical transfer speed is rarely reached in practice given that it
-	can be affected by the mix of reads/writes and the location and temporal proximity of
-	memory locations accessed.</para>
+        and tuned on an AMD EPYC 7002 Series Processor reference platform. The system has two AMD
+        EPYC 7702P processors, each with 64 cores and SMT enabled for a total of 128 cores (256
+        logical CPUs). Half the memory banks are populated with DDR4 2666 MHz RDIMMs, with a
+        theoretical maximum transfer speed of 21.3 GB/sec each. With single ranking, the peak memory
+        transfer speed is 341 GB/sec. Note that the peak theoretical transfer speed is rarely
+        reached in practice given that it can be affected by the mix of reads/writes and the
+        location and temporal proximity of memory locations accessed.</para>
 
       <table>
         <title>Test Setup</title>
@@ -978,18 +1000,19 @@ Setting cpu: 2
         John D. McCalpin from the University of Virginia (for more information, see <link
           xlink:href="https://www.cs.virginia.edu/stream/"
           >https://www.cs.virginia.edu/stream/</link>. It can be used to measure bandwidth of each
-	cache level and bandwidth to main memory while calculating four basic vector operations.
-	Each operation can exhibit different throughputs to main memory depending on the locations
-	and type of access.</para>
+        cache level and bandwidth to main memory while calculating four basic vector operations.
+        Each operation can exhibit different throughputs to main memory depending on the locations
+        and type of access.</para>
 
       <para>The benchmark was configured to run both single-threaded and parallelized with OpenMP to
-	take advantage of multiple memory controllers. The array elements for the benchmark was set at
-	268,435,456 elements at compile time so each that array was 2048MB in size for a total memory
-	footprint of approximately 6144 MB. The size was selected in line with the recommendation
-	from STREAM that the array sizes be at least 4 times the total size of L3 cache available in
-	the system. An array-size offset was used so that the separate arrays for each parallelized
-	thread would not share a Transparent Huge Page. The reason for that is that NUMA balancing may choose to migrate shared
-	pages leading to some distortion of the results. </para>
+        take advantage of multiple memory controllers. The array elements for the benchmark was set
+        at 268,435,456 elements at compile time so each that array was 2048MB in size for a total
+        memory footprint of approximately 6144 MB. The size was selected in line with the
+        recommendation from STREAM that the array sizes be at least 4 times the total size of L3
+        cache available in the system. An array-size offset was used so that the separate arrays for
+        each parallelized thread would not share a Transparent Huge Page. The reason for that is
+        that NUMA balancing may choose to migrate shared pages leading to some distortion of the
+        results. </para>
 
       <table>
         <title>Test Workload: STREAM</title>
@@ -1050,15 +1073,14 @@ Setting cpu: 2
         </tgroup>
       </table>
 
-      <para>The <parameter>march=znver1</parameter> is a reflection of the compiler available
-	in SLE 15 SP1. From <command>gcc 9.2</command>, full architectural support
-	via <parameter>march=znver2</parameter> will be available. The number of openMP
-	threads was selected to have at least one thread running for every memory channel by
-	having one thread per L3 cache available. The <parameter>OMP_PROC_BIND</parameter>
-	parameter spreads the threads such that one thread is bound to each available
-	dedicated L3 cache to maximize available bandwidth. This can be verified using
-	<command>trace-cmd</command>, as illustrated below with slight editing for formatting
-	and clarity.</para>
+      <para>The <parameter>march=znver1</parameter> is a reflection of the compiler available in SLE
+        15 SP1. From <command>gcc 9.2</command>, full architectural support via
+          <parameter>march=znver2</parameter> will be available. The number of openMP threads was
+        selected to have at least one thread running for every memory channel by having one thread
+        per L3 cache available. The <parameter>OMP_PROC_BIND</parameter> parameter spreads the
+        threads such that one thread is bound to each available dedicated L3 cache to maximize
+        available bandwidth. This can be verified using <command>trace-cmd</command>, as illustrated
+        below with slight editing for formatting and clarity.</para>
 
       <screen>epyc:~ # trace-cmd record -e sched:sched_migrate_task ./stream
 epyc:~ # trace-cmd report
@@ -1096,54 +1118,52 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7279 prio=120 orig_cpu=0 des
 stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 dest_cpu=124
 </screen>
 
-      <para>Several options were considered for the test system that were unnecessary
-	for STREAM running on the AMD EPYC 7002 Series Processor but may be useful in other
-	situations. STREAM performance can be limited if a load/store instruction stalls to
-	fetch data. CPUs may automatically prefetch data based on historical behaviour but it
-	is not guaranteed. In limited cases depending on the CPU and workload, this may be
-	addressed by specifying <parameter>-fprefetch-loop-arrays</parameter> and depending
-	on whether the workload is store-intensive, <parameter>-mprefetchwt1</parameter>. In
-	the test system using AMD EPYC 7002 Series Processors, explicit prefetching did
-	not help and was omitted. This is because an explicitly scheduled prefetch may disable a
-	CPUs predictive algorithms and degrade performance. Similarly, for some
-	workloads branch mispredictions can be a major problem, and in some cases
-	breach mispredictions can be offset against I-Cache pressure by specifying
-	<parameter>-funroll-loops</parameter>. In the case of STREAM on the test
-	system, the CPU accurately predicted the branches rendering the unrolling of
-	loops unnecessary. For math-intensive workloads it can be beneficial to link the
-	application with <parameter>-lmvec</parameter> depending on the application. In the
-	case of STREAM, the workload did not use significant math-based operations and so this
-	option was not used. Some styles of code blocks and loops can also be optimized
-	to use vectored operations by specifying <parameter>-ftree-vectorize</parameter> and
-	explicitly adding support for CPU features such as <parameter>-mavx2</parameter>. In
-	all cases, STREAM does not benefit as its operations are very basic. But it should
-	be considered on an application-by-application basis and when building support
-	libraries such as numerical libraries. In all cases, experimentation is recommended
-	but caution advised, particularly when considering options like prefetch that may
-	have been advisable on much older CPUs or completely different workloads. Such
-	options are not universally beneficial or always suitable for modern CPUs such
-	as the AMD EPYC 7002 Series Processors.</para>
+      <para>Several options were considered for the test system that were unnecessary for STREAM
+        running on the AMD EPYC 7002 Series Processor but may be useful in other situations. STREAM
+        performance can be limited if a load/store instruction stalls to fetch data. CPUs may
+        automatically prefetch data based on historical behaviour but it is not guaranteed. In
+        limited cases depending on the CPU and workload, this may be addressed by specifying
+          <parameter>-fprefetch-loop-arrays</parameter> and depending on whether the workload is
+        store-intensive, <parameter>-mprefetchwt1</parameter>. In the test system using AMD EPYC
+        7002 Series Processors, explicit prefetching did not help and was omitted. This is because
+        an explicitly scheduled prefetch may disable a CPUs predictive algorithms and degrade
+        performance. Similarly, for some workloads branch mispredictions can be a major problem, and
+        in some cases breach mispredictions can be offset against I-Cache pressure by specifying
+          <parameter>-funroll-loops</parameter>. In the case of STREAM on the test system, the CPU
+        accurately predicted the branches rendering the unrolling of loops unnecessary. For
+        math-intensive workloads it can be beneficial to link the application with
+          <parameter>-lmvec</parameter> depending on the application. In the case of STREAM, the
+        workload did not use significant math-based operations and so this option was not used. Some
+        styles of code blocks and loops can also be optimized to use vectored operations by
+        specifying <parameter>-ftree-vectorize</parameter> and explicitly adding support for CPU
+        features such as <parameter>-mavx2</parameter>. In all cases, STREAM does not benefit as its
+        operations are very basic. But it should be considered on an application-by-application
+        basis and when building support libraries such as numerical libraries. In all cases,
+        experimentation is recommended but caution advised, particularly when considering options
+        like prefetch that may have been advisable on much older CPUs or completely different
+        workloads. Such options are not universally beneficial or always suitable for modern CPUs
+        such as the AMD EPYC 7002 Series Processors.</para>
 
       <para>In the case of STREAM running on the AMD EPYC 7002 Series Processor, it was sufficient
-	to enable <parameter>-Ofast</parameter>. This includes the <parameter>-O3</parameter>
-	optimizations to enable vectorization. In addition, it gives some leeway for optimizations
-	that increase the code size with additional options for fast path that may not
-	be standards-compliant.</para>
+        to enable <parameter>-Ofast</parameter>. This includes the <parameter>-O3</parameter>
+        optimizations to enable vectorization. In addition, it gives some leeway for optimizations
+        that increase the code size with additional options for fast path that may not be
+        standards-compliant.</para>
 
-      <para>For OpenMP, the <parameter>SPREAD</parameter> option was used to spread the
-	load across L3 caches. Spreading across memory controllers may have been more
-	optimal but that information is not trivially discoverable. OpenMP has a variety
-	of different placement options if manually tuning placement. But careful attention
-	should be paid to <parameter>OMP_PLACES</parameter> given the importance of the
-	L3 Cache topology in AMD EPYC 7002 Series Processors. At the time of writing, it is not possible to
-	specify <parameter>l3cache</parameter> as a place similar to what MPI has. In
-	this case, the topology will have to be examined either with library support
-	such as <package>hwloc</package>, directly via the <parameter>sysfs</parameter>
-	or manually. While it is possible to guess via the CPUID, it is not recommended
-	as CPUs may be offlined or the enumeration may change. An example specification
-	of places based on L3 cache for the test system is;</para>
+      <para>For OpenMP, the <parameter>SPREAD</parameter> option was used to spread the load across
+        L3 caches. Spreading across memory controllers may have been more optimal but that
+        information is not trivially discoverable. OpenMP has a variety of different placement
+        options if manually tuning placement. But careful attention should be paid to
+          <parameter>OMP_PLACES</parameter> given the importance of the L3 Cache topology in AMD
+        EPYC 7002 Series Processors. At the time of writing, it is not possible to specify
+          <parameter>l3cache</parameter> as a place similar to what MPI has. In this case, the
+        topology will have to be examined either with library support such as
+          <package>hwloc</package>, directly via the <parameter>sysfs</parameter> or manually. While
+        it is possible to guess via the CPUID, it is not recommended as CPUs may be offlined or the
+        enumeration may change. An example specification of places based on L3 cache for the test
+        system is;</para>
 
-	<screen>
+      <screen>
 {0:4,128:4}, {4:4,132:4}, {8:4,136:4}, {12:4,140:4}, {16:4,144:4}, {20:4,148:4},
 {24:4,152:4}, {28:4,156:4}, {32:4,160:4}, {36:4,164:4}, {40:4,168:4}, {44:4,172:4},
 {48:4,176:4}, {52:4,180:4}, {56:4,184:4}, {60:4,188:4}, {64:4,192:4}, {68:4,196:4},
@@ -1152,15 +1172,14 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
 {116:4,244:4}, {120:4,248:4}, {124:4,252:4}
 	</screen>
 
-      <para><xref linkend="fig-stream_results"/> shows the reported bandwidth for the
-	single and parallelized case. The single-threaded bandwidth for the basic Copy
-	vector operation on a single core was 34.2 GB/sec. This is higher than the
-	theoretical maximum of a single DIMM, but the IO die may interleave accesses.
-	Channels are interleaved in this configuration. This has been recommended as
-	the best balance for a variety of workloads but limits the absolute maximum of a
-	specialized benchmark like STREAM. The total throughput for each parallel operation
-	ranged from 173 GB/sec to 256 GB/sec depending on the type of operation and how
-	efficiently memory bandwidth was used.</para>
+      <para><xref linkend="fig-stream_results"/> shows the reported bandwidth for the single and
+        parallelized case. The single-threaded bandwidth for the basic Copy vector operation on a
+        single core was 34.2 GB/sec. This is higher than the theoretical maximum of a single DIMM,
+        but the IO die may interleave accesses. Channels are interleaved in this configuration. This
+        has been recommended as the best balance for a variety of workloads but limits the absolute
+        maximum of a specialized benchmark like STREAM. The total throughput for each parallel
+        operation ranged from 173 GB/sec to 256 GB/sec depending on the type of operation and how
+        efficiently memory bandwidth was used.</para>
 
       <note>
         <title>STREAM Scores</title>
@@ -1191,64 +1210,60 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
       <title>Test Workload: NASA Parallel Benchmark</title>
 
       <para><emphasis role="italic">NASA Parallel Benchmark (NPB)</emphasis> is a small set of
-      compute-intensive kernels designed to evaluate the performance of supercomputers. They
-      are small compute kernels derived from <emphasis role="italic">Computational Fluid
-      Dynamics (CFD)</emphasis> applications. The problem size can be adjusted for different
-      memory sizes. Reference implementations exist for both MPI and OpenMP. This setup
-      will focus on the MPI reference implementation.</para>
+        compute-intensive kernels designed to evaluate the performance of supercomputers. They are
+        small compute kernels derived from <emphasis role="italic">Computational Fluid Dynamics
+          (CFD)</emphasis> applications. The problem size can be adjusted for different memory
+        sizes. Reference implementations exist for both MPI and OpenMP. This setup will focus on the
+        MPI reference implementation.</para>
 
-      <para>While each application behaves differently, one common characteristic is that
-      the workload is very context-switch intensive, barriers frequently yield the CPU to
-      other tasks and the lifetime of individual processes can be very short-lived. The
-      following paragraphs detail the tuning selected for this workload.</para>
+      <para>While each application behaves differently, one common characteristic is that the
+        workload is very context-switch intensive, barriers frequently yield the CPU to other tasks
+        and the lifetime of individual processes can be very short-lived. The following paragraphs
+        detail the tuning selected for this workload.</para>
 
-      <para>The most basic step is setting the CPU governor to <quote>performance</quote>
-      although it is not mandatory. This can address issues with short-lived, or mobile
-      tasks, failing to run long enough for a higher P-State to be selected even though
-      the workload is very throughput sensitive. The migration cost parameter is set to
-      reduce the frequency the load balancer will move an individual task. The minimum
-      granularity is adjusted to reduce over-scheduling effects. </para>
+      <para>The most basic step is setting the CPU governor to <quote>performance</quote> although
+        it is not mandatory. This can address issues with short-lived, or mobile tasks, failing to
+        run long enough for a higher P-State to be selected even though the workload is very
+        throughput sensitive. The migration cost parameter is set to reduce the frequency the load
+        balancer will move an individual task. The minimum granularity is adjusted to reduce
+        over-scheduling effects. </para>
 
-      <para>Depending on the computational kernel used, the workload may require a
-      power-of-two number or a square number of processes to be used. However, note that using
-      all available CPUs can mean that the application can contend with itself for CPU time.
-      Furthermore, as IO may be issued to shared memory backed by disk, there are system
-      threads that also need CPU time. Finally, if there is CPU contention, MPI tasks
-      can be stalled waiting on an available CPU and OpenMPI may yield tasks prematurely
-      if it detects there are more MPI tasks than CPUs available. These factors should
-      be carefully considered when tuning for parallelized workloads in general and MPI
-      workloads in particular.</para>
+      <para>Depending on the computational kernel used, the workload may require a power-of-two
+        number or a square number of processes to be used. However, note that using all available
+        CPUs can mean that the application can contend with itself for CPU time. Furthermore, as IO
+        may be issued to shared memory backed by disk, there are system threads that also need CPU
+        time. Finally, if there is CPU contention, MPI tasks can be stalled waiting on an available
+        CPU and OpenMPI may yield tasks prematurely if it detects there are more MPI tasks than CPUs
+        available. These factors should be carefully considered when tuning for parallelized
+        workloads in general and MPI workloads in particular.</para>
 
-      <para>In the specific case of testing NPB on the System Under Test, there was usually
-      limited advantage to limiting the number of CPUs used. For the <emphasis
-      role="italics">Embarrassingly Parallel (EP)</emphasis> load in particular, it benefits
-      from using all available CPUs. Hence, the default configuration used all available CPUs
-      (256) which is both a power-of-two and square number of CPUs because it was a sensible
-      starting point. However, this is not universally true. Using <package>perf</package>,
-      it was found that some workloads are memory-bound and do not benefit from a
-      high degree of parallelisation. In addition, for the final configuration, some workloads were
-      parallelized to have one task per L3 cache in the system to maximize cache usage. The
-      exception was the <emphasis role="italic">Scalar Pentadiagonal (SP)</emphasis> workload
-      which was both memory bound and benefited from using all available CPUs. Also,
-      note that the System Under Test used a pre-production CPU, that all memory
-      channels were not populated and the memory speed was not the maximum speed supported
-      by the platform. Hence, the optimal choices for this test may not be universally
-      true for all AMD EPYC platforms. This highlights that there is no universal good choice
-      for optimiuation a workload for a platform and that experimentation and validation
-      of tuning parameters is vital.</para>
+      <para>In the specific case of testing NPB on the System Under Test, there was usually limited
+        advantage to limiting the number of CPUs used. For the <emphasis role="italics"
+          >Embarrassingly Parallel (EP)</emphasis> load in particular, it benefits from using all
+        available CPUs. Hence, the default configuration used all available CPUs (256) which is both
+        a power-of-two and square number of CPUs because it was a sensible starting point. However,
+        this is not universally true. Using <package>perf</package>, it was found that some
+        workloads are memory-bound and do not benefit from a high degree of parallelisation. In
+        addition, for the final configuration, some workloads were parallelized to have one task per
+        L3 cache in the system to maximize cache usage. The exception was the <emphasis
+          role="italic">Scalar Pentadiagonal (SP)</emphasis> workload which was both memory bound
+        and benefited from using all available CPUs. Also, note that the System Under Test used a
+        pre-production CPU, that all memory channels were not populated and the memory speed was not
+        the maximum speed supported by the platform. Hence, the optimal choices for this test may
+        not be universally true for all AMD EPYC platforms. This highlights that there is no
+        universal good choice for optimiuation a workload for a platform and that experimentation
+        and validation of tuning parameters is vital.</para>
 
-      <para>The basic compilation flags simply turned on all safe optimizations. The tuned
-      flags used <parameter>-Ofast</parameter> which can be unsafe for some mathematical
-      workloads but generated the correct output for NPB. The other flags used the
-      optimal instructions available on the distribution compiler and vectorised some
-      operations.</para>
+      <para>The basic compilation flags simply turned on all safe optimizations. The tuned flags
+        used <parameter>-Ofast</parameter> which can be unsafe for some mathematical workloads but
+        generated the correct output for NPB. The other flags used the optimal instructions
+        available on the distribution compiler and vectorised some operations.</para>
 
-      <para>As NPB uses shared files, an XFS partition was used for the temporary files.
-      It is, however, only used for mapping shared files and is not a critical path for
-      the benchmark and no IO tuning is necessary. In some cases with MPI applications,
-      it will be possible to use a <filename>tmpfs</filename> partition for OpenMPI. This
-      avoids unnecessary IO assuming the increased physical memory usage does not cause
-      the application to be paged out.</para>
+      <para>As NPB uses shared files, an XFS partition was used for the temporary files. It is,
+        however, only used for mapping shared files and is not a critical path for the benchmark and
+        no IO tuning is necessary. In some cases with MPI applications, it will be possible to use a
+          <filename>tmpfs</filename> partition for OpenMPI. This avoids unnecessary IO assuming the
+        increased physical memory usage does not cause the application to be paged out.</para>
 
       <table>
         <title>Test Workload: NASA Parallel Benchmark</title>
@@ -1349,7 +1364,8 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
               </entry>
               <entry>
                 <para>
-                  <parameter>-mca btl ^openib,udapl -np 64 --bind-to l3cache:overload-allowed</parameter>
+                  <parameter>-mca btl ^openib,udapl -np 64 --bind-to
+                    l3cache:overload-allowed</parameter>
                 </para>
               </entry>
             </row>
@@ -1367,8 +1383,8 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
         </tgroup>
       </table>
 
-      <para><xref linkend="fig.epyc_nas_mpi_results"/> shows the time, as reported by the
-        benchmark, for each of the kernels to complete.</para>
+      <para><xref linkend="fig.epyc_nas_mpi_results"/> shows the time, as reported by the benchmark,
+        for each of the kernels to complete.</para>
 
       <figure xml:id="fig.epyc_nas_mpi_results">
         <title>NAS MPI Results</title>
@@ -1382,25 +1398,25 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
         </mediaobject>
       </figure>
 
-      <para>The baseline test used all available CPUs, basic compilation options
-      and the <parameter>performance</parameter> governor.  The second test <emphasis
-      role="italics">tuned</emphasis> used tuned compilation options, scheduler tuning and
-      bound tasks to L3 caches gaining between 0.9% and 17.54% performance on average. The
-      final test <emphasis role="italics">selective</emphasis> used processes that either used
-      all CPUs, avoided heavy overloaded or limited processes to one per L3 cache showing
-      overall gains between 0.9% and 21.6% depending on the computational kernel. Despite
-      the binding, automatic NUMA balancing was not tuned as the majority of accesses were
-      local to the NUMA domain and the overhead of NUMA balancing was negligible.</para>
+      <para>The baseline test used all available CPUs, basic compilation options and the
+          <parameter>performance</parameter> governor. The second test <emphasis role="italics"
+          >tuned</emphasis> used tuned compilation options, scheduler tuning and bound tasks to L3
+        caches gaining between 0.9% and 17.54% performance on average. The final test <emphasis
+          role="italics">selective</emphasis> used processes that either used all CPUs, avoided
+        heavy overloaded or limited processes to one per L3 cache showing overall gains between 0.9%
+        and 21.6% depending on the computational kernel. Despite the binding, automatic NUMA
+        balancing was not tuned as the majority of accesses were local to the NUMA domain and the
+        overhead of NUMA balancing was negligible.</para>
 
-      <para>In some cases, it will be necessary to compile an application that can run on
-	different CPUs. In such cases, <parameter>-march=znver1</parameter> may not be
-	suitable if it generates binaries that are incompatible with other vendors. In
-	such cases, it is possible to specify the ISA-specific options that are
-	cross-compatible with many x86-based CPUs such as <parameter>-mavx2</parameter>,
-	<parameter>-mfma</parameter>, <parameter>-msse2</parameter> or
-	<parameter>msse4a</parameter> while favouring optimal code generation for AMD EPYC 7002 Series Processors with
-	<parameter>-mtune=znver1</parameter>. This can be used to strike a balance between
-	excellent performance on a single CPU and great performance on multiple CPUs.</para>
+      <para>In some cases, it will be necessary to compile an application that can run on different
+        CPUs. In such cases, <parameter>-march=znver1</parameter> may not be suitable if it
+        generates binaries that are incompatible with other vendors. In such cases, it is possible
+        to specify the ISA-specific options that are cross-compatible with many x86-based CPUs such
+        as <parameter>-mavx2</parameter>, <parameter>-mfma</parameter>,
+          <parameter>-msse2</parameter> or <parameter>msse4a</parameter> while favouring optimal
+        code generation for AMD EPYC 7002 Series Processors with
+          <parameter>-mtune=znver1</parameter>. This can be used to strike a balance between
+        excellent performance on a single CPU and great performance on multiple CPUs.</para>
 
     </sect2>
 
@@ -1409,70 +1425,70 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
   <sect1 xml:id="sec-amd-epyc2-virtualization">
     <title>Using AMD EPYC 7002 Series Processors for Virtualization</title>
 
-    <para>
-      Running Virtual Machines (VMs) has some aspects in common with running <quote>regular</quote> tasks on a host Operating System.
-      Therefore, most of the tuning advice described so far in this document are valid and applicable to this section too.
-    </para>
+    <para> Running Virtual Machines (VMs) has some aspects in common with running
+        <quote>regular</quote> tasks on a host Operating System. Therefore, most of the tuning
+      advice described so far in this document are valid and applicable to this section too. </para>
 
-    <para>
-      However, virtualization workloads do pose their own specific challenges and some special considerations need to be made, to achieve a better tailored and more effective set of tuning advice, for cases where a server is used only as a virtualization host.
-      And this is especially relevant for large systems, such as AMD EPYC 7002 Series Processors.
-    </para>
+    <para> However, virtualization workloads do pose their own specific challenges and some special
+      considerations need to be made, to achieve a better tailored and more effective set of tuning
+      advice, for cases where a server is used only as a virtualization host. And this is especially
+      relevant for large systems, such as AMD EPYC 7002 Series Processors. </para>
 
     <para>This is because:</para>
 
     <itemizedlist>
       <listitem>
-        <para>VMs typically run longer, and consume more memory, than most of others <quote>regular</quote> OS processes;</para>
+        <para>VMs typically run longer, and consume more memory, than most of others
+            <quote>regular</quote> OS processes;</para>
       </listitem>
       <listitem>
-        <para>VMs can be configured to behave either as NUMA-aware or non NUMA-aware <quote>workloads</quote>.</para>
+        <para>VMs can be configured to behave either as NUMA-aware or non NUMA-aware
+            <quote>workloads</quote>.</para>
       </listitem>
     </itemizedlist>
 
-    <para>
-      In fact, VMs often run for hours, days, or even months, without being terminated or restarted.
-      Therefore, it is almost never acceptable to pay the price of suboptimal resource partitioning and allocation, even when there is the expectation that things will be better next time.
-      For example, it is always desirable that vCPUs run close to the memory that they are accessing.
-      For reasonably big NUMA aware VMs, this happens only with proper mapping of the virtual NUMA nodes of the guest to physical NUMA nodes on the host.
-      For smaller, NUMA-unaware VMs, that means allocating all their memory on the smallest possible number of host NUMA nodes, and making their vCPUs run on the pCPUs of those nodes as much as possible.
-    </para>
+    <para> In fact, VMs often run for hours, days, or even months, without being terminated or
+      restarted. Therefore, it is almost never acceptable to pay the price of suboptimal resource
+      partitioning and allocation, even when there is the expectation that things will be better
+      next time. For example, it is always desirable that vCPUs run close to the memory that they
+      are accessing. For reasonably big NUMA aware VMs, this happens only with proper mapping of the
+      virtual NUMA nodes of the guest to physical NUMA nodes on the host. For smaller, NUMA-unaware
+      VMs, that means allocating all their memory on the smallest possible number of host NUMA
+      nodes, and making their vCPUs run on the pCPUs of those nodes as much as possible. </para>
 
-    <para>
-      Also, poor mapping of virtual machine resources (virtual CPUs and memory, but also IO) on the host topology induces performance degradation to everything that runs inside the virtual machine – and potentially even to other components of the system .
-    </para>
+    <para> Also, poor mapping of virtual machine resources (virtual CPUs and memory, but also IO) on
+      the host topology induces performance degradation to everything that runs inside the virtual
+      machine – and potentially even to other components of the system . </para>
 
-    <para>
-      Regarding NUMA-awareness, a VM is called out to be NUMA aware if a (virtual) NUMA topology is defined and exposed to the VM itself and if the OS that the VM runs (guest OS) is also NUMA aware.
-      On the contrary, a VM is called NUMA-unaware if either no (virtual) NUMA topology is exposed or the guest OS is not NUMA aware.
-    </para>
+    <para> Regarding NUMA-awareness, a VM is called out to be NUMA aware if a (virtual) NUMA
+      topology is defined and exposed to the VM itself and if the OS that the VM runs (guest OS) is
+      also NUMA aware. On the contrary, a VM is called NUMA-unaware if either no (virtual) NUMA
+      topology is exposed or the guest OS is not NUMA aware. </para>
 
-    <para>
-      VMs that are large enough (in terms of amount of memory and number of virtual CPUs) to span multiple host NUMA nodes, benefit from being configured as NUMA aware VMs.
-      However, even for small and NUMA-unaware VMs, wise placement of their memory on the host nodes, and effective mapping of their virtual CPUs (vCPUs) on the host physical CPUs (pCPUs) is key for achieving good and consistent performance.
-    </para>
+    <para> VMs that are large enough (in terms of amount of memory and number of virtual CPUs) to
+      span multiple host NUMA nodes, benefit from being configured as NUMA aware VMs. However, even
+      for small and NUMA-unaware VMs, wise placement of their memory on the host nodes, and
+      effective mapping of their virtual CPUs (vCPUs) on the host physical CPUs (pCPUs) is key for
+      achieving good and consistent performance. </para>
 
-    <para>
-      This second half of the present document focuses on tuning a system where CPU and memory intensive workloads run inside VMs.
-      We will explain how to configure and tune both the host and the VMs, in a way that performance comparable to the ones of the host can be achieved.
-    </para>
+    <para> This second half of the present document focuses on tuning a system where CPU and memory
+      intensive workloads run inside VMs. We will explain how to configure and tune both the host
+      and the VMs, in a way that performance comparable to the ones of the host can be achieved. </para>
 
-    <para>
-      Both the Kernel-based Virtual Machine (KVM) and the Xen-Project hypervisor (Xen), as available in SUSE Linux Enterprise Server 15 SP1, provide mechanisms to enact this kind of resource partitioning and allocation.
-    </para>
+    <para> Both the Kernel-based Virtual Machine (KVM) and the Xen-Project hypervisor (Xen), as
+      available in SUSE Linux Enterprise Server 15 SP1, provide mechanisms to enact this kind of
+      resource partitioning and allocation. </para>
 
     <note>
       <title>Virtual Machine Types</title>
 
-      <para>
-        KVM only supports one type of VM – a fully hardware-based virtual machine (HVM).
-        Under Xen, VMs can be paravirtualized (PV) or hardware virtualized machines (HVM).
-       </para>
+      <para> KVM only supports one type of VM – a fully hardware-based virtual machine (HVM). Under
+        Xen, VMs can be paravirtualized (PV) or hardware virtualized machines (HVM). </para>
 
-      <para>
-        Xen HVM guests with paravirtualized interfaces enabled (called PVHVM, or HVM) are very similar to KVM VMs, which are based on hardware virtualization but also employ paravirtualized IO (VirtIO).
-        In this document, we always refer to Xen VMs of the (PV)HVM type.
-      </para>
+      <para> Xen HVM guests with paravirtualized interfaces enabled (called PVHVM, or HVM) are very
+        similar to KVM VMs, which are based on hardware virtualization but also employ
+        paravirtualized IO (VirtIO). In this document, we always refer to Xen VMs of the (PV)HVM
+        type. </para>
     </note>
 
   </sect1>
@@ -1480,93 +1496,97 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
   <sect1 xml:id="sec-resource-allocation-tuning-host">
     <title>Resources Allocation and Tuning of the Host</title>
 
-    <para>
-      No details are given, here, about how to install and configure a system so that it becomes a suitable virtualization host.
-      For similar instructions, refer to the SUSE documentation at
-      <link xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-vt-installation.html">
-        SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Installation of Virtualization Components</link>.
-      </para>
+    <para> No details are given, here, about how to install and configure a system so that it
+      becomes a suitable virtualization host. For similar instructions, refer to the SUSE
+      documentation at <link
+        xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-vt-installation.html"
+        > SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Installation of Virtualization
+        Components</link>. </para>
 
-    <para>
-      The same applies to configuring things such as networking and storage, either for the host or for the VMs.
-      For similar instructions, refer to suitable chapters of OS and virtualization documentation and manuals.
-      As an example, to know how to assign network interfaces (or ports) to one or more VMs, for improved network throughput, refer to
-      <link xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-libvirt-config-gui.html#sec-libvirt-config-pci">
-        SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Assigning a Host PCI Device to a VM Guest</link>.
-    </para>
+    <para> The same applies to configuring things such as networking and storage, either for the
+      host or for the VMs. For similar instructions, refer to suitable chapters of OS and
+      virtualization documentation and manuals. As an example, to know how to assign network
+      interfaces (or ports) to one or more VMs, for improved network throughput, refer to <link
+        xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-libvirt-config-gui.html#sec-libvirt-config-pci"
+        > SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Assigning a Host PCI Device to a
+        VM Guest</link>. </para>
 
     <sect2 xml:id="sec-allocating-resources-hostos">
       <title>Allocating Resources to the Host OS</title>
 
-      <para>
-        Even if the main purpose of a server is <quote>limited</quote> to running VMs, some activities will be carried out on the host OS.
-        In fact, in both Xen and KVM, the host OS is at least responsible for helping with the IO of the VMs.
-        It is, therefore, good practise to make sure that the host OS has some resources (namely, CPUs and memory) exclusively assigned to itself.
-      </para>
+      <para> Even if the main purpose of a server is <quote>limited</quote> to running VMs, some
+        activities will be carried out on the host OS. In fact, in both Xen and KVM, the host OS is
+        at least responsible for helping with the IO of the VMs. It is, therefore, good practise to
+        make sure that the host OS has some resources (namely, CPUs and memory) exclusively assigned
+        to itself. </para>
 
       <note>
         <title>Host OS on KVM and on Xen</title>
-        <para>
-          On KVM, the host OS is the SUSE Linux Enterprise distribution installed on the server, which then loads the hypervisor kernel modules.
-          On Xen, the host OS still is a SUSE Linux Enterprise distribution, but it runs inside what is to all the effect an (although special) Virtual Machine (called Domain 0, or Dom0).
-        </para>
+        <para> On KVM, the host OS is the SUSE Linux Enterprise distribution installed on the
+          server, which then loads the hypervisor kernel modules. On Xen, the host OS still is a
+          SUSE Linux Enterprise distribution, but it runs inside what is to all the effect an
+          (although special) Virtual Machine (called Domain 0, or Dom0). </para>
       </note>
 
-      <para>
-        In the absence of any specific requirements involving host resources, a good rule of thumb suggests that 5 to 10 percent of the physical RAM should be reserved to the host OS.
+      <para> In the absence of any specific requirements involving host resources, a good rule of
+        thumb suggests that 5 to 10 percent of the physical RAM should be reserved to the host OS.
         On KVM, increase that quota in case the plan is to run many (for example hundreds) of VMs.
-        On Xen, it is ok to always give dom0 not more than a few GigaBytes of memory. This is especially the case when planning to take advantage of disaggregation (see
-        <link xlink:href="https://wiki.xenproject.org/wiki/Dom0_Disaggregation">
-          https://wiki.xenproject.org/wiki/Dom0_Disaggregation</link>).
-      </para>
+        On Xen, it is ok to always give dom0 not more than a few GigaBytes of memory. This is
+        especially the case when planning to take advantage of disaggregation (see <link
+          xlink:href="https://wiki.xenproject.org/wiki/Dom0_Disaggregation">
+          https://wiki.xenproject.org/wiki/Dom0_Disaggregation</link>). </para>
 
-      <para>
-        In terms of CPUs, we advise to reserve to the host OS / dom0 at least one physical core on each NUMA node.
-        This can be relaxed, but the host OS should always get at least one core on the all the NUMA nodes that have IO channels attached to them.
-        In fact, host OS activities are  mostly related to performing IO for VMs. It is beneficial for performance if the kernel threads that handle devices can run on the node to which the devices themselves are attached.
-        As an example, in the system shown in <xref linkend="fig-epyc-topology"/>, this would mean reserving at least one physical core for the host OS on node 0 (node 1 has an IO controller, but no device attached).
-      </para>
+      <para> In terms of CPUs, we advise to reserve to the host OS / dom0 at least one physical core
+        on each NUMA node. This can be relaxed, but the host OS should always get at least one core
+        on the all the NUMA nodes that have IO channels attached to them. In fact, host OS
+        activities are mostly related to performing IO for VMs. It is beneficial for performance if
+        the kernel threads that handle devices can run on the node to which the devices themselves
+        are attached. As an example, in the system shown in <xref linkend="fig-epyc-topology"/>,
+        this would mean reserving at least one physical core for the host OS on node 0 (node 1 has
+        an IO controller, but no device attached). </para>
 
-      <para>
-        System administrators need to be able to reach out and login to the system, to monitor, manage and troubleshoot it.
-        Thus, some more resources should be assigned to the host OS. This permits that management tools (for example, the <emphasis role="strong">SSH</emphasis> daemon) can be reached, and that the hypervisor's toolstack  (for example, <package>libvirt</package>) can run without too much contention.
-      </para>
+      <para> System administrators need to be able to reach out and login to the system, to monitor,
+        manage and troubleshoot it. Thus, some more resources should be assigned to the host OS.
+        This permits that management tools (for example, the <emphasis role="strong">SSH</emphasis>
+        daemon) can be reached, and that the hypervisor's toolstack (for example,
+          <package>libvirt</package>) can run without too much contention. </para>
 
-        <sect3 xml:id="sec-allocating-resources-hostos-kvm">
-          <title>Reserving CPUs and Memory for the Host on KVM</title>
+      <sect3 xml:id="sec-allocating-resources-hostos-kvm">
+        <title>Reserving CPUs and Memory for the Host on KVM</title>
 
-          <para>
-            When using KVM, sparing, for example, 2 cores and 12 GB of RAM for the host OS is done by stopping the creation of VMs when the total number of vCPUs of all VMs has reached 254, or when the total cumulative amount of allocated RAM has reached 220 GB.
-          </para>
+        <para> When using KVM, sparing, for example, 2 cores and 12 GB of RAM for the host OS is
+          done by stopping the creation of VMs when the total number of vCPUs of all VMs has reached
+          254, or when the total cumulative amount of allocated RAM has reached 220 GB. </para>
 
-          <para>
-            Following all the advice and recommendations provided in this guide (including the ones given later about VM configuration) will automatically make sure that the unused CPUs are available to the host OS.
-            There are other ways to enforce this, for example with <package>cgroups</package>, or by means of the <package>isolcpus</package> boot parameter, but they will not be described in details in this document.
-          </para>
+        <para> Following all the advice and recommendations provided in this guide (including the
+          ones given later about VM configuration) will automatically make sure that the unused CPUs
+          are available to the host OS. There are other ways to enforce this, for example with
+            <package>cgroups</package>, or by means of the <package>isolcpus</package> boot
+          parameter, but they will not be described in details in this document. </para>
 
       </sect3>
 
       <sect3 xml:id="sec-allocating-resources-hostos-xen">
         <title>Reserving CPUs and Memory for the Host on Xen</title>
 
-        <para>
-          When using Xen, dom0 resource allocation needs to be done explicitly at system boot time.
-          For example, assigning 8 physical cores and 12 GB of RAM to it is done by specifying the following additional parameters on the hypervisor boot command line (for example, by editing <filename>/etc/defaults/grub</filename>, and then updating the boot loader):
-        </para>
+        <para> When using Xen, dom0 resource allocation needs to be done explicitly at system boot
+          time. For example, assigning 8 physical cores and 12 GB of RAM to it is done by specifying
+          the following additional parameters on the hypervisor boot command line (for example, by
+          editing <filename>/etc/defaults/grub</filename>, and then updating the boot loader): </para>
 
         <screen>dom0_mem=12288M,max:12288M dom0_max_vcpus=16</screen>
 
-        <para>
-          The number of vCPUs is 16 because we want Dom0 to have 8 physical cores, and the AMD EPYC 7002 Series Processor has Symmetric MultiThreading (SMT).
-          12288M memory (that is 12 GB) is specified both as current and as maximum value, to prevent Dom0 from using ballooning (see
-          <link xlink:href="https://wiki.xenproject.org/wiki/Tuning_Xen_for_Performance#Memory">
-            https://wiki.xenproject.org/wiki/Tuning_Xen_for_Performance#Memory</link> ).
-        </para>
+        <para> The number of vCPUs is 16 because we want Dom0 to have 8 physical cores, and the AMD
+          EPYC 7002 Series Processor has Symmetric MultiThreading (SMT). 12288M memory (that is 12
+          GB) is specified both as current and as maximum value, to prevent Dom0 from using
+          ballooning (see <link
+            xlink:href="https://wiki.xenproject.org/wiki/Tuning_Xen_for_Performance#Memory">
+            https://wiki.xenproject.org/wiki/Tuning_Xen_for_Performance#Memory</link> ). </para>
 
-        <para>
-          Making sure that Dom0 vCPUs run on specific pCPUs is not strictly necessary.
-          If wanted, it can be enforced acting on the Xen scheduler, when Dom0 is booted (as there is currently no mechanism to set up this via Xen boot time parameters).
-          If using the <package>xl</package> toolstack, the command is:</para>
+        <para> Making sure that Dom0 vCPUs run on specific pCPUs is not strictly necessary. If
+          wanted, it can be enforced acting on the Xen scheduler, when Dom0 is booted (as there is
+          currently no mechanism to set up this via Xen boot time parameters). If using the
+            <package>xl</package> toolstack, the command is:</para>
 
         <screen>xl vcpu-pin 0 &lt;vcpu-ID> &lt;pcpu-list></screen>
 
@@ -1574,26 +1594,30 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
 
         <screen>virsh vcpupin 0 --vcpu &lt;vcpu-ID> --cpulist &lt;pcpu-list></screen>
 
-        <para>Note that <command>virsh vcpupin –config ...</command> is not effective for Dom0.</para>
+        <para>Note that <command>virsh vcpupin –config ...</command> is not effective for
+          Dom0.</para>
 
-        <para>
-          If wanting to limit Dom0 to only a specific (set of) NUMA node(s), the <command>dom0_nodes=&lt;nodeid></command> boot command line option can be used.
-          This will affect both memory and vCPUs. In fact, it means that memory for Dom0 will be allocated on the specified node(s), and the vCPUs of Dom0 will be restricted to run on those same node(s).
-          When the Dom0 has booted, it is sitll possible to use <command>xl vcpu-pin</command> or <command>virsh vcpupin</command> to change where its vCPUs will be scheduled.
-          But the memory will never be moved from where it has been allocated during boot.
-          On AMD EPYC 7002 Series Processors, using this option is not recommended.
-        </para>
+        <para> If wanting to limit Dom0 to only a specific (set of) NUMA node(s), the
+            <command>dom0_nodes=&lt;nodeid></command> boot command line option can be used. This
+          will affect both memory and vCPUs. In fact, it means that memory for Dom0 will be
+          allocated on the specified node(s), and the vCPUs of Dom0 will be restricted to run on
+          those same node(s). When the Dom0 has booted, it is sitll possible to use <command>xl
+            vcpu-pin</command> or <command>virsh vcpupin</command> to change where its vCPUs will be
+          scheduled. But the memory will never be moved from where it has been allocated during
+          boot. On AMD EPYC 7002 Series Processors, using this option is not recommended. </para>
 
       </sect3>
 
       <sect3 xml:id="sec-host-cpu-for-intensive-io">
         <title>Reserving CPUs for the Host under IO Intensive VM Workloads</title>
 
-        <para>
-          Covering the cases where VMs run IO intensive workloads, is out of the scope of this guide.
-          As general advice, if IO done in VM is important, it may be appropriate to leave to the host OS either one core or one thread for each IO device used by each VM.
-          If this is not possible, for example because it reduces to much the CPUs that remain available for running VMs (especially in case the goal is to run many of them), then exploring alternative solutions for handling IO devices (such as <emphasis role="Italic">SR-IOV</emphasis>) is recommended.
-        </para>
+        <para> Covering the cases where VMs run IO intensive workloads, is out of the scope of this
+          guide. As general advice, if IO done in VM is important, it may be appropriate to leave to
+          the host OS either one core or one thread for each IO device used by each VM. If this is
+          not possible, for example because it reduces to much the CPUs that remain available for
+          running VMs (especially in case the goal is to run many of them), then exploring
+          alternative solutions for handling IO devices (such as <emphasis role="Italic"
+            >SR-IOV</emphasis>) is recommended. </para>
 
       </sect3>
 
@@ -1602,13 +1626,15 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
     <sect2 xml:id="sec-trasparent-huge-pages">
       <title>(Transparent) Huge Pages</title>
 
-      <para>
-        For virtualization workloads, rather than using Transparent Huge Pages (THP) on the host, it is recommended that 1 GB huge pages are used for the memory of the VMs.
-        This sensibly reduces both the page table management overhead and the level of resource contention that the system faces when VMs update their page tables.
-        Moreover, if the host is entirely devoted to running VMs, Huge Pages are likely not required for host OS processes.
-        Actually, in this case, having them active on the host may even negatively affect performance, as the THP service daemon (which is there for merging <quote>regular</quote> pages and form Huge Pages) can interfere with VMs' vCPUs execution.
-        For disabling Huge Pages for the host OS, in a KVM setup, add the following host kernel command-line option:
-      </para>
+      <para> For virtualization workloads, rather than using Transparent Huge Pages (THP) on the
+        host, it is recommended that 1 GB huge pages are used for the memory of the VMs. This
+        sensibly reduces both the page table management overhead and the level of resource
+        contention that the system faces when VMs update their page tables. Moreover, if the host is
+        entirely devoted to running VMs, Huge Pages are likely not required for host OS processes.
+        Actually, in this case, having them active on the host may even negatively affect
+        performance, as the THP service daemon (which is there for merging <quote>regular</quote>
+        pages and form Huge Pages) can interfere with VMs' vCPUs execution. For disabling Huge Pages
+        for the host OS, in a KVM setup, add the following host kernel command-line option: </para>
 
       <screen>transparent_hugepage=never</screen>
 
@@ -1616,46 +1642,45 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
 
       <screen>echo never > /sys/kernel/mm/transparent_hugepage/enabled</screen>
 
-      <para>
-        For being able to use 1 GB Huge Pages as backing memory of KVM guests, such pages need to be allocated at the host OS level.
-        It is best to make that happen by adding the following boot time parameter:
-      </para>
+      <para> For being able to use 1 GB Huge Pages as backing memory of KVM guests, such pages need
+        to be allocated at the host OS level. It is best to make that happen by adding the following
+        boot time parameter: </para>
 
       <screen>default_hugepagesz=1GB hugepagesz=1GB hugepages=&lt;number of hugepages></screen>
 
-      <para>
-        The value <parameter>&lt;number of hugepages></parameter> can be computed by taking the amount of memory we want to devoted to VMs, and dividing it by the page size (1 GB).
-        For example on our host with 256 GB of RAM, creating 200 Huge Pages means we can accommodate up to 210 GB of VMs' RAM, and leave plenty (~50GB) to the host OS.
-      </para>
+      <para> The value <parameter>&lt;number of hugepages></parameter> can be computed by taking
+        the amount of memory we want to devoted to VMs, and dividing it by the page size (1 GB). For
+        example on our host with 256 GB of RAM, creating 200 Huge Pages means we can accommodate up
+        to 210 GB of VMs' RAM, and leave plenty (~50GB) to the host OS. </para>
 
-      <para>
-        On Xen, none of the above is necessary. In fact, Dom0 is a paravirtualized guest, for which Huge Pages support is not present.
-        On the other hand, for the memory used for the hypervisor and for the memory allocated by the hypervisor for HVM VMs, Huge Pages are always used as much as possible.
-        So no explicit tuning is needed.
-      </para>
+      <para> On Xen, none of the above is necessary. In fact, Dom0 is a paravirtualized guest, for
+        which Huge Pages support is not present. On the other hand, for the memory used for the
+        hypervisor and for the memory allocated by the hypervisor for HVM VMs, Huge Pages are always
+        used as much as possible. So no explicit tuning is needed. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-automatic-numa-balancing">
       <title>Automatic NUMA Balancing</title>
 
-      <para>
-        On Xen, Automatic NUMA Balancing (NUMAB) in the host OS should be disabled.
-        Dom0 is, currently, a paravirtualized guest without a (virtual) NUMA topology and, thus, NUMAB would be totally useless.
-      </para>
+      <para> On Xen, Automatic NUMA Balancing (NUMAB) in the host OS should be disabled. Dom0 is,
+        currently, a paravirtualized guest without a (virtual) NUMA topology and, thus, NUMAB would
+        be totally useless. </para>
 
-      <para>
-        On KVM, NUMAB can be useful in dynamic virtualization scenarios, where VMs are created, destroyed and re-created relatively quickly.
-        Or, in general, it can be useful in cases where it is not possible or desirable to statically partition the host resources and assign them explicitly to VMs.
-        This, however, comes at the price of some latency being introduced.
-        Plus, NUMAB's own operation can interfere with VMs' execution and cause further performance degradation.
-        In any case, this document focuses on achieving the best possible performance for VMs, through specific tuning and static resource allocation, therefore it is recommended to leave NUMAB turned off.
-        This can be done by adding the following parameter to the host kernel command line:
-      </para>
+      <para> On KVM, NUMAB can be useful in dynamic virtualization scenarios, where VMs are created,
+        destroyed and re-created relatively quickly. Or, in general, it can be useful in cases where
+        it is not possible or desirable to statically partition the host resources and assign them
+        explicitly to VMs. This, however, comes at the price of some latency being introduced. Plus,
+        NUMAB's own operation can interfere with VMs' execution and cause further performance
+        degradation. In any case, this document focuses on achieving the best possible performance
+        for VMs, through specific tuning and static resource allocation, therefore it is recommended
+        to leave NUMAB turned off. This can be done by adding the following parameter to the host
+        kernel command line: </para>
 
       <screen>numa_balancing=disable</screen>
 
-      <para>If anything changes and the system is repurposed to achieve different goals, NUMAB can be enabled on-line with the command:</para>
+      <para>If anything changes and the system is repurposed to achieve different goals, NUMAB can
+        be enabled on-line with the command:</para>
 
       <screen>echo 0 > /proc/sys/kernel/numa_balancing</screen>
 
@@ -1664,15 +1689,14 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
     <sect2 xml:id="sec-services-daemons-power">
       <title>Services, Daemons and Power Management</title>
 
-      <para>
-        Service daemons have been discussed already, in the first part of the document.
-        Most of the consideration done there, applies here as well.
-      </para>
+      <para> Service daemons have been discussed already, in the first part of the document. Most of
+        the consideration done there, applies here as well. </para>
 
-      <para>
-        For example, <package>tuned</package> should either not be used, or the profile should be set to one that does not implicitly put the CPUs in polling mode.
-        Both <package>throughput-performance</package> and <package>virtual-host</package> profiles from SUSE Linux Enterprise Server 15 SP1 are ok, as neither of them touches <filename>/dev/cpu_dma_latency</filename>.
-      </para>
+      <para> For example, <package>tuned</package> should either not be used, or the profile should
+        be set to one that does not implicitly put the CPUs in polling mode. Both
+          <package>throughput-performance</package> and <package>virtual-host</package> profiles
+        from SUSE Linux Enterprise Server 15 SP1 are ok, as neither of them touches
+          <filename>/dev/cpu_dma_latency</filename>. </para>
 
       <!-- Is this still a problem? FWIW, I have done experiments with it on and off, and have not seen much difference...
       <para>
@@ -1682,54 +1706,54 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
       </para>
       -->
 
-      <para>
-        As far as power management is concerned, the <package>cpufreq</package> governor can either be kept as it is by default, or switched to <parameter>performance</parameter>, depending on the nature of the workloads of interest.
-      </para>
+      <para> As far as power management is concerned, the <package>cpufreq</package> governor can
+        either be kept as it is by default, or switched to <parameter>performance</parameter>,
+        depending on the nature of the workloads of interest. </para>
 
       <note>
         <title>Power Management</title>
-        <para>
-          For anything that concerns power management on KVM, changing the <package>tuned</package> profile or using <package>cpupower</package>, from the host OS will have the effects one can expect, and described already in the first half of the document.
-          On Xen, CPU frequency scaling is enacted by the hypervisor.
-          It can be controlled from within Dom0, but the tool that needs to be used is different.
-          For example, for setting governor to <parameter>performance</parameter>, we need the following:
-        </para>
+        <para> For anything that concerns power management on KVM, changing the
+            <package>tuned</package> profile or using <package>cpupower</package>, from the host OS
+          will have the effects one can expect, and described already in the first half of the
+          document. On Xen, CPU frequency scaling is enacted by the hypervisor. It can be controlled
+          from within Dom0, but the tool that needs to be used is different. For example, for
+          setting governor to <parameter>performance</parameter>, we need the following: </para>
 
         <screen>xenpm set-scaling-governor performance</screen>
 
-        </note>
+      </note>
 
     </sect2>
 
     <sect2 xml:id="sec-sev-host">
       <title>Secure Encrypted Virtualization</title>
 
-      <para>
-        Secure Encrypted Virtualization (SEV) technology, supported on the 2nd Generation AMD EPYC Processors, allows the memory of the VMs to be encrypted.
-        Enabling it for a VM happens in the VM's own configuration file, but there are preparation steps that needs to occur at the host level.
-      </para>
+      <para> Secure Encrypted Virtualization (SEV) technology, supported on the 2nd Generation AMD
+        EPYC Processors, allows the memory of the VMs to be encrypted. Enabling it for a VM happens
+        in the VM's own configuration file, but there are preparation steps that needs to occur at
+        the host level. </para>
 
-      <para>
-        The <package>libvirt</package> documentation contains all the necessary steps required for enabling SEV on a host that supports it.
-        It has been enough to add the following boot parameters to the host kernel command line, in the boot loader:
-      </para>
+      <para> The <package>libvirt</package> documentation contains all the necessary steps required
+        for enabling SEV on a host that supports it. It has been enough to add the following boot
+        parameters to the host kernel command line, in the boot loader: </para>
 
       <screen>mem_encrypt=on kvm_amd.sev=1</screen>
 
-      <para>
-        For further details, refer to
-        <link xlink:href="https://libvirt.org/kbase/launch_security_sev.html#Host">
-           Libvirt documentation: Enabling SEV on the host</link>.
-      </para>
+      <para> For further details, refer to <link
+          xlink:href="https://libvirt.org/kbase/launch_security_sev.html#Host"> Libvirt
+          documentation: Enabling SEV on the host</link>. </para>
 
-      <para>
-        It should be noted that, at least as far as the workload analyzed in this document, enabling SEV on the host has not caused any noticeable performance degradation.
-        In fact, running CPU and memory intensive workloads, both on the host and in VMs, with or without the parameters above added to the host kernel boot command line, resulted in indistinguishable results.
-        Therefore, enabling SEV at the host level can be considered safe, from the point of view of not hurting performance of VMs and workloads that will not enable VM memory encryption.
-        Of course, this applies to when SEV is enabled for the host and is <emphasis>not</emphasis> used for encrypting VMs.
-      </para>
+      <para> It should be noted that, at least as far as the workload analyzed in this document,
+        enabling SEV on the host has not caused any noticeable performance degradation. In fact,
+        running CPU and memory intensive workloads, both on the host and in VMs, with or without the
+        parameters above added to the host kernel boot command line, resulted in indistinguishable
+        results. Therefore, enabling SEV at the host level can be considered safe, from the point of
+        view of not hurting performance of VMs and workloads that will not enable VM memory
+        encryption. Of course, this applies to when SEV is enabled for the host and is
+          <emphasis>not</emphasis> used for encrypting VMs. </para>
 
-      <para>What happens when SEV is used for encrypting VMs' memory will be described later in the guide.</para>
+      <para>What happens when SEV is used for encrypting VMs' memory will be described later in the
+        guide.</para>
 
       <note>
         <title>SEV on Xen</title>
@@ -1743,13 +1767,13 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
   <sect1 xml:id="sec-resource-allocation-tuning-vms">
     <title>Resources Allocation and Tuning of VMs</title>
 
-    <para>
-      For instructions on how to create an initial VM configuration, start the VM, and install a guest OS, refer to the SUSE documentation at
-      <link xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-kvm-inst.html">
-        SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Guest Installation</link>.
-      </para>
+    <para> For instructions on how to create an initial VM configuration, start the VM, and install
+      a guest OS, refer to the SUSE documentation at <link
+        xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-kvm-inst.html">
+        SUSE Linux Enterprise Server 15 SP1 Virtualization Guide: Guest Installation</link>. </para>
 
-    <para>From a VM configuration perspective, the two most important factors for achieving top performance on CPU and memory bound workloads are:</para>
+    <para>From a VM configuration perspective, the two most important factors for achieving top
+      performance on CPU and memory bound workloads are:</para>
 
     <orderedlist>
       <listitem>
@@ -1760,32 +1784,33 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
       </listitem>
     </orderedlist>
 
-    <para>
-      For example, if there are two VMs, each one should be run on one socket, to minimize CPU contention and maximize and memory access parallelism.
-      Also, and especially if the VMs are big enough, they should be made aware of their own virtual topology.
-      That way, all the tuning actions described in the first part of this document become applicable to the workloads running inside the VMs too.
-    </para>
+    <para> For example, if there are two VMs, each one should be run on one socket, to minimize CPU
+      contention and maximize and memory access parallelism. Also, and especially if the VMs are big
+      enough, they should be made aware of their own virtual topology. That way, all the tuning
+      actions described in the first part of this document become applicable to the workloads
+      running inside the VMs too. </para>
 
     <sect2 xml:id="sec-placement-vms">
       <title>Placement of VMs</title>
 
-      <para>
-        When a VM is created, memory is allocated on the host to act as its virtual RAM.
-        Moving this memory, for example on a different NUMA node from the one where it is first allocated, incurs (when possible) in a significant performance impact.
-        Therefore, it is of paramount importance that the initial placement of the VMs is as optimal as possible.
-        Both Xen and KVM can make <quote>educated guesses</quote> on what a good placement might be.
-        For the purposes of this document, however, we are interested in what is the absolute best possible initial placement of the VMs, taking into account the specific characteristics of AMD EPYC 7002 Series Processor systems.
-        And this can only be achieved by <emphasis role="strong">manually</emphasis> doing the initial placement.
-        Of course, this comes at the price of reduced flexibility, and is only possible when there is no oversubscription.
-      </para>
+      <para> When a VM is created, memory is allocated on the host to act as its virtual RAM. Moving
+        this memory, for example on a different NUMA node from the one where it is first allocated,
+        incurs (when possible) in a significant performance impact. Therefore, it is of paramount
+        importance that the initial placement of the VMs is as optimal as possible. Both Xen and KVM
+        can make <quote>educated guesses</quote> on what a good placement might be. For the purposes
+        of this document, however, we are interested in what is the absolute best possible initial
+        placement of the VMs, taking into account the specific characteristics of AMD EPYC 7002
+        Series Processor systems. And this can only be achieved by <emphasis role="strong"
+          >manually</emphasis> doing the initial placement. Of course, this comes at the price of
+        reduced flexibility, and is only possible when there is no oversubscription. </para>
 
-      <para>
-        Deciding on what pCPUs the vCPUs of a VM run, can be done at creation time, but also easily changed along the VM lifecycle.
-        It is, however, still recommended to start the VMs with good vCPUs placement.
-        This is particularly important on Xen, where vCPU placement is what actually drives and controls memory placement.
-      </para>
+      <para> Deciding on what pCPUs the vCPUs of a VM run, can be done at creation time, but also
+        easily changed along the VM lifecycle. It is, however, still recommended to start the VMs
+        with good vCPUs placement. This is particularly important on Xen, where vCPU placement is
+        what actually drives and controls memory placement. </para>
 
-      <para>Placement of VM memory on host NUMA nodes happens by means of the &lt;numatune> XML element:</para>
+      <para>Placement of VM memory on host NUMA nodes happens by means of the &lt;numatune> XML
+        element:</para>
 
       <screen>
 &lt;numatune>
@@ -1796,11 +1821,13 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
 &lt;/numatune>  
       </screen>
 
-      <para>
-        The <parameter>'strict'</parameter> guarantees that the all memory for the VM will come only from the specified (set of) NUMA node(s) specified in <parameter>nodeset</parameter>.
-        A cell is, in fact, a virtual NUMA node, with <parameter>cellid</parameter> being its ID and <parameter>nodeset</parameter> telling exactly from what host physical NUMA node(s) the memory for this virtual node should be allocated.
-        A NUMA-unaware VMs can still include this element in its configuration file. It will have only one <parameter>&lt;memnode></parameter> element.
-      </para>
+      <para> The <parameter>'strict'</parameter> guarantees that the all memory for the VM will come
+        only from the specified (set of) NUMA node(s) specified in <parameter>nodeset</parameter>. A
+        cell is, in fact, a virtual NUMA node, with <parameter>cellid</parameter> being its ID and
+          <parameter>nodeset</parameter> telling exactly from what host physical NUMA node(s) the
+        memory for this virtual node should be allocated. A NUMA-unaware VMs can still include this
+        element in its configuration file. It will have only one
+          <parameter>&lt;memnode></parameter> element. </para>
 
       <para>Placement of vCPUs happens via the <parameter>&lt;cputune></parameter> element, as
         in the example below:</para>
@@ -1816,54 +1843,49 @@ stream-47249 x: sched_migrate_task: comm=stream pid=7280 prio=120 orig_cpu=0 des
 &lt;/cputune>
       </screen>
 
-      <para>
-        The value <parameter>240</parameter> means that the VM will have 240 vCPUs.
-        The <parameter>static</parameter> guarantees that each vCPU will stay on the pCPU(s) on which it is <quote>pinned</quote> to.
-        The various <parameter>&lt;vcpupin></parameter> elements are where the mapping between vCPUs and pCPUs is established (<parameter>vcpu</parameter> being the vCPU ID and <parameter>cpuset</parameter> being either one or a list of pCPU IDs).
-      </para>
+      <para> The value <parameter>240</parameter> means that the VM will have 240 vCPUs. The
+          <parameter>static</parameter> guarantees that each vCPU will stay on the pCPU(s) on which
+        it is <quote>pinned</quote> to. The various <parameter>&lt;vcpupin></parameter> elements
+        are where the mapping between vCPUs and pCPUs is established (<parameter>vcpu</parameter>
+        being the vCPU ID and <parameter>cpuset</parameter> being either one or a list of pCPU IDs). </para>
 
-      <para>
-        When pinning vCPUs to pCPUs, adjacent vCPU IDs (like vCPU ID 0 and vCPU ID 1) must be assigned to host SMT siblings (like pCPU 4 and pCPU 132, on our test server).
-        In fact, QEMU uses a static SMT sibling CPU ID assignment.
-        This is how we guarantee that virtual SMT siblings will always execute on actual physical SMT siblings.
-      </para>
+      <para> When pinning vCPUs to pCPUs, adjacent vCPU IDs (like vCPU ID 0 and vCPU ID 1) must be
+        assigned to host SMT siblings (like pCPU 4 and pCPU 132, on our test server). In fact, QEMU
+        uses a static SMT sibling CPU ID assignment. This is how we guarantee that virtual SMT
+        siblings will always execute on actual physical SMT siblings. </para>
 
-      <para>
-        The following sections give more specific and precise details about placement of vCPUs and memory for VM of varying sizes of VMs, on the reference system for this guide (see <xref linkend="fig-epyc-topology"/>.
-      </para>
+      <para> The following sections give more specific and precise details about placement of vCPUs
+        and memory for VM of varying sizes of VMs, on the reference system for this guide (see <xref
+          linkend="fig-epyc-topology"/>. </para>
 
       <sect3 xml:id="sec-placement-one-vm">
         <title>Placement of Only One Large VM</title>
 
-        <para>
-          An interesting use case when <quote>only one</quote> VM is used.
-          Reasons for doing something like that include security/isolation, flexibility, high availability, and others.
-          In this cases, typically, the VM is almost as large as the host itself.
-        </para>
+        <para> An interesting use case when <quote>only one</quote> VM is used. Reasons for doing
+          something like that include security/isolation, flexibility, high availability, and
+          others. In this cases, typically, the VM is almost as large as the host itself. </para>
 
-        <para>
-          Let us, therefore, consider a VM with 240 vCPUs and 200 GB of RAM.
-          Such VM spans multiple host NUMA nodes and therefore it is recommended to create a virtual NUMA topology for it.
-         </para>
+        <para> Let us, therefore, consider a VM with 240 vCPUs and 200 GB of RAM. Such VM spans
+          multiple host NUMA nodes and therefore it is recommended to create a virtual NUMA topology
+          for it. </para>
 
-        <para>
-          We should create a virtual topology with 2 virtual NUMA nodes (that is, as many as there are physical NUMA nodes), and split the VM’s memory equally among them.
-          The 240 vCPUs are assigned to the 2 nodes, 120 on each.
-          Full cores must always be used. That means, assign vCPUs 0 and 1 to Core P#4, vCPUs 2 and 3 to Core P#5, vCPUs 4 and 5 to Core P#6, etc.
-          To enact this, we must pin vCPUs 0 and 1 to pCPUs 4 and 132; vCPUs 2 and 3 to pCPUs 5 and 133; vCPUs 4 and 5 to pCPUs 6 and 134, etc.
-          And, of course, the two nodes must have the same number of vCPUs.
-        </para>
+        <para> We should create a virtual topology with 2 virtual NUMA nodes (that is, as many as
+          there are physical NUMA nodes), and split the VM’s memory equally among them. The 240
+          vCPUs are assigned to the 2 nodes, 120 on each. Full cores must always be used. That
+          means, assign vCPUs 0 and 1 to Core P#4, vCPUs 2 and 3 to Core P#5, vCPUs 4 and 5 to Core
+          P#6, etc. To enact this, we must pin vCPUs 0 and 1 to pCPUs 4 and 132; vCPUs 2 and 3 to
+          pCPUs 5 and 133; vCPUs 4 and 5 to pCPUs 6 and 134, etc. And, of course, the two nodes must
+          have the same number of vCPUs. </para>
 
-        <para>
-          Cores P#0, P#1, P#2 and P#3 of both the host NUMA nodes (this means one die, which is composed of 8 cores, per node) are reserved to the host.
-          They are PU-s: P#0, P#1, P#2, P#3, P#128, P#129, P#130, P#131, P#64, P#65, P#66, P#67, P#192, P#193, P#194, P#195.
-        </para>
+        <para> Cores P#0, P#1, P#2 and P#3 of both the host NUMA nodes (this means one die, which is
+          composed of 8 cores, per node) are reserved to the host. They are PU-s: P#0, P#1, P#2,
+          P#3, P#128, P#129, P#130, P#131, P#64, P#65, P#66, P#67, P#192, P#193, P#194, P#195. </para>
 
-        <para>
-          The VM Memory must be split equally among the 2 nodes.
-          At this point, if a suitable virtual topology is also provided to the VM, each of the VM’s vCPUs will access its own memory directly, and use Infinity Fabric inter-socket links only to reach foreign memory, as it happens on the host.
-          Workloads running inside the VM can be tuned exactly like they were running on a bare metal 2nd Generation AMD EPYC Processor server.
-        </para>
+        <para> The VM Memory must be split equally among the 2 nodes. At this point, if a suitable
+          virtual topology is also provided to the VM, each of the VM’s vCPUs will access its own
+          memory directly, and use Infinity Fabric inter-socket links only to reach foreign memory,
+          as it happens on the host. Workloads running inside the VM can be tuned exactly like they
+          were running on a bare metal 2nd Generation AMD EPYC Processor server. </para>
 
         <para>The following example <command>numactl</command> output comes from a VM configured as
           explained:</para>
@@ -1882,29 +1904,31 @@ node   0   1
   1:  32  10  
         </screen>
 
-      <!-- What about a figure (like lstopo output) ? -->
+        <!-- What about a figure (like lstopo output) ? -->
 
-        <para>
-          This is analogous to the host topology, also from the point of view of NUMA node distances (as the <package>libvirt</package> version present in SUSE Linux Enterprise Server 15 SP1, allows us to define the virtual nodes distance table).
-          The only differences are the number of CPUs, their APIC IDs and the amount of memory.
-        </para>
+        <para> This is analogous to the host topology, also from the point of view of NUMA node
+          distances (as the <package>libvirt</package> version present in SUSE Linux Enterprise
+          Server 15 SP1, allows us to define the virtual nodes distance table). The only differences
+          are the number of CPUs, their APIC IDs and the amount of memory. </para>
 
-        <para>See <xref linkend="sec-appendix-a"/> for an almost complete VM configuration file.</para>
+        <para>See <xref linkend="sec-appendix-a"/> for an almost complete VM configuration
+          file.</para>
 
       </sect3>
 
       <sect3 xml:id="sec-placement-two-vms">
         <title>Placement of Two Large VMs</title>
 
-        <para>
-          If wanting to run two VMs, they can have 120 vCPUs and 100 GB memory each.
-          The recommendation, in this case, is to put each VM on one host NUMA node.
-          This way, VMs no longer span multiple host NUMA nodes, and hence there is no need to define virtual NUMA nodes, as part of their topologies.
-        </para>
+        <para> If wanting to run two VMs, they can have 120 vCPUs and 100 GB memory each. The
+          recommendation, in this case, is to put each VM on one host NUMA node. This way, VMs no
+          longer span multiple host NUMA nodes, and hence there is no need to define virtual NUMA
+          nodes, as part of their topologies. </para>
 
-        <para>Placing each VM on one node means that workloads running inside each of them will never need to use inter-socket interconnect.</para>
+        <para>Placing each VM on one node means that workloads running inside each of them will
+          never need to use inter-socket interconnect.</para>
 
-        <para>In this example scenario, the <package>numactl</package> output of both VMs looks as follows:</para>
+        <para>In this example scenario, the <package>numactl</package> output of both VMs looks as
+          follows:</para>
 
         <screen>
 available: 1 nodes (0)
@@ -1921,54 +1945,54 @@ node   0
       <sect3 xml:id="sec-placement-ten-vms">
         <title>Placement of Four to Ten Medium-size VMs</title>
 
-        <para>
-          Following the same principles, we can <quote>split</quote> each node in 2, and have 4 VMs with 56 vCPUs each (leaving, this time, 16 cores per node to the host).
-          Memory wise, each VM would get up to 50 GB of RAM.
-        </para>
+        <para> Following the same principles, we can <quote>split</quote> each node in 2, and have 4
+          VMs with 56 vCPUs each (leaving, this time, 16 cores per node to the host). Memory wise,
+          each VM would get up to 50 GB of RAM. </para>
 
-        <para>
-          Or even have 10 VMs with 24 vCPUs and 20 GB RAM each (and still leaving 8 cores per node to the host).
-        </para>
+        <para> Or even have 10 VMs with 24 vCPUs and 20 GB RAM each (and still leaving 8 cores per
+          node to the host). </para>
 
-        <para>
-          In both cases, VMs will not need to (and must not) be put across the host NUMA nodes boundary, and hence they do not need to be NUMA-aware.
-          They still benefit from having a virtual topology, in terms of cores and threads, which matches the resource they are using. You will find more details about this in following sections.
-        </para>
+        <para> In both cases, VMs will not need to (and must not) be put across the host NUMA nodes
+          boundary, and hence they do not need to be NUMA-aware. They still benefit from having a
+          virtual topology, in terms of cores and threads, which matches the resource they are
+          using. You will find more details about this in following sections. </para>
 
-        <para>
-          The 4 VMs would be placed on cores P#4-P#31 and P#32-P#59 of each NUMA node.
-          The 10 VMs would be placed on cores P#4-P#15, P#16-P#27, P#28-P#39, P#40-P#51 and P#52-P#63 of each NUMA node.
-        </para>
+        <para> The 4 VMs would be placed on cores P#4-P#31 and P#32-P#59 of each NUMA node. The 10
+          VMs would be placed on cores P#4-P#15, P#16-P#27, P#28-P#39, P#40-P#51 and P#52-P#63 of
+          each NUMA node. </para>
 
       </sect3>
 
       <sect3 xml:id="sec-placement-lots-vms">
         <title>Placement of Many Small VMs</title>
 
-        <para>If small VMs are the target, VMs with either 8, 4 or 2 vCPUs each can be created and efficiently allocated on AMD EPYC 7002 Series Processors servers.</para>
+        <para>If small VMs are the target, VMs with either 8, 4 or 2 vCPUs each can be created and
+          efficiently allocated on AMD EPYC 7002 Series Processors servers.</para>
 
-        <para>
-          VMs with 8 vCPUs will be placed on an entire dies (8 cores), and we can have 30 of them.
-          VMs with either 4 or 2 vCPUs will be given 2 or 1 host cores, and we can have 60 or 120 of them, respectively.
-          And this is all possible without the need for any of the VMs to span more than one host NUMA node.
-        </para>
+        <para> VMs with 8 vCPUs will be placed on an entire dies (8 cores), and we can have 30 of
+          them. VMs with either 4 or 2 vCPUs will be given 2 or 1 host cores, and we can have 60 or
+          120 of them, respectively. And this is all possible without the need for any of the VMs to
+          span more than one host NUMA node. </para>
 
         <note>
           <title>Hundreds of VMs with 256 GB of RAM</title>
-          <para>
-            When the number of VM increases so much, the limiting factor will become the memory.
-            With ~200 GB of RAM available for VMs on our server, we would be able to give only 1 GB of RAM to each of the 120 VMs.
-            Of course, this limitation is only an issue of the system used as reference for this guide. The AMD EPIC 7002 Series Processor architecture itself can accommodate much more RAM.
-          </para>
+          <para> When the number of VM increases so much, the limiting factor will become the
+            memory. With ~200 GB of RAM available for VMs on our server, we would be able to give
+            only 1 GB of RAM to each of the 120 VMs. Of course, this limitation is only an issue of
+            the system used as reference for this guide. The AMD EPIC 7002 Series Processor
+            architecture itself can accommodate much more RAM. </para>
         </note>
 
-        <para>
-          In cases when it is enough or desirable to have VMs with only 1 vCPUs, it is recommended to still not go beyond 120, and assign no less than one full core to each VM.
-          It should be avoided to have vCPUs from different VMs running on two siblings threads of the same core.
-          Such a solution, although functional, is not ideal for all the cases where good and consistent performance within VMs is a goal.
-          What can be done for each VM and for each core is to use one of the two threads for the actual vCPU, and the other for its IO thread(s), on the host.
-          This solution allows to take advantage of the full 2nd Generation AMD EPYC processing power. However, we advise to check and verify whether this is a good setup and if it brings performance benefits for the specific workloads of interest, before committing to it.
-        </para>
+        <para> In cases when it is enough or desirable to have VMs with only 1 vCPUs, it is
+          recommended to still not go beyond 120, and assign no less than one full core to each VM.
+          It should be avoided to have vCPUs from different VMs running on two siblings threads of
+          the same core. Such a solution, although functional, is not ideal for all the cases where
+          good and consistent performance within VMs is a goal. What can be done for each VM and for
+          each core is to use one of the two threads for the actual vCPU, and the other for its IO
+          thread(s), on the host. This solution allows to take advantage of the full 2nd Generation
+          AMD EPYC processing power. However, we advise to check and verify whether this is a good
+          setup and if it brings performance benefits for the specific workloads of interest, before
+          committing to it. </para>
 
       </sect3>
 
@@ -1977,90 +2001,94 @@ node   0
     <sect2 xml:id="sec-emulator-disaggregation">
       <title>Emulator IO Threads &amp; Disaggregation</title>
 
-      <para>
-        IO for the VMs is carried out by device emulators running on the host, or by the so-called <emphasis role="italic">back-ends</emphasis> of paravirtualized drivers (also running on the host).
-        Both the IO threads of the emulators and the back-ends are seen as (either user or kernel) threads by the host OS.
-        As such, they can be configured to run on specific subsets of the CPUs assigned to the host OS (Dom0’s virtual CPUs, in the case of Xen).
-        And their placement on such CPUs may have an impact on performance of VMs, especially on IO bound workloads.
-      </para>
+      <para> IO for the VMs is carried out by device emulators running on the host, or by the
+        so-called <emphasis role="italic">back-ends</emphasis> of paravirtualized drivers (also
+        running on the host). Both the IO threads of the emulators and the back-ends are seen as
+        (either user or kernel) threads by the host OS. As such, they can be configured to run on
+        specific subsets of the CPUs assigned to the host OS (Dom0’s virtual CPUs, in the case of
+        Xen). And their placement on such CPUs may have an impact on performance of VMs, especially
+        on IO bound workloads. </para>
 
-      <para>
-        For example, a 1 vCPU VM can have its vCPU bound to the one SMT thread of a core, while the other thread can be assigned to the host, and the IO thread(s) of the VM pinned to it.
-        The idea behind this is that a common execution pattern for the vCPU is to be idle when the IO threads are busy.
-        Hence this setup potentially maximizes the exploitation of hardware resources.
-      </para>
+      <para> For example, a 1 vCPU VM can have its vCPU bound to the one SMT thread of a core, while
+        the other thread can be assigned to the host, and the IO thread(s) of the VM pinned to it.
+        The idea behind this is that a common execution pattern for the vCPU is to be idle when the
+        IO threads are busy. Hence this setup potentially maximizes the exploitation of hardware
+        resources. </para>
 
-      <para>
-        On Xen, there is also the possibility of setting up driver domains.
-        These are special VMs which act as back-ends of a particular IO device, for one or more VMs.
-        In case they are used, make sure that they run <quote>close</quote> enough to both the hardware they are providing their abstraction for, and the VMs that they are servicing.
-      </para>
+      <para> On Xen, there is also the possibility of setting up driver domains. These are special
+        VMs which act as back-ends of a particular IO device, for one or more VMs. In case they are
+        used, make sure that they run <quote>close</quote> enough to both the hardware they are
+        providing their abstraction for, and the VMs that they are servicing. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-oversubscription-host">
       <title>Oversubscription of Host Resources</title>
 
-      <para>
-        Oversubscription happens when the demand for some resource is higher than the resource is physically available.
-        In virtualization, this can happen for CPU and memory.
-      </para>
+      <para> Oversubscription happens when the demand for some resource is higher than the resource
+        is physically available. In virtualization, this can happen for CPU and memory. </para>
 
       <note>
         <title>Not Covering Oversubscribed Scenarios</title>
-        <para>
-          This guide does not cover in great details oversubscribed scenarios.
-          However, given the large number of CPUs available on an AMD EPYC 7002 Series Processor system and the huge amount of memory the architecture supports, this is not considered a limitation.
+        <para> This guide does not cover in great details oversubscribed scenarios. However, given
+          the large number of CPUs available on an AMD EPYC 7002 Series Processor system and the
+          huge amount of memory the architecture supports, this is not considered a limitation.
         </para>
       </note>
 
       <bridgehead>CPU Oversubscription</bridgehead>
 
-      <para>
-        CPU oversubscription happens when the total cumulative number of vCPUs from all VMs becomes higher than 256.
-        Such situation unavoidably introduces latencies, and leads to lower performance than when host resources are just enough.
-        It is, however, impossible to tell a-priori by what extent this happens, at least not without a detailed knowledge of the actual workload.
-      </para>
+      <para> CPU oversubscription happens when the total cumulative number of vCPUs from all VMs
+        becomes higher than 256. Such situation unavoidably introduces latencies, and leads to lower
+        performance than when host resources are just enough. It is, however, impossible to tell
+        a-priori by what extent this happens, at least not without a detailed knowledge of the
+        actual workload. </para>
 
-      <para>
-        If we knew in advance that the load on each vCPU will always stay below 50%, we could assume that even oversubscribing the host by a factor of 2 (like with ~512 vCPUs, in our case!) will work well.
-        On the other hand, if we knew that the load that each vCPU tries to impose on the system is always 100%, creating even 1 vCPUs more than the host has pCPUs would already lead to a misconfiguration.
-      </para>
+      <para> If we knew in advance that the load on each vCPU will always stay below 50%, we could
+        assume that even oversubscribing the host by a factor of 2 (like with ~512 vCPUs, in our
+        case!) will work well. On the other hand, if we knew that the load that each vCPU tries to
+        impose on the system is always 100%, creating even 1 vCPUs more than the host has pCPUs
+        would already lead to a misconfiguration. </para>
 
-      <para>
-        When under oversubscription, exclusive 1-to-1 vCPU to pCPU assignment may not the best approach.
-        However, we need to trust the hypervisor scheduler to handle the situation well (which is very likely what will happen).
-        What can be done, though, is to provide the hypervisor scheduler with some <quote>suggestions</quote>, if we have enough knowledge about the workload.
-        For example, we can try to help the scheduler avoiding that all the VMs running CPU intensive workloads end on the same nodes, or avoiding cross-node VM migrations happening too frequently.
-      </para>
+      <para> When under oversubscription, exclusive 1-to-1 vCPU to pCPU assignment may not the best
+        approach. However, we need to trust the hypervisor scheduler to handle the situation well
+        (which is very likely what will happen). What can be done, though, is to provide the
+        hypervisor scheduler with some <quote>suggestions</quote>, if we have enough knowledge about
+        the workload. For example, we can try to help the scheduler avoiding that all the VMs
+        running CPU intensive workloads end on the same nodes, or avoiding cross-node VM migrations
+        happening too frequently. </para>
 
-      <para>
-        This grouping of VMs on (a set of) nodes can be done with some less strict forms of vCPU pinning (often called <quote>affinity</quote>), or with other mechanisms.
-        For example, <package>cgroups</package> can be leveraged on a KVM host, or <package>cpupools</package> on a Xen host.
-        Xen also contains a feature, called <emphasis role="italic">soft vCPU affinity</emphasis>, which can be used together with <quote>traditional</quote> vCPU affinity (also called <emphasis role="italic">hard vCPU affinity</emphasis>) as a finer grained and more powerful way of controlling resource allocation in oversubscribed scenario.
-      </para>
+      <para> This grouping of VMs on (a set of) nodes can be done with some less strict forms of
+        vCPU pinning (often called <quote>affinity</quote>), or with other mechanisms. For example,
+          <package>cgroups</package> can be leveraged on a KVM host, or <package>cpupools</package>
+        on a Xen host. Xen also contains a feature, called <emphasis role="italic">soft vCPU
+          affinity</emphasis>, which can be used together with <quote>traditional</quote> vCPU
+        affinity (also called <emphasis role="italic">hard vCPU affinity</emphasis>) as a finer
+        grained and more powerful way of controlling resource allocation in oversubscribed scenario. </para>
 
       <bridgehead>Memory Oversubscription</bridgehead>
 
-      <para>
-        Memory oversubscription happens when the total cumulative amount of memory used by all VMs is more than the RAM available on the host.
-        In this case, some of such memory is kept outside of the RAM (<emphasis role="italic">swapped out</emphasis>) when the VMs using it are not running. It is put back in RAM (<emphasis role="italic">swapped in</emphasis>) when these VMs run again.
-        This also has (potentially severe) performance implications, and is not analyzed in details in here.
-      </para>
+      <para> Memory oversubscription happens when the total cumulative amount of memory used by all
+        VMs is more than the RAM available on the host. In this case, some of such memory is kept
+        outside of the RAM (<emphasis role="italic">swapped out</emphasis>) when the VMs using it
+        are not running. It is put back in RAM (<emphasis role="italic">swapped in</emphasis>) when
+        these VMs run again. This also has (potentially severe) performance implications, and is not
+        analyzed in details in here. </para>
 
-      <para>
-        On KVM, swapping is handled by Linux virtual memory management and paging code and mechanism, exactly as it happens for host/bare metal processes.
-        On Xen, this is not supported unless special technologies (<package>xenpaging</package> or trascendent memory) are employed.
-      </para>
+      <para> On KVM, swapping is handled by Linux virtual memory management and paging code and
+        mechanism, exactly as it happens for host/bare metal processes. On Xen, this is not
+        supported unless special technologies (<package>xenpaging</package> or trascendent memory)
+        are employed. </para>
 
       <para>Then there are page sharing and memory ballooning.</para>
-      <para>Page sharing relies on the principle that, when VMs use memory pages which are identical, only one copy of them needs to be kept in physical RAM, at least for most of the time.
-        This is supported on KVM, via a mechanism called Kernel Samepage Merging (KSM).
-        On Xen, this again require special tools and actions.</para>
-      
-      <para>Ballooning relies on the idea that VMs do not always use all the memory they are configured to be able to use.
-        This is supported in both Xen and KVM. However, using it is not ideal for performance, thus it is not analyzed in any further details in this document.
-      </para>
+      <para>Page sharing relies on the principle that, when VMs use memory pages which are
+        identical, only one copy of them needs to be kept in physical RAM, at least for most of the
+        time. This is supported on KVM, via a mechanism called Kernel Samepage Merging (KSM). On
+        Xen, this again require special tools and actions.</para>
+
+      <para>Ballooning relies on the idea that VMs do not always use all the memory they are
+        configured to be able to use. This is supported in both Xen and KVM. However, using it is
+        not ideal for performance, thus it is not analyzed in any further details in this document. </para>
 
       <bridgehead>Oversubscription with a Single VM</bridgehead>
 
@@ -2080,10 +2108,11 @@ node   0
     <sect2 xml:id="sec-enlightment-vms">
       <title>Enlightment of VMs</title>
 
-      <para>
-        The term <quote>enlightment</quote> refers to letting the guest OS know as many details as possible about the virtual topology of the VM.
-        This is only useful and brings actual performance improvements <emphasis>only</emphasis> if such topology is properly and effectively mapped on host resources, and if such mapping is stable and does not change during the life of the VM.
-      </para>
+      <para> The term <quote>enlightment</quote> refers to letting the guest OS know as many details
+        as possible about the virtual topology of the VM. This is only useful and brings actual
+        performance improvements <emphasis>only</emphasis> if such topology is properly and
+        effectively mapped on host resources, and if such mapping is stable and does not change
+        during the life of the VM. </para>
 
       <sect3 xml:id="sec-CPU-topology-vm">
         <title>Virtual CPUs Model and Topology</title>
@@ -2111,26 +2140,26 @@ node   0
 &lt;/cpu>
         </screen>
 
-        <para>
-          The <parameter>&lt;topology></parameter> element specifies the CPU characteristics.
-          In this case, we are creating vCPUs which will be seen by the guest OS as being arranged in 2 sockets, each of which has 60 cores, each of which has 2 threads.
-          And this is how we match, for the one big VM, the topology of the host.
-        </para>
+        <para> The <parameter>&lt;topology></parameter> element specifies the CPU
+          characteristics. In this case, we are creating vCPUs which will be seen by the guest OS as
+          being arranged in 2 sockets, each of which has 60 cores, each of which has 2 threads. And
+          this is how we match, for the one big VM, the topology of the host. </para>
 
-        <para>
-          Each <parameter>&lt;cell></parameter> element defines one virtual NUMA node, specifying how much memory and which vCPUs are part of it.
-          The <parameter>&lt;distances></parameter> elements allow us to define a custom virtual NUMA distance table.
-          Values should be - as it is on actual hardware - an indication of the latency of accessing the memory of every node from any other.
-          And again we are defining a virtual distance table which exactly matches the host one, for the one big VM.
-        </para>
+        <para> Each <parameter>&lt;cell></parameter> element defines one virtual NUMA node,
+          specifying how much memory and which vCPUs are part of it. The
+            <parameter>&lt;distances></parameter> elements allow us to define a custom virtual
+          NUMA distance table. Values should be - as it is on actual hardware - an indication of the
+          latency of accessing the memory of every node from any other. And again we are defining a
+          virtual distance table which exactly matches the host one, for the one big VM. </para>
 
-        <para>
-          CPU model is how the VM is told what type of vCPUs should be <quote>emulated</quote>, for example, what features and special instructions and extensions will be available.
-          To achieve best performance, using <parameter>mode='host-passthrough'</parameter> is often the right choice.
-          However, at least on SUSE Linux Enterprise Server 15 SP1, this produces wrong results.
-          In fact, such setting prevents the topology - despite it being described correctly in the <parameter>&lt;topology></parameter> element - from being interpreted correctly, inside the VM.
-          This is visible in the output of the command <command>lscpu</command>:
-        </para>
+        <para> CPU model is how the VM is told what type of vCPUs should be <quote>emulated</quote>,
+          for example, what features and special instructions and extensions will be available. To
+          achieve best performance, using <parameter>mode='host-passthrough'</parameter> is often
+          the right choice. However, at least on SUSE Linux Enterprise Server 15 SP1, this produces
+          wrong results. In fact, such setting prevents the topology - despite it being described
+          correctly in the <parameter>&lt;topology></parameter> element - from being interpreted
+          correctly, inside the VM. This is visible in the output of the command
+            <command>lscpu</command>: </para>
 
         <screen>
 ...
@@ -2150,12 +2179,13 @@ NUMA node1 CPU(s):   120-239
 ...
         </screen>
 
-        <para>
-          Benchmarks have shown that misunderstanding the CPUs as being all individual cores, without there being SMT, has a negative impact on performance.
-          Note that the problem not only involves CPU topology, it is also the cache hierarchy structure which is not constructed consistently with the host.
-          In fact, while the sizes of L1d and L1i caches is wrong (it is 64k instead than 32k, see <xref linkend="fig-epyc-topology"/>).
-          It is also the information about which CPUs share what caches that is completely misconfigured, as shown here:
-        </para>
+        <para> Benchmarks have shown that misunderstanding the CPUs as being all individual cores,
+          without there being SMT, has a negative impact on performance. Note that the problem not
+          only involves CPU topology, it is also the cache hierarchy structure which is not
+          constructed consistently with the host. In fact, while the sizes of L1d and L1i caches is
+          wrong (it is 64k instead than 32k, see <xref linkend="fig-epyc-topology"/>). It is also
+          the information about which CPUs share what caches that is completely misconfigured, as
+          shown here: </para>
 
         <screen>
 cat /sys/devices/system/cpu/cpu0/cache/index0/shared_cpu_list 
@@ -2168,18 +2198,18 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 0-120
         </screen>
 
-        <para>
-          The VM thinks that L1d, L1i and L2 are private of each vCPU. That is not the case, as they are shared by the two threads of each core.
-          Even worse, it thinks that L3 is shared across all the vCPUs of a socket, which is not true, as it is shared only among 4 cores (that is 8 vCPUs).
-        </para>
+        <para> The VM thinks that L1d, L1i and L2 are private of each vCPU. That is not the case, as
+          they are shared by the two threads of each core. Even worse, it thinks that L3 is shared
+          across all the vCPUs of a socket, which is not true, as it is shared only among 4 cores
+          (that is 8 vCPUs). </para>
 
         <!-- Open BUG!!! -->
 
-        <para>
-          For this reason, the recommendation is to use <parameter>EPYC</parameter> as the CPU model (as a 2nd Generation AMD EPYC Processor model is not yet available).
-          This enables proper and correct interpretation of topology data within the VM, and benchmark shows a beneficial effect on performance coming from that.
-          The output of <command>lscpu</command> with <parameter>EPYC</parameter> as a model is shown below:
-        </para>
+        <para> For this reason, the recommendation is to use <parameter>EPYC</parameter> as the CPU
+          model (as a 2nd Generation AMD EPYC Processor model is not yet available). This enables
+          proper and correct interpretation of topology data within the VM, and benchmark shows a
+          beneficial effect on performance coming from that. The output of <command>lscpu</command>
+          with <parameter>EPYC</parameter> as a model is shown below: </para>
 
         <screen>
 ...
@@ -2198,12 +2228,11 @@ NUMA node0 CPU(s):   0-119
 NUMA node1 CPU(s):   120-239
         </screen>
 
-        <para>
-          Now it is the cache sizes that are slightly off, with regard to the host value.
-          And this is because they are the values taken from previous generation AMD EPYC Processors architecture characteristics.
-          But the cache topology and cache level sharing among vCPUs is now correct. This is far more important for achieving performance inside the VM that matches the one of the host.
-          This is shown here:
-        </para>
+        <para> Now it is the cache sizes that are slightly off, with regard to the host value. And
+          this is because they are the values taken from previous generation AMD EPYC Processors
+          architecture characteristics. But the cache topology and cache level sharing among vCPUs
+          is now correct. This is far more important for achieving performance inside the VM that
+          matches the one of the host. This is shown here: </para>
 
         <screen>
 cat /sys/devices/system/cpu/cpu0/cache/index0/shared_cpu_list 
@@ -2221,12 +2250,10 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
       <sect3 xml:id="sec-memory-backing">
         <title>Memory Backing</title>
 
-        <para>
-          Memory wise, the VMs need to be told to use the Huge Pages that were reserved for them.
-          To effectively use 1 GB huge pages, the amount of memory each VM is given must be a multiple of 1 GB.
-          Also, KSM should be disabled and we also must ensure that VMs' memory is never going to be swapped out.
-          This is all achieved as follows:
-        </para>
+        <para> Memory wise, the VMs need to be told to use the Huge Pages that were reserved for
+          them. To effectively use 1 GB huge pages, the amount of memory each VM is given must be a
+          multiple of 1 GB. Also, KSM should be disabled and we also must ensure that VMs' memory is
+          never going to be swapped out. This is all achieved as follows: </para>
 
         <screen>
 &lt;memory unit='KiB'>209715200&lt;/memory>
@@ -2241,10 +2268,10 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 
         <note>
           <title>Huge Pages, shared pages and locked pages on Xen</title>
-          <para>
-            On Xen, for HVM guests, huge pages are used by default and there is neither any page sharing nor swapping (at least not in SUSE Linux Enterprise Server 15 SP1).
-            Therefore, the entire <parameter>&lt;memoryBacking></parameter> element is technically not necessary.
-          </para>
+          <para> On Xen, for HVM guests, huge pages are used by default and there is neither any
+            page sharing nor swapping (at least not in SUSE Linux Enterprise Server 15 SP1).
+            Therefore, the entire <parameter>&lt;memoryBacking></parameter> element is
+            technically not necessary. </para>
         </note>
 
       </sect3>
@@ -2252,44 +2279,41 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
       <sect3 xml:id="sec-no-ballooning">
         <title>Ballooning</title>
 
-        <para>
-          To get the full benefit of Huge Pages, memory ballooning must also be disabled.
-          In fact, if the ballooning driver is not Huge Pages-aware, using ballooning would end up splitting the pages in fragments, neutering their (positive) performance impact.
-          Disabling memory ballooning is done as follows:
-        </para>
+        <para> To get the full benefit of Huge Pages, memory ballooning must also be disabled. In
+          fact, if the ballooning driver is not Huge Pages-aware, using ballooning would end up
+          splitting the pages in fragments, neutering their (positive) performance impact. Disabling
+          memory ballooning is done as follows: </para>
 
         <screen>
 &lt;memory unit='KiB'>209715200&lt;/memory>
 &lt;currentMemory unit='KiB'>209715200&lt;/currentMemory>
         </screen>
 
-        <para>
-          That is, by specifying in the <parameter>&lt;currentMemory></parameter> the same value already used in the <parameter>&lt;memory></parameter> element (and never changing the memory size of the VM at runtime).
-        </para>
+        <para> That is, by specifying in the <parameter>&lt;currentMemory></parameter> the same
+          value already used in the <parameter>&lt;memory></parameter> element (and never
+          changing the memory size of the VM at runtime). </para>
 
       </sect3>
 
       <sect3 xml:id="sec-vm-transparent-huge-pages">
         <title>(Transparent) Huge Pages</title>
 
-        <para>
-          If huge pages are used for allocating the VMs’ memory on the host, they can also be used inside the VMs, either explicitly, or via THP.
-          Whether that helps performance is workload dependant.
-          The analysis and the considerations made in the first part of the document about using (T)HP on bare metal, can also be applied here.
-        </para>
+        <para> If huge pages are used for allocating the VMs’ memory on the host, they can also be
+          used inside the VMs, either explicitly, or via THP. Whether that helps performance is
+          workload dependant. The analysis and the considerations made in the first part of the
+          document about using (T)HP on bare metal, can also be applied here. </para>
 
       </sect3>
 
       <sect3 xml:id="sec-vm-automatic-numa-balancing">
         <title>Automatic NUMA Balancing</title>
 
-        <para>
-          Similarly to THP, if the VM is NUMA-aware, NUMAB can be used inside of it to boost the performance of most NUMA-unaware workloads running inside the VM itself.
-        </para>
+        <para> Similarly to THP, if the VM is NUMA-aware, NUMAB can be used inside of it to boost
+          the performance of most NUMA-unaware workloads running inside the VM itself. </para>
 
       </sect3>
 
-<!--      <sect3 xml:id="sec-vm-services-daemons">
+      <!--      <sect3 xml:id="sec-vm-services-daemons">
         <title>Services and Daemons</title>
 
         <para>
@@ -2307,19 +2331,26 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
       <para>The following documents</para>
       <itemizedlist>
         <listitem>
-          <para><link xlink:href="https://libvirt.org/kbase/launch_security_sev.html">
-            Libvirt Documentation: Launch security with AMD SEV</link></para>
+          <para>
+            <link xlink:href="https://libvirt.org/kbase/launch_security_sev.html"> Libvirt
+              Documentation: Launch security with AMD SEV</link>
+          </para>
         </listitem>
         <listitem>
-          <para><link xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-amd-sev/art-amd-sev.html">
-            SUSE Linux Enterprise Server 15 SP1: AMD Secure Encrypted Virtualization (AMD-SEV) Guide</link></para>
+          <para>
+            <link
+              xlink:href="https://documentation.suse.com/sles/15-SP1/html/SLES-amd-sev/art-amd-sev.html"
+              > SUSE Linux Enterprise Server 15 SP1: AMD Secure Encrypted Virtualization (AMD-SEV)
+              Guide</link>
+          </para>
         </listitem>
       </itemizedlist>
-      <para>provide details on how to configure a VM to use AMD SEV (on an AMD SEV capable and properly configure host).
-        Therefore, this section will not go into details. It only lists the entries that are required to add to or change the configuration file.
-      </para>
+      <para>provide details on how to configure a VM to use AMD SEV (on an AMD SEV capable and
+        properly configure host). Therefore, this section will not go into details. It only lists
+        the entries that are required to add to or change the configuration file. </para>
 
-      <para>First of all, a <parameter>&lt;launchSecurity></parameter> stanza must be added:</para>
+      <para>First of all, a <parameter>&lt;launchSecurity></parameter> stanza must be
+        added:</para>
 
       <screen>
 &lt;launchSecurity type='sev'>
@@ -2329,7 +2360,8 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 &lt;/launchSecurity>
       </screen>
 
-      <para>Two other things are that the QEMU machine type used for the VM should be <parameter>Q35</parameter> and that a UEFI must be used:</para>
+      <para>Two other things are that the QEMU machine type used for the VM should be
+          <parameter>Q35</parameter> and that a UEFI must be used:</para>
 
       <screen>
 &lt;os>
@@ -2339,19 +2371,20 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 &lt;/os>
       </screen>
 
-      <para>Finally, any device that uses <parameter>'virtio'</parameter> needs to gain an XML element looking like: <parameter>&lt;driver iommu='on'/></parameter></para>
+      <para>Finally, any device that uses <parameter>'virtio'</parameter> needs to gain an XML
+        element looking like: <parameter>&lt;driver iommu='on'/></parameter></para>
 
       <bridgehead>SEV and Huge Pages</bridgehead>
 
-      <para>
-        Currently, on SUSE Linux Enterprise Server 15 SP1, an SEV-enabled VM cannot be created using Huge Pages memory, as they are allocated during boot.
-        Instead, transparent Huge Pages should be used. This appears to be a bug, and is currently being investigated.
-        As a workaround, we recommend removing entirely these Linux host kernel boot time parameters:
-      </para>
+      <para> Currently, on SUSE Linux Enterprise Server 15 SP1, an SEV-enabled VM cannot be created
+        using Huge Pages memory, as they are allocated during boot. Instead, transparent Huge Pages
+        should be used. This appears to be a bug, and is currently being investigated. As a
+        workaround, we recommend removing entirely these Linux host kernel boot time parameters: </para>
 
       <screen>transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=200</screen>
 
-      <para>Also, remove the following elements from the XML <parameter>&lt;memoryBacking></parameter> stanza:</para>
+      <para>Also, remove the following elements from the XML
+          <parameter>&lt;memoryBacking></parameter> stanza:</para>
 
       <screen>
 &lt;hugepages>
@@ -2361,16 +2394,16 @@ cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 
       <!-- Open BUG!!! -->
 
-      <para>At this point, we are able to create and start a VM with its memory encrypted, through AMD SEV technology:</para>
+      <para>At this point, we are able to create and start a VM with its memory encrypted, through
+        AMD SEV technology:</para>
 
       <screen>
 dmesg |grep SEV
 [    0.004000] AMD Secure Encrypted Virtualization (SEV) active
       </screen>
 
-      <para>
-        In our testing of SEV-enabled VMs, they showed no significant performance hit as a result of Huge Pages not being allocated at boot.
-      </para>
+      <para> In our testing of SEV-enabled VMs, they showed no significant performance hit as a
+        result of Huge Pages not being allocated at boot. </para>
 
     </sect2>
 
@@ -2379,22 +2412,29 @@ dmesg |grep SEV
   <sect1 xml:id="sec-virtualization-test-workload-stream">
     <title>Test VM Workload: STREAM</title>
 
-    <para>The effectiveness of the proposed tuning is demonstrated using the STREAM benchmark.</para>
+    <para>The effectiveness of the proposed tuning is demonstrated using the STREAM
+      benchmark.</para>
 
     <sect2 xml:id="sec-virt-test-stream-onevm">
       <title>Test Scenario: One Large VM</title>
 
-      <para><xref linkend="fig-stream-onevm-single"/> shows the bandwidth achieved by STREAM, built in single thread mode, on the host (host-tuned) and inside one large VM, in the following configurations:</para>
+      <para><xref linkend="fig-stream-onevm-single"/> shows the bandwidth achieved by STREAM, built
+        in single thread mode, on the host (host-tuned) and inside one large VM, in the following
+        configurations:</para>
 
       <itemizedlist>
         <listitem>
-          <para>No topology (VM-notopo): the VM is not provided with any virtual NUMA or CPU topology, nor are its memory and vCPUs assigned to host nodes and pCPUs</para>
+          <para>No topology (VM-notopo): the VM is not provided with any virtual NUMA or CPU
+            topology, nor are its memory and vCPUs assigned to host nodes and pCPUs</para>
         </listitem>
         <listitem>
-          <para>No pinning (VM-nopin): the VM is configured with the appropriate virtual NUMA and vCPU topology described in the virtualization tuning section, but still no mapping and pinning of memory and vCPUs</para>
+          <para>No pinning (VM-nopin): the VM is configured with the appropriate virtual NUMA and
+            vCPU topology described in the virtualization tuning section, but still no mapping and
+            pinning of memory and vCPUs</para>
         </listitem>
         <listitem>
-          <para>Full tuning (VM-tuned): the VM is configured with the appropriate virtual topology, memory and vCPUs are allocated/pinned as recommended.</para>
+          <para>Full tuning (VM-tuned): the VM is configured with the appropriate virtual topology,
+            memory and vCPUs are allocated/pinned as recommended.</para>
         </listitem>
       </itemizedlist>
 
@@ -2402,27 +2442,32 @@ dmesg |grep SEV
         <title>STREAM Bandwidth - Single Thread in One VM</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single.png" width="80%"
+              format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single.png" width="80%"
+              format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>
-        It appears evident how resource allocation is critical for achieving good performance inside of the VM.
-        In fact, neither defining a virtual topology nor vCPU and memory pinning, alone, let the VM achieve near host performance. On the contrary, we see performance dropping by -30% or -40%, depending on both the configuration and the STREAM operation considered.
-        That, instead, happens when all the tuning described in this guide is applied. The performance drop with regard to the host, in this case, is always below 1%.
-      </para>
+      <para> It appears evident how resource allocation is critical for achieving good performance
+        inside of the VM. In fact, neither defining a virtual topology nor vCPU and memory pinning,
+        alone, let the VM achieve near host performance. On the contrary, we see performance
+        dropping by -30% or -40%, depending on both the configuration and the STREAM operation
+        considered. That, instead, happens when all the tuning described in this guide is applied.
+        The performance drop with regard to the host, in this case, is always below 1%. </para>
 
-      <para><xref linkend="fig-stream-onevm-32"/> shows the same setup, but running a parallelized (with OpenMP) version of STREAM.</para>
+      <para><xref linkend="fig-stream-onevm-32"/> shows the same setup, but running a parallelized
+        (with OpenMP) version of STREAM.</para>
 
-      <para>
-        As the VM has approximately the same dimension and topology of the host, the same STREAM configuration parameters used in <xref linkend="sec-workload-stream"/>, are used also here.
-        The only difference is that we used 30 threads, instead of 32.
-        The VM has <quote>only</quote> 240 vCPUs, instead than 256 CPUs. Hence no more than 15 STREAM threads per node can run together on separaate LLC domains, without competing with each other and spoiling the results.
-      </para>
+      <para> As the VM has approximately the same dimension and topology of the host, the same
+        STREAM configuration parameters used in <xref linkend="sec-workload-stream"/>, are used also
+        here. The only difference is that we used 30 threads, instead of 32. The VM has
+          <quote>only</quote> 240 vCPUs, instead than 256 CPUs. Hence no more than 15 STREAM threads
+        per node can run together on separaate LLC domains, without competing with each other and
+        spoiling the results. </para>
 
       <figure xml:id="fig-stream-onevm-32">
         <title>STREAM Bandwidth - 30 Threads in One VM</title>
@@ -2436,11 +2481,12 @@ dmesg |grep SEV
         </mediaobject>
       </figure>
 
-      <para>
-        Identical conclusions than with the single threaded STREAM workload can be drawn: proper and complete tuning allows a VM running on an AMD EPYC 7002 Series Processor server to achieve host memory bandwith.
-        Not pinning vCPUs and memory or not providing the VM with a sensible virtual topology leads to performance drops, as compared to the host, ranging between -50% and -60%.
-        With full tuning applied, the throughput of the VM is around -1% the one of the host.
-      </para>
+      <para> Identical conclusions than with the single threaded STREAM workload can be drawn:
+        proper and complete tuning allows a VM running on an AMD EPYC 7002 Series Processor server
+        to achieve host memory bandwith. Not pinning vCPUs and memory or not providing the VM with a
+        sensible virtual topology leads to performance drops, as compared to the host, ranging
+        between -50% and -60%. With full tuning applied, the throughput of the VM is around -1% the
+        one of the host. </para>
 
     </sect2>
 
@@ -2448,39 +2494,42 @@ dmesg |grep SEV
       <title>Test Scenario: Two Large VMs</title>
 
       <para>
-        <xref linkend="sec-virt-test-stream-sev"/> shows what happens when two large VMs are used, both with the recommended tuning applied or not.
-        The various histograms represent the following scenarios:</para>
+        <xref linkend="sec-virt-test-stream-sev"/> shows what happens when two large VMs are used,
+        both with the recommended tuning applied or not. The various histograms represent the
+        following scenarios:</para>
 
       <itemizedlist>
         <listitem>
-          <para>Host (host-tuned): throughput achieved with 32 STREAM threads, running on the bare metal host, with all tuning applied. This is listed here for reference.</para>
+          <para>Host (host-tuned): throughput achieved with 32 STREAM threads, running on the bare
+            metal host, with all tuning applied. This is listed here for reference.</para>
         </listitem>
         <listitem>
-          <para>
-            One large VM, running alone, without tuning (nopin-VM1): throughput achieved with 15 STREAM threads, running in one VM with 120 vCPUs, without any tuning applied.
-            This means that the vCPUs of the VM can move around dynamically, among all the pCPUs of both the NUMA node of the system.
-            The throughput achieved in this configuration is much less than half of the throughput achieved by the host (which is expected by one large VM running 15 STREAM threads).
-          </para>
+          <para> One large VM, running alone, without tuning (nopin-VM1): throughput achieved with
+            15 STREAM threads, running in one VM with 120 vCPUs, without any tuning applied. This
+            means that the vCPUs of the VM can move around dynamically, among all the pCPUs of both
+            the NUMA node of the system. The throughput achieved in this configuration is much less
+            than half of the throughput achieved by the host (which is expected by one large VM
+            running 15 STREAM threads). </para>
         </listitem>
         <listitem>
-          <para>
-            Two large VMs, running concurrently, without tuning (Both-nopin-VM1 and Both-nopin-VM2): throughput achieved in each of the two VMs, when they are running concurrently and each is using 15 STREAM threads, without any tuning.
-            Ideally, both results would be almost equal, and they would also be roughly equal to half of the throughput achieved on the host.
-            However, this is not the case: the throughput in this case is very low (comparable to nopin-VM1) and variable (Both-nopin-VM2 being significantly lower than Both-nopin-VM1).
-            This definitely is a result of pinning, and the rest of the tuning, not being employed.
-          </para>
+          <para> Two large VMs, running concurrently, without tuning (Both-nopin-VM1 and
+            Both-nopin-VM2): throughput achieved in each of the two VMs, when they are running
+            concurrently and each is using 15 STREAM threads, without any tuning. Ideally, both
+            results would be almost equal, and they would also be roughly equal to half of the
+            throughput achieved on the host. However, this is not the case: the throughput in this
+            case is very low (comparable to nopin-VM1) and variable (Both-nopin-VM2 being
+            significantly lower than Both-nopin-VM1). This definitely is a result of pinning, and
+            the rest of the tuning, not being employed. </para>
         </listitem>
         <listitem>
-          <para>
-            Cumulative throughput of two large VMs, running concurrently, without tuning (Both-nopin-VM1+VM2): this is the sum of the previous two throughput values (Both-nopin-VM1 and Both-nopin-VM2).
-            Ideally, the result would match the host throughput.
-            But without tuning applied, the result is far away from that.
-          </para>
+          <para> Cumulative throughput of two large VMs, running concurrently, without tuning
+            (Both-nopin-VM1+VM2): this is the sum of the previous two throughput values
+            (Both-nopin-VM1 and Both-nopin-VM2). Ideally, the result would match the host
+            throughput. But without tuning applied, the result is far away from that. </para>
         </listitem>
         <listitem>
-          <para>
-            Same as above described, but with the tuning for the two large VMs case configured, as it has been described in this document.
-          </para>
+          <para> Same as above described, but with the tuning for the two large VMs case configured,
+            as it has been described in this document. </para>
         </listitem>
       </itemizedlist>
 
@@ -2496,37 +2545,40 @@ dmesg |grep SEV
         </mediaobject>
       </figure>
 
-      <para>
-        This experiments demonstrates that also the tuning proposed for the two large VMs case is rather effective.
-        With the tuning applied, the throughput achieved by one of those two large VMs running alone in the system, is identical to what they both achieve when running together.
-        This means that having pinned the vCPUs and the memory of each VM on one host NUMA node guarantees that they do not interfere between each other.
-      </para>
+      <para> This experiments demonstrates that also the tuning proposed for the two large VMs case
+        is rather effective. With the tuning applied, the throughput achieved by one of those two
+        large VMs running alone in the system, is identical to what they both achieve when running
+        together. This means that having pinned the vCPUs and the memory of each VM on one host NUMA
+        node guarantees that they do not interfere between each other. </para>
 
-      <para>
-        This is also confirmed by the fact that the cumulative throughput of the VMs, when they are running concurrently, perfectly matches the result from the host.
-      </para>
+      <para> This is also confirmed by the fact that the cumulative throughput of the VMs, when they
+        are running concurrently, perfectly matches the result from the host. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-virt-test-stream-sev">
       <title>Test Scenario: Secure Encrypted Virtualization</title>
 
-      <para>The goal for this test was evaluating the impact on the performance of SEV, on a memory intensive workload like STREAM.</para>
+      <para>The goal for this test was evaluating the impact on the performance of SEV, on a memory
+        intensive workload like STREAM.</para>
 
       <para>
-        <xref linkend="fig-stream-onevm-single-sev"/> shows the results of running single threaded STREAM in a VM with SEV disabled (VM-noSEV) and in one with SEV enabled (VM-SEV)).
-        Similarly, <xref linkend="fig-stream-onevm-omp-sev"/> shows the same, but when using the OMP version of STREAM, running with 30 threads.
-        In both cases, both the VMs were tuned according to all the recommendation provided in this guide.
-      </para>
+        <xref linkend="fig-stream-onevm-single-sev"/> shows the results of running single threaded
+        STREAM in a VM with SEV disabled (VM-noSEV) and in one with SEV enabled (VM-SEV)).
+        Similarly, <xref linkend="fig-stream-onevm-omp-sev"/> shows the same, but when using the OMP
+        version of STREAM, running with 30 threads. In both cases, both the VMs were tuned according
+        to all the recommendation provided in this guide. </para>
 
       <figure xml:id="fig-stream-onevm-single-sev">
         <title>STREAM Bandwidth - Single Thread in One VM, SEV</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-single-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
@@ -2535,15 +2587,18 @@ dmesg |grep SEV
         <title>STREAM Bandwidth - 30 Threads in One VM, SEV</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-omp-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-omp-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-omp-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-stream-omp-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>It is impressive that, both in the single and in the parallel cases, the impact of encrypting the memory of the VM with SEV always stays below -1%.</para>
+      <para>It is impressive that, both in the single and in the parallel cases, the impact of
+        encrypting the memory of the VM with SEV always stays below -1%.</para>
 
     </sect2>
 
@@ -2555,47 +2610,53 @@ dmesg |grep SEV
     <!-- Mel, Matt: are we doing the evaluation for NPB on baremetal? If yes (as we did last year, then fine, I'll just reference the relevant sections from here.
          If no, then I'll add a few words about NPB here myself. -->
 
-    <para>To match the experimental evaluation done on bare-metal, NPB base workloads have also been considered.</para>
+    <para>To match the experimental evaluation done on bare-metal, NPB base workloads have also been
+      considered.</para>
 
     <sect2 xml:id="sec-virt-test-npb-onevm">
       <title>Test Scenario: One Extra Large VM</title>
 
-      <para><xref linkend="fig-npbd-onevm-tuning"/> shows the results of running the various NPB workloads on the host (host-tuned), on partially tuned VMs (VM-notopo and VM-nopin) and on a VM with full tuning applied (VM-tuned).</para>
+      <para><xref linkend="fig-npbd-onevm-tuning"/> shows the results of running the various NPB
+        workloads on the host (host-tuned), on partially tuned VMs (VM-notopo and VM-nopin) and on a
+        VM with full tuning applied (VM-tuned).</para>
 
       <figure xml:id="fig-npbd-onevm-tuning">
         <title>STREAM Bandwidth - Single Thread in One VM</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning.png" width="80%" format="PNG"
+            />
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning.png" width="80%" format="PNG"
+            />
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>
-        Results show that proper tuning is not only important for memory intensive workloads, such as STREAM, but also for CPU intensive ones.
-        As already noticed on STREAM, it is only with the full tuning that the VM manages to reach performance between -2% and -7% (with a peak of -16% for ep.D) of the ones of the host.
-      </para>
+      <para> Results show that proper tuning is not only important for memory intensive workloads,
+        such as STREAM, but also for CPU intensive ones. As already noticed on STREAM, it is only
+        with the full tuning that the VM manages to reach performance between -2% and -7% (with a
+        peak of -16% for ep.D) of the ones of the host. </para>
 
-      <para>
-        Even applying only a subset of the recommendations from this guide, for example, giving the VM a virtual topology or only pinning its vCPUs and memory, yields disastrous performance. This can range between -17% and -460%, as compared to the host.
-      </para>
+      <para> Even applying only a subset of the recommendations from this guide, for example, giving
+        the VM a virtual topology or only pinning its vCPUs and memory, yields disastrous
+        performance. This can range between -17% and -460%, as compared to the host. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-virt-test-npb-cpumod">
       <title>Test Scenario: Different CPU Models</title>
 
-      <para>
-        NPB workloads were also used to show the impact of using an appropriate CPU model for the VMs.
-        The <parameter>host-passthrough</parameter>, which is usually the one recommended for best performance, is causing an incorrect CPU topology and an incorrect cache hierarchy structure to be provided to the VM.
-      </para>
+      <para> NPB workloads were also used to show the impact of using an appropriate CPU model for
+        the VMs. The <parameter>host-passthrough</parameter>, which is usually the one recommended
+        for best performance, is causing an incorrect CPU topology and an incorrect cache hierarchy
+        structure to be provided to the VM. </para>
 
       <para>
-        <xref linkend="fig-npb-cpumod"/> compares the results obtained on the host, on the tuned VM with the <parameter>EPYC</parameter> CPU model (VM-EPYC), which this guide recommends using, and with the tuned VM with <parameter>host-passthrough</parameter> CPU model (VM-hostp).
-      </para>
+        <xref linkend="fig-npb-cpumod"/> compares the results obtained on the host, on the tuned VM
+        with the <parameter>EPYC</parameter> CPU model (VM-EPYC), which this guide recommends using,
+        and with the tuned VM with <parameter>host-passthrough</parameter> CPU model (VM-hostp). </para>
 
       <figure xml:id="fig-npb-cpumod">
         <title>STREAM Bandwidth - Single Thread in One VM</title>
@@ -2609,37 +2670,40 @@ dmesg |grep SEV
         </mediaobject>
       </figure>
 
-      <para>
-        The performance drop appears rather large, when the CPU model is not consistent with the characteristics of the host.
-        Between Host and VM-EPYC, the <emphasis>performance drop</emphasis> is between -2% and -7%, and reaches a peak of -16%, in case of ep.D.
-        On the other hand, between Host and VM-hostp it ranges between -22% and -75%.
-      </para>
+      <para> The performance drop appears rather large, when the CPU model is not consistent with
+        the characteristics of the host. Between Host and VM-EPYC, the <emphasis>performance
+          drop</emphasis> is between -2% and -7%, and reaches a peak of -16%, in case of ep.D. On
+        the other hand, between Host and VM-hostp it ranges between -22% and -75%. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-virt-test-npb-sev">
       <title>Test Scenario: Secure Encrypted Virtualization</title>
 
-      <para>Similarly to what has been done with STREAM, we evaluate here the overhead introduced by SEV for CPU bound workloads (represented by NPB).</para>
+      <para>Similarly to what has been done with STREAM, we evaluate here the overhead introduced by
+        SEV for CPU bound workloads (represented by NPB).</para>
 
       <para>
-        <xref linkend="fig-npb-sev"/> shows the results of running the various NPB workloads on two VMs, both with all the tuning applied and, in the VM-noSEV case, with SEV off.
-        In the VM-SEV case, with SEV on.
-      </para>
+        <xref linkend="fig-npb-sev"/> shows the results of running the various NPB workloads on two
+        VMs, both with all the tuning applied and, in the VM-noSEV case, with SEV off. In the VM-SEV
+        case, with SEV on. </para>
 
       <figure xml:id="fig-npb-sev">
         <title>STREAM Bandwidth - Single Thread in One VM</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="amd-epyc-2-HOST_vs_ONE-VM-npbd-tuning-sev.png" width="80%"
+              format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>Results are again pretty good, as the performance penalty due to SEV, on a CPU intensive benchmark like NPB, is nearly non-existent (it is less than 0.5%).</para>
+      <para>Results are again pretty good, as the performance penalty due to SEV, on a CPU intensive
+        benchmark like NPB, is nearly non-existent (it is less than 0.5%).</para>
 
     </sect2>
 
@@ -2648,12 +2712,12 @@ dmesg |grep SEV
   <sect1 xml:id="sec-conclusion">
     <title>Conclusion</title>
 
-    <para>The introduction of AMD EPYC 7002 Series Processors pushes the boundaries of what is possible for memory and IO-bound
-      workloads with much higher bandwidth and available number of channels. A properly configured
-      and tuned workload can exceed the performance of many contemporary off-the-shelf solutions
-      even when fully customized. The symmetric and balanced nature of the machine makes the task of
-      tuning a workload considerably easier given that each partition can have symmetric
-      performance.</para>
+    <para>The introduction of AMD EPYC 7002 Series Processors pushes the boundaries of what is
+      possible for memory and IO-bound workloads with much higher bandwidth and available number of
+      channels. A properly configured and tuned workload can exceed the performance of many
+      contemporary off-the-shelf solutions even when fully customized. The symmetric and balanced
+      nature of the machine makes the task of tuning a workload considerably easier given that each
+      partition can have symmetric performance.</para>
 
     <para>With SUSE Linux Enterprise, all the tools to monitor and tune a workload are readily
       available. Your customers can extract the maximum performance and reliability running their
@@ -3045,14 +3109,13 @@ dmesg |grep SEV
         xlink:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>.
       Linux is a registered trademark of Linus Torvalds. All other names or trademarks mentioned in
       this document may be trademarks or registered trademarks of their respective owners.</para>
-    <para>This article is part of a series of documents called <quote>SUSE Best Practices</quote>. The individual
-      documents in the series were contributed voluntarily by SUSE's employees and by third
-      parties.</para>
-      <para>The articles are intended only to be one example of how a particular action could be
-      taken. They should not be understood to be the only action and certainly not to be the
-      action recommended by SUSE. Also, SUSE cannot verify either that the actions described
-      in the articles do what they claim to do or that they don't have unintended
-      consequences.</para>
+    <para>This article is part of a series of documents called <quote>SUSE Best Practices</quote>.
+      The individual documents in the series were contributed voluntarily by SUSE's employees and by
+      third parties.</para>
+    <para>The articles are intended only to be one example of how a particular action could be
+      taken. They should not be understood to be the only action and certainly not to be the action
+      recommended by SUSE. Also, SUSE cannot verify either that the actions described in the
+      articles do what they claim to do or that they don't have unintended consequences.</para>
     <para> All information found in this article has been compiled with utmost attention to detail.
       However, this does not guarantee complete accuracy.
       <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
@@ -3062,6 +3125,6 @@ dmesg |grep SEV
       thereof. Below we draw your attention to the license under which the articles are
       published.</para>
   </sect1>
-  <?pdfpagebreak style="suse2013" formatter="fop"?>
+  <?pdfpagebreak style="suse2013-sbp" formatter="fop"?>
   <xi:include href="license-gfdl.xml"/>
 </article>

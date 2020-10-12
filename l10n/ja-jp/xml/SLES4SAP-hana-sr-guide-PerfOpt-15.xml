@@ -1,0 +1,2987 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?asciidoc-toc?><?asciidoc-numbered?>
+<article xmlns:xi="http://www.w3.org/2001/XInclude" xmlns="http://docbook.org/ns/docbook" version="5.0" xml:lang="ja">
+<title>SAP HANAシステムレプリケーションのスケールアップ - パフォーマンス最適化シナリオ</title>
+<info>
+
+<date>2020-03-19</date><!--<title>SAP HANA System Replication Scale-Up - Performance Optimized Scenario</title>--> <!--<subtitle></subtitle>--> <!-- <orgname>SUSE Best Practices</orgname>--><productname>SUSE Linux Enterprise Server for SAP Applications</productname>
+    <productnumber>15-SP1</productnumber>
+
+<author>
+        <personname>
+            <firstname>Fabian</firstname>
+            <surname>Herschel, Distinguished Architect SAP, SUSE</surname>
+        </personname>
+    </author>
+<author>
+        <personname>
+            <firstname>Bernd</firstname>
+            <surname>Schubert, SAP Solution Architect, SUSE</surname>
+        </personname>
+</author>
+<author>
+    <personname>
+        <firstname>Lars</firstname>
+        <surname>Pinne, System Engineer, SUSE</surname>
+    </personname>
+</author>
+
+    <cover role="logos">
+        <mediaobject>
+		<imageobject>
+			<imagedata fileref="suse.svg" width=""/>
+		</imageobject>
+	</mediaobject>
+	</cover>
+
+<date>March 19, 2020</date>
+
+
+<abstract>
+
+    <para>SUSE® Linux Enterprise Server for SAP Applicationsは、SAP *アプリケーション向けにさまざまな方法で最適化されています。このガイドは、パフォーマンス最適化シナリオにおけるSAP HANAシステムレプリケーションに向けた、SUSE Linux Enterprise Server for SAP Applicationsのインストールとカスタマイズに関する詳細情報を提供します。本ドキュメントは、すでにインストールされて稼働しているSAP HANAをシステムレプリケーションと統合する手順に焦点を当てています。</para>
+
+</abstract>
+</info>
+<section xml:id="pre.hana-sr">
+<title>このガイドについて</title>
+<section xml:id="id-introduction">
+<title>はじめに</title>
+<para>SUSE® Linux Enterprise Server for SAP Applicationsは、SAP *アプリケーション向けにさまざまな方法で最適化されています。このガイドは、パフォーマンス最適化シナリオにおけるSAP HANAシステムレプリケーションに向けた、SUSE Linux Enterprise Server for SAP Applicationsのインストールとカスタマイズに関する詳細情報を提供します。</para>
+<para>Pierre Audoin Consultants（PAC）社が最近実施した市場調査によって得られた結論は、「SAPの顧客はSAP HANAに投資する」と言うことでした。ドイツでは、半数の企業が、SAP HANAはSAP環境において支配的なデータベースプラットフォームになると予想しています。「SAP HANA *を活用したSAP Business Suite *」のシナリオについては、既に具体的な協議が盛んに行われています。</para>
+<para>SUSEは、この開発に対してもSUSE Linux Enterprise Server for SAP Applicationsを提供することで対応しています。この製品は、SAP HANAに対して推奨されサポートされているOSです。SUSEは、SAPとハードウェアパートナーとの連携を密にして、SAP HANAシステムレプリケーションの高可用性を確保するための2つのリソースエージェントをお客様に提供しています。</para>
+<section xml:id="id-abstract">
+<title>概要</title>
+<para>このガイドでは、高可用性ソリューションシナリオ「SAP HANAスケールアップシステムレプリケーションのパフォーマンス最適化」に基づき、SUSE Linux Enterprise Server for SAP Applicationsの計画、設定、基本的なテストについて解説します。</para>
+<para>アプリケーションの観点からは、以下のさまざまな構成を網羅しています。</para>
+<itemizedlist>
+<listitem>
+<para>単純なシステムレプリケーション</para>
+</listitem>
+<listitem>
+<para>セカンダリサイトの読み取り可能なシステムレプリケーション</para>
+</listitem>
+<listitem>
+<para>マルチティア（チェーン）システムレプリケーション</para>
+</listitem>
+<listitem>
+<para>マルチターゲットシステムレプリケーション</para>
+</listitem>
+<listitem>
+<para>上記すべてに対するマルチテナントデータベースコンテナ</para>
+</listitem>
+</itemizedlist>
+<para>インフラストラクチャの観点からは、以下の構成をカバーしています。</para>
+<itemizedlist>
+<listitem>
+<para>ディスクベースのSBDを搭載した2ノードクラスター</para>
+</listitem>
+<listitem>
+<para>ディスクレスSBDを搭載した3ノードクラスター</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-scale-up-versus-scale-out">
+<title>スケール-アップとスケール-アウト</title>
+<para>最初の一連のシナリオには、 <emphasis>スケールアップ</emphasis> ソリューションのアーキテクチャと開発が含まれます。</para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアップ</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="hana_sr_in_cluster.svg" width="70.0%"/>
+</imageobject>
+<textobject><phrase>hana sr in cluster</phrase></textobject>
+</mediaobject>
+</figure>
+<para>SUSEは、これらのシナリオに対応するために、スケールアップリソースエージェントパッケージ <literal>SAPHanaSR</literal>を開発しました。システムレプリケーションは、1台のコンピューターから別のコンピューターにデータベースのデータを複製することで、データベースの障害を回復するのに役立ちます（シングルボックスレプリケーション）。</para>
+<para>2番目の一連のシナリオには、<emphasis>スケールアウト</emphasis> ソリューションのアーキテクチャと開発が含まれます（マルチボックスレプリケーション）。SUSEは、これらのシナリオに対応するために、スケールアップリソースエージェントパッケージ <literal>SAPHanaSR-ScaleOut</literal>を開発しました。</para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアウト</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Cluster.svg" width="70.0%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Cluster</phrase></textobject>
+</mediaobject>
+</figure>
+<para>この運用モードでは、内部のSAP HANA高可用性（HA） メカニズムとリソースエージェントは、互いに連携して協調動作する必要があります。SAP HANAシステムレプリケーションのスケールアウト自動化については、SUSEのドキュメンテーションWebページ <link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sbp/all/">https://documentation.suse.com/sbp/all/</link>から入手できるドキュメントに説明されています。スケールアウトに関するドキュメントのタイトルは<emphasis>「SAP HANAシステムレプリケーションのスケールアウト - パフォーマンス最適化シナリオ」</emphasis>です。</para>
+</section>
+<section xml:id="id-scale-up-scenarios-and-resource-agents">
+<title>スケールアップシナリオとリソースエージェント</title>
+<para>SUSEは、SAP HANAデータベースのインスタンスを実際にチェックする <literal>SAPHana</literal> リソースエージェント（RA）を使用して、スケールアップシナリオを実装しています。このRAはマスター/スレーブリソースとして構成されます。スケールアップシナリオでは、マスターがプライマリモードで実行されているSAP HANAデータベースに対して責任を負います。一方で、スレーブは同期（セカンダリ）ステータスで動作するインスタンスに責任を負います。</para>
+<para>クラスターの構成をできるだけシンプルにするために、SUSEは  <literal>SAPHanaTopology</literal> リソースエージェントも開発しました。このRAは、SUSE Linux Enterprise Server for SAP Applicationsクラスターのすべてのノードで実行され、SAP HANAシステムレプリケーションのステータスと構成に関する情報を収集します。これは、標準の（ステートレス）クローンとして設計されています。</para>
+<para>スケールアップに対するSAP HANAシステムレプリケーションは、以下のシナリオまたはユースケースでサポートされています。</para>
+<itemizedlist>
+<listitem>
+<para><emphasis role="strong">パフォーマンス最適化</emphasis> (<emphasis>A ⇒ B</emphasis>).このシナリオと設定については、 <emphasis role="strong">本ドキュメントで説明しています。</emphasis></para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアップ - パフォーマンス最適化</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleUP-perfOpt.svg" width="100.0%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleUP perfOpt</phrase></textobject>
+</mediaobject>
+</figure>
+<para>パフォーマンス最適化シナリオでは、SAP HANA RDBMSサイトAは、2番目のノードのSAP HANA RDBMSサイトBと同期しています。2番目のノードのHANA RDBMSはテーブルをプリロードするように構成されているため、通常テイクオーバー時間は非常に短くて済みます。</para>
+<para>SAP HANAのパフォーマンス最適化シナリオが大きく進化した点のひとつは、セカンダリデータベースサイトで読み取りアクセスが可能になったことです。この読み取り可能な <emphasis role="strong">read enabled</emphasis> シナリオをサポートするために、2番目の仮想IPアドレスがクラスターに追加され、システムレプリケーションのセカンダリロールにバインドされます。</para>
+</listitem>
+<listitem>
+<para><emphasis role="strong">コスト最適化</emphasis> (<emphasis>A ⇒ B, Q</emphasis>).このシナリオと設定は、SUSEのドキュメンテーションWebページ (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sbp/all/">https://documentation.suse.com/sbp/all/</link>)から入手できる別のドキュメントで説明されています。<emphasis>コスト最適化</emphasis>のドキュメントのタイトルは<emphasis>「SAP HANA SRコスト最適化インフラストラクチャの設定」</emphasis>です。</para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアップ - パフォーマンス最適化</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleUP-costOpt2.svg" width="100.0%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleUP costOpt2</phrase></textobject>
+</mediaobject>
+</figure>
+<para>コスト最適化シナリオでは、2番目のノードも 本稼働環境以外のSAP HANA RDBMSシステム（QASやTSTなど）で使用されます。テイクオーバーが必要な場合は、常に本稼働環境以外のシステムを最初に停止する必要があります。このノードにある本稼働環境のセカンダリシステムは、システムリソースの使用を制限する必要があるため、テーブルのプリロードを必ずオフにしてください。テイクオーバーは、パフォーマンスが最適化されたユースケースよりも長時間になる恐れがあります。</para>
+<para>コスト最適化シナリオでのセカンダリは、メモリ消費量を削減した構成で実行する必要があります。このため、このシナリオでは <emphasis>read enabled</emphasis> を有効にしないでください。</para>
+</listitem>
+<listitem>
+<para><emphasis role="strong">マルチティア</emphasis> (<emphasis>A ⇒ B → C</emphasis>) および<emphasis role="strong">マルチターゲット</emphasis> (<emphasis>B ⇐ A ⇒ C</emphasis>).</para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアップ - パフォーマンス最適化チェーン</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleUP-Chain.svg" width="100.0%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleUP Chain</phrase></textobject>
+</mediaobject>
+</figure>
+<para>A <emphasis>マルチティア</emphasis> システムレプリケーションには、追加のターゲットがあります。かつては、この3つ目のノードはセカンダリ（チェーントポロジー）に接続されている必要がありました。現在のSAP HANAバージョンでは、SAPにより <emphasis>マルチターゲットトポロジー</emphasis> も許可され可能としています。</para>
+<figure>
+<title>クラスター内のSAP HANAシステムレプリケーションのスケールアップ - パフォーマンス最適化マルチターゲット</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleUP-MultiTarget.svg" width="100.0%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleUP MultiTarget</phrase></textobject>
+</mediaobject>
+</figure>
+<para>マルチティアおよびマルチターゲットシステムは、本ドキュメントで説明されている方法で実装されます。最初の複製ペア（AとB）だけがクラスター自身によって処理されます。単純なパフォーマンス最適化シナリオとの主な違いは、自動登録をオフに設定する必要があることです。</para>
+</listitem>
+<listitem>
+<para><emphasis role="strong">マルチテナンシー</emphasis> またはマルチテナントデータベースコンテナ（MDC）</para>
+<para>マルチテナンシーは、上記のすべてのシナリオとユースケースでサポートされています。このシナリオはSAP HANA  SPS09以降でサポートされています。クラスターから見た設定と構成は、マルチテナンシーもシングルコンテナも同様です。したがって、上記のドキュメントは両方のシナリオに適用できます。</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-the-concept-of-the-performance-optimized-scenario">
+<title>パフォーマンス最適化シナリオの概念 </title>
+<para>ノード1（ノードまたはデータベースインスタンス）のプライマリSAP HANAに障害が発生した場合、クラスターは最初にテイクオーバープロセスを開始しようとします。これにより、既にセカンダリサイトにロードされているデータを使用することができます。通常、このテイクオーバーはローカルでの再起動よりもはるかに高速です。</para>
+<para>このリソース処理プロセスを自動化するには、SAPHanaSRに含まれるSAP HANAリソースエージェントを使用する必要があります。本稼働環境のデータベースのシステムレプリケーションは、SAPHanaとSAPHanaTopologyにより自動化されます。</para>
+<para>クラスターは、SAP HANAシステムレプリケーションがプライマリサービスの停止時点まで同期していた場合にのみ、セカンダリサイトへのテイクオーバーを許可します。これにより、プライマリサイトで処理された最後のコミットが、確実にセカンダリサイトで利用可能になります。</para>
+<para>SAPは、SAP HANAとクラスターフレームワークなどの外部ソフトウェア間のインタフェースを改善しました。この改善には、サービスまたはシステムレプリケーションチャネルのステータス変更など、特別なイベントが発生した場合のSAP HANA呼び出しの実装も含まれています。これらの呼び出しは、HA/DRプロバイダーとも呼ばれます。このインタフェースは、Pythonで記述されたSAP HANAフックを実装することで使用できます。SUSEは、SAPHanaSRパッケージを改善し、クラスターインタフェースを最適化するためのSAP HANAフックを含めました。本ドキュメントで述べたSAP HANAフックを使用すると、SAP HANAシステムレプリケーションが機能停止した場合、即座にクラスターに通知することができます。SAP HANAフックステータスに加えて、クラスターはシステムレプリケーションステータスを定期的にポーリングします。</para>
+<para><literal>AUTOMATED_REGISTER</literal>パラメータを変更することにより、自動化のレベルを設定できます。自動化された登録が有効な場合、クラスタは新しいセカンダリになる元の障害発生プライマリの登録も自動で行います。</para>
+<important>
+<para>このソリューションは、HAWKまたは他のクラスタークライアントコマンドを使用して、プライマリまたはセカンダリインスタンスを手動で「migrate」するようには設計されていません。<emphasis>管理</emphasis>セクションでは、SAPおよびクラスターコマンドを使用して、プライマリをセカンダリサイトに「migrate」する方法について説明しています。</para>
+</important>
+</section>
+<section xml:id="id-customers-receive-complete-package">
+<title>完全なパッケージを提供</title>
+<para>SAPHanaとSAPHanaTopologyリソースエージェントを使用すると、SAP HANAシステムレプリケーションをクラスターに統合することができます。これには、企業がビジネスクリティカルなSAPシステムだけでなく、SAP HANAデータベースも中断することなく使用できるメリットがあり、必要とする予算を大幅に節減できます。SUSEはベストプラクティスのドキュメントとともに拡張ソリューションを提供します。</para>
+<para>自社独自のSAP HANA高可用性ソリューションを持っていないSAPパートナーやハードウェアパートナーも、SUSEのこの開発から恩恵を受けることができます。</para>
+</section>
+</section>
+<section xml:id="id-additional-documentation-and-resources">
+<title>その他のドキュメントとリソース </title>
+<para>このマニュアルの各章には、システムまたはインターネットから入手可能なその他のドキュメントリソースへのリンクが掲載されています。</para>
+<para>最新のドキュメントについては、<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://documentation.suse.com/">http://documentation.suse.com/</link>を参照してください。</para>
+<para>SUSE Linux Enterprise Server for SAP Applicationsのベストプラクティスが掲載されたWebページ:<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sbp/all/">https://documentation.suse.com/sbp/all/</link>には、多数のホワイトペーパー、ベストプラクティス、設定ガイドなどもあります。</para>
+<para>また、SUSEはSAPと高可用性に関するブログ記事も公開しています。ハッシュタグ#TowardsZeroDowntimeを使用して、ぜひご参加ください。次のリンクからアクセスしてください。<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/c/tag/TowardsZeroDowntime/">https://www.suse.com/c/tag/TowardsZeroDowntime/</link>.</para>
+</section>
+<section xml:id="id-errata">
+<title>正誤表</title>
+<para>小さくとも緊急の修正や重要な情報をタイムリーに提供するために、本設定ガイドに関わる技術情報ドキュメント（TID）は頻繁に更新、保守、公開されます。</para>
+<itemizedlist>
+<listitem>
+<para>SAP HANA SRパフォーマンス最適化シナリオ - 設定ガイド - 正誤表 (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/support/kb/doc/?id=7023882">https://www.suse.com/support/kb/doc/?id=7023882</link>)</para>
+</listitem>
+<listitem>
+<para>クラスター監視ツールでSOKステータスを表示するワークアラウンド (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/support/kb/doc/?id=7023526">https://www.suse.com/support/kb/doc/?id=7023526</link> - 次のブログ記事もご覧ください <link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/c/lets-flip-the-flags-is-my-sap-hana-database-in-sync-or-not/">https://www.suse.com/c/lets-flip-the-flags-is-my-sap-hana-database-in-sync-or-not/</link>)</para>
+</listitem>
+</itemizedlist>
+<para>他のソリューションについては、本ガイドに加えてSUSE SAPベストプラクティスガイド正誤表をご確認ください (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/support/kb/doc/?id=7023713">https://www.suse.com/support/kb/doc/?id=7023713</link>).</para>
+</section>
+<section xml:id="id-feedback">
+<title>フィードバック</title>
+<para>複数のフィードバックチャネルが利用可能です。</para>
+<variablelist>
+<varlistentry>
+<term>バグと機能強化のリクエスト</term>
+<listitem>
+<para>お使いの製品で利用できるサービスとサポートオプションについては、 <link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://www.suse.com/support/">http://www.suse.com/support/</link>を参照してください。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<para>製品コンポーネントのバグを報告するには、<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://scc.suse.com/support/">https://scc.suse.com/support/</link>リクエストにアクセスしてログインし、 <emphasis>Submit New SR</emphasis> (Service Request)を選択します。</para>
+<variablelist>
+<varlistentry>
+<term>メール</term>
+<listitem>
+<para>本製品のドキュメントへのフィードバックについては、<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="mailto:doc-team@suse.com">doc-team@suse.com</link>宛てにメールを送信してください。ドキュメントのタイトル、製品のバージョン、ドキュメントの発行日を必ず記載してください。エラーを報告したり機能拡張を提案するには、問題の簡潔な説明と共に、該当するセクション番号とページ（またはURL）を記載してください。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+</section>
+<section xml:id="cha.hana-sr.scenario">
+<title>サポートするシナリオと前提条件</title>
+<para><literal>SAPHanaSR</literal>リソースエージェントソフトウェアパッケージでは、スケールアップ（シングルボックスからシングルボックスへ）システムレプリケーションを、以下の構成とパラメータに限定してサポートします。</para>
+<itemizedlist>
+<listitem>
+<para>標準は2ノードクラスターです。3番目のノードにもリソースエージェントをインストールする場合は、3ノードクラスターでも構いません。ただし、3番目のノードではSAP HANAリソースを実行しないことをクラスターで定義してください。この場合、3番目のノードは、クラスターを分離する場合に、追加の意思決定者になります。</para>
+</listitem>
+<listitem>
+<para>クラスターには、有効なSTONITH手段が含まれている必要があります。</para>
+<itemizedlist>
+<listitem>
+<para>SUSE Linux Enterprise 15 High Availability Extension（SDB、IPMIなど）でサポートされているすべてのSTONITHメカニズムがSAPHanaSRでサポートされています。</para>
+</listitem>
+<listitem>
+<para>本ガイドでは、ハードウェアに依存しないことからSBDフェンシングメソッドに焦点を当てています。</para>
+</listitem>
+<listitem>
+<para>フェンシングメカニズムとしてディスクベースのSBDを使用する場合は、1台以上の共有ドライブが必要になります。本稼働環境では、SBDデバイスを複数使用することをお勧めします。ディスクベースSBDの詳細については、SUSE Linux Enterprise High Availability Extensionの製品ドキュメントと、本マニュアルのページsbd.8およびstonith_sbd.8を参照してください。</para>
+</listitem>
+<listitem>
+<para>ディスクレスSBDの場合は、少なくとも3クラスターノードが必要になります。ディスクレスSBDメカニズムには、フェンシング用の共有ドライブが不要となるメリットがあります。</para>
+</listitem>
+</itemizedlist>
+</listitem>
+<listitem>
+<para>2つのノードは、同一のネットワークセグメント（レイヤー2）にあります。オーバーレイIPアドレスやロードバランサー機能などは、クラウド環境から提供される同様の機能でも構いません。クラウド独自のガイドに従って、SUSE Linux Enterprise Server for SAP Applicationsクラスターを設定します。</para>
+</listitem>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>などのテクニカルユーザーとグループは、Linuxシステムにローカルで定義されます。 </para>
+</listitem>
+<listitem>
+<para>クラスターノードと仮想IPアドレスの名前解決は、すべてのクラスターノードでローカルに実行する必要があります。</para>
+</listitem>
+<listitem>
+<para>ネットワークタイムプロトコル(NTP) などのクラスターノード間の時刻同期。</para>
+</listitem>
+<listitem>
+<para>プライマリとセカンダリのSAP HANAインスタンスのSAP識別子（SID）とインスタンス番号はどちらも同じです。</para>
+</listitem>
+<listitem>
+<para>各クラスターノードが異なるデータセンターやデータセンターエリア内にインストールされている場合、それらの環境は、SUSE Linux Enterprise High Availability Extensionクラスター製品の要件と一致する必要があります。ここで特に懸念されるのは、ネットワーク遅延とノード間の推奨最大距離です。これらの推奨事項については、SUSE Linux Enterprise High Availability Extensionの製品ドキュメントで確認してください。</para>
+</listitem>
+<listitem>
+<para>停止したプライマリに対する、テイクオーバー後の自動登録。</para>
+<itemizedlist>
+<listitem>
+<para>プロジェクトを適切に初期構成するために、停止したプライマリの自動登録をオフにすることをお勧めします。<literal>AUTOMATED_REGISTER=&quot;false&quot;</literal>がデフォルトの設定になります。この場合、停止したプライマリは、テイクオーバー後に手動で登録する必要があります。SAP HANAコックピットや<emphasis>hdbnsutil</emphasis>.などのSAPツールを使用してください。</para>
+</listitem>
+<listitem>
+<para>最適な自動化には、 <literal>AUTOMATED_REGISTER=&quot;true&quot;</literal>に設定することをお勧めします。</para>
+</listitem>
+</itemizedlist>
+</listitem>
+<listitem>
+<para>システム起動中のSAP HANAインスタンスの自動起動はオフにする必要があります。</para>
+</listitem>
+<listitem>
+<para>マルチテナンシーデータベースコンテナ（MDC）をサポートします。</para>
+<itemizedlist>
+<listitem>
+<para>マルチテナンシーデータベースは、他のすべての設定（パフォーマンスベース、コスト最適化、マルチティア）と組み合わせて使用することができます。</para>
+</listitem>
+<listitem>
+<para>MDC構成において、SAP HANA RDBMSはすべてのデータベースコンテナを含む単一システムとして扱われます。したがって、クラスターのテイクオーバーの決定は、個々のデータベースコンテナのステータスには関係なく、専らRDBMSのステータスに基づいて行われます。</para>
+</listitem>
+<listitem>
+<para>SAP HANA 1.0の場合、本稼働中にテナントを停止し、クラスターが引き継げるようにするためには、バージョンSPS10 rev3、SPS11以降が必要になります。SAP HANAのバージョンがそれより古い場合は、テナントを停止させるとシステムレプリケーションは失敗とマークされます。</para>
+</listitem>
+<listitem>
+<para>マルチテナンシーデータベースでのテストは、テナント間の独立性が強いを強力に分離させている場合、別のテスト手順を強いられる可能性があります。例として、 <emphasis>HDB kill</emphasis>を使用してSAP HANAインスタンスをすべて停止することはできません。各テナントが異なるLinuxユーザーUIDで実行されているためです。&lt;sidadm&gt;は、他のテナントユーザーのプロセスを終了させることはできません。</para>
+</listitem>
+</itemizedlist>
+</listitem>
+</itemizedlist>
+<para>少なくともSAPHanaSRバージョン0.153が必要で、SUSE Linux Enterprise Server for SAP Applications 15 SP1以降が最善です。SAP HANA 1.0は、SPS09 (095)以降に定義されているすべての設定でサポートされています。SAP HANA 2.0は、すべての既知のSPSバージョンでサポートされています。</para>
+<important>
+<para>有効なSTONITH手段がない場合は、クラスターのすべてはサポートされないため、正しく動作しません。</para>
+</important>
+<para>別のシナリオを実装する必要がある場合は、SUSEと共にPoC（概念実証）を規定することを強くお勧めします。PoCは、そのシナリオにおける既存ソリューションのテストに焦点を当てます。上記の制限を付けた理由は、慎重にテストする必要があるためです。</para>
+<para>SAP HANAの他に、SAPホストエージェントをシステムにインストールする必要があります。</para>
+</section>
+<section xml:id="cha.hana-sr.scope">
+<title>本ドキュメントのスコープ</title>
+<para>本ドキュメントは、クラスターを設定して、システムレプリケーションシナリオにおいてSAP HANAを制御する方法を説明します。このドキュメントでは、すでにインストールされて稼働しているSAP HANAをシステムレプリケーションと統合する手順に焦点を当てています。</para>
+<para>ここで説明している設定例では、Walldorf（WDF）とRot（ROT）にある2つのデータセンターで、2つのSLES for SAP 15 SP1システムにインストールされたSAP HANA HAクラスターを構築します。</para>
+<figure>
+<title>SAP HANA SRを使用したクラスター - パフォーマンス最適化</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="hana_sr_scaleup_perfopt.svg" width="100.0%"/>
+</imageobject>
+<textobject><phrase>hana sr scaleup perfopt</phrase></textobject>
+</mediaobject>
+</figure>
+<para>クラスターの設定は、YaSTウィザードを使用することも、手動で行うことも、また、所有されている自動化機能を利用することもできます。</para>
+<para>YaSTウィザードを使用する場合は、ショートカット<emphasis>yast sap_ha</emphasis>からモジュールを起動することができます。YaSTを使用してSAPHanaSRを設定する手順については、SUSE Linux Enterprise Server for SAP Applicationsの製品ドキュメントのセクション<emphasis>SAP HANAクラスターを設定する</emphasis>に記載されており、<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles-sap/15-SP1/single-html/SLES4SAP-guide/#cha-s4s-cluster">https://documentation.suse.com/sles-sap/15-SP1/single-html/SLES4SAP-guide/#cha-s4s-cluster</link>から入手できます。</para>
+<figure>
+<title>YaST Module sap_haでのSAP HANAのシナリオ選択</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="Yast_SAP_HA.png" width="100.0%"/>
+</imageobject>
+<textobject><phrase>Yast SAP HA</phrase></textobject>
+</mediaobject>
+</figure>
+<para>本ガイドは、クラスターの手動による設定に焦点を当てて詳細を説明し、独自の自動化機能を構築できるよう支援します。</para>
+<para>設定手順は以下のように主に7段階に分かれています。</para>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase0.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase0</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<itemizedlist>
+<listitem>
+<para>計画 (<xref linkend="id-planning-the-installation"/>を参照)</para>
+</listitem>
+<listitem>
+<para>OSのインストレーション (<xref linkend="id-operating-system-setup"/>を参照)</para>
+</listitem>
+<listitem>
+<para>データベースのインストレーション (<xref linkend="cha.s4s.hana-install"/>を参照)</para>
+</listitem>
+<listitem>
+<para>SAP HANAシステムレプリケーションの設定（を参照） <xref linkend="id-set-up-sap-hana-system-replication"/></para>
+</listitem>
+<listitem>
+<para>SAP HANA HA/DRプロバイダーフック (<xref linkend="id-set-up-sap-hana-hadr-providers"/>を参照)</para>
+</listitem>
+<listitem>
+<para>クラスター構成 （<xref linkend="id-configuration-of-the-cluster"/>を参照)</para>
+</listitem>
+<listitem>
+<para>テスト(<xref linkend="cha.s4s.test-cluster"/>を参照)</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-planning-the-installation">
+<title>インストレーションの計画</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase1.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase1</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>SAP HANAクラスターを正しく設定するには、インストレーションの計画が不可欠です。</para>
+<para>事前に用意するものは以下のとおりです。</para>
+<itemizedlist>
+<listitem>
+<para>SUSEのソフトウェア: SUSE Linux Enterprise Server for SAP Applicationsのインストールメディア、有効なサブスクリプション、およびアップデートチャネルへのアクセス</para>
+</listitem>
+<listitem>
+<para>SAPのソフトウェア: SAP HANAインストールメディア</para>
+</listitem>
+<listitem>
+<para>ディスクを含む物理または仮想システム</para>
+</listitem>
+<listitem>
+<para>記載済みのパラメータシート (以下の <xref linkend="id-parameter-sheet"/>を参照)</para>
+</listitem>
+</itemizedlist>
+<section xml:id="id-minimum-lab-requirements-and-prerequisites">
+<title>ラボの最小要件と前提条件</title>
+<note>
+<para>ここで説明しているラボの最小要件は、SAPのサイジング情報ではありません。これらのデータは、ここで述べたクラスターをテスト目的でラボに再構築するためにのみ提供されます。たとえテストであっても、そのシナリオによっては要件が増える場合があります。本稼働システムについては、ハードウェアベンダーに問い合わせるか、公式のSAPサイジングツールやサービスをご利用ください。</para>
+</note>
+<note>
+<para>許容されるストレージ構成とファイルシステムについては、SAP HANA TDIドキュメントを参照してください。</para>
+</note>
+<para>サイトごとに1つのSAPインスタンスが必要 (1 : 1) - マジョリティメーカーなし（2ノードクラスター）:</para>
+<itemizedlist>
+<listitem>
+<para>各々32GB RAMを備えた2つのVM、システムに対して50GBのディスク容量</para>
+</listitem>
+<listitem>
+<para>10MBのディスク空き容量を備えたSBD用の共有ディスク1台</para>
+</listitem>
+<listitem>
+<para>SAP HANA用に各々96GB容量のデータディスク2台（各サイト1台）</para>
+</listitem>
+<listitem>
+<para>テイクオーバー用の1つの追加IPアドレス</para>
+</listitem>
+<listitem>
+<para>読み取り可能な設定用の1つのオプションIPアドレス</para>
+</listitem>
+<listitem>
+<para>HAWK管理GUI用の1つのオプションIPアドレス</para>
+</listitem>
+</itemizedlist>
+<para>サイトごとに1つのSAPインスタンスが必要 (1 : 1) - マジョリティメーカー有（3ノードクラスター）:</para>
+<itemizedlist>
+<listitem>
+<para>各々32GB RAMを備えた2つのVM、システムに対して50GBのディスク空き容量</para>
+</listitem>
+<listitem>
+<para>2GB RAMを備えた1つのVM、システムに対して50GBのディスク空き容量</para>
+</listitem>
+<listitem>
+<para>SAP HANA用に各々96GB容量のデータディスク2台（各サイト1台）</para>
+</listitem>
+<listitem>
+<para>テイクオーバー用の1つの追加IPアドレス</para>
+</listitem>
+<listitem>
+<para>Read-enabled設定用の1つのオプションIPアドレス</para>
+</listitem>
+<listitem>
+<para>HAWK管理GUI用の1つのオプションIPアドレス</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-parameter-sheet">
+<title>パラメータシート</title>
+<para>2つのSAP HANAサイトを編成するクラスターの設定が非常に簡単な場合でも、インストレーションは適切に計画する必要があります。SID、IPアドレスを含め、必要なすべてのパラメータを用意する必要があります。最初にパラメータシートに記入してからインストレーションを開始することをお勧めします。</para>
+<table frame="all" rowsep="1" colsep="1">
+<title>計画用パラメータシート</title><?dbhtml table-width="100%"?> <?dbfo table-width="100%"?> <?dblatex table-width="100%"?><tgroup cols="3">
+<colspec colname="col_1" colwidth="85*"/>
+<colspec colname="col_2" colwidth="85*"/>
+<colspec colname="col_3" colwidth="255*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">値</entry>
+<entry align="left" valign="top">ロール</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>ノード1</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>クラスターノード名とIPアドレス</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ノード2</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>クラスターノード名とIPアドレス</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SID</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>SAPシステム識別子</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>インスタンス番号</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>SAP HANAデータベースの数。システムレプリケーションでは、インスタンス番号+1もブロックされます。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ネットワークマスク</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"/>
+</row>
+<row>
+<entry align="left" valign="top"><para>vIPプライマリ</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>プライマリSAP HANAサイトに割り当てられる仮想IPアドレス。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>vIPセカンダリ</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>読み取り可能なセカンダリSAP HANAサイトに割り当てられる仮想IPアドレス（オプション）。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ストレージ</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>HDBデータとログファイル用のストレージは「ローカル」に接続されています（ノードごと、非共有）。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SBD</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>STONITHデバイス（2台は本稼働用）</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>HAWKポート</para></entry>
+<entry align="left" valign="top"><para><literal>7630</literal></para></entry>
+<entry align="left" valign="top"/>
+</row>
+<row>
+<entry align="left" valign="top"><para>NTPサーバー</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>タイムサーバーのアドレスまたは名前</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+<table frame="all" rowsep="1" colsep="1">
+<title>NTPサーバー</title><?dbhtml table-width="100%"?> <?dbfo table-width="100%"?> <?dblatex table-width="100%"?><tgroup cols="3">
+<colspec colname="col_1" colwidth="85*"/>
+<colspec colname="col_2" colwidth="85*"/>
+<colspec colname="col_3" colwidth="255*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">値</entry>
+<entry align="left" valign="top">ロール</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>ノード1</para></entry>
+<entry align="left" valign="top"><para><literal>suse01</literal>, <literal>192.168.1.11</literal></para></entry>
+<entry align="left" valign="top"><para>クラスターノード名とIPアドレス</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ノード2</para></entry>
+<entry align="left" valign="top"><para><literal>suse02</literal>, <literal>192.168.1.12</literal></para></entry>
+<entry align="left" valign="top"><para>クラスターノード名とIPアドレス</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SID</para></entry>
+<entry align="left" valign="top"><para><literal>HA1</literal></para></entry>
+<entry align="left" valign="top"><para>SAPシステム識別子。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>インスタンス番号</para></entry>
+<entry align="left" valign="top"><para><literal>10</literal></para></entry>
+<entry align="left" valign="top"><para>SAP HANAデータベースの数。システムレプリケーションでは、インスタンス番号+1もブロックされます。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ネットワークマスク</para></entry>
+<entry align="left" valign="top"><para><literal>255.255.255.0</literal></para></entry>
+<entry align="left" valign="top"/>
+</row>
+<row>
+<entry align="left" valign="top"><para>vIPプライマリ</para></entry>
+<entry align="left" valign="top"><para><literal>192.168.1.20</literal></para></entry>
+<entry align="left" valign="top"/>
+</row>
+<row>
+<entry align="left" valign="top"><para>vIPセカンダリ</para></entry>
+<entry align="left" valign="top"><para><literal>192.168.1.21</literal></para></entry>
+<entry align="left" valign="top"><para>（オプション）</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ストレージ</para></entry>
+<entry align="left" valign="top"/>
+<entry align="left" valign="top"><para>HDBデータとログファイル用のストレージは「ローカル」に接続されています（ノードごと、非共有）。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SBD</para></entry>
+<entry align="left" valign="top"><para><literal>/dev/disk/by-id/SBDA</literal></para></entry>
+<entry align="left" valign="top"><para>STONITHデバイス（2台は本稼働用）</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>HAWKポート</para></entry>
+<entry align="left" valign="top"><para><literal>7630</literal></para></entry>
+<entry align="left" valign="top"/>
+</row>
+<row>
+<entry align="left" valign="top"><para>NTPサーバー</para></entry>
+<entry align="left" valign="top"><para>pool pool.ntp.org</para></entry>
+<entry align="left" valign="top"><para>タイムサーバーのアドレスまたは名前</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+</section>
+</section>
+<section xml:id="id-operating-system-setup">
+<title>OSの設定</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase2.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase2</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>このセクションには、OSのインストール中に考慮すべき情報が含まれています。</para>
+<para>本ドキュメントのスコープでは、最初にSUSE Linux Enterprise Server for SAP Applicationsをインストールして構成します。次に、システムレプリケーションを含むSAP HANAデータベースを設定します。最後に、クラスターを伴う自動化を設定して構成します。</para>
+<section xml:id="id-installing-suse-linux-enterprise-server-for-sap-applications">
+<title>SUSE Linux Enterprise Server for SAP Applicationsのインストール</title>
+<para>さまざまな理由により、サーバーの設定には各々の方法があり、すでに複数のインストレーションガイドが公開されています。これらのガイドを入手できる場所を以下に示します。さらに、システムを適切に動作させるために検討すべき重要な詳細情報も入手できます。</para>
+<section xml:id="id-installing-base-operating-system">
+<title>ベースOSをインストールする</title>
+<para>使用するインフラストラクチャとハードウェアに応じて、インストレーションを調整する必要があります。サポートされているすべてのインストレーション方法と最小要件は、<emphasis>導入ガイド</emphasis> (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-sle-deployment.html">https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-sle-deployment.html</link>)で説明されています。自動インストールの場合は、 <emphasis>AutoYaSTガイド</emphasis> (<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-autoyast.html">https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-autoyast.html</link>)で詳細情報を確認できます。SAP HANAのすべての要件に適合するSUSE Linux Enterprise Server for SAP Applicationsの主要インストレーションガイドは、SAPノートから入手できます。</para>
+<itemizedlist>
+<listitem>
+<para>2578899 SUSE LINUX Enterprise Server 15: インストレーションノート、および</para>
+</listitem>
+<listitem>
+<para>2684254 SAP HANA DB: SLES 15 / SLES for SAP Applications 15向けに推奨されるOS設定。</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-installing-additional-software">
+<title>追加ソフトウェアのインストール</title>
+<para>SUSEは、SUSE Linux Enterprise Server for SAP Applicationsと共に、SAP HANA用の特別なリソースエージェントを提供します。<emphasis>sap-hana</emphasis>パターンを使用すると、SAP HANA<emphasis role="strong">スケールアップ</emphasis>に対するリソースエージェントがインストールされます。<emphasis role="strong">スケールアウト</emphasis>のシナリオでは、特別なリソースエージェントが必要になります。SAPノート1984787に基づいてシステムをインストールした場合は、各ノードで以下の指示に従ってください。<emphasis>ハイアベイラビリティ</emphasis> パターンは、 <emphasis role="strong">すべての</emphasis> ノードにインストールすることが推奨されるツールを余すことなく要約したものです。これには<emphasis>マジョリティメーカー</emphasis>も含まれます。</para>
+<example>
+<title>HAクラスター用の追加ソフトウェアのインストール</title>
+<orderedlist numeration="arabic">
+<listitem>
+<para>すべてのノードの<literal>High Availability</literal> パターン</para>
+<screen>suse01:~&gt; zypper in --type pattern ha_sles</screen>
+</listitem>
+<listitem>
+<para>すべてのノードに <literal>SAPHanaSR</literal> リソースエージェントをインストールする</para>
+<screen>suse01:~&gt; zypper in SAPHanaSR SAPHanaSR-doc</screen>
+</listitem>
+</orderedlist>
+</example>
+<para>詳細については、SUSE Linux Enterprise High Availability Extensionの<emphasis>インストレーションと基本設定</emphasis>をご覧ください。</para>
+</section>
+</section>
+</section>
+<section xml:id="cha.s4s.hana-install">
+<title>両方のクラスターノードへのSAP HANAデータベースのインストール</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase3.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase3</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>本ドキュメントでは、インストール済みのSAP HANAと、すでにPacemakerクラスターに設定されているシステムレプリケーションとの統合に焦点を当てていますが、この章では、テスト環境の概要を説明します。SAP HANAをインストールしたり、システムレプリケーションを設定する際は、必ずSAPの公式ドキュメントを参照してください。</para>
+<section xml:id="id-installing-the-sap-hana-databases-on-both-cluster-nodes">
+<title>両方のクラスターノードへのSAP HANAデータベースのインストール</title>
+<itemizedlist>
+<title>事前準備</title>
+<listitem>
+<para>SAP マーケットプレースから入手したSAPインストレーションおよび設定マニュアルを理解します。</para>
+</listitem>
+<listitem>
+<para>SAP マーケットプレースからSAP HANAソフトウェアをダウンロードします。</para>
+</listitem>
+</itemizedlist>
+<orderedlist numeration="arabic">
+<title>実行手順</title>
+<listitem>
+<para>SAP HANAサーバーのインストレーションガイドの説明に従って、SAP HANAデータベースをインストールします。</para>
+</listitem>
+<listitem>
+<para>SAPホストエージェントがすべてのクラスターノードにインストールされていることを確認します。このSAPサービスがインストールされていない場合は、今すぐインストールしてください。</para>
+</listitem>
+<listitem>
+<para>両方のデータベースが稼働しており、これらのすべてのプロセスが正しく実行されていることを確認します。</para>
+</listitem>
+</orderedlist>
+<para>Linux<emphasis>&lt;sid&gt;adm</emphasis>ユーザー として、 <emphasis>HDB</emphasis>コマンドラインツールを使用して、実行中のHANAプロセスの概要を取得します。<literal>HDB</literal> <literal>info</literal>の出力は、以下のように表示されます。</para>
+<screen>suse02:ha1adm&gt; HDB info
+USER          PID     PPID  ... COMMAND
+ha1adm      13017    ... -sh
+ha1adm      13072    ...  \_ /bin/sh /usr/sap/HA1/HDB10/HDB info
+ha1adm      13103    ...      \_ ps fx -U ha1adm -o user:8,pid:8,ppid:8,pcpu:5,vsz:10,rss:10,args
+ha1adm       9268    ... hdbrsutil  --start --port 31003 --volume 2 --volumesuffix mnt00001/hdb00002.00003 --identifier 1580897137
+ha1adm       8911    ... hdbrsutil  --start --port 31001 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1580897100
+ha1adm       8729    ... sapstart pf=/hana/shared/HA1/profile/HA1_HDB10_suse02
+ha1adm       8738    ...  \_ /usr/sap/HA1/HDB10/suse02/trace/hdb.sapHA1_HDB10 -d -nw -f /usr/sap/HA1/HDB10/suse02/daemon.ini pf=/usr/sap/HA1/SYS/profile/HA1_HDB10_suse02
+ha1adm       8756    ...      \_ hdbnameserver
+ha1adm       9031    ...      \_ hdbcompileserver
+ha1adm       9034    ...      \_ hdbpreprocessor
+ha1adm       9081    ...      \_ hdbindexserver -port 31003
+ha1adm       9084    ...      \_ hdbxsengine -port 31007
+ha1adm       9531    ...      \_ hdbwebdispatcher
+ha1adm       8574    ... /usr/sap/HA1/HDB10/exe/sapstartsrv pf=/hana/shared/HA1/profile/HA1_HDB10_suse02 -D -u ha1adm</screen>
+</section>
+</section>
+<section xml:id="id-set-up-sap-hana-system-replication">
+<title>SAP HANAシステムレプリケーションの設定</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase4.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase4</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>詳細については、SAP HANA管理ガイドの<emphasis>システムレプリケーションの設定</emphasis>セクションをご覧ください。</para>
+<para><emphasis role="strong">実行手順</emphasis></para>
+<orderedlist numeration="arabic">
+<listitem>
+<para>プライマリデータベースをバックアップします。</para>
+</listitem>
+<listitem>
+<para>プライマリデータベースを有効にします。</para>
+</listitem>
+<listitem>
+<para>セカンダリデータベースを登録します。</para>
+</listitem>
+<listitem>
+<para>システムレプリケーションを確認します。</para>
+</listitem>
+</orderedlist>
+<section xml:id="id-back-up-the-primary-database">
+<title>プライマリデータベースをバックアップする</title>
+<para>SAP HANA管理ガイドの<emphasis>SAP HANAデータベースのバックアップとリカバリー</emphasis>セクションの説明に従って、プライマリデータベースをバックアップします。SQLコマンドを使用した例を示します。これらのバックアップコマンドは、バックアップインフラストラクチャに適合させて使用する必要があります。</para>
+<example>
+<title>1回のバックアップコールでシステムデータベースとすべてのテナントを簡単にバックアップする</title>
+<para>&lt;sidadm&gt;ユーザーとして、次のコマンドを入力します。</para>
+<screen>hdbsql -u SYSTEM -d SYSTEMDB \
+   &quot;BACKUP DATA FOR FULL SYSTEM USING FILE ('backup')&quot;</screen>
+<para>以下の（または同様の）コマンド出力が表示されます。</para>
+<screen>0 rows affected (overall time 15.352069 sec; server time 15.347745 sec)</screen>
+</example>
+<example>
+<title>単一コンテナ（非MDC）データベースの単純なバックアップ</title>
+<para>&lt;sidadm&gt;ユーザーとして、以下のコマンドをとして入力します。</para>
+<screen>hdbsql -i &lt;instanceNumber&gt; -u &lt;dbuser&gt; \
+   &quot;BACKUP DATA USING FILE ('backup')&quot;</screen>
+</example>
+<important>
+<para>有効なバックアップがない場合は、SAP HANAをシステムレプリケーション構成にすることができません。</para>
+</important>
+</section>
+<section xml:id="id-enable-primary-node">
+<title>プライマリノードを有効にする</title>
+<para>Linux の<emphasis>&lt;sid&gt;adm</emphasis> ユーザーとして、プライマリノードでシステムレプリケーションを有効にします。サイト名（例: WDF）を定義する必要があります。このサイト名は、システムレプリケーションを介して接続されているすべてのSAP HANAデータベースで一意にしなければなりません。したがって、セカンダリは異なるサイト名にしてください。</para>
+<note>
+<para>「primary」や「secondary」 などの文字列はサイト名に使用しないでください。</para>
+</note>
+<example>
+<title></title>
+<para>-sr_enableオプションを使用してプライマリを有効にします。</para>
+<screen>suse01:~&gt; hdbnsutil -sr_enable --name=WDF
+checking local nameserver:
+checking for active nameserver ...
+nameserver is running, proceeding ...
+configuring ini files ...
+successfully enabled system as primary site ...
+done.</screen>
+</example>
+<example>
+<title>プライマリを有効にする</title>
+<para><literal>hdbnsutil -sr_stateConfiguration</literal>コマンドを使用して、プライマリのSR構成を確認します。</para>
+<screen>suse01:~&gt; hdbnsutil -sr_stateConfiguration --sapcontrol=1
+SAPCONTROL-OK: &lt;begin&gt;
+mode=primary
+site id=1
+site name=WDF
+SAPCONTROL-OK: &lt;end&gt;
+done.</screen>
+</example>
+<para>モードが「none」から「primary」 に変更され、サイトにサイト名とサイトIDが追加されました。</para>
+</section>
+<section xml:id="id-register-the-secondary-node">
+<title>セカンダリノードを登録する</title>
+<para>セカンダリ側のSAP HANAデータベースインスタンスは、システムレプリケーションに登録する前に一旦停止する必要があります。<literal>HDB</literal> や <literal>sapcontrol</literal>などのお好みの方法でインスタンスを停止します。データベースインスタンスが正常に停止すれば、<literal>hdbnsutil</literal>を使用してインスタンスを登録することができます。再び、Linux の<emphasis>&lt;sid&gt;adm</emphasis>ユーザーを使用します。</para>
+<example>
+<title>セカンダリを停止する</title>
+<para>コマンドラインツールの<emphasis>HDB</emphasis>を使用して、セカンダリを停止することができます。</para>
+<screen>suse02:~&gt; HDB stop</screen>
+</example>
+<example>
+<title>CKEYおよびKEY-DATAファイルをプライマリからセカンダリサイトにコピーする</title>
+<para>SAP HANA 2.0から、システムレプリケーションは暗号化されています。そのため、鍵ファイルをプライマリサイトからセカンダリサイトにコピーする必要があります。</para>
+<screen>cd /usr/sap/&lt;SID&gt;/SYS/global/security/rsecssfs
+rsync -va {,&lt;node1-siteB&gt;:}$PWD/data/SSFS_&lt;SID&gt;.DAT
+rsync -va {,&lt;node1-siteB&gt;:}$PWD/key/SSFS_&lt;SID&gt;.KEY</screen>
+</example>
+<example>
+<title>セカンダリを登録する</title>
+<para>セカンダリの登録は、 <emphasis>hdbnsutil -sr_register …​</emphasis>を呼び出すことによってトリガーされます。</para>
+<screen>...
+suse02:~&gt; hdbnsutil -sr_register --name=ROT \
+     --remoteHost=suse01 --remoteInstance=10 \
+     --replicationMode=sync --operationMode=logreplay
+adding site ...
+checking for inactive nameserver ...
+nameserver suse02:30001 not responding.
+collecting information ...
+updating local ini files ...
+done.</screen>
+</example>
+<para>この例では、 <emphasis>remoteHost</emphasis> がプライマリノードであり、<emphasis>remoteInstance</emphasis> はデータベースインスタンス番号です（ここでは10）。</para>
+<para>次に、データベースインスタンスを再起動し、システムレプリケーションステータスを確認します。セカンダリノードでは、このモードは「SYNC」または「SYNCMEM」のいずれかである必要があります。レプリケーションモードとしては&quot;ASYNC&quot; も可能ですが、 <emphasis role="strong">自動化されたクラスターテイクオーバーではサポートされません。</emphasis>.このモードは、セカンダリの登録中に定義された<emphasis role="strong">sync</emphasis> オプションに依存します。</para>
+<example>
+<title>セカンダリを起動してSR構成を確認する</title>
+<para>新たなセカンダリを起動するには、<emphasis>HDB</emphasis>コマンドラインツールを使用します。次に、 <literal>hdbnsutil -sr_stateConfiguration</literal>を使用してSRシステムレプリケーション構成を確認します。</para>
+<screen>suse02:~&gt; HDB start
+...
+suse02:~&gt; hdbnsutil -sr_stateConfiguration --sapcontrol=1
+SAPCONTROL-OK: &lt;begin&gt;
+mode=sync
+site id=2
+site name=ROT
+active primary site=1
+primary masters=suse01
+SAPCONTROL-OK: &lt;end&gt;
+done.</screen>
+</example>
+<para>SAP HANAクラスター全体のレプリケーションステータスを表示するには、 プライマリノードで<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとして、以下のコマンドを使用します。</para>
+<example>
+<title>システムレプリケーションステータスの詳細を確認する</title>
+<para><emphasis>systemReplicationStatus.py</emphasis> スクリプトは、現在のシステムレプリケーションに関する詳細情報を提供します。</para>
+<screen>suse01:~&gt; HDBSettings.sh systemReplicationStatus.py --sapcontrol=1
+...
+site/2/SITE_NAME=ROT1
+site/2/SOURCE_SITE_ID=1
+site/2/REPLICATION_MODE=SYNC
+site/2/REPLICATION_STATUS=ACTIVE
+site/1/REPLICATION_MODE=PRIMARY
+site/1/SITE_NAME=WDF1
+local_site_id=1
+...</screen>
+</example>
+</section>
+<section xml:id="id-manual-test-of-sap-hana-sr-takeover">
+<title>SAP HANA SRシステムレプリケーションのテイクオーバーの手動テスト</title>
+<para>SAP HANAシステムレプリケーションをクラスターに統合する前に、手動でテイクオーバーを実行することが不可欠です。クラスターを使用しないテストは、基本動作（テイクオーバーと登録）が想定どおりに機能していることを確認するのに役立ちます。</para>
+<itemizedlist>
+<listitem>
+<para>ノード1でSAP HANAを停止します。</para>
+</listitem>
+<listitem>
+<para>SAP HANAをノード2にテイクオーバーします。</para>
+</listitem>
+<listitem>
+<para>ノード1をセカンダリとして登録します。</para>
+</listitem>
+<listitem>
+<para>ノード1のSAP HANAを起動します。</para>
+</listitem>
+<listitem>
+<para>同期ステータスがアクティブになるまで待機します。</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-optional-manually-re-establishing-of-sap-hana-sr-to-original-state">
+<title>オプションSAP HANA SRを手動で元の状態に再構築する</title>
+<para>システムを元の状態に戻します。</para>
+<itemizedlist>
+<listitem>
+<para>ノード2のSAP HANAを停止します。</para>
+</listitem>
+<listitem>
+<para>SAP HANAをノード1にテイクオーバーします。</para>
+</listitem>
+<listitem>
+<para>ノード2をセカンダリとして登録します。</para>
+</listitem>
+<listitem>
+<para>ノード2でSAP HANAを起動します。</para>
+</listitem>
+<listitem>
+<para>同期ステータスがアクティブになるまで待機します。</para>
+</listitem>
+</itemizedlist>
+</section>
+</section>
+<section xml:id="id-set-up-sap-hana-hadr-providers">
+<title>SAP HANA HA/DRプロバイダーの設定</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase5.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase5</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>この手順は、セカンダリの同期が失われた場合に、直ちにクラスターに通知する際に必須になります。このフックは、セカンダリが非同期になった時点で、HA/DRプロバイダーインタフェースを使用してSAP HANAによって呼び出されます。一般的には、最初のコミット保留が解除されたケースに該当します。システムレプリケーションが復帰したときに、SAP HANAによってフックが再び呼び出されます。</para>
+<para><emphasis role="strong">実行手順</emphasis></para>
+<orderedlist numeration="arabic">
+<listitem>
+<para>SAPHanaSR Pythonフックを実装します。</para>
+</listitem>
+<listitem>
+<para>システムレプリケーション運用モードを構成します。</para>
+</listitem>
+<listitem>
+<para>&lt;sidadm&gt;からクラスターへのアクセスを許可します。</para>
+</listitem>
+<listitem>
+<para>SAP HANAを起動します。</para>
+</listitem>
+<listitem>
+<para>フックの統合をテストします。</para>
+</listitem>
+</orderedlist>
+<section xml:id="id-implementing-the-python-hook-saphanasr">
+<title>SAPHanaSR Pythonフックを実装する</title>
+<para>この手順は両方のサイトで実行する必要があります。SAP HANAがHA/DRフックスクリプトを起動時に統合できるようにするには、SAP HANAを停止してglobal.iniを変更する必要があります。</para>
+<itemizedlist>
+<listitem>
+<para>HA/DRフックスクリプトを読み取り/書き込み可能なディレクトリにインストールします。</para>
+</listitem>
+<listitem>
+<para>フックをglobal.iniに統合します（オフラインで実行するためにSAP HANAを停止する必要があります）</para>
+</listitem>
+<listitem>
+<para>起動時にフックの統合を確認します。</para>
+</listitem>
+</itemizedlist>
+<para>SAPHanaSRパッケージ（バージョン0.153以降で使用可能）のフックを使用してください。必要に応じて、/ hana / share / myHooksなどのお好みのディレクトリにコピーします。フックは、すべてのSAP HANAクラスターノードで使用できる必要があります。</para>
+<example>
+<title>SAP HANAを停止</title>
+<para><emphasis>HDB</emphasis> またｈ<emphasis>sapcontrol</emphasis>を使用して、SAP HANAを停止します。</para>
+<screen>sapcontrol -nr &lt;instanceNumber&gt; -function StopSystem</screen>
+</example>
+<example>
+<title>global.ini によりSAPHanaSRを追加する</title>
+<screen>[ha_dr_provider_SAPHanaSR]
+provider = SAPHanaSR
+path = /usr/share/SAPHanaSR
+execution_order = 1
+
+[trace]
+ha_dr_saphanasr = info</screen>
+</example>
+</section>
+<section xml:id="id-configuring-system-replication-operation-mode">
+<title>システムレプリケーション運用モードを構成する</title>
+<para>システムがSAPHanaSRターゲットとして接続されている場合、 <emphasis>global.ini</emphasis>内に、運用モードを定義するエントリーを見つけることができます。
+現時点では、以下のモードが利用できます。
+現時点では、以下のモードが利用できます。</para>
+<itemizedlist>
+<listitem>
+<para><emphasis>delta_datashipping</emphasis></para>
+</listitem>
+<listitem>
+<para><emphasis>logreplay</emphasis></para>
+</listitem>
+<listitem>
+<para><emphasis>logreplay_readaccess</emphasis></para>
+</listitem>
+</itemizedlist>
+<para>反対方向にテイクオーバーして再登録されるまで、プライマリサイトにおける運用モードのエントリーは失われたままです。当初、利用可能な運用モードは<emphasis>delta_datashipping</emphasis>でした。現在におけるHAでの推奨モードは、<emphasis>logreplay</emphasis>または<emphasis>logreplay_readaccess</emphasis>です。<emphasis>logreplay</emphasis>運用モードを使用すると、SAP HANAシステムレプリケーションのセカンダリサイトがホットスタンバイシステムになります。すべての運用モードの詳細については、「SAP HANAのシステムレプリケーションを実行する方法」などのSAPドキュメントをご覧ください。</para>
+<example>
+<title>動作モードを確認する</title>
+<para>両方の<emphasis>global.ini</emphasis>ファイルを確認し、必要に応じて運用モードを追加します。</para>
+<variablelist>
+<varlistentry>
+<term>セクション</term>
+<listitem>
+<para>[ system_replication ]</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>エントリー</term>
+<listitem>
+<para>operation_mode = logreplay</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<para><emphasis>global.ini</emphasis>のパス: /hana/shared//global/hdb/custom/config/</para>
+<screen>[system_replication]
+operation_mode = logreplay</screen>
+</example>
+</section>
+<section xml:id="id-allowing-sidadm-to-access-the-cluster">
+<title>&lt;sidadm&gt;にクラスターへのアクセスを許可する</title>
+<para>SAPHanaSR pythonフックの現在のバージョンは、<literal>sudo</literal>コマンドを使用することにより、&lt;sidadm&gt;ユーザーがクラスター属性にアクセスできるようにします。Linuxでは、<literal>visudo</literal>を使用して、<emphasis>/etc/sudoers</emphasis>構成ファイルのviエディタを起動できます。</para>
+<para>&lt;sidadm&gt;ユーザーは、hana__sid＿site_srHook_ *クラスター属性を設定できる必要があります。SAP HANAシステムレプリケーションフックには、パスワード不要のフリーアクセスが求められます。次の例では、sudoアクセスを限定し、必要な属性を正確に設定することだけにしています。</para>
+<para>&lt;sid&gt;を<emphasis role="strong">小文字</emphasis>の SAPシステムID( <literal>ha1</literal>など）に置き換えます。</para>
+<example>
+<title>sudo permissions /etc/sudoers ファイルのエントリー</title>
+<para>&lt;sidadm&gt;にsrHookの使用を許可する基本的なsudoersエントリー。</para>
+<screen># SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
+&lt;sidadm&gt; ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_&lt;sid&gt;_site_srHook_*</screen>
+<para>高度なセキュリティレベルを達成するためのより詳細なsudoersエントリー。すべてのCmnd_Aliasエントリーは、それぞれ1行のエントリーとして定義する必要があります。次の例では、1行にドキュメントの書式設定によって強制された改行が含まれています。この例では、Cmnd_Aliasエントリーに4つの別々の行があり、1行は&lt;sidadm&gt;ユーザー用で、それ以外がコメント用です。</para>
+<screen># SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
+Cmnd_Alias SOK_SITEA   = /usr/sbin/crm_attribute -n hana_&lt;sid&gt;_site_srHook_&lt;siteA&gt; -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEA = /usr/sbin/crm_attribute -n hana_&lt;sid&gt;_site_srHook_&lt;siteA&gt; -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias SOK_SITEB   = /usr/sbin/crm_attribute -n hana_&lt;sid&gt;_site_srHook_&lt;siteB&gt; -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_&lt;sid&gt;_site_srHook_&lt;siteB&gt; -v SFAIL -t crm_config -s SAPHanaSR
+&lt;sidadm&gt; ALL=(ALL) NOPASSWD: SOK_SITEA, SFAIL_SITEA, SOK_SITEB, SFAIL_SITEB</screen>
+</example>
+</section>
+</section>
+<section xml:id="id-configuration-of-the-cluster">
+<title>クラスターの構成</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase6.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase6</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>この章では、SUSE Linux Enterprise Server for SAP ApplicationsとSAP HANA Database Integrationの一部である、SUSE Linux Enterprise High Availability Extensionクラスターソフトウェアの構成について解説します。</para>
+<orderedlist numeration="arabic">
+<title>実行手順</title>
+<listitem>
+<para>基本的なクラスター構成。</para>
+</listitem>
+<listitem>
+<para>クラスターのプロパティとリソースを構成します。</para>
+</listitem>
+</orderedlist>
+<section xml:id="id-basic-cluster-configuration">
+<title>基本的なクラスター構成</title>
+<para>最初のステップは、基本的なクラスターフレームワークを設定することです。便宜上、YaST2またはha-cluster-initスクリプトを使用してください。2番目のCorosysncリングを追加し、UCAST通信に変更して、環境に合わせてタイムアウト値を調整することを強くお勧めします。</para>
+<section xml:id="id-set-up-watchdog-for-storage-based-fencing">
+<title>「ストレージベースフェンシング」のウォッチドッグを設定する</title>
+<para>SBDフェンシングメカニズム（ディスクレスまたはディスクベース）を使用する場合は、ウォッチドッグも設定する必要があります。ウォッチドッグは、システムがSBD（ディスクレスまたはディスクベース）にアクセスできなくなった場合に、ノードをリセットするために必要になります。ウォッチドッグドライバーをロードするようにLinuxシステムを構成することが必須になります。hpwdt、iTCO_wdtなどの、ハードウェアの#アシスタンスト（ほとんどの最新システムで利用可能）を備えたウォッチドッグを使用することを強くお勧めします。次善の策として、softdogモジュールを使用できます。</para>
+<example>
+<title>ウォッチドッグに対する設定</title>
+<important>
+<para>ウォッチドッグタイマーへのアクセス: 他のソフトウェアがウォッチドッグタイマーにアクセスすることはできません。常に1つのプロセスだけがアクセスできます。一部のハードウェアベンダーは、システムリセットにウォッチドッグを使用するシステム管理ソフトウェアを提供しています（例: HP ASRデーモン）。ウォッチドッグをSBDで使用する場合は、このようなソフトウェアを無効にする必要があります。</para>
+</important>
+<para>最適なウォッチドッグモジュールを選択します。または、カーネルバージョンと共にインストールされているドライバーのリストを調べる方法もあります。</para>
+<screen>ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog</screen>
+<para>ウォッチドッグモジュールがすでにロードされているかどうかを確認します。</para>
+<screen>lsmod | egrep &quot;(wd|dog|i6|iT|ibm)&quot;</screen>
+<para>結果が表示された場合は、システムにはウォッチドッグがすでにロードされています。そのウォッチドッグがウォッチドッグデバイスに対応していない場合は、そのモジュールをアンロードする必要があります。</para>
+<para>モジュールを安全にアンロードするには、まずアプリケーションがウォッチドッグデバイスを使用しているかどうかを確認します。</para>
+<screen>lsof /dev/watchdog
+rmmod &lt;wrong_module&gt;</screen>
+<para>ウォッチドッグモジュールを有効にして永続化します。以下の例では<emphasis>softdog</emphasis>が使われていますが、いくつか制約がありますので他のオプションを優先してください。</para>
+<screen>echo softdog &gt; /etc/modules-load.d/watchdog.conf
+systemctl restart systemd-modules-load</screen>
+<para>ウォッチドッグモジュールが正しくロードされていることを確認します。</para>
+<screen>lsmod | grep dog
+ls -l /dev/watchdog</screen>
+<para>ウォッチドッグのテストは、簡単な手順で実行できます。ウォッチドッグは、正規の手順を踏まずにシステムを強制的にリセット/シャットダウンするため、必ず最初にSAP HANAを切り替えてください。</para>
+<para>ハードウェアウォッチドッグの場合は、ウォッチドッグがタイムアウトした後のアクションを事前に定義します。ウォッチドッグモジュールがロードされていて、他のアプリケーションによって制御されていない場合は、次の手順を実行します。</para>
+<important>
+<para>ウォッチドッグを継続的に更新せずに、ウォッチドッグをトリガーして、システムをリセットするか電源をオフにします。これが意図されたメカニズムです。次のコマンドは、システムのリセットまたは電源オフを強制します。</para>
+</important>
+<screen>touch /dev/watchdog</screen>
+<para>softdogモジュールが使用されている場合は、以下のアクションを実行できます。</para>
+<screen>echo 1&gt; /dev/watchdog</screen>
+<para>テストが成功した場合は、すべてのクラスターメンバーにウォッチドッグを実装する必要があります。</para>
+</example>
+</section>
+<section xml:id="id-initial-cluster-setup-using-ha-cluster-init">
+<title><literal>ha-cluster-init</literal>を使用したクラスターの初期設定</title>
+<para>詳細については、SUSE Linux Enterprise High Availability Extensionの<emphasis>自動クラスター設定</emphasis>を参照してください。</para>
+<para>初期設定を作成するには、<literal>ha-cluster-init</literal>コマンドを使用してダイアログに従ってください。これは、最初のクラスターノードだけに実行してください。</para>
+<screen>suse01:~&gt; ha-cluster-init -u -s &lt;sbddevice&gt;</screen>
+<para>このコマンドは、以下を含む基本的なクラスターフレームワークを構成します。</para>
+<itemizedlist>
+<listitem>
+<para>SSH鍵</para>
+</listitem>
+<listitem>
+<para>構成ファイルを転送するためのcsync2</para>
+</listitem>
+<listitem>
+<para>SBD（1台以上のデバイス）</para>
+</listitem>
+<listitem>
+<para>corosync（1つ以上のリング）</para>
+</listitem>
+<listitem>
+<para>HAWK Webインタフェース</para>
+</listitem>
+</itemizedlist>
+<important>
+<para><literal>ha-cluster-init</literal> の要求に基づいて、haclusterユーザーのパスワードを変更します。</para>
+</important>
+</section>
+<section xml:id="id-adapting-the-corosync-and-sbd-configuration">
+<title>CorosyncとSBD構成を適用する</title>
+<para>2番目のcorosyncリングを追加することをお勧めします。<emphasis>-u</emphasis>オプションを使用してha-cluster-initを開始しなかった場合は、corosyncを変更してUCAST通信を使用する必要があります。UCASTに変更するには、 <literal>systemctl stop pacemaker</literal>を使用して、すでに稼働しているクラスターを停止します。corosync構成とSBDパラメータを設定した後に、クラスターを再起動します。</para>
+<section xml:id="id-corosync-configuration">
+<title>Corosync の構成</title>
+<para><emphasis>/etc/corosync/corosync.conf</emphasis>ファイルにある以下のブロックを確認します。また、本ドキュメントの最後に掲載されている例も参照してください。</para>
+<screen>totem {
+    ...
+
+    interface {
+        ringnumber: 0
+        mcastport:  5405
+        ttl:        1
+    }
+    #Transport protocol
+    transport:      udpu
+
+}
+nodelist {
+        node {
+        #ring0 address
+        ring0_addr:     192.168.1.11
+        nodeid: 1
+
+        }
+    }</screen>
+</section>
+<section xml:id="id-adapting-sbd-configuration">
+<title>SBD構成を適用する</title>
+<para>SBDデバイスを使用していない場合は、このセクションをスキップできますが、サポートされている別のフェンシングメカニズムを必ず実装してください。</para>
+<para>詳細については、マニュアルのページsbd.8およびstonith_sbd.7をご覧ください。</para>
+<table frame="all" rowsep="1" colsep="1">
+<title>/etc/sysconfig/SBDファイルのSBDオプション</title>
+<tgroup cols="2">
+<colspec colname="col_1" colwidth="50*"/>
+<colspec colname="col_2" colwidth="50*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">説明</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>SBD_WATCHDOG_DEV</para></entry>
+<entry align="left" valign="top"><para>ウォッチドッグデバイスを定義します。ウォッチドッグの使用は必須です。SBDは、ウォッチドッグがないと信頼性が低くなります。ウォッチドッグの設定については、SLESマニュアルとSUSE TIDs 7016880を参照してください。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SBD_WATCHDOG_TIMEOUT</para></entry>
+<entry align="left" valign="top"><para>タイムアウトは秒単位で定義します。定義しなければ、ウォッチドッグはノードがパニックに陥るまで待機したままになります。</para><para>このパラメータは、使用中のストレージ環境と整合している必要があります。仮にストレージが30秒間ハングすることが予想される場合は、このパラメータをより長い値に設定する必要があります。一般的な設定は5秒ですが、本稼働環境では意欲的な値になり得ます。</para><para>このパラメータは、Pacemaker クラスターのstonith-watchdog-timeoutプロパティにも整合させる必要があります。stonith-watchdog-timeoutプロパティは、SBD_WATCHDOG_TIMEOUTの値以上に設定する必要があります。</para><para><literal>stonith-watchdog-timeout</literal> を負の値に設定すると、Pacemakerはこのタイムアウトを自動的に計算し、SUSE Linux Enterprise High Availability Extension 15以降の <literal>SBD_WATCHDOG_TIMEOUT</literal> の値の2倍に設定します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SBD_STARTMODE</para></entry>
+<entry align="left" valign="top"><para>起動モード。<literal>clean</literal>に設定されている場合、sbdはノードが以前クリーンにシャットダウンされたか、またはスロットが空の場合にのみ起動します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>SBD_PACEMAKER</para></entry>
+<entry align="left" valign="top"><para>Pacemakerクォーラムとノードに異常がないかをチェックをします。</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+<para>以下では、/dev/disk/by-id/SBDA、および/dev/disk/by-id/SBDBを実際のsbdデバイス名に置き換えます。この例では、<literal>SBD_WATCHDOG_TIMEOUT</literal>は15秒に設定されており、一般的な5秒に比べると意欲的な値ではありません。</para>
+<screen># /etc/sysconfig/sbd
+SBD_DEVICE=&quot;/dev/disk/by-id/SBDA;/dev/disk/by-id/SBDB&quot;
+SBD_WATCHDOG_DEV=&quot;/dev/watchdog&quot;
+SBD_WATCHDOG_TIMEOUT=15
+SBD_PACEMAKER=&quot;yes&quot;
+SBD_STARTMODE=&quot;clean&quot;
+SBD_OPTS=&quot;&quot;</screen>
+<important>
+<para>タイムアウトの計算に関して、詳しくは次のSUSE製品ドキュメントもご覧ください。<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-storage-protect-watchdog-timings">https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-storage-protect-watchdog-timings</link></para>
+</important>
+</section>
+<section xml:id="id-verifying-the-sbd-device">
+<title>SBDデバイスを確認する</title>
+<para>SBDデバイスを使用していない場合は、このセクションをスキップできますが、サポートされているフェンシングメカニズムを必ず実装してください。</para>
+<para>両方のノードからSBDデバイスにアクセスでき、有効なレコードが含まれているか確認することをお勧めします。これを<emphasis>/etc/sysconfig/sbd</emphasis>で構成されているすべてのデバイスに対して確認してください。</para>
+<screen>suse01:~ # sbd -d /dev/disk/by-id/SBDA dump
+==Dumping header on disk /dev/disk/by-id/SBDA
+Header version     : 2.1
+UUID               : 0f4ea13e-fab8-4147-b9b2-3cdcfff07f86
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 40
+==Header on disk /dev/disk/by-id/SBDA is dumped</screen>
+<para>サンプルのタイムアウト値は初期値に過ぎませんので、ご使用の環境に合わせて調整してください。</para>
+<para>さまざまなクラスターノードの現在のSBDエントリーを確認するには、<literal>sbd list</literal>を使用します。すべてのエントリーが<literal>clear</literal>されている場合、SBDデバイスにはフェンシングタスクがマークされません。</para>
+<screen>suse01:~ # sbd -d /dev/disk/by-id/SBDA list
+0     suse01      clear</screen>
+<para>SBD構成パラメータの詳細については、 SUSE Linux Enterprise High-Availability Extension、およびTIDsが 7016880と7008216の<emphasis>ストレージベースフェンシング</emphasis>セクションをご覧ください。</para>
+<para>ここで、最初のノードでクラスターを再起動します(<literal>systemctl start pacemaker</literal>)。</para>
+</section>
+</section>
+<section xml:id="id-cluster-configuration-on-the-second-node">
+<title>2番目のノードのクラスター構成</title>
+<para>2ノードクラスターの2番目のノードは、<literal>ha-cluster-join</literal>コマンドを実行して統合することができます。このコマンドは、IPアドレスか最初のクラスターノードの名前を要求します。必要なすべての構成ファイルがコピーされます。その結果、クラスターは両方のノードで起動されます。</para>
+<screen># ha-cluster-join -c &lt;host1&gt;</screen>
+</section>
+<section xml:id="id-checking-the-cluster-for-the-first-time">
+<title>初めてクラスターを確認する</title>
+<para>これで、初めて両方のノードでクラスターを確認し、オプションでクラスターを起動する時がきました。</para>
+<screen>suse01:~ # systemctl status pacemaker
+suse01:~ # systemctl status sbd
+suse02:~ # systemctl status pacemaker
+suse01:~ # systemctl start pacemaker
+suse02:~ # systemctl status sbd
+suse02:~ # systemctl start pacemaker</screen>
+<para>crm_monを使用してクラスターのステータスを確認します。「-r」オプションを使用して、構成済みで停止しているリソースも表示します。</para>
+<screen># crm_mon -r</screen>
+<para>このコマンドは、空のクラスターを表示し、以下のような画面出力を表示します。ここで最も興味深い情報は、「online」オンラインステータスの2つのノードがある点と、「partition with quorum」というメッセージです。</para>
+<screen>Stack: corosync
+Current DC: suse01 (version 2.0.1+20190417.13d370ca9-3.6.1-2.0.1+20190417.13d370ca9) - partition with quorum
+Last updated: Wed Feb  5 15:06:35 2020
+Last change: Wed Feb  5 15:04:42 2020 by hacluster via crmd on suse02
+2 nodes configured
+1 resource configured
+Online: [ suse01 suse02 ]
+Full list of resources:
+ stonith-sbd    (stonith:external/sbd): Started suse01</screen>
+</section>
+</section>
+<section xml:id="id-configuring-cluster-properties-and-resources">
+<title>クラスターのプロパティとリソースを構成する</title>
+<para>このセクションでは、<literal>crm configure</literal> シェルコマンドを使用して、制約、リソース、ブートストラップ、STONITHを構成する方法について説明します。このコマンドは、<emphasis>SUSE Linux Enterprise High Availability Extensionドキュメントの クラスターリソースの構成・管理（コマンドライン）</emphasis>セクションで説明されています。</para>
+<para><literal>crm</literal> コマンドを使用して、オブジェクトをCRMに追加します。以下の例をローカルファイルにコピーし、ファイルを編集して、その構成をCIBにロードしてください。</para>
+<screen>suse01:~ # vi crm-fileXX
+suse01:~ # crm configure load update crm-fileXX</screen>
+<section xml:id="id-cluster-bootstrap-and-more">
+<title>クラスターブートストラップなど</title>
+<para>最初の例では、クラスターのブートストラップオプション、リソース、運用のデフォルトを定義します。stonith-timeoutは、SBD msgwaitタイムアウトの1.2倍よりも大きくする必要があります。</para>
+<screen>suse01:~ # vi crm-bs.txt
+# enter the following to crm-bs.txt
+property $id=&quot;cib-bootstrap-options&quot; \
+              stonith-enabled=&quot;true&quot; \
+              stonith-action=&quot;reboot&quot; \
+              stonith-timeout=&quot;150s&quot;
+rsc_defaults $id=&quot;rsc-options&quot; \
+              resource-stickiness=&quot;1000&quot; \
+              migration-threshold=&quot;5000&quot;
+op_defaults $id=&quot;op-options&quot; \
+                 timeout=&quot;600&quot;</screen>
+<para>次に、この構成をクラスターに追加します。</para>
+<screen>suse01:~ # crm configure load update crm-bs.txt</screen>
+</section>
+<section xml:id="id-stonith-device">
+<title>STONITHデバイス</title>
+<para>ディスクレスSBDを使用している場合は、このセクションをスキップしてください。</para>
+<para>以下の構成では、SBDディスクのSTONITHリソースを定義します。</para>
+<screen># vi crm-sbd.txt
+# enter the following to crm-sbd.txt
+primitive stonith-sbd stonith:external/sbd \
+    params pcmk_delay_max=&quot;15&quot;</screen>
+<para>再び、この構成をクラスターに追加します。</para>
+<screen>suse01:~ # crm configure load update crm-sbd.txt</screen>
+<para>IPMI/ILOによるフェンシングについては、 セクション<xref linkend="id-using-ipmi-as-fencing-mechanism"/>をご覧ください。</para>
+</section>
+<section xml:id="id-using-ipmi-as-fencing-mechanism">
+<title>IPMIをフェンシングメカニズムとして使用する</title>
+<para>IPMI/ILOフェンシングの詳細については、クラスター製品ドキュメント （<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/">https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/</link>）をご覧ください。IPMI STONITHリソースの例は、本ドキュメントのセクション<xref linkend="id-example-for-the-ipmi-stonith-method"/>に掲載されています。</para>
+<para>IPMIを使用するには、リモートマネジメントボードがIPMI標準と互換性を有している必要があります。</para>
+<para>IPMIベースフェンシングでは、クラスターノードごとにプリミティブを設定する必要があります。各リソースは、1つのクラスターノードを確実にフェンスする役割を果たします。リモートマネジメントボードのIPアドレスとログインユーザー/パスワードをSTONITHリソースエージェントに適合させる必要があります。リモートマネジメントボードへのrootアクセスを提供する代わりに、特別なSTONITHユーザーを作成することをお勧めします。ロケーションルールは、ホストが独自のSTONITHリソースを実行しないことを保証する必要があります。</para>
+</section>
+<section xml:id="id-using-other-fencing-mechanisms">
+<title>他のフェンシングメカニズムを使用する</title>
+<para>STONITHメカニズムとして、SBDを最初の選択肢、IPMIを2番目の選択肢として使用することをお勧めします。SUSE Linux Enterprise High Availability製品は、本書では取り上げていないその他のフェンシングメカニズムもサポートしています。</para>
+<para>フェンシングの詳細については、SUSE Linux Enterprise High Availabilitガイドをご覧ください。</para>
+</section>
+<section xml:id="id-saphanatopology">
+<title>SAPHanaTopology</title>
+<para>次に、HANAインスタンスが起動する前に、必要なリソースのグループを定義します。<emphasis>crm-saphanatop.txt</emphasis>のようなテキストファイルで変更の準備をし、以下のコマンドと共にロードします。</para>
+<para><literal>crm configure load update crm-saphanatop.txt</literal></para>
+<screen># vi crm-saphanatop.txt
+# enter the following to crm-saphanatop.txt
+primitive rsc_SAPHanaTopology_HA1_HDB10 ocf:suse:SAPHanaTopology \
+        op monitor interval=&quot;10&quot; timeout=&quot;600&quot; \
+        op start interval=&quot;0&quot; timeout=&quot;600&quot; \
+        op stop interval=&quot;0&quot; timeout=&quot;300&quot; \
+        params SID=&quot;HA1&quot; InstanceNumber=&quot;10&quot;
+clone cln_SAPHanaTopology_HA1_HDB10 rsc_SAPHanaTopology_HA1_HDB10 \
+        meta clone-node-max=&quot;1&quot; interleave=&quot;true&quot;</screen>
+<para>すべてのパラメータに関する追加情報は、以下のコマンドを使って検索することができます。</para>
+<para><literal>man ocf_suse_SAPHanaTopology</literal></para>
+<para>再び、この構成をクラスターに追加します。</para>
+<screen>suse01:~ # crm configure load update crm-saphanatop.txt</screen>
+<para>ここで最も重要なパラメータはSIDとインスタンス番号です。これはSAP環境では自明のことです。これらのパラメータの他に、タイムアウト値や、開始、監視、停止の各動作は、いずれも典型的な調整可能なものです。</para>
+</section>
+<section xml:id="id-saphana">
+<title>SAPHana</title>
+<para>次に、HANAインスタンスが起動する前に、必要なリソースのグループを定義します。<emphasis>crm-saphana.txt</emphasis>のようなテキストファイルで変更内容を編集して、 以下のコマンドと共にロードします。</para>
+<para><literal>crm configure load update crm-saphana.txt</literal></para>
+<table frame="all" rowsep="1" colsep="1">
+<title>さまざまなシナリオにおける一般的なリソースエージェントパラメータの設定</title><?dbhtml table-width="99%"?> <?dbfo table-width="99%"?> <?dblatex table-width="99%"?><tgroup cols="4">
+<colspec colname="col_1" colwidth="218.79*"/>
+<colspec colname="col_2" colwidth="67.32*"/>
+<colspec colname="col_3" colwidth="67.32*"/>
+<colspec colname="col_4" colwidth="67.32*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">パフォーマンス最適化</entry>
+<entry align="left" valign="top">コスト最適化</entry>
+<entry align="left" valign="top">マルチティア</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>PREFER_SITE_TAKEOVER</para></entry>
+<entry align="left" valign="top"><para>true</para></entry>
+<entry align="left" valign="top"><para>false</para></entry>
+<entry align="left" valign="top"><para>false / true</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>AUTOMATED_REGISTER</para></entry>
+<entry align="left" valign="top"><para>false / true</para></entry>
+<entry align="left" valign="top"><para>false / true</para></entry>
+<entry align="left" valign="top"><para>false</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>DUPLICATE_PRIMARY_TIMEOUT</para></entry>
+<entry align="left" valign="top"><para>7200</para></entry>
+<entry align="left" valign="top"><para>7200</para></entry>
+<entry align="left" valign="top"><para>7200</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+<table frame="all" rowsep="1" colsep="1">
+<title>重要なリソースエージェントパラメータの説明</title><?dbhtml table-width="100%"?> <?dbfo table-width="100%"?> <?dblatex table-width="100%"?><tgroup cols="2">
+<colspec colname="col_1" colwidth="178.5*"/>
+<colspec colname="col_2" colwidth="246.4999*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">説明</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>PREFER_SITE_TAKEOVER</para></entry>
+<entry align="left" valign="top"><para>停止したプライマリをローカルで再起動する代わりに、RAがセカンダリインスタンスへのテイクオーバーを優先するかどうかを定義します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>AUTOMATED_REGISTER</para></entry>
+<entry align="left" valign="top"><para>以前のプライマリを自動的に登録して、新しいプライマリのセカンダリにするかどうかを定義します。このパラメータを使用すると、システムレプリケーションの自動化のレベルを調整できます。</para>
+<para><literal>false</literal> に設定した場合は、以前のプライマリを手動で登録する必要があります。クラスターは、プライマリが2重に稼働する状況を回避するために、登録されるまでこのSAP HANA RDBMSを起動しません。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>DUPLICATE_PRIMARY_TIMEOUT</para></entry>
+<entry align="left" valign="top"><para>デュアルプライマリの状況が発生した場合は、2つのプライマリのタイムスタンプの間に時間差が必要になります。時間差が時間間隔よりも小さい場合、クラスターは一方または両方のインスタンスを「WAITING」ステータスに維持します。これは、管理者がフェイルオーバーに対応する機会を与えるためです。以前のプライマリのノードが完全にクラッシュした場合、以前の プライマリは、時間差が経過した後に登録されます。SAP HANA RDBMS「だけ」がクラッシュした場合は、以前のプライマリが直ちに登録されます。この新たなプライマリへの登録後、すべてのデータはシステムレプリケーションによって上書きされます。</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+<para>すべてのパラメータに関する追加情報は、次のコマンドで検索することができます。</para>
+<para><literal>man ocf_suse_SAPHana</literal></para>
+<screen># vi crm-saphana.txt
+# enter the following to crm-saphana.txt
+primitive rsc_SAPHana_HA1_HDB10 ocf:suse:SAPHana \
+        op start interval=&quot;0&quot; timeout=&quot;3600&quot; \
+        op stop interval=&quot;0&quot; timeout=&quot;3600&quot; \
+        op promote interval=&quot;0&quot; timeout=&quot;3600&quot; \
+        op monitor interval=&quot;60&quot; role=&quot;Master&quot; timeout=&quot;700&quot; \
+        op monitor interval=&quot;61&quot; role=&quot;Slave&quot; timeout=&quot;700&quot; \
+        params SID=&quot;HA1&quot; InstanceNumber=&quot;10&quot; PREFER_SITE_TAKEOVER=&quot;true&quot; \
+        DUPLICATE_PRIMARY_TIMEOUT=&quot;7200&quot; AUTOMATED_REGISTER=&quot;false&quot;
+ms msl_SAPHana_HA1_HDB10 rsc_SAPHana_HA1_HDB10 \
+        meta clone-max=&quot;2&quot; clone-node-max=&quot;1&quot; interleave=&quot;true&quot;</screen>
+<para>その構成をクラスターに追加します。</para>
+<screen>suse01:~ # crm configure load update crm-saphana.txt</screen>
+<para>ここでも、最も重要なパラメータは、やはりSIDとインスタンス番号です。これらのパラメータの他に、開始、昇格、監視、停止の各動作におけるタイムアウト値は、典型的な調整可能なパラメータです。</para>
+</section>
+<section xml:id="id-the-virtual-ip-address-for-the-primary-site">
+<title>プライマリサイトの仮想IPアドレス</title>
+<para>クラスターに追加される最後のリソースは、仮想IPアドレスをカバーします。</para>
+<screen># vi crm-vip.txt
+# enter the following to crm-vip.txt
+
+primitive rsc_ip_HA1_HDB10 ocf:heartbeat:IPaddr2 \
+        op monitor interval=&quot;10s&quot; timeout=&quot;20s&quot; \
+        params ip=&quot;192.168.1.20&quot;</screen>
+<para>このファイルをクラスターにロードします。</para>
+<screen>suse01:~ # crm configure load update crm-vip.txt</screen>
+<para>ほとんどのインストレーションでは、ipパラメータのみをクライアントシステムに提供する仮想IPアドレスに設定する必要があります。</para>
+</section>
+<section xml:id="id-constraints">
+<title>制約</title>
+<para>2つの制約により、クライアントデータベースアクセス用の仮想IPアドレスの正しい配置と、SAPHanaとSAPHanaTopologyの2つのリソースエージェント間の開始順序が調整されます。</para>
+<screen># vi crm-cs.txt
+# enter the following to crm-cs.txt
+
+colocation col_saphana_ip_HA1_HDB10 2000: rsc_ip_HA1_HDB10:Started \
+    msl_SAPHana_HA1_HDB10:Master
+order ord_SAPHana_HA1_HDB10 Optional: cln_SAPHanaTopology_HA1_HDB10 \
+    msl_SAPHana_HA1_HDB10</screen>
+<para>このファイルをクラスターにロードします。</para>
+<screen>suse01:~ # crm configure load update crm-cs.txt</screen>
+</section>
+<section xml:id="id-activeactive-read-enabled-scenario">
+<title>アクティブ/アクティブ読み取り可能なシナリオ</title>
+<para>この手順はオプションです。読み取り可能なセカンダリによるアクティブ/アクティブSAP HANAシステムレプリケーションがある場合は、必要となる2番目の仮想IPアドレスをクラスターに統合することが可能です。これは、2番目の仮想IPアドレスリソースと、そのアドレスをセカンダリサイトにバインドする場所の制約を追加することによって行われます。</para>
+<screen># vi crm-re.txt
+# enter the following to crm-re.txt
+
+primitive rsc_ip_HA1_HDB10_readenabled ocf:heartbeat:IPaddr2 \
+        op monitor interval=&quot;10s&quot; timeout=&quot;20s&quot; \
+        params ip=&quot;192.168.1.21&quot;
+colocation col_saphana_ip_HA1_HDB10_readenabled 2000: \
+    rsc_ip_HA1_HDB10_readenabled:Started msl_SAPHana_HA1_HDB10:Slave</screen>
+</section>
+</section>
+</section>
+<section xml:id="cha.s4s.test-cluster">
+<title>クラスターのテスト</title>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleOut-Plan-Phase7.svg" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleOut Plan Phase7</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<para>テストのリストは、本ドキュメントの次回の更新時に改訂される予定です。</para>
+<para>どのようなクラスターにおいても、テストは極めて重要です。顧客の要望に基づくすべてのテストケースが実施され、完全に適合していることを確認してください。これを怠ると、本稼働環境でプロジェクトが失敗する可能性があります。</para>
+<para>テストの前提条件は、特に断りがない限り、両方のノードが起動され、クラスターの通常のメンバーとHANA RDBMSが実行されていることです。また、システムレプリケーションは同期している状態（SOK）です。</para>
+<section xml:id="id-test-cases-for-semi-automation">
+<title>半自動化テストケース</title>
+<para>このテストでは、次の想定をしています。<literal>PREFER_SITE_TAKEOVER=&quot;true&quot;</literal> および<literal>AUTOMATED_REGISTER=&quot;false&quot;.</literal></para>
+<note>
+<para>以下のテストは順番に実行されるように設計されており、テスト結果は終了ステータスによって異なります。</para>
+</note>
+<section xml:id="id-test-stop-primary-database-on-site-a-node-1">
+<title>テスト: サイトA（ノード1）のプライマリデータベースを停止する</title>
+<example>
+<title>STOP_PRIMARY_SITE_Aをテストする</title>
+<itemizedlist>
+<title>コンポーネント:</title>
+<listitem>
+<para>プライマリデータベース</para>
+</listitem>
+</itemizedlist>
+<itemizedlist>
+<title>説明:</title>
+<listitem>
+<para>プライマリHANAデータベースを通常のクラスター動作中に停止します。</para>
+</listitem>
+</itemizedlist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、プライマリHANAデータベースを 正しい手順で停止します。</para>
+<screen>suse01# HDB stop</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード2で）に古いプライマリ（ノード1の）を新しいプライマリに手動で登録します。</para>
+<screen>suse01# hdbnsutil -sr_register --remoteHost=suse02 --remoteInstance=10 \
+          --replicationMode=sync --operationMode=logreplay \
+          --name=WDF</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse01# crm resource refresh rsc_SAPHana_HA1_HDB10 suse01</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、プライマリHANAデータベース（ノード1）が停止したことを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード2の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード2の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード1で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-stop-primary-database-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のプライマリデータベースを停止する</title>
+<example>
+<title>STOP_PRIMARY_DB_SITE_Bをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>プライマリデータベース</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリHANAデータベースを通常のクラスター動作中に停止します。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、データベースを正しい手順で停止します。</para>
+<screen>suse02# HDB stop</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード1で）に古いプライマリ（ノード2の）を新しいプライマリに手動で登録します。</para>
+<screen>suse02# hdbnsutil -sr_register --remoteHost=suse01 --remoteInstance=10 \
+               --replicationMode=sync --operationMode=logreplay \
+               --name=ROT</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは（ノード2で）停止したプライマリHANAデータベースを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード1の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード1の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-primary-database-on-site-a-node-1">
+<title>テスト: サイトA（ノード1）のプライマリデータベースをクラッシュさせる</title>
+<example>
+<title>CRASH_PRIMARY_DB_SITE_Aをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>プライマリデータベース</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリデータベースシステムの完全停止をシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、シグナルを使用してプライマリデータベースシステムを強制終了します。</para>
+<screen>suse01# HDB kill-9</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード2で）に古いプライマリ（ノード1の）を新しいプライマリに手動で登録します。</para>
+<screen>suse01# hdbnsutil -sr_register --remoteHost=suse02 --remoteInstance=10 \
+               --replicationMode=sync  --operationMode=logreplay \
+               --name=WDF</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse01# crm resource refresh rsc_SAPHana_HA1_HDB10 suse01</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは（ノード1で）停止したプライマリHANAデータベースを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード2の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード2の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード1で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-primary-database-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のプライマリデータベースをクラッシュさせる</title>
+<example>
+<title>CRASH_PRIMARY_DB_SITE_B をテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>プライマリデータベース</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリデータベースシステムの完全停止をシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、シグナルを使用してプライマリデータベースシステムを強制終了します。</para>
+<screen>suse02# HDB kill-9</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード1で）に古いプライマリ（ノード2の）を新しいプライマリに手動で登録します。</para>
+<screen>suse02# hdbnsutil -sr_register --remoteHost=suse01 --remoteInstance=10 \
+               --replicationMode=sync  --operationMode=logreplay \
+               --name=ROT</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは（ノード2で）停止したプライマリHANAデータベースを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード1の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード1の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-primary-node-on-site-a-node-1">
+<title>テスト: サイトA（ノード1）のプライマリデータベースをクラッシュさせる</title>
+<example>
+<title>CRASH_PRIMARY_NODE_SITE_Aをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>プライマリサイトのクラスターノード</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリHANAデータベースを実行しているプライマリサイトノードのクラッシュをシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para>「fast-reboot」システムリクエストを送信して、プライマリノードをクラッシュさせます。</para>
+<screen>suse01# echo 'b' &gt; /proc/sysrq-trigger</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>SBDフェンシングが使用されていると、pacemakerはフェンスされた後、自動的に再起動しません。この場合は、すべてのSBDデバイスのフェンシングフラグをクリアしてから、pacemakerを起動します。</para>
+<screen>suse01# sbd -d /dev/disk/by-id/SBDA message suse01 clear
+suse01# sbd -d /dev/disk/by-id/SBDB message suse01 clear
+...</screen>
+</listitem>
+<listitem>
+<para>クラスターフレームワークを開始します。</para>
+<screen>suse01# systemctl start pacemaker</screen>
+</listitem>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード2で）に古いプライマリ（ノード1の）を新しいプライマリに手動で登録します。</para>
+<screen>suse01# hdbnsutil -sr_register --remoteHost=suse02 --remoteInstance=10 \
+               --replicationMode=sync  --operationMode=logreplay \
+               --name=WDF</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse01# crm resource refresh rsc_SAPHana_HA1_HDB10 suse01</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、失敗したノード（ノード1）を検出し、それをUNCLEANと宣言し、セカンダリノード（ノード2）を「partition WITHOUT quorum」ステータス に設定します。</para>
+</listitem>
+<listitem>
+<para>クラスターは失敗したノード（ノード1）をフェンスします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、失敗したノード（ノード1）をOFFLINEとして宣言します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード2の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード2の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>SBDフェンシングが使用されている場合は、手動のリカバリー手順を使用し、そのノードのフェンシングフラグをクリアしてpacemakerを再起動します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-primary-node-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のプライマリノードをクラッシュさせる</title>
+<example>
+<title>CRASH_PRIMARY_NODE_SITE_Bをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>セカンダリサイトのクラスターノード</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリHANAデータベースを実行しているセカンダリサイトノードのクラッシュをシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para>「fast-reboot」システムリクエストを送信して、セカンダリノードをクラッシュさせます。</para>
+<screen>suse02# echo 'b' &gt; /proc/sysrq-trigger</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>SBDフェンシングが使用されていると、pacemakerはフェンスされた後、自動的に再起動しません。この場合は、すべてのSBDデバイスのフェンシングフラグをクリアしてから、pacemakerを起動します。</para>
+<screen>suse02# sbd -d /dev/disk/by-id/SBDA message suse02 clear
+suse02# sbd -d /dev/disk/by-id/SBDB message suse02 clear
+...</screen>
+</listitem>
+<listitem>
+<para>クラスターフレームワークを起動します。</para>
+<screen>suse02# systemctl start pacemaker</screen>
+</listitem>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、テイクオーバー後（ノード1で）に古いプライマリ（ノード2の）を新しいプライマリに手動で登録します。</para>
+<screen>suse02# hdbnsutil -sr_register --remoteHost=suse01 --remoteInstance=10 \
+               --replicationMode=sync  --operationMode=logreplay \
+               --name=ROT</screen>
+</listitem>
+<listitem>
+<para>ルートとして、ノード2でHANAデータベース（現在はセカンダリ）を再起動します。</para>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、セカンダリノード（ノード2）が失敗したことを検出し、UNCLEANと宣言して、プライマリノード（ノード1）を「partition WITHOUT quorum」ステータス に設定します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、失敗したノード（ノード2）をフェンスします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、障害が発生したノード（ノード2）をOFFLINEとして宣言します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード1の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード1の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）停止したセカンダリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>SBDフェンシングが使用されている場合は、手動のリカバリー手順を使用し、そのノードのフェンシングフラグをクリアしてpacemakerを再起動します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;false&quot;であることから、クラスターは失敗したHANAデータベースを再起動したり、新しいプライマリに登録することはしせん。</para>
+</listitem>
+<listitem>
+<para>手動での登録とリソースの更新後、システムとレプリケーションのペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-stop-the-secondary-database-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のセカンダリデータベースを停止する</title>
+<example>
+<title>STOP_SECONDARY_DB_SITE_Bをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>セカンダリHANAデータベース</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>セカンダリHANAデータベースを通常のクラスター動作中に停止します。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、セカンダリHANAデータベースを正しい手順で停止します。</para>
+<screen>suse02# HDB stop</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>ルートとして、セカンダリHANAデータベース（ノード2）の失敗したリソースのステータスを更新します。</para>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、セカンダリデータベース（ノード2）が停止したことを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターはシステムレプリケーションの障害を検出し、失敗（SFAIL）としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、同じノード（ノード2）でセカンダリHANAデータベースを再起動します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、システムレプリケーションが再び同期していることを検出し、それをok（SOK）としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-the-secondary-database-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のセカンダリデータベースをクラッシュさせる</title>
+<example>
+<title>CRASH_SECONDARY_DB_SITE_B をテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>セカンダリHANAデータベース</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>セカンダリデータベースシステムの完全停止をシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>.として、シグナルを使用してセカンダリデータベースシステムを強制終了します。</para>
+<screen>suse02# HDB kill-9</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>ルートとして、セカンダリHANAデータベース（ノード２）の失敗したリソースステータスをクリーンアップします。</para>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、セカンダリデータベース（ノード2）が停止したことを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターはシステムレプリケーションの障害を検出し、失敗（SFAIL）としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、同じノード（ノード2）でセカンダリHANAデータベースを再起動します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、システムレプリケーションが再び同期していることを検出し、それをok（SOK）としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-the-secondary-node-on-site-b-node2">
+<title>テスト: サイトB（Node2）のセカンダリノードをクラッシュさせる</title>
+<example>
+<title>CRASH_SECONDARY_NODE_SITE_B をテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>セカンダリサイトのクラスターノード</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>セカンダリHANAデータベースを実行しているセカンダリサイトノードのクラッシュをシミュレートします。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para>「fast-reboot」システムリクエストを送信して、セカンダリノードをクラッシュさせます。</para>
+<screen>suse02# echo 'b' &gt; /proc/sysrq-trigger</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>SBDフェンシングが使用されていると、pacemakerはフェンスされた後、自動的に再起動しません。この場合は、<emphasis role="strong">すべての</emphasis>SBD デバイスのフェンシングフラグをクリアしてから、pacemakerを起動します。</para>
+<screen>suse02# sbd -d /dev/disk/by-id/SBDA message suse02 clear
+suse02# sbd -d /dev/disk/by-id/SBDB message suse02 clear
+...</screen>
+</listitem>
+<listitem>
+<para>クラスターフレームワークを起動します。</para>
+<screen>suse02# systemctl start pacemaker</screen>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、セカンダリノード（ノード2）が失敗したことを検出し、UNCLEANと宣言して、プライマリノード（ノード1）を「partition WITHOUT quorum」ステータス に設定します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、失敗したノード（ノード2）をフェンスします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、障害が発生したノード（ノード2）をOFFLINEとして宣言します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）停止したセカンダリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>SBDフェンシングが使用されている場合は、手動のリカバリー手順を使用し、そのノードのフェンシングフラグをクリアしてpacemakerを再起動します。</para>
+</listitem>
+<listitem>
+<para>フェンスされたノード（ノード2）がクラスターに復帰すると、以前のセカンダリHANAデータベースが自動的に起動します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、システムレプリケーションが再び同期していることを検出し、それをok（SOK）としてマークします。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-failure-of-replication-lan">
+<title>テスト: レプリケーションLANの障害</title>
+<example>
+<title>FAIL_NETWORK_SRをテストする</title>
+<variablelist>
+<varlistentry>
+<term>コンポーネント:</term>
+<listitem>
+<para>レプリケーションLAN</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>説明:</term>
+<listitem>
+<para>プライマリノードとセカンダリノード間のレプリケーションLAN接続の切断。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<orderedlist numeration="arabic">
+<title>テスト手順:</title>
+<listitem>
+<para>レプリケーションLAN上のクラスターノード間の接続を切断します。</para>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>レプリケーションLAN上のクラスターノード間の接続を再確立します。</para>
+</listitem>
+</orderedlist>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>その後しばらくすると、クラスターはセカンダリ（ノード2）のsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>プライマリHANAデータベース（ノード1）「HDBSettings.sh systemReplicationStatus.py」は 「CONNECTION TIMEOUT」を示し、セカンダリHANAデータベース（ノード2）はプライマリデータベース（ノード1）に接続できません。</para>
+</listitem>
+<listitem>
+<para>プライマリHANAデータベースは引き続き「normal」として動作しますが、システムレプリケーションは実行されないため、有効なテイクオーバー先ではなくなります。</para>
+</listitem>
+<listitem>
+<para>LAN接続が再確立されると、HDBはHANAデータベース間の接続を自動的に検出して、システムレプリケーションプロセスを再起動します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、システムレプリケーションが再び同期していることを検出し、それをok（SOK）としてマークします。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+</section>
+<section xml:id="id-test-cases-for-full-automation">
+<title>完全自動化のテストケース</title>
+<para>以降のテスト説明では、<emphasis role="strong">PREFER_SITE_TAKEOVER=&quot;true」</emphasis> および<emphasis role="strong">AUTOMATED_REGISTER=&quot;true&quot;.</emphasis>を前提にしています。</para>
+<note>
+<para>以下のテストは順番に実行されるように設計されており、テスト結果は終了ステータスによって異なります。</para>
+</note>
+<section xml:id="id-test-stop-primary-database-on-site-a">
+<title>テスト: サイトAのプライマリデータベースを停止する</title>
+<example>
+<title>STOP_PRIMARY_DB_SITE_Aをテストする</title>
+<itemizedlist>
+<title>コンポーネント:</title>
+<listitem>
+<para>プライマリデータベース</para>
+</listitem>
+</itemizedlist>
+<itemizedlist>
+<title>説明:</title>
+<listitem>
+<para>プライマリHANAデータベースを通常のクラスター動作中に停止します。</para>
+</listitem>
+</itemizedlist>
+<itemizedlist>
+<title>テスト手順:</title>
+<listitem>
+<para><emphasis>&lt;sid&gt;adm</emphasis>として、プライマリHANAデータベースを 正しい手順で停止します。</para>
+</listitem>
+</itemizedlist>
+<screen>suse01# HDB stop</screen>
+<orderedlist numeration="arabic">
+<title>リカバリー手順:</title>
+<listitem>
+<para>すべて自動化されていますので手動操作は不要です。</para>
+</listitem>
+<listitem>
+<para>ルートとして、ノード1のクラスターリソースを更新します。</para>
+</listitem>
+</orderedlist>
+<screen>suse01# crm resource refresh rsc_SAPHana_HA1_HDB10 suse01</screen>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは（ノード1で）停止したプライマリHANAデータベースを検出し、リソースを失敗としてマークします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード2の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード2の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード1で）失敗したプライマリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;true&quot; により、クラスターは失敗したHANAデータベースを再起動し、新しいプライマリに登録します。</para>
+</listitem>
+<listitem>
+<para>自動的に登録され、リソースが更新された後、システムレプリケーションペアは同期ステータス（SOK）としてマークされます。</para>
+</listitem>
+<listitem>
+<para>クラスターの「failed actions」は、リカバリー手順に従ってクリーンアップされます。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="id-test-crash-the-primary-node-on-site-b-node-2">
+<title>テスト: サイトB（ノード2）のプライマリノードをクラッシュさせる</title>
+<example>
+<title>CRASH_PRIMARY_NODE_SITE_Bをテストする</title>
+<itemizedlist>
+<title>コンポーネント:</title>
+<listitem>
+<para>サイトBのクラスターノード</para>
+</listitem>
+</itemizedlist>
+<itemizedlist>
+<title>説明:</title>
+<listitem>
+<para>プライマリHANAデータベースを実行しているサイトBノードのクラッシュをシミュレートします。</para>
+</listitem>
+</itemizedlist>
+<itemizedlist>
+<title>テスト手順:</title>
+<listitem>
+<para>「fast-reboot」システムリクエストを送信して、セカンダリノードをクラッシュさせます。</para>
+</listitem>
+</itemizedlist>
+<screen>suse02# echo 'b' &gt; /proc/sysrq-trigger</screen>
+<itemizedlist>
+<title>リカバリー手順:</title>
+<listitem>
+<para>SBDフェンシングが使用されていると、pacemakerはフェンスされた後、自動的に再起動しません。この場合は、<emphasis role="strong">すべての</emphasis>SBD デバイスのフェンシングフラグをクリアしてから、pacemakerを起動します。</para>
+</listitem>
+</itemizedlist>
+<screen>suse02# sbd -d /dev/disk/by-id/SBDA message suse02 clear
+suse02# sbd -d /dev/disk/by-id/SBDB message suse02 clear
+...</screen>
+<itemizedlist>
+<listitem>
+<para>クラスターフレームワークを起動します。</para>
+</listitem>
+</itemizedlist>
+<screen>suse02# systemctl start pacemaker</screen>
+<itemizedlist>
+<listitem>
+<para>ルートとして、ノード2のクラスターリソースを更新します。</para>
+</listitem>
+</itemizedlist>
+<screen>suse02# crm resource refresh rsc_SAPHana_HA1_HDB10 suse02</screen>
+<orderedlist numeration="arabic">
+<title>期待される動作:</title>
+<listitem>
+<para>クラスターは、失敗したプライマノード（ノード2）を検出し、それをUNCLEANと宣言し、プライマリノード（ノード2）を「partition WITHOUT quorum」ステータス に設定します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、失敗したプライマリノード）ノード２）をフェンスします。</para>
+</listitem>
+<listitem>
+<para>クラスターは、障害が発生したプライマリノード（ノード2）をOFFLINEとして宣言します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、（ノード1の）セカンダリHANAデータベースを昇格させ、プライマリとして引き継ぎます。</para>
+</listitem>
+<listitem>
+<para>クラスターは、IPアドレスを（ノード1の）新しいプライマリに移行します。</para>
+</listitem>
+<listitem>
+<para>その後しばらくすると、クラスターは（ノード2で）停止したセカンダリのsync_stateをSFAILとして表示します。</para>
+</listitem>
+<listitem>
+<para>SBDフェンシングが使用されている場合は、手動のリカバリー手順を使用し、そのノードのフェンシングフラグをクリアしてpacemakerを再起動します。</para>
+</listitem>
+<listitem>
+<para>フェンスされたノード（ノード2）がクラスターに復帰すると、以前のプライマリがセカンダリになります。</para>
+</listitem>
+<listitem>
+<para>AUTOMATED_REGISTER=&quot;true&quot; により、クラスターは失敗したHANAデータベースを再起動し、新しいプライマリに登録します。</para>
+</listitem>
+<listitem>
+<para>クラスターは、システムレプリケーションが再び同期していることを検出し、それをok（SOK）としてマークします。</para>
+</listitem>
+</orderedlist>
+</example>
+</section>
+</section>
+</section>
+<section xml:id="cha.hana-sr.administrate">
+<title>管理</title>
+<section xml:id="id-dos-and-donts">
+<title>注意事項</title>
+<para>プロジェクトでは以下を必ず実行してください。</para>
+<itemizedlist>
+<listitem>
+<para>クラスターに他のリソースを追加する前にSTONITHを定義する。</para>
+</listitem>
+<listitem>
+<para>集中的にテストする。</para>
+</listitem>
+<listitem>
+<para>SAP HanaおよびSAPHanaTopologyの動作のタイムアウトを調整する。</para>
+</listitem>
+<listitem>
+<para>PREFER_SITE_TAKEOVER =&quot;true&quot;、AUTOMATED_REGISTER =&quot;false&quot;およびDUPLICATE_PRIMARY_TIMEOUT =&quot;7200&quot;の設定で開始する。</para>
+</listitem>
+</itemizedlist>
+<para>プロジェクトでは以下を避けてください。</para>
+<itemizedlist>
+<listitem>
+<para>クラスター構成の性急な変更/再変更: ノードをスタンバイしてオンラインに再設定したり、マスター/スレーブリソースを停止/開始すること。</para>
+</listitem>
+<listitem>
+<para>適切な時間に同期をしなかったり、ホスト、ユーザー、グループの名前を解決しないままクラスターを作成すること。</para>
+</listitem>
+<listitem>
+<para>クローン、マスター/スレーブ、あるいはIPリソースのロケーションルールを追加すること。本設定ガイドで説明されているロケーションルールだけが許可されています。</para>
+</listitem>
+<listitem>
+<para>crm-shell、HAWK、またはその他のツールでリソースを「migrate」または「move」すると、クライアント優先のロケーションルールが追加されるため、このアクティビティが完全に禁止されます。</para>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="id-monitoring-and-tools">
+<title>監視とツール</title>
+<para>クラスターのステータスリクエストには、High Availability Web Console （HAWK）、SAP HANA Studiなど、さまざまコマンドラインツールを使用することができます。</para>
+<section xml:id="id-hawk-cluster-status-and-more">
+<title>HAWK – クラスターステータスなど</title>
+<para>インターネットブラウザを使用して、クラスターのステータスを確認できます。</para>
+<figure>
+<title>HAWKのクラスターステータス</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="SAPHanaSR-ScaleUp-HAWK-Status-SLE12.png" width="100%"/>
+</imageobject>
+<textobject><phrase>SAPHanaSR ScaleUp HAWK Status SLE12</phrase></textobject>
+</mediaobject>
+</figure>
+<para>Ha-cluster-initを使用してクラスターを設定し、上記で述べたようにすべてのパッケージをインストールすると、システムは非常に便利なWebインタフェースを提供してくれます。このグラフィカルなWebインタフェースを使用して、完全なクラスターステータスの概要を取得したり、管理タスクを実行したり、リソースとクラスターブートストラップのパラメータを構成することができます。この強力なユーザーインタフェースを網羅した製品マニュアルをご覧ください。</para>
+</section>
+<section xml:id="id-sap-hana-studio">
+<title>SAP HANA Studio</title>
+<para>データベース固有の管理とチェックは、SAP HANA Studioを使用して行うことができます。</para>
+<figure>
+<title>SAP HANA Studio – ランドスケープ</title>
+<mediaobject>
+<imageobject>
+<imagedata fileref="hana_studio_landscape.png" width="100%"/>
+</imageobject>
+<textobject><phrase>hana studio landscape</phrase></textobject>
+</mediaobject>
+</figure>
+</section>
+<section xml:id="id-cluster-command-line-tools">
+<title>クラスターコマンドラインツール</title>
+<para>簡単な概要は、 <literal>crm_mon</literal>を呼び出すことで取得できます。<literal>-r</literal>を使用すると、停止している構成済みのリソースも表示されます。<literal>-1</literal>オプションは、<literal>crm_mon</literal>に対して、定期的にではなく1回だけステータスを出力するように指定します。</para>
+<screen>Stack: corosync
+Current DC: suse01 (version 2.0.1+20190417.13d370ca9-3.6.1-2.0.1+20190417.13d370ca9) - partition with quorum
+Last updated: Thu Feb  6 12:20:03 2020
+Last change: Thu Feb  6 12:19:43 2020 by root via crm_attribute on suse01
+
+2 nodes configured
+6 resources configured
+
+Online: [ suse01 suse02 ]
+
+Full list of resources:
+
+ stonith-sbd    (stonith:external/sbd): Started suse01
+ Clone Set: cln_SAPHanaTopology_HA1_HDB10 [rsc_SAPHanaTopology_HA1_HDB10]
+     Started: [ suse01 suse02 ]
+ Clone Set: msl_SAPHana_HA1_HDB10 [rsc_SAPHana_HA1_HDB10] (promotable)
+     Masters: [ suse01 ]
+     Slaves: [ suse02 ]
+ rsc_ip_HA1_HDB10       (ocf::heartbeat:IPaddr2):       Started suse01</screen>
+<para>詳細については、本マニュアルのページcrm_mon(8) を参照してください。</para>
+</section>
+<section xml:id="id-saphanasr-command-line-tools">
+<title>SAPHanaSRコマンドラインツール</title>
+<para>一部のSAPHanaまたはSAPHanaTopologyリソースエージェントの内部値を表示するには、<literal>SAPHanaSR-showAttr</literal>プログラムを呼び出します。内部値、保存場所、およびそれらのパラメータ名は、次期バージョンで変更される可能性があります。<literal>SAPHanaSR-showAttr</literal>コマンドは、常に正しい保管場所から値をフェッチします。</para>
+<para><literal>crm_attribute</literal>のようなクラスターコマンドを使用して、クラスターから直接値をフェッチしないでください。このようなコマンドを使用すると、属性を別の保管場所やクラスターの外部に移す際にメソッドが壊れてしまいます。<emphasis>SAPHanaSR-showAttr</emphasis>は、最初はテストプログラムだけに使用し、自動システム監視には使用しないでください。</para>
+<screen> suse01:~ # SAPHanaSR-showAttr
+ Host \ Attr clone_state remoteHost roles       ... site    srmode sync_state ...
+ ---------------------------------------------------------------------------------
+ suse01      PROMOTED    suse02     4:P:master1:... WDF      sync  PRIM       ...
+ suse02      DEMOTED     suse01     4:S:master1:... ROT      sync  SOK        ...</screen>
+<para><literal>SAPHanaSR-showAttr</literal> は、<emphasis role="strong">script</emphasis>など他の出力形式もサポートしています。スクリプト形式は、フィルターを実行できるようにすることを目的としています。バージョン0.153以降の SAPHanaSRパッケージは、<literal>SAPHanaSR-filter</literal>フィルターエンジンも提供します。出力形式スクリプトを伴った<literal>SAPHanaSR-showAttr</literal>と<literal>SAPHanaSR-filter</literal>を組み合わせると効果的なクエリを定義できます。</para>
+<screen>suse01:~ # SAPHanaSR-showAttr --format=script | \
+   SAPHanaSR-filter --search='remote'
+Thu Feb  6 12:28:10 2020; Hosts/suse01/remoteHost=suse02
+Thu Feb  6 12:28:10 2020; Hosts/suse02/remoteHost=suse01</screen>
+<para><literal>SAPHanaSR-replay-archive</literal> は、<literal>hb_report</literal> (<literal>crm_report</literal>)アーカイブからのSAPHanaSR属性値の分析に役立ちます。これにより、事後分析が可能になります。</para>
+<para>この例では、管理者は<literal>HDB kill-9</literal>コマンドを使用してプライマリSAP HANAインスタンスを強制終了しました。この発生時刻は午後9:10頃です。</para>
+<screen>suse01:~ # hb_report -f 19:00
+INFO: suse01# The report is saved in ./hb_report-1-11-11-2019.tar.bz2
+INFO: suse01# Report timespan: 11/11/19 19:00:00 - 11/11/19 21:05:33
+INFO: suse01# Thank you for taking time to create this report.
+suse01:~ # SAPHanaSR-replay-archive --format=script \
+    ./hb_report-1-11-11-2019.tar.bz2 | \
+    SAPHanaSR-filter --search='roles' --filterDouble
+Mon Nov 11 20:38:01 2019; Hosts/suse01/roles=4:P:master1:master:worker:master
+Mon Nov 11 20:38:01 2019; Hosts/suse02/roles=4:S:master1:master:worker:master
+Mon Nov 11 21:11:37 2019; Hosts/suse01/roles=1:P:master1::worker:
+Mon Nov 11 21:12:43 2019; Hosts/suse02/roles=4:P:master1:master:worker:master</screen>
+<para>上記の例の属性は、最初にsuse01がプライマリ（4:P）を実行し、suse02がセカンダリ（4:S）を実行していたことを示しています。</para>
+<para>21:11（中央ヨーロッパ時間 – CET）に、suse01のプライマリが突然停止し、1:Pに低下しました。</para>
+<para>クラスターが割込みテイクオーバーを開始しました。21:12（CET）に、以前のセカンダリが新しい実行マスターとして検出されました（4:Sから4:Pに変更）。</para>
+</section>
+<section xml:id="id-sap-hana-landscapehostconfiguration">
+<title>SAP HANA LandscapeHostConfiguration</title>
+<para>SAPHanaデータベースのステータスを確認し、クラスターが対応すべきかを確認するには、<emphasis role="strong">landscapeHostConfiguration</emphasis>スクリプトを使用して、Linux ユーザーの<emphasis>&lt;sid&gt;adm</emphasis>として呼び出します。</para>
+<screen>suse01:~&gt; HDBSettings.sh landscapeHostConfiguration.py
+| Host   | Host   | ... NameServer   | NameServer  | IndexServer | IndexServer |
+|        | Active | ... Config Role  | Actual Role | Config Role | Actual Role |
+| ------ | ------ | ... ------------ | ----------- | ----------- | ----------- |
+| suse01 | yes    | ... master 1     | master      | worker      | master      |
+
+overall host status: ok</screen>
+<para>SAPHanaリソースエージェントは、SAP HAのガイドラインに従って、リターンコードを次のように解釈します。</para>
+<table frame="all" rowsep="1" colsep="1">
+<title>リターンコードの解釈</title><?dbhtml table-width="100%"?> <?dbfo table-width="100%"?> <?dblatex table-width="100%"?><tgroup cols="2">
+<colspec colname="col_1" colwidth="63.75*"/>
+<colspec colname="col_2" colwidth="361.25*"/>
+<thead>
+<row>
+<entry align="left" valign="top">リターンコード</entry>
+<entry align="left" valign="top">解釈</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>4</para></entry>
+<entry align="left" valign="top"><para>SAP HANAデータベースは問題なく稼働しています。クラスターはデータベースが正常に稼働中と解釈します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>3</para></entry>
+<entry align="left" valign="top"><para>SAP HANAデータベースは稼働しており、ステータス情報が提供されています。クラスターはデータベースが正常に稼働中と解釈します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>2</para></entry>
+<entry align="left" valign="top"><para>SAP HANAデータベースは稼働中であり、警告状態です。クラスターはデータベースが正常に稼働中と解釈します。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>1</para></entry>
+<entry align="left" valign="top"><para>SAP HANAデータベースは停止しています。本来データベースは稼働しているはずで、意図的に停止させていない場合は、テイクオーバーのトリガーになる可能性があります。</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>0</para></entry>
+<entry align="left" valign="top"><para>内部スクリプトエラー – 無視されます。</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+</section>
+</section>
+<section xml:id="id-maintenance">
+<title>メンテナンス</title>
+<para>OSまたはSUSE Linux Enterprise High Availability Extensionのアップデートを受け取るには、ご使用のシステムをローカルのSUSE ManagerまたはSMTに登録するか、リモートのSUSEカスタマーセンターに登録することをお勧めします。</para>
+<section xml:id="id-updating-the-os-and-cluster">
+<title>OSとクラスターをアップデートする</title>
+<para>クラスターソフトウェアを含むSUSE Linux Enterprise Server for SAP Applicationsパッケージのアップデートについては、SUSE Linux Enterprise High Availability Extension製品ドキュメントの<emphasis>クラスターをアップグレードしソフトウェアパッケージをアップデートする</emphasis>High Availability Administratioガイドに規定されているローリングアップデート手順に従ってください。</para>
+</section>
+<section xml:id="id-updating-sap-hana-seamless-sap-hana-maintenance">
+<title>SAP HANAをアップデートする -– シームレスなSAP HANA保守</title>
+<para>システムレプリケーションのSAP HANAデータベースシステムをアップデートするには、定義済みのSAPプロセスに準拠する必要があります。このセクションでは、システムレプリケーションを再び自動化するために、アップデート手順の前後に実行すべきステップについて説明します。</para>
+<para>SUSEは、クラスター内のSAP HANA保守プロセスを最適化しました。改善された手順では、マスター/スレーブリソースを保守に設定し、残りのクラスター（SAPHanaTopologyクローンとIpaddr2 vIPリソース）をアクティブのままに保つだけです。アップデートされた手順を使用すると、仮想IPアドレスが実行中のプライマリを自動的に追跡できるため、クラスター内でシームレスなSAP HANA保守が可能になります。</para>
+<para>クラスターがSAP HANAデータベースシステムで実行される保守作業に反応しないように準備します。マスター/スレーブリソースを管理対象外に設定し、クラスターノードを保守モードに設定します。</para>
+<example>
+<title>主なSAP HANAアップデート手順</title>
+<variablelist>
+<varlistentry>
+<term>アップデート前のタスク</term>
+<listitem>
+<para>マスター/スレーブリソースを保守モードに設定します。</para>
+<screen>crm resource maintenance &lt;master-slave-resource&gt;</screen>
+<para>本ガイドで指定したmaster-slave-resourceは <literal>msl_SAPHana_HA1_HDB10</literal>です。</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>アップデート</term>
+<listitem>
+<para>両方のSAP HANAデータベースシステムのSAPアップデートプロセスを実行します。この手順はSAPによって記述されています。</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>アップデート後のタスク</term>
+<listitem>
+<para>保守後にプライマリ/セカンダリのロールが交換されることに留意してください。したがって、クラスターに対しては、状況に関わらずアップデートされたSAP HANAデータベースシステムへの再プローブを実施するように指示します。</para>
+<screen>crm resource refresh &lt;master-slave-resource&gt;</screen>
+<para>両方のサイトでSAP HANAのアップデートが完了したら、クラスターに保守プロセスが終了したことを通知します。これにより、再びクラスターはSAPをアクティブに制御および監視することができるようになります。</para>
+<screen>crm resource maintenance &lt;master-slave-resource&gt; off</screen>
+</listitem>
+</varlistentry>
+</variablelist>
+</example>
+</section>
+<section xml:id="id-migrating-an-sap-hana-primary">
+<title>SAP HANAプライマリを移行する</title>
+<para>次の手順では、プライマリがノード1で実行され、セカンダリがノード2で実行されていると想定しています。この目的は、ノードのロールを「exchange」することですので、最終的に、プライマリはノード2で実行され、セカンダリはノード1で実行されることになります。</para>
+<para>ロールの交換には、さまざまな方法があります。以下の手順は、ネイティブHANAコマンドを使用してロールの変更を「accept」するようにクラスターに指示する方法を示しています。</para>
+<example>
+<title>SAPツールセットを使用してSAP HANAプライマリを移行する</title>
+<variablelist>
+<varlistentry>
+<term>移行前</term>
+<listitem>
+<para>マスター/スレーブリソースを保守モードに設定します。これはどのクラスターノードでも実行できます。</para>
+<screen>crm resource maintenance &lt;master-slave-resource-name&gt;</screen>
+</listitem>
+</varlistentry>
+</variablelist>
+<variablelist>
+<varlistentry>
+<term>手動によるテイクオーバープロセス</term>
+<listitem>
+<itemizedlist>
+<listitem>
+<para>プライマリSAP HANAデータベースシステムを停止します。この例では、<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとしてノード1にコマンドを入力します。</para>
+<screen>HDB stop</screen>
+</listitem>
+<listitem>
+<para>セカンダリSAP HANAデータベースシステムでテイクオーバープロセスを開始します。この例では、<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとしてノード2にコマンドを入力します。</para>
+<screen>hdbnsutil -sr_takeover</screen>
+</listitem>
+<listitem>
+<para>以前のプライマリを新しいセカンダリとして登録します。この例では、<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとしてノード1にコマンドを入力します。</para>
+<screen>hdbnsutil -sr_register --remoteHost=suse02 --remoteInstance=10 \
+ --replicationMode=sync --name=WDF \
+ --operationMode=logreplay</screen>
+</listitem>
+<listitem>
+<para>新しいセカンダリSAP HANAデータベースシステムを起動します。この例では、<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとしてノード1にコマンドを入力します。</para>
+<screen>HDB start</screen>
+</listitem>
+</itemizedlist>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>移行後</term>
+<listitem>
+<itemizedlist>
+<listitem>
+<para>SAPHanaSR-showAttrが両方のSAP HANAデータベースシステムが再起動していることを示すまでしばらく待機します（フィールドロールは数字4で始まる必要があります）。新しいセカンダリには、「S」 （セカンダリ用）ロールが割り当てられている必要があります。</para>
+</listitem>
+<listitem>
+<para>以前のマスター/スレーブのロールに関わらず、失敗したマスターを再監視するようにクラスターに指示します。ルートユーザーとして、このコマンドはどのクラスターノードでも送信することができます。</para>
+<screen>crm resource refresh master-slave-resource-name</screen>
+</listitem>
+<listitem>
+<para>マスター/スレーブリソースを再び管理対象のステータスに設定します。ルートユーザーとして、このコマンドはどのクラスターノードでも送信することができます。</para>
+<screen>crm resource maintenance &lt;master-slave-resource-name&gt; off</screen>
+</listitem>
+</itemizedlist>
+</listitem>
+</varlistentry>
+</variablelist>
+</example>
+<para>次に、クラスターを使用して、移行の一部を自動化する方法について説明します。<emphasis>SAPHanaSR-showAttr</emphasis> と<emphasis>SAPHanaSR-filter</emphasis>を使用してクエリ属性を定義する場合、バージョン0.153以降のSAPHanaSRが必要です。</para>
+<example>
+<title>クラスターツールセットを使用してSAP HANAプライマリを移行する</title>
+<itemizedlist>
+<listitem>
+<para><emphasis role="strong">force</emphasis>オプションを使用して、このノードから「move away」するルールを作成します。
+</para>
+<screen>crm resource move &lt;master-slave-resource-name&gt; <emphasis role="strong">force</emphasis></screen>
+<para>「move away」  (<emphasis role="strong">force</emphasis>)ルールにより、クラスターは現在のプライマリを<emphasis role="strong">停止</emphasis>します。その後、システムレプリケーションが以前に同期されていた場合は、セカンダリサイトで<emphasis role="strong">promote</emphasis>を実行します。システムレプリケーションのステータスが同期していない（SFAIL）場合は、プライマリを移行しないでください。</para>
+<important>
+<para><emphasis role="strong">force</emphasis> オプションなしで移行すると、以前のプライマリが停止しないままテイクオーバーされることになります。<emphasis role="strong">force</emphasis>オプションを使用した移行のみがサポートされます。</para>
+</important>
+<note>
+<para>crm リソースの<emphasis role="strong">move</emphasis> コマンドは、以前は<emphasis role="strong">migrate</emphasis>という名称でした。<emphasis role="strong">migrate</emphasis>コマンドは現在でも有効ですが、すでに過去のものとみなされています。</para>
+</note>
+</listitem>
+<listitem>
+<para>セカンダリが新しいプライマリロールへと完全に引き継がれるまで待ちます。<emphasis>SAPHanaSR-showAttr</emphasis>コマンドラインツールを使用して、引き継がれたことを確認し、新しいプライマリの「roles」属性をチェックします。それは「<emphasis role="strong">4:P</emphasis>」で始まるはずです。</para>
+<screen>suse01:~ # SAPHanaSR-showAttr --format=script | \
+   SAPHanaSR-filter --search='roles'
+Mon Nov 11 20:38:50 2019; Hosts/suse01/roles=<emphasis role="strong">1:P</emphasis>:master1::worker:
+Mon Nov 11 20:38:50 2019; Hosts/suse02/roles=<emphasis role="strong">4:P</emphasis>:master1:master:worker:master</screen>
+</listitem>
+<listitem>
+<para><literal>AUTOMATED_REGISTER=&quot;true&quot;</literal>と設定している場合は、この手順をスキップできます。さもなければ、以前のプライマリを登録する必要があります。この例では、<emphasis>&lt;sid&gt;adm</emphasis>ユーザーとしてノード1にコマンドを入力します。</para>
+<screen>hdbnsutil -sr_register --remoteHost=suse02 --remoteInstance=10 \
+    --replicationMode=sync --operationMode=logreplay \
+    --name=WDF</screen>
+</listitem>
+<listitem>
+<para>リソースの禁止ルールをクリアして、クラスターが新しいセカンダリを起動できるようにします。</para>
+<screen>crm resource clear &lt;master-slave-resource-name&gt;</screen>
+<note>
+<para>crm resourcの<emphasis role="strong">clear</emphasis>コマンドは、以前は<emphasis role="strong">unmigrate</emphasis>という名称でした。<emphasis role="strong">unmigrate</emphasis>コマンドはまだ有効ですが、すでに過去のものとみなされています。</para>
+</note>
+</listitem>
+<listitem>
+<para>新しいセカンダリが起動するまで待ちます。<emphasis>SAPHanaSR-showAttr</emphasis>コマンドラインツールを使用して、引き継がれたことを確認し、新しいプライマリの「roles」属性をチェックします。それは、「<emphasis role="strong">4:S</emphasis>」で始まるはずです。</para>
+<screen>suse01:~ # SAPHanaSR-showAttr --format=script | \
+   SAPHanaSR-filter --search='roles'
+Mon Nov 11 20:38:50 2019; Hosts/suse01/roles=<emphasis role="strong">4:S</emphasis>:master1::worker:
+Mon Nov 11 20:38:50 2019; Hosts/suse02/roles=<emphasis role="strong">4:P</emphasis>:master1:master:worker:master</screen>
+</listitem>
+</itemizedlist>
+</example>
+</section>
+</section>
+</section>
+<section xml:id="app.hana-sr.information">
+<title>役に立つリンク、マニュアル、SAPノート</title>
+<section xml:id="id-suse-best-practices-and-more">
+<title>SUSEのベストプラクティスなど</title>
+<variablelist>
+<varlistentry>
+<term>ブログシリーズ#towardsZeroDowntime</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/c/tag/towardszerodowntime/">https://www.suse.com/c/tag/towardszerodowntime/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SUSE Linux Enterprise上のSAPにおけるベストプラクティス</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sbp/all/">https://documentation.suse.com/sbp/all/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>2014年のブログ - SAP HANA®のフェイルセーフ運用: SUSE、高可用性ソリューションを拡張</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://scn.sap.com/community/hana-in-memory/blog/2014/04/04/fail-safe-operation-of-sap-hana-suse-extends-its-high-availability-solution">http://scn.sap.com/community/hana-in-memory/blog/2014/04/04/fail-safe-operation-of-sap-hana-suse-extends-its-high-availability-solution</link></para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+<section xml:id="id-suse-product-documentation">
+<title>SUSE製品ドキュメント</title>
+<variablelist>
+<varlistentry>
+<term>SUSE製品マニュアルとドキュメント</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/">https://documentation.suse.com/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>現行のSLES for SAPオンラインドキュメント</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles-sap/15-SP1/">https://documentation.suse.com/sles-sap/15-SP1/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>現行のSUSE Linux Enterprise High Availability Extensionオンラインドキュメント</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sle-ha/15-SP1/">https://documentation.suse.com/sle-ha/15-SP1/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Tuning guide for SUSE Linux Enterprise Server</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-sle-tuning.html">https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-sle-tuning.html</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Storage administration guide for SUSE Linux Enterprise Server</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-storage.html">https://documentation.suse.com/sles/15-SP1/html/SLES-all/book-storage.html</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>リリースノート</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/releasenotes">https://www.suse.com/releasenotes</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>TID Estimate correct multipath timeout</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://www.suse.com/support/kb/doc.php?id=7008216">http://www.suse.com/support/kb/doc.php?id=7008216</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>TID How to load the correct watchdog kernel module</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://www.suse.com/support/kb/doc.php?id=7016880">http://www.suse.com/support/kb/doc.php?id=7016880</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>TID Addressing file system performance issues on NUMA machines</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://www.suse.com/support/kb/doc.php?id=7008919">http://www.suse.com/support/kb/doc.php?id=7008919</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>TID Overcommit Memory in SLES</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/support/kb/doc.php?id=7002775">https://www.suse.com/support/kb/doc.php?id=7002775</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SLES技術情報</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/products/server/technical-information/">https://www.suse.com/products/server/technical-information/</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>XFS file system</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/communities/conversations/xfs-the-file-system-of-choice/">https://www.suse.com/communities/conversations/xfs-the-file-system-of-choice/</link></para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+<section xml:id="id-manual-pages">
+<title>マニュアルページ</title>
+<variablelist>
+<varlistentry>
+<term>crm</term>
+<listitem>
+<para>crm.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>crm_simulate</term>
+<listitem>
+<para>crm_simulate.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>cs_clusterstate</term>
+<listitem>
+<para>cs_clusterstate.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>ocf_suse_SAPHana</term>
+<listitem>
+<para>ocf_suse_SAPHana.7</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>ocf_suse_SAPHanaTopology</term>
+<listitem>
+<para>ocf_suse_SAPHanaTopology.7</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>sbd</term>
+<listitem>
+<para>sbd.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>stonith_sbd</term>
+<listitem>
+<para>stonith_sbd.7</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SAPHanaSR</term>
+<listitem>
+<para>SAPHanaSR.7</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SAPHanaSR-showAttr</term>
+<listitem>
+<para>SAPHanaSR-showAttr.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SAPHanaSR-replay-archive</term>
+<listitem>
+<para>SAPHanaSR-replay-archive.8</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SAPHanaSR_manitenance_examples</term>
+<listitem>
+<para>SAPHanaSR_manitenance_examples.8</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+<section xml:id="id-sap-product-documentation">
+<title>SAP製品ドキュメント</title>
+<variablelist>
+<varlistentry>
+<term>SAP HANA Installation and Update Guide</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://help.sap.com/hana/SAP_HANA_Server_Installation_Guide_en.pdf">http://help.sap.com/hana/SAP_HANA_Server_Installation_Guide_en.pdf</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>SAP HANA Administration Guide</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="http://help.sap.com/hana/SAP_HANA_Administration_Guide_en.pdf">http://help.sap.com/hana/SAP_HANA_Administration_Guide_en.pdf</link></para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+<section xml:id="id-sap-notes">
+<title>SAPノート</title>
+<variablelist>
+<varlistentry>
+<term>2578899 - SUSE Linux Enterprise Server 15: インストレーションノート</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/2578899">https://launchpad.support.sap.com/#/notes/2578899</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>2684254 - SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/2684254">https://launchpad.support.sap.com/#/notes/2684254</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1876398 - Network configuration for System Replication in HANA SP6</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1876398">https://launchpad.support.sap.com/#/notes/1876398</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>611361 - Hostnames of SAP servers</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/611361">https://launchpad.support.sap.com/#/notes/611361</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1275776 - Preparing SLES for Sap Environments</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1275776">https://launchpad.support.sap.com/#/notes/1275776</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1514967 - SAP HANA: セントラルノート</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1514967">https://launchpad.support.sap.com/#/notes/1514967</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1523337 - SAP In-Memory Database 1.0: セントラルノート</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1523337">https://launchpad.support.sap.com/#/notes/1523337</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>2380229 - SAP HANA Platform 2.0 - Central Note</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/2380229">https://launchpad.support.sap.com/#/notes/2380229</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1501701 - Single Computing Unit Performance and Sizing</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1501701">https://launchpad.support.sap.com/#/notes/1501701</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1944799 - SAP HANA Guidelines for SLES Operating System Installation</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1944799">https://launchpad.support.sap.com/#/notes/1944799</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1890444 - Slow HANA system due to CPU power save mode</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1890444">https://launchpad.support.sap.com/#/notes/1890444</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1888072 - SAP HANA DB: Indexserver crash in strcmp sse42</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1888072">https://launchpad.support.sap.com/#/notes/1888072</link></para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>1846872 - &quot;No space left on device&quot; error reported from HANA</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://launchpad.support.sap.com/#/notes/1846872">https://launchpad.support.sap.com/#/notes/1846872</link></para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+</section>
+<section xml:id="app.hana-sr.example">
+<title>例</title>
+<section xml:id="id-example-ha-cluster-init-configuration">
+<title><literal>ha-cluster-init</literal> 構成の例</title>
+<screen>suse01:~ # ha-cluster-init -u
+  Generating SSH key
+  Configuring csync2
+  Generating csync2 shared key (this may take a while)...done
+  csync2 checking files...done
+
+Configure Corosync (unicast):
+  This will configure the cluster messaging layer.  You will need
+  to specify a network address over which to communicate (default
+  is eth0's network, but you can use the network address of any
+  active interface).
+
+  Address for ring0 [192.168.1.11]
+  Port for ring0 [5405]
+
+Configure SBD:
+  If you have shared storage, for example a SAN or iSCSI target,
+  you can use it avoid split-brain scenarios by configuring SBD.
+  This requires a 1 MB partition, accessible to all nodes in the
+  cluster.  The device path must be persistent and consistent
+  across all nodes in the cluster, so /dev/disk/by-id/* devices
+  are a good choice.  Note that all data on the partition you
+  specify here will be destroyed.
+
+Do you wish to use SBD (y/n)? y
+  Path to storage device (e.g. /dev/disk/by-id/...), or &quot;none&quot; []/dev/disk/by-id/SBDA
+WARNING: All data on /dev/disk/by-id/SBDA will be destroyed!
+Are you sure you wish to use this device (y/n)? y
+  Initializing SBD......done
+  Hawk cluster interface is now running. To see cluster status, open:
+    https://192.168.1.11:7630/
+  Log in with username 'hacluster', password 'linux'
+You should change the hacluster password to something more secure!
+  Waiting for cluster........done
+  Loading initial cluster configuration
+
+Configure Administration IP Address:
+  Optionally configure an administration virtual IP
+  address. The purpose of this IP address is to
+  provide a single IP that can be used to interact
+  with the cluster, rather than using the IP address
+  of any specific cluster node.
+
+Do you wish to configure a virtual IP address (y/n)? n
+  Done (log saved to /var/log/ha-cluster-bootstrap.log)</screen>
+</section>
+<section xml:id="id-example-cluster-configuration">
+<title>クラスター構成の例</title>
+<para>以下は、2ノードのクラスター（suse01、suse02）と、SID HA1およびインスタンス番号10のSAP HANAデータベースに対する完全なcrm構成を示しています。この例の仮想IPアドレスは192.168.1.20です。</para>
+<screen>node suse01
+node suse02
+
+primitive rsc_SAPHanaTopology_HA1_HDB10 ocf:suse:SAPHanaTopology \
+        op monitor interval=10 timeout=300 \
+        op start interval=0 timeout=300 \
+        op stop interval=0 timeout=300 \
+        params SID=HA1 InstanceNumber=10
+primitive rsc_SAPHana_HA1_HDB10 ocf:suse:SAPHana \
+        op monitor interval=61 role=Slave timeout=700 \
+        op start interval=0 timeout=3600 \
+        op stop interval=0 timeout=3600 \
+        op promote interval=0 timeout=3600 \
+        op monitor interval=60 role=Master timeout=700 \
+        params SID=HA1 InstanceNumber=10 PREFER_SITE_TAKEOVER=true \
+               DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false
+primitive rsc_ip_HA1_HDB10 ocf:heartbeat:IPaddr2 \
+        op monitor interval=10 timeout=20 \
+        params ip=&quot;192.168.1.20&quot;
+primitive stonith-sbd stonith:external/sbd \
+        params pcmk_delay_max=15
+ms msl_SAPHana_HA1_HDB10 rsc_SAPHana_HA1_HDB10 \
+        meta clone-max=2 clone-node-max=1 interleave=true
+clone cln_SAPHanaTopology_HA1_HDB10 rsc_SAPHanaTopology_HA1_HDB10 \
+        meta clone-node-max=1 interleave=true
+colocation col_saphana_ip_HA1_HDB10 2000: \
+        rsc_ip_HA1_HDB10:Started msl_SAPHana_HA1_HDB10:Master
+order ord_SAPHana_HA1_HDB10 2000: \
+        cln_SAPHanaTopology_HA1_HDB10 msl_SAPHana_HA1_HDB10
+property cib-bootstrap-options: \
+        dc-version=&quot;1.1.19+20180928.0d2680780-1.8-1.1.19+20180928.0d2680780&quot; \
+        cluster-infrastructure=corosync \
+        stonith-enabled=true \
+        stonith-action=reboot \
+        stonith-timeout=150s \
+        last-lrm-refresh=1398346620
+rsc_defaults rsc-options: \
+        resource-stickiness=1000 \
+        migration-threshold=5000
+op_defaults op-options \
+        timeout=600 \
+        record-pending=true</screen>
+</section>
+<section xml:id="id-example-for-etccorosynccorosync-conf">
+<title>/etc/corosync/corosync.confの例</title>
+<para>次のファイルは、典型的なリングが1つのcorosync構成を示しています。詳細および追加のリングについては、SUSE製品ドキュメントをご覧ください。</para>
+<screen># Read the corosync.conf.5 manual page
+totem {
+        version: 2
+        secauth: on
+        crypto_hash: sha1
+        crypto_cipher: aes256
+        cluster_name: suse-ha
+        clear_node_high_bit: yes
+        token: 5000
+        token_retransmits_before_loss_const: 10
+        join: 60
+        consensus: 6000
+        max_messages: 20
+        interface {
+                ringnumber: 0
+                mcastport: 5405
+                ttl: 1
+        }
+
+        transport: udpu
+}
+
+logging {
+        fileline: off
+        to_stderr: no
+        to_logfile: no
+        logfile: /var/log/cluster/corosync.log
+        to_syslog: yes
+        debug: off
+        timestamp: on
+        logger_subsys {
+                subsys: QUORUM
+                debug: off
+        }
+
+}
+
+nodelist {
+        node {
+                ring0_addr: 192.168.1.11
+                nodeid: 1
+        }
+
+        node {
+                ring0_addr: 192.168.1.12
+                nodeid: 2
+        }
+
+}
+
+quorum {
+
+        # Enable and configure quorum subsystem (default: off)
+        # see also corosync.conf.5 and votequorum.5
+        provider: corosync_votequorum
+        expected_votes: 2
+        two_node: 1
+}</screen>
+</section>
+<section xml:id="id-example-for-the-ipmi-stonith-method">
+<title>IPMI STONITH手段の例</title>
+<screen>primitive rsc_suse01_stonith stonith:external/ipmi \
+    params hostname=&quot;suse01&quot; ipaddr=&quot;192.168.1.101&quot; userid=&quot;stonith&quot; \
+    passwd=&quot;k1llm3&quot; interface=&quot;lanplus&quot; \
+    op monitor interval=&quot;1800&quot; timeout=&quot;30&quot;
+    ...
+primitive rsc_suse02_stonith stonith:external/ipmi \
+    params hostname=&quot;suse02&quot; ipaddr=&quot;192.168.1.102&quot; userid=&quot;stonith&quot; \
+    passwd=&quot;k1llm3&quot; interface=&quot;lanplus&quot; \
+    op monitor interval=&quot;1800&quot; timeout=&quot;30&quot;
+    ...
+location loc_suse01_stonith rsc_suse01_stonith -inf: suse01
+location loc_suse02_stonith rsc_suse02_stonith -inf: suse02</screen>
+</section>
+</section>
+<section xml:id="id-reference">
+<title>参照</title>
+<para>詳細については、以下のドキュメントをご覧ください。</para>
+<section xml:id="id-pacemaker">
+<title>Pacemaker</title>
+<variablelist>
+<varlistentry>
+<term>Pacemakerプロジェクトのドキュメント</term>
+<listitem>
+<para><link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://clusterlabs.org/pacemaker/doc/">https://clusterlabs.org/pacemaker/doc/</link></para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+</section>
+<section xml:id="id-legal-notice">
+<title>法的通知</title>
+<para>Copyright © 2006–2020 SUSE LLC および寄稿者。全著作権所有</para>
+<para>この文書は、GNUフリー文書ライセンスのバージョン1.2または（オプションとして）バージョン1.3の条項に従って、複製、頒布、および/または改変が許可されています。ただし、この著作権表示およびライセンスは変更せずに記載することが求められます。ライセンスバージョン1.2のコピーは、「GNUフリー文書ライセンス」セクションに含まれています。</para>
+<para>SUSE、SUSEロゴ、およびYaSTは、米国およびその他の国におけるSUSE LLCの登録商標です。SUSEの商標については、<link xmlns:xl="http://www.w3.org/1999/xlink" xl:href="https://www.suse.com/company/legal/">https://www.suse.com/company/legal/</link>を参照してください。</para>
+<para>Linux は、Linus Torvalds氏の登録商標です。本文書に記載されたその他のすべての名称または商標は、各社の所有者の商標または登録商標である可能性があります。</para>
+<para>本文書は、「SUSEベストプラクティス」と呼ばれる一連の文書の一部です。各文書は、SUSEの従業員と第三者によって自発的に寄稿されたものです。本文書の内容は、特定の行動を取る方法の一例を示しているにすぎません。</para>
+<para>また、SUSEは、本文書に記載されている動作が主張どおり実行されること、あるいは意図しない結果に終わることを立証しません。</para>
+<para>本文書に記載されているすべての情報は、細部に至るまで最大限の注意を払って制作されています。しかし、完全に正確であることを保証するものではありません。したがって、SUSE LLC、その関連会社、著者、翻訳者のいずれも、本文書内の誤りとそこから生じる結果について 一切の保証はいたしません。なお、本文書は以下のライセンスのもとで発行されていることを注記します。</para>
+</section><?pdfpagebreak style="suse2013-sbp" formatter="fop"?><xi:include href="license-gfdl.xml"/>
+</article>

@@ -983,174 +983,232 @@ systemctl enable rmt-server-regsharing.timer
 	</sect1>
 
 	<sect1 xml:id="sec-region-server-installation">
-		<title>Region Server Installation</title>
-
-		<para>The function of the Region Server is to provide information about the RMT servers in a
-			given region to the connecting guest. The Region Server runs as a Python script using
-			the Flask framework in Apache. The Region Server is provided with the
+		<title>Region Server Configuration and Testing</title>
+		<sect2>
+			<title>Introduction</title>
+				<para>The function of the Region Server is to provide information about the RMT servers in a
+				given region to a connecting client. The Region Server runs as a Python script using
+				the Flask framework in Apache. The Region Server is provided with the
 				<package>cloud-regionsrv</package> package.</para>
 
-		<para>As with the SMT server, the Region Server should be access-restricted to the IP
-			address ranges for the cloud framework. </para>
+				<para>Region servers are located within a CSP network.  An exmaple of the region server placement could be based on geographic boundaries like Americas, Europe/Middle East and Asia.  It is recommended that a minimum of two region servers are deployed for redundency.  Install, register and fully patch SLES 15 SP1 or newer for each of the region server.</para>
 
-		<para>The service itself uses two configuration files: </para>
-		<itemizedlist>
-			<listitem>
-				<para><filename>/etc/regionService/regionInfo.cfg</filename> is used to configure
-					the service and contains the location of the log file and the location of the
-						<filename>regionData.cfg</filename></para>
-			</listitem>
-			<listitem>
-				<para><filename>/etc/regionService/regionData.cfg</filename> contains the data the
-					Region Server will provide to the connecting client</para>
-			</listitem>
-		</itemizedlist>
+				<para>A client will attempt to contact a region server from a preconfigured list of available region servers.  The client will share either it's IP address information or a hint that will help the region server return a list of the closest RMT servers to the client.</para>
 
-		<para>Both files are available in the <emphasis role="strong">ini</emphasis> format.</para>
+				<para>As with the RMT server, the Region Server should be access-restricted to the IP address ranges for the cloud framework. </para>
+		</sect2>
 
-		<bridgehead>Example: Region Server Installation</bridgehead>
+		<sect2>
+			<title>Region Server setup</title>
+			<procedure>
+				<step>
+					<para>Use <command>SUSEConnect --list-extension</command> to determine the command to enable the Public Cloud module.</para>
+				</step>
+				<step>
+					<para>Install the <package>cloud-regionsrv</package> package </para>
+					<screen>zypper in cloud-regsionsrv</screen>
+					<para></para>
+					<para>The service itself uses two configuration files: </para>
+					<itemizedlist>
+						<listitem>
+							<para><filename>/etc/regionService/regionInfo.cfg</filename> is used to configure the service and contains the location of the log file and the location of the <filename>regionData.cfg</filename></para>
+						</listitem>
+						<listitem>
+							<para><filename>/etc/regionService/regionData.cfg</filename> contains the data the Region Server will provide to the connecting client</para>
+						</listitem>
+					</itemizedlist>
+					<para>Both files are available in the <emphasis role="strong">ini</emphasis> format.</para>
+				</step>
+				<step>
+					<para>Make a copy of <filename>/etc/regionService/regionData.cfg</filename></para>
+					<screen>cp /etc/regionService/regionData.cfg /etc/regionService/regionData.cfg.orig</screen>
+				</step>
+				<step>
+					<para>Add region information in <filename>/etc/regionService/regionData.cfg</filename></para>
 
-		<screen>[server]
-logFile = /var/log/regionService/regionInfo.log
-regionConfig = /etc/regionService/regionData.cfg</screen>
+					<para>The default <filename>regionData.cfg</filename> file provides a template for the
+						configuration file. This file can be maintained manually or be auto-generated, depending
+						on your setup for IP address allocation within your cloud framework.</para>
 
-		<para>The default <filename>regionData.cfg</filename> file provides a template for the
-			configuration file. This file can be maintained manually or be auto-generated, depending
-			on your setup for IP address allocation within your cloud framework.</para>
+					<para>The <filename>regionData.cfg</filename> file needs to contain one configuration
+						section per region. The hint is processed with string matching. Thus having section
+						names match the configured region names is important. The server implementation has no
+						option of name mapping. For each region all options in the section must be
+						configured.</para>
 
-		<para>The <filename>regionData.cfg</filename> file needs to contain one configuration
-			section per region. The hint is processed with string matching. Thus having section
-			names match the configured region names is important. The server implementation has no
-			option of name mapping. For each region all options in the section must be
-			configured.</para>
+					<para>The section options are as follows:</para>
 
-		<para>The section options are as follows:</para>
+					<variablelist>
+						<varlistentry>
+							<term>public-ips</term>
+							<listitem>
+								<para>The value for this option is a comma-separated list of IP ranges in CIDR
+									format, for example: </para>
+								<screen>public-ips = 62.135.16.0/18,56.56.130.0/16</screen>
+								<para>These are the ranges the DHCP server in the given region is configured to
+									use.</para>
+							</listitem>
+						</varlistentry>
+						<varlistentry>
+							<term> smt-server-ip </term>
+							<listitem>
+								<para> The value for this option is a comma-separated list of the RMT Server IP
+									addresses in the region being configured. </para>
+							</listitem>
+						</varlistentry>
+						<varlistentry>
+							<term> smt-server-name </term>
+							<listitem>
+								<para> The value for this option sets the host name of the RMT Server that was
+									encoded into the certificate during the setup of the RMT Server. If only one
+									value is supplied, it will be used for all IP addresses provided by the
+										<option>smt-server-ip</option> setting. If more than one value is
+									supplied, the number of names must match the number of IP addresses given
+									with the <option>smt-server-ip</option> option. The order of the names and
+									IP addresses must match as well. </para>
+							</listitem>
+						</varlistentry>
+						<varlistentry>
+							<term> smt-fingerprint </term>
+							<listitem>
+								<para> The value for this option is the fingerprint of the root CA created
+									during the RMT Server setup. On the RMT Server, the
+										<filename>/srv/www/htdocs</filename> includes the
+										<filename>rmt.crt</filename> file. This is the root CA transferred to
+									the client and verified prior to accepting the repositories from the RMT
+									Server. Obtain the fingerprint with the command: </para>
+								<screen>openssl x509 -in rmt.crt -noout -fingerprint | /usr/bin/cut -d= -f2</screen>
 
-		<variablelist>
-			<varlistentry>
-				<term>public-ips</term>
+								<para>Use this fingerprint for the <option>smt-fingerprint</option> value. As
+									with the <option>smt-server-name</option>, supplying one value is sufficient
+									if all RMT Servers have the same root CA. If each server has its own CA,
+									supply a comma-separated list. The order must match the order of the IP
+									addresses, or certificate acceptance will fail and the guest cannot register
+									with the RMT Server.</para>
+							</listitem>
+						</varlistentry>
+					</variablelist>
+
+					<bridgehead>Example: Completed Section for a Region in a Cloud</bridgehead>
+
+					<para>The following shows an example of a completed section for a region in a cloud
+					setup.</para>
+
+			<screen>[nor-north]
+			public-ips = 62.135.16.0/18,56.56.130.0/16
+			smt-server-ip = 62.153.16.20,56.56.130.253
+			smt-server-name = rmt-nor.supertuxcloud.com
+			smt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+
+					<para>In the example above both RMT Servers share the same certificate. If this were not the
+						case, another value for the <option>smt-server-name</option> and for the
+							<option>smt-fingerprint</option> options would need to be configured.</para>
+
+			<screen>[mid-north]
+			public-ips = 62.135.16.0/18,56.56.130.0/16
+			smt-server-ip = 62.153.16.20,56.56.130.253
+			smt-server-name = rmt-mid-a.supertuxcloud.com, rmt-mid-b.supertuxcloud.com
+			smt-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
+
+					<para>In this example the servers share the same certificate, but have different names. The
+					certificate in this case would contain a wild card.</para>
+				</step>
+				<step>
+					<para>Generate a region server certificate</para>
+
+					<para>It is recommended to use name resolution via DNS for new clients that will connect to a region server. One potential advantage of using DNS for the Region Server is that no new client update would need to be released if a Region Server needs to move out of a given region and into a new region where a new IP address would need to	be allocated. However, this implies that an entire cloud region would be shut down, which is a very unlikely scenario. The Region Server package (<systemitem>cloud-regionsrv</systemitem>) provides a convenient executable to	generate the server certificate.</para>
+
+					<screen>genRegionServerCert -c COUNTRY -d DEPARTMENT --host IP_ADDRESS_OR_HOSTNAME -l LOCATION -o ORGANIZATION -s STATE</screen>
+
+					<para>This will generate the server certificate in <filename>/etc/apache2/ssl.crt</filename> and the public certificate in	<filename>/root/regionServCert/</filename>. The certificate generation script will restart the Apache Web server.</para>
+				</step>
+				<step>
+					<para>Modify /etc/apache2/vhosts.d/regionsrv_vhost.conf</para>
+
+					<para>Change <option>SUBSTITUTE_WITH_CLOUD_SPECIFC_NAME</option> in the <option>ServerName</option> option so that it matches the fully-qualified hostname used in in the <command>genRegionServerCert</command>.</para>
+
+					<para>Change the following section so that it matches what is below.</para>
+					<screen>
+						&lt;Directory /srv/www/regionService&gt;
+							WSGIProcessGroup regionInfo
+							WSGIApplicationGroup %{GLOBAL}
+							&lt;RequireAll&gt;
+									Require all granted
+							&lt;/RequireAll&gt;
+						&lt;/Directory&gt;
+					</screen>
+				</step>
+				<step>
+					<para>Enable and restart the region server service.</para>
+					<screen>
+						systemctl enable apache2.service
+						systemctl restart apache2.service
+					</screen>
+					<para>The Region Server reads the <filename>regionData.cfg</filename> file as configured in
+						the <filename>regionInfo.cfg</filename> file at start-up and creates a hash table from
+						the information provided in the <filename>regionData.cfg</filename> file. Depending on
+						the number of IP address ranges, this may result in a relatively large requirement of
+						memory. For estimation purposes one can use a requirement of 20 MB per octet (254 IP
+						addresses). The Region Server also creates a secondary hash table that relates the
+						region names to the RMT server information. The secondary hash table is consulted if the
+						Region Server receives a region hint from the client.</para>
+				</step>
+			</procedure>
+			<para>With the configuration in place the Region Server setup is complete.</para>
+		</sect2>
+
+		<sect2>
+			<title>Client configuration recommendations</title>
+
+			<para>The Region Server provides the <option>regionInfo</option> REST API option that is used by the client to obtain
+				RMT information.  The client image will access the Region Server via: <link
+					xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo"/>
+			</para>
+
+			<para>As mentioned previously, for environments where the IP address assignment per region
+				is not stable or accessible via API, the option exists to let the client pass a region
+				hint to the Region Server. If the region hint is passed, the Region Server will first try
+				to provide RMT information to the client based on the region name given in the hint. If
+				this fails, the Region Server will fall back to using the IP address. A request using the
+				region hint option provides the region hint as an argument with the URL: <link
+					xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo?regionHint=REGION_NAME"/>
+			</para>
+
+			<para>In this case, <emphasis>REGION_NAME</emphasis> must match a name of one of the sections
+				in the <filename>regionData.cfg</filename> file as indicated previously.</para>
+
+			<para>The knowledge of the IP addresses of the Region Servers and the certificates for the
+				Region Servers are built into the guest image. The <package>cloud-regionsrv-client</package> must be installed in the client image.</para>
+
+			<para>It is recommended to create a package with the Region Service client configuration that contains the following.</para>
+
+			<itemizedlist>
 				<listitem>
-					<para>The value for this option is a comma-separated list of IP ranges in CIDR
-						format, for example: </para>
-					<screen>public-ips = 62.135.16.0/18,56.56.130.0/16</screen>
-					<para>These are the ranges the DHCP server in the given region is configured to
-						use.</para>
+					<para>Place the public key file that was generated from the <command>genRegionServerCert</command> command in the <filename>/var/lib/regionService/certs/</filename> directory.</para>
 				</listitem>
-			</varlistentry>
-			<varlistentry>
-				<term> rmt-server-ip </term>
 				<listitem>
-					<para> The value for this option is a comma-separated list of the RMT Server IP
-						addresses in the region being configured. </para>
+					<para>Add a comma seperated list of region servers to <option>regionsrv</option> and comment the <option>metadata_server</option>, <option>dataProvider</option>, <option>instanceArgs</option> and <option>verifyAccess</option> options in the <filename>/etc/regionserverclnt.cfg</filename> file.</para>
+
+					<para><emphasis>NOTE TO REVIEWERS: Probably need to update this item with details about each option that are being commented.</emphasis></para>
 				</listitem>
-			</varlistentry>
-			<varlistentry>
-				<term> rmt-server-name </term>
 				<listitem>
-					<para> The value for this option sets the host name of the RMT Server that was
-						encoded into the certificate during the setup of the RMT Server. If only one
-						value is supplied, it will be used for all IP addresses provided by the
-							<option>rmt-server-ip</option> setting. If more than one value is
-						supplied, the number of names must match the number of IP addresses given
-						with the <option>rmt-server-ip</option> option. The order of the names and
-						IP addresses must match as well. </para>
+					<para>Enable the guestregister service so that a new client can determine the closest RMT and automatically register during the initial boot.</para>
 				</listitem>
-			</varlistentry>
-			<varlistentry>
-				<term> rmt-fingerprint </term>
-				<listitem>
-					<para> The value for this option is the fingerprint of the root CA created
-						during the RMT Server setup. On the RMT Server, the
-							<filename>/srv/www/htdocs</filename> includes the
-							<filename>rmt.crt</filename> file. This is the root CA transferred to
-						the client and verified prior to accepting the repositories from the RMT
-						Server. Obtain the fingerprint with the command: </para>
-					<screen>openssl x509 -in rmt.crt -noout -fingerprint | /usr/bin/cut -d= -f2</screen>
+			</itemizedlist>
+		</sect2>
 
-					<para>Use this fingerprint for the <option>rmt-fingerprint</option> value. As
-						with the <option>rmt-server-name</option>, supplying one value is sufficient
-						if all SMT Servers have the same root CA. If each server has its own CA,
-						supply a comma-separated list. The order must match the order of the IP
-						addresses, or certificate acceptance will fail and the guest cannot register
-						with the RMT Server.</para>
-				</listitem>
-			</varlistentry>
-		</variablelist>
+		<sect2>
+			<title>Manually testing and troubleshooting a client registration</title>
 
-		<bridgehead>Example: Completed Section for a Region in a Cloud</bridgehead>
+			<para>Use the following command to manually test registering a cloud guest.</para>
+			<screen>registercloudguest</screen>
 
-		<para>The following shows an example of a completed section for a region in a cloud
-			setup.</para>
+			<para>Review <filename>/var/log/cloudregister</filename> if troubleshooting is needed.</para>
 
-		<screen>[nor-north]
-public-ips = 62.135.16.0/18,56.56.130.0/16
-RMT-server-ip = 62.153.16.20,56.56.130.253
-RMT-server-name = RMT-nor.supertuxcloud.com
-RMT-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
-
-		<para>In the example above both RMT Servers share the same certificate. If this were not the
-			case, another value for the <option>rmt-server-name</option> and for the
-				<option>rmt-fingerprint</option> options would need to be configured.</para>
-
-		<screen>[mid-north]
-public-ips = 62.135.16.0/18,56.56.130.0/16
-RMT-server-ip = 62.153.16.20,56.56.130.253
-RMT-server-name = RMT-mid-a.supertuxcloud.com, RMT-mid-b.supertuxcloud.com
-RMT-fingerprint = 9D:B9:88:DB:87:52:00:55:F0:FF:5D:5C:66:60:D3:E0:5C:D4:FB:79</screen>
-
-		<para>In this example the servers share the same certificate, but have different names. The
-			certificate in this case would contain a wild card.</para>
-
-		<para>The Region Server reads the <filename>regionData.cfg</filename> file as configured in
-			the <filename>regionInfo.cfg</filename> file at start-up and creates a hash table from
-			the information provided in the <filename>regionData.cfg</filename> file. Depending on
-			the number of IP address ranges, this may result in a relatively large requirement of
-			memory. For estimation purposes one can use a requirement of 20 MB per octet (254 IP
-			addresses). The Region Server also creates a secondary hash table that relates the
-			region names to the RMT server information. The secondary hash table is consulted if the
-			Region Server receives a region hint from the client.</para>
-
-		<para>The Region Server provides the <option>regionInfo</option> REST API, that is to obtain
-			RMT information the client image will access the Region Server via: <link
-				xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo"/>
-		</para>
-
-		<para>The knowledge of the IP addresses of the Region Servers and the certificates for the
-			Region Servers are built into the guest image. It is recommended to create a package for
-			the Region Service client.</para>
-
-		<para>As mentioned previously, for environments where the IP address assignment per region
-			is not stable or accessible via API, the option exists to let the client pass a region
-			hint to the Region Server. If the region hint is passed, the Region Server will first
-			try to provide RMT information to the client based on the region name given in the hint.
-			If this fails, the Region Server will fall back to using the IP address. A request using
-			the region hint option provides the region hint as an argument with the URL: <link
-				xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo?regionHint=REGION_NAME"/>
-		</para>
-
-		<para>In this case, <emphasis>REGION_NAME</emphasis> must match a name of one of the
-			sections in the <filename>regionData.cfg</filename> file as indicated previously.</para>
-
-		<para>Instead of using IP addresses directly for the Region Servers in the client, it is
-			also possible to use name resolution via DNS. One potential advantage of using DNS for
-			the Region Server is that no new package would need to be released if a Region Server
-			needs to move out of a given region and into a new region where a new IP address would
-			need to be allocated. However, this implies that an entire cloud region would be shut
-			down, which is a very unlikely scenario. The Region Server package
-				(<systemitem>cloud-regionsrv</systemitem>) provides a convenient executable to
-			generate the server certificate. After the Region Server instance is booted, run the
-			command:</para>
-
-		<screen>genRegionServerCert -c COUNTRY -d DEPARTMENT --host
-IP_ADDRESS_OR_HOSTNAME -l LOCATION -o ORGANIZATION -s STATE</screen>
-
-		<para>This will generate the server certificate and place the public certificate into
-				<filename>/root/regionServCert/</filename>. The certificate generation script will
-			restart the Apache Web server.</para>
-		<para>With the configuration in place and the certificate generated, the Region Server setup
-			is complete.</para>
+			<para>Use <command>registercloudguest --clean</command> to clean up the files written after a previous <command>registercloudguest</command> command has been run.</para>
+		</sect2>
 	</sect1>
-
+	
 	<sect1 xml:id="sec-legal-notice">
 		<title>Legal Notice</title>
 		<para>Copyright &copy;2006�2020 SUSE LLC and contributors. All rights reserved. </para>

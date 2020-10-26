@@ -1,0 +1,59 @@
+[#troubleshooting]
+== Troubleshooting
+
+The installation using Helm is fully automated and should succeed when the requirements are met.
+After a few seconds, the ingress controller configured path should be responding with the login screen of an admin UI, see the <<administration>> section.
+
+In case of issues, please make sure all pods in registry namespace are running and all deployments are in the Ready state.
+If a pod fails to start, investigate the situation with your debugging tool of choice (link:https://k9scli.io/[k9s], or kubectl).
+
+Private registry deploys in the given {kube} namespace multiple deployments and one statefulset, and all of them should be healthy.
+
+=== Possible problems
+
+* As mentioned in the requirements, ingress-controller needs to be set up in your {kube} cluster
+* When accessing the web UI, the browser complains about unknown certificate.
++
+Check the <<install-tls-security>> for a solution.
+* Images for various {spr} components cannot be found, and Pods are not getting created.
++
+Make sure registry.suse.com is accessible from your network.
+* Pods are not starting, most of them fail with failed to connect to database pod error.
++
+Check the errors in the database pod. Does it complain with something like FailedScheduling <unknown> default-scheduler pod has unbound immediate `PersistentVolumeClaims` (repeated 2 times)? Possible reason is that the `storageClass` is missing or no `storageClass` is marked as default.
+
+[#install-tls-security]
+== Transport Layer Security (TLS) Setup
+
+=== Generated certificates
+
+With default setup, the {spr} public APIs (the UI and the OCI registry API) will both use an auto-generated certificate.
+To avoid root certificate validation errors, the generated CA certificate should be installed on all hosts that will need to connect to it:
+
+* All cluster nodes, if a {kube} cluster will be used to pull images from the {spr}
+* All machines where supported OCI clients, such as docker engine and helm v3 are running, if those clients will be used to interact with the {spr}
+
+How to extract the generated CA certificate:
+
+[source,bash]
+----
+kubectl -n registry get secret
+----
+
+Find the secret whose name ends with -harbor-ingress (default setup, when the services were exposed via Ingress) or -harbor-nginx (when the services were exposed via LoadBalancer).
+
+Extract the certificate from the secret:
+
+[source,bash]
+----
+kubectl -n registry get secret <secret-name> -o jsonpath="{.data.ca\.crt}" | base64 --decode > harbor.ca
+----
+
+Install the extracted CA certificate system-wide:
+
+[source,bash]
+----
+su
+cp harbor.ca /usr/share/pki/trust/anchors/
+update-ca-certificates
+----

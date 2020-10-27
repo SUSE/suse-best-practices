@@ -32,7 +32,11 @@ A default {kube} `StorageClass` is needed to dynamically provision the volumes. 
 * Storage backend for OCI artifacts
 ** {spr} may optionally be configured to store OCI artifacts (e.g. container images and charts) in an external storage backend such as Azure Blob Storage or Amazon S3, instead of the {kube} provided persistent volumes.
 
-{caasp} 4.5 provides only very limited options of supported `StorageClass` configurations - see the SUSE CaaS Platform 4.5 documentation at https://documentation.suse.com/suse-caasp/4.5/html/caasp-admin/_storage.html for details.
+[NOTE]
+====
+{caasp} 4.5 provides only very limited options of supported `StorageClass` configurations.
+Refer to link:https://documentation.suse.com/suse-caasp/4.5/html/caasp-admin/_storage.html[SUSE CaaS Platform 4.5 Administration Guide: Storage].
+====
 
 For public cloud deployments it is recommended to use the available hosted solutions:
 
@@ -40,14 +44,14 @@ For public cloud deployments it is recommended to use the available hosted solut
 * The Azure File Share or Amazon EFS {kube} `StorageClass` for components that require `ReadWriteMany` access mode
 * The Azure Managed Disk or Amazon EBS {kube} `StorageClass` for all other components that require persistent storage
 
-Refer to the table in <<supported-depployment>> for more details.
+Refer to the table in <<supported-deployment>> for more details.
 
 [#requirements-ingress]
 === Ingress
 
-The default and recommended way of installing {spr} using the helm chart is to employ an Ingress service to expose the Harbor service. The {kube} cluster where the chart is being deployed needs to have an ingress controller enabled:
+The default and recommended way of installing {spr} using the helm chart is to employ an ingress service to expose the Harbor service. The {kube} cluster where the chart is being deployed needs to have an ingress controller enabled:
 
-* For CaaSP v4.5, check how to deploy link:https://documentation.suse.com/suse-caasp/4.5/single-html/caasp-admin/#nginx-ingress[Nginx based Ingress controller with SUSE CaaS Platform].
+* For {caasp} v4.5, check how to deploy link:https://documentation.suse.com/suse-caasp/4.5/single-html/caasp-admin/#nginx-ingress[Nginx based Ingress controller with SUSE CaaS Platform].
 * For AKS, the Ingress controller recommended for {spr} is the NGINX ingress controller.
 Follow the documentation on link:https://docs.microsoft.com/en-us/azure/aks/ingress-basic[Creating an Ingress Controller in AKS], or link:https://docs.microsoft.com/en-us/azure/aks/ingress-tls[Creating an HTTPS ingress controller on AKS].
 The latter also provides extended instructions about providing support for resolvable FQDNs and generating TLS certificates, which are also {spr} requirements.
@@ -63,35 +67,37 @@ Both these FQDNs need to be resolvable to the external IP address allocated for 
 
 ===== nip.io
 
-For simple deployments, an external public service such as link:nip.io[nip.io] may be used to provide quick DNS mapping for IP addresses without requiring additional services or infrastructure configuration changes. For example, if the external IP address allocated to the {kube} Ingress Controller is 10.86.0.237, then the FQDNs used for the Harbor UI/API and notary endpoints might be:
+For simple deployments, an external public service such as link:https://nip.io[nip.io] may be used to provide quick DNS mapping for IP addresses without requiring additional services or infrastructure configuration changes. For example, if the external IP address allocated to the {kube} Ingress Controller is 10.86.0.237, then the FQDNs used for the Harbor UI/API and notary endpoints might be:
 
 * harbor.10.86.0.237.nip.io
 * notary.10.86.0.237.nip.io
 
-===== AKS - Use a DNS Zone
+===== Azure AKS - Use a DNS Zone
 
 For AKS, a DNS zone may be configured and used as a custom domain for all FQDNs associated with the Ingress.
 Follow the steps documented in link:https://docs.microsoft.com/en-us/azure/aks/ingress-tls[Creating an HTTPS ingress controller on AKS] on associating an Azure DNS zone with the external IP allocated for an Ingress Controller.
+
 For example, if the Azure DNS zone mapped to the external IP allocated to the {kube} Ingress controller is `MY_CUSTOM_DOMAIN`, then the FQDNs used for the Harbor UI/API and notary endpoints might be:
 
 * harbor.MY_CUSTOM_DOMAIN
 * notary.MY_CUSTOM_DOMAIN
 
-===== EKS - Use the ALB Ingress Controller
+// TODO TBD (Dirk Mueller ): this section requires clarification
+===== Amazon EKS - Use the ALB Ingress Controller
 
 For EKS, the ALB ingress controller already includes a DNS zone that is automatically used to derive FQDNs for every Ingress instance.
-
-// TODO
-TBD (Dirk Mueller ): this section requires clarification
 
 [#requirements-tls]
 === TLS Certificates
 
+[IMPORTANT]
+====
+Detailed instructions on generating TLS certificates are outside the scope of this document, but some suggestions are provided in the installation section.
+====
+
 By default, {spr} is configured to auto-generate TLS certificates associated with the Harbor UI/API and Notary API FQDNs, independently of the way used to expose the services. While this option simplifies the installation process, it also uses self-signed CA certificates that must be explicitly installed on every machine where clients will interact with the registry. For situation when this is not desirable, such as production deployments, custom certificates need to be generated ahead of time and provided during installation.
 
 The custom certificates must reflect the FQDNs, domain name, or external IP address that will be used by clients to access the {spr} services. For example, if a {kube} Ingress is used, one TLS certificate will be required for the Harbor UI/API FQDN and another one for the Notary FQDN. The second option is to create a single certificate to be used for both services, with the SAN value configured to match both FQDNs. A third option is to create a single certificate for the entire subdomain used to derive both FQDNs.
-
-Detailed instructions on generating TLS certificates are outside the scope of this document, but some suggestions are provided in this section.
 
 ==== {kube} cert-manager
 
@@ -111,7 +117,13 @@ Detailed instructions on how to do that are available in the link:https://docs.a
 [#requirements-external-postgres]
 === External PostgreSQL Database
 
-An internal database is provided with the {spr} helm chart, but this builtin service is not highly available nor scalable. For production deployments running in public cloud, it is recommended that a highly-available and scalable managed PostgreSQL database instance be created and configured as an external database for {spr}. This section covers only high-level instructions on creating a managed PostgreSQL database instance for Azure and AWS. For detailed instructions, please refer to the official documentation: link:https://docs.microsoft.com/en-us/azure/postgresql/[Azure Database for PostgreSQL] and link:https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html[PostgreSQL on Amazon RDS].
+An internal database is provided with the {spr} helm chart, but this builtin service is not highly available nor scalable.
+For production deployments running in public cloud, it is recommended that a highly-available and scalable managed PostgreSQL database instance be created and configured as an external database for {spr}.
+This section covers only high-level instructions on creating a managed PostgreSQL database instance for Azure and AWS.
+For detailed instructions, please refer to the official documentation:
+
+* Azure: link:https://docs.microsoft.com/en-us/azure/postgresql/[Azure Database for PostgreSQL]
+* AWS: link:https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html[PostgreSQL on Amazon RDS]
 
 ==== Azure PostgreSQL
 
@@ -161,17 +173,26 @@ These will be required during the {spr} installation. You can also find it in th
 image::registry-04-postgres-connection.png[scaledwidth=80%]
 
 // TODO AI (Dirk Mueller) needs to be filled in
-==== AWS PostgreSQL
+// ==== AWS PostgreSQL
 
 === External Redis
+
+[IMPORTANT]
+====
+Securing connections to the external Redis with TLS/SSL is currently not supported.
+====
 
 An internal Redis service is provided with the {spr} helm chart, but this builtin service is not highly available nor scalable.
 For production deployments running in public cloud, it is recommended that a highly-available and scalable managed Redis instance be created and configured as an external Redis for {spr}.
 This section covers only high-level instructions on creating a managed Redis instance for Azure and AWS.
 
-For detailed instructions, please refer to the official documentation: link:https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/[Azure Cache for Redis] and link:https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/WhatIs.html[Amazon ElastiCache for Redis].
+For detailed instructions, please refer to the official documentation:
 
-As an alternative, the SUSE Redis operator may be used to deploy a {kube} managed Redis service and not rely on a public cloud managed Redis service. This is covered in the {spr} installation instructions.
+* Azure: link:https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/[Azure Cache for Redis]
+* AWS: link:https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/WhatIs.html[Amazon ElastiCache for Redis].
+
+As an alternative, the SUSE Redis operator may be used to deploy a {kube} managed Redis service and not rely on a public cloud managed Redis service.
+This is covered in the {spr} installation instructions.
 
 [#requirements-redis-azure]
 ==== Azure Cache for Redis
@@ -194,16 +215,7 @@ Alternatively, the Redis Cache can be created from Azure Portal page:
 image::registry-06-redis-creating.png[]
 
 // TODO AI (Dirk Mueller) needs to be filled in
-==== Amazon ElastiCache for Redis
-
-== Limitations
-
-* Accuracy of the Image scanning using Trivy might be limited.
-* GPG signing for OCI artifacts is currently not supported. The only method for signing OCI artifacts is TUF (The Update Framework), provided by the notary component.
-* Securing connections to the external Redis with TLS/SSL is currently not supported.
-* Once an authentication method is chosen and a user other than admin is added, the authentication method can not be changed without deploying a completely fresh registry.
-* High availability and scalability are not available for the internal redis and database components. Use external database and redis services to compensate this limitation.
-* Internal TLS can be enabled to secure internal connections between the {spr} components. This doesn't currently cover the internal database and internal redis components.
+// ==== Amazon ElastiCache for Redis
 
 [#high-availability]
 == High Availability

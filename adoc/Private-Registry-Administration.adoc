@@ -110,6 +110,18 @@ $ uaac client add suse_private_registry -s suseprivateregistrysupersecret --scop
 . Uncheck *UAA Verify Cert* if the UAA server uses a self-signed or untrusted certificate.
 . Click *Save* to complete the configuration.
 
+=== Registry Deployment Configuration Changes
+
+.Updating the Registry Deployment Configuration
+[CAUTION]
+====
+Changing the deploument configuration of a running {spr} instance involves running `helm upgrade` in some form or other. The `harbor-values.yaml` file used during installation to provide the initial {spr} configuration should be treated as the source of truth during all subsequent configuration changes and upgrade operations.
+For all {spr} configuration change operations documented in this section, it is therefore highly recommended that the `harbor-values.yaml` be updated accordingly, and that the file be supplied to the `helm upgrade` command, instead of using additional `--set` command line arguments that are not be persisted.
+
+Disregarding this recommandation may lead to situation in which the configuration of the running {spr} installation is no longer in sync with the configuration described in the `harbor-values.yaml` file, which will cause unexpected configuration changes during upgrade operations.
+====
+
+
 // === Changing or Resetting Passwords
 //
 // ==== Changing the Password for Internal Database
@@ -127,7 +139,46 @@ $ uaac client add suse_private_registry -s suseprivateregistrysupersecret --scop
 // === Rotating TLS Certificates
 // // TODO AI (Stefan Nica ) needs content
 
-=== Scaling the Registry
+
+==== Scaling the Registry Services
+
+[WARNING]
+====
+A {kube} `StorageClass` with `ReadWriteMany` access mode is required to enable high-availability for some {spr} components:
+* The `jobservice` component
+* The registry component, when a {kube} persistent volume is used as the storage back-end for OCI artifacts
+If a `StorageClass` with `ReadWriteMany` access is not configured for these components, setting the replica count to a value higher than 1 for them will result in failure.
+====
+
+To change the scale parameters for the internal components of a running {spr} instance, update the `harbor-values.yaml` configuration file with new replica values, as desired, and then apply the change by running `helm upgrade` with the same parameters used during installation:
+
+.harbor-values.yaml
+[source,yaml]
+----
+portal:
+  replicas: 3
+core:
+  replicas: 3
+# Only enabled when using a LoadBalancer instead of Ingress to expose services
+nginx:
+  replicas: 3
+jobservice:
+  replicas: 3
+registry:
+  replicas: 3
+trivy:
+  replicas: 3
+notary:
+  server:
+    replicas: 3
+  signer:
+    replicas: 3
+----
+
+[source,bash]
+----
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
+----
 
 ==== Expanding Persistent Volumes Claims
 
@@ -147,7 +198,7 @@ It is extremely advised to perform a backup of the existing volumes that will be
 ====
 
 Only specific storage providers offer support for expanding `PersistentVolumeClaims` (PVCs).
-It is recommended that before taking any action check the documentation of the storage provider available for your {kube} cluster and make sure that it supports expanding PVCs.
+Before taking any action, it is recommended to check the documentation of the storage provider available for your {kube} cluster and make sure that it supports expanding PVCs.
 
 To be able to expand a PVC the storage class's `allowVolumeExpansion` field needs to be set to true. For example:
 
@@ -165,7 +216,7 @@ volumeBindingMode: Immediate
 allowVolumeExpansion: true
 ----
 
-==== Expanding Volumes Managed by Deployments (`registry`, `jobservice`)
+===== Expanding Volumes Managed by Deployments (`registry`, `jobservice`)
 
 .Storage backend without support for online expansion
 [NOTE]
@@ -173,14 +224,27 @@ allowVolumeExpansion: true
 If the storage backend does not support online expansion, additional steps that impact the service availability are required to conclude the resizing.
 ====
 
-To resize the PVC for the registry and the `jobservice` components of {spr}, execute `helm upgrade` on your deployed release setting the new storage size for the registry and `jobservice` components, for example:
+To resize the PVC for the registry and the `jobservice` components of {spr}, update the `harbor-values.yaml` configuration file with the new storage sizes for the `registry` and `jobservice` components, then apply the change by running `helm upgrade` with the same parameters used during installation, e.g.:
+
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+  persistentVolumeClaim:
+    registry:
+      ...
+      size: 100Gi
+    jobservice:
+      ...
+      size: 5Gi
+----
 
 [source,bash]
 ----
-helm upgrade --namespace registry suse-registry ./harbor --reuse-values --set persistence.persistentVolumeClaim.jobservice.size=3Gi --set persistence.persistentVolumeClaim.registry.size=5Gi
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
 ----
 
-The above command will set the PVC size of the `jobservice` component to 3 gigabytes and 5 gigabytes for the registry PVC.
+The above command will set the PVC size of the `jobservice` component to 5 gigabytes and 100 gigabytes for the `registry` PVC.
 
 If the storage backend supports online expansion the PVCs will be automatically resized and no additional action is needed.
 However, If the storage backend does not support online expansion additional steps are required to conclude the volume resize which includes deleting the pods that are using the volume being resized, waiting for the volume to be resized and finally starting new pods. For example, to finalize the resize of the `jobservice` PVC when volume online expansion is not supported:
@@ -197,8 +261,8 @@ Conditions:
 Events:
   Type     Reason                 Age                 From                         Message
   ----     ------                 ----                ----                         -------
-  Normal   ProvisioningSucceeded  2m34s               persistentvolume-controller  Successfully provisioned volume pvc-297dfa22-0711-4b43-bea0-cdb3684bc2a0 using kubernetes.io/cinder
-  Warning  VolumeResizeFailed     31s (x13 over 73s)  volume_expand                error expanding volume "suse-registry/suse-registry-harbor-jobservice" of plugin "kubernetes.io/cinder": volume in in-use status can not be expanded, it must be available and not attached to a node
+  Normal   ProvisioningSucceeded  2m34s               persistentvolume-controller  Successfully provisioned volume pvc-297dfa22-0711-4b43-bea0-cdb3684bc2a0 using kubernetes.io/<plugin>
+  Warning  VolumeResizeFailed     31s (x13 over 73s)  volume_expand                error expanding volume "suse-registry/suse-registry-harbor-jobservice" of plugin "kubernetes.io/<plugin>": volume in in-use status can not be expanded, it must be available and not attached to a node
 ----
 
 . Set the number of replicas of the `jobservice` deployment to 0 (this will delete the `jobservice` pods and the service will be unavailable):
@@ -238,9 +302,9 @@ Events:
   Normal   FileSystemResizeSuccessful  52s                   kubelet, caasp-worker-eco-caasp4-upd-eco-2                MountVolume.NodeExpandVolume succeeded for volume "pvc-297dfa22-0711-4b43-bea0-cdb3684bc2a0"
 ----
 
-The same steps can be followed to conclude expanding the registry PVC by replacing `component=jobservice` with `component=registry` on each command.
+The same steps can be followed to conclude expanding the `registry` PVC by replacing `component=jobservice` with `component=registry` on each command.
 
-==== Expanding Volumes Managed by `StatefulSets` (`database`, `redis` and `trivy`)
+===== Expanding Volumes Managed by `StatefulSets` (`database`, `redis` and `trivy`)
 
 Kubernetes does not officially support volume expansion through `StatefulSets`, trying to do so by using helm with new values for PVC size will throw the following error:
 
@@ -279,12 +343,21 @@ persistentvolumeclaim/data-suse-registry-harbor-trivy-0 patched
 persistentvolumeclaim/data-suse-registry-harbor-trivy-1 patched
 ----
 
-. Run `helm upgrade` to re-define the `StatefulSets` with the new size to keep consistency.
-For example, for the trivy component this can be done with the following command:
+. Update the `harbor-values.yaml` configuration file with the new storage size for the intended component, then apply the change by running `helm upgrade` with the same parameters used during installation, to re-define the `StatefulSets` with the new size to keep consistency. For trivy, for example:
++
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+  persistentVolumeClaim:
+    trivy:
+      ...
+      size: 10Gi
+----
 +
 [source,bash]
 ----
-helm upgrade --namespace registry suse-registry ./harbor --reuse-values --set persistence.persistentVolumeClaim.trivy.size=10Gi
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
 ----
 
 Just like for deployments, if the storage backend supports online expansion the PVCs will be automatically resized and no additional action is needed. However, If the storage backend does not support online expansion additional steps are required to conclude the volume resize which includes deleting the pods that are using the volume being resized, waiting for the volume to be resized and finally starting new pods. For example, to finalize the resize of the trivy PVC when volume online exapansion is not supported:
@@ -301,8 +374,8 @@ Conditions:
 Events:
   Type     Reason                 Age                   From                         Message
   ----     ------                 ----                  ----                         -------
-  Normal   ProvisioningSucceeded  8m8s                  persistentvolume-controller  Successfully provisioned volume pvc-8fe4a4b6-83c8-47d0-a266-f8cdbd4e3918 using kubernetes.io/cinder
-  Warning  VolumeResizeFailed     28s (x17 over 5m57s)  volume_expand                error expanding volume "suse-registry/data-suse-registry-harbor-trivy-0" of plugin "kubernetes.io/cinder": volume in in-use status can not be expanded, it must be available and not attached to a node
+  Normal   ProvisioningSucceeded  8m8s                  persistentvolume-controller  Successfully provisioned volume pvc-8fe4a4b6-83c8-47d0-a266-f8cdbd4e3918 using kubernetes.io/<plugin>
+  Warning  VolumeResizeFailed     28s (x17 over 5m57s)  volume_expand                error expanding volume "suse-registry/data-suse-registry-harbor-trivy-0" of plugin "kubernetes.io/<plugin>": volume in in-use status can not be expanded, it must be available and not attached to a node
 ----
 
 . Set the number of replicas of the trivy statefulset to 0 (this will delete the trivy pods and the service will be unavailable):

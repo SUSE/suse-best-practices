@@ -1,0 +1,419 @@
+[#administration]
+== Administration
+
+=== Setup Administration Access
+
+{spr} User Interface can be accessed from a supported web browser at the location provided as `<core_fqdn>` during the installation.
+Find out about the initial admin user password in <<install-passwords>>.
+
+image::registry-harbor-landingpage.png[scaledwidth=80%]
+
+After the first login, you can change the administrator's password through the web UI. Select the *admin* tab and select *Change Password*.
+
+image::registry-harbor-admin-pw-change.png[scaledwidth=80%]
+
+[#admin-configure-authentication]
+=== Configuring Authentication
+
+.Switching Authentication Mode
+[CAUTION]
+====
+Once a user (besides the admin) is registered, or logs in when using LDAP/AD or UAA, {spr} is locked in the current authentication mode meaning that it is not possible switch to a different authentication mode.
+In that way, an authentication mode should be configured as soon as {spr} is deployed.
+====
+
+Harbor supports different modes for authenticating users and managing user accounts. The following authentication modes are supported by {spr}:
+
+* *Database (default)*: User accounts are created/managed directly in {spr}. The user accounts are stored on the {spr} database.
+* *LDAP/Active Directory*: {spr} is configured to use an external external LDAP/Active Directory server for user authentication. The user accounts are created and managed by the LDAP/AD provider.
+* *UAA*: {spr} is configured to authenticate using an external UAA provider. The user accounts are created and managed by the UAA provider.
+
+==== Database Authentication
+
+In database authentication mode, user accounts are stored in the local database.
+By default, only the {spr} system administrator can create new user accounts. However, It is also possible to configure {spr} to allow self-registration.
+
+Configuring {spr} with Database authentication mode:
+
+. Log in to the {spr} interface with an account that has system administrator privileges.
+. Under *Administration*, go to *Configuration* and select the *Authentication* tab.
+. Leave *Auth Mode* set to the default *Database* option.
+. (Optionally) Select the *Allow Self-Registration* check box for allowing users to register themselves in {spr}.
+Self-registration is _disabled by default_. If enabled unregistered users can sign up for a {spr} account by clicking *Sign up for an account* on the {spr} log in page.
+
+==== LDAP/Active Directory Authentication
+
+[IMPORTANT]
+====
+Note that self-registration, creating users, deleting users, changing passwords, and resetting passwords is not supported in LDAP/AD authentication mode as users are managed by LDAP/AD.
+====
+
+When using LDAP/AD authentication, users whose credentials are stored in an external LDAP or AD server can log in to {spr} directly.
+In this case, it is not necessary to create user accounts in {spr}.
+
+To be able to manage user authentication by using LDAP groups, it is required to enable the `memberof` feature on the LDAP/AD server.
+With the `memberof` feature, the LDAP/AD user entity’s `memberof` attribute is updated when the group entity’s member attribute is updated, for example by adding or removing an LDAP/AD user from the LDAP/AD group.
+
+The following steps describe how to enable LDAP/AD authentication mode:
+
+. Log in to the {spr} interface with an account that has system administrator privileges.
+. Under *Administration*, go to *Configuration* and select the *Authentication* tab.
+. Use the *Auth Mode* drop-down menu to select *LDAP*.
+. Enter the address of the LDAP server, for example `ldaps://10.84.5.171`.
+. Enter information about the LDAP server as follows:
+.. *LDAP Search DN* and *LDAP Search Password*: When a user logs in to {spr} with their LDAP username and password, it uses these values to bind to the LDAP/AD server.
+For example, `cn=admin,dc=example.com`.
+.. *LDAP Base DN*: {spr} looks up the user under the LDAP Base DN entry, including the subtree. For example, `dc=example.com`.
+.. *LDAP Filter*: The filter to search for LDAP/AD users. For example, `objectclass=user`.
+.. *LDAP UID*: An attribute, for example uid, or cn, that is used to match a user with the username.
+If a match is found, the user’s password is verified by a bind request to the LDAP/AD server.
+.. *LDAP Scope*: The scope to search for LDAP/AD users. Select from *Subtree*, *Base*, and *OneLevel*.
+. To be able to manage user authentication with LDAP groups, configure the group settings:
+.. *LDAP Group Base DN*: The base DN from which to lookup a group in LDAP/AD. For example, `ou=groups,dc=example,dc=com`.
+.. *LDAP Group Filter*: The filter to search for LDAP/AD groups. For example, `objectclass=groupOfNames`.
+.. *LDAP Group GID*: The attribute used to name an LDAP/AD group. For example, `cn`.
+.. *LDAP Group Admin DN*: All LDAP/AD users in this group DN have Harbor system administrator privileges.
+.. *LDAP Group Membership*: The user attribute usd to identify a user as a member of a group. By default this is `memberof`.
+.. *LDAP Scope*: The scope to search for LDAP/AD groups. Select from *Subtree*, *Base*, and *OneLevel*.
+. Uncheck *LDAP Verify Cert* if the LDAP/AD server uses a self-signed or untrusted certificate.
+. Click *Test LDAP Server* to make sure that your configuration is correct.
+. Click *Save* to complete the configuration.
+
+==== UAA Authentication
+
+By configuring UAA authentication, users whose credentials are stored in an external UAA server can log in to {spr} directly. In this case, it is not necessary to create user accounts in {spr}. Note that just like LDAP authentication mode, self-registration, creating users, deleting users, changing passwords, and resetting passwords are not supported in UAA authentication mode as users are managed by UAA.
+
+The following steps describe how to configure UAA authentication mode:
+
+. Register a client account on UAA. For example, using the UAA CLI and assuming the UAA server is available at `+http://10.83.7.181:8080+`:
+.. Configure UAA CLI to target the UAA server and login as admin:
++
+----
+$ uaac target http://10.83.7.181:8080/uaa
+----
++
+----
+$ uaac token client get admin -s <admin_secret> # replace <admin_secret> with the secret of the admin user
+----
+.. Register a client account for {spr}:
++
+----
+$ uaac client add suse_private_registry -s suseprivateregistrysupersecret --scope uaa.user --authorized_grant_types client_credentials,password --authorities oauth.login
+----
+. Log in to the {spr} interface with an account that has system administrator privileges.
+. Under *Administration*, go to *Configuration* and select the *Authentication* tab.
+. Use the *Auth Mode* drop-down menu to select UAA.
+. Enter the address of the UAA server token endpoint, for example `+http://10.83.7.181:8080/uaa/oauth/token+`
+. Enter information about the UAA client account as follows:
+.. *UAA Client ID*: The client account ID. For example `suse_private_registry` as created on step 1.
+.. *UAA Client Secret*: The client account secret. For example `suseprivateregistrysupersecret` as created on step 1.
+. Uncheck *UAA Verify Cert* if the UAA server uses a self-signed or untrusted certificate.
+. Click *Save* to complete the configuration.
+
+=== Registry Deployment Configuration Changes
+
+.Updating the Registry Deployment Configuration
+[CAUTION]
+====
+Changing the deploument configuration of a running {spr} instance involves running `helm upgrade` in some form or other. The `harbor-values.yaml` file used during installation to provide the initial {spr} configuration should be treated as the source of truth during all subsequent configuration changes and upgrade operations.
+For all {spr} configuration change operations documented in this section, it is therefore highly recommended that the `harbor-values.yaml` be updated accordingly, and that the file be supplied to the `helm upgrade` command, instead of using additional `--set` command line arguments that are not be persisted.
+
+Disregarding this recommandation may lead to situation in which the configuration of the running {spr} installation is no longer in sync with the configuration described in the `harbor-values.yaml` file, which will cause unexpected configuration changes during upgrade operations.
+====
+
+
+// === Changing or Resetting Passwords
+//
+// ==== Changing the Password for Internal Database
+// // TODO AI (Stefan Nica ) needs content
+//
+// ==== Changing the Password for External Database
+// // TODO AI (Stefan Nica ) needs content
+//
+// ==== Changing the Password for Internal Redis
+// // TODO AI (Stefan Nica ) needs content
+//
+// ==== Changing the Password for External Redis
+// // TODO AI (Stefan Nica ) needs content
+//
+// === Rotating TLS Certificates
+// // TODO AI (Stefan Nica ) needs content
+
+
+==== Scaling the Registry Services
+
+[WARNING]
+====
+A {kube} `StorageClass` with `ReadWriteMany` access mode is required to enable high-availability for some {spr} components:
+* The `jobservice` component
+* The registry component, when a {kube} persistent volume is used as the storage back-end for OCI artifacts
+If a `StorageClass` with `ReadWriteMany` access is not configured for these components, setting the replica count to a value higher than 1 for them will result in failure.
+====
+
+To change the scale parameters for the internal components of a running {spr} instance, update the `harbor-values.yaml` configuration file with new replica values, as desired, and then apply the change by running `helm upgrade` with the same parameters used during installation:
+
+.harbor-values.yaml
+[source,yaml]
+----
+portal:
+  replicas: 3
+core:
+  replicas: 3
+# Only enabled when using a LoadBalancer instead of Ingress to expose services
+nginx:
+  replicas: 3
+jobservice:
+  replicas: 3
+registry:
+  replicas: 3
+trivy:
+  replicas: 3
+notary:
+  server:
+    replicas: 3
+  signer:
+    replicas: 3
+----
+
+[source,bash]
+----
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
+----
+
+==== Expanding Persistent Volumes Claims
+
+.Expanding Volumes Containing a File System
+[NOTE]
+====
+It is only possible to resize volumes containing a file system if the file system is XFS, Ext3, or Ext4.
+
+When a volume contains a file system, the file system is only resized when a new Pod is using the `PersistentVolumeClaim` in `ReadWrite` mode.
+File system expansion is either done when a Pod is starting up or when a Pod is running and the underlying file system supports online expansion.
+====
+
+.Risk of Data Loss
+[CAUTION]
+====
+It is extremely advised to perform a backup of the existing volumes that will be resized before taking any action as there is a risk of permanent data loss.
+====
+
+Only specific storage providers offer support for expanding `PersistentVolumeClaims` (PVCs).
+Before taking any action, it is recommended to check the documentation of the storage provider available for your {kube} cluster and make sure that it supports expanding PVCs.
+
+To be able to expand a PVC the storage class's `allowVolumeExpansion` field needs to be set to true. For example:
+
+[source,yaml]
+----
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: persistent
+  annotations:
+    storageclass.kubernetes.io/is-default-class: 'true'
+provisioner: kubernetes.io/cinder
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+----
+
+===== Expanding Volumes Managed by Deployments (`registry`, `jobservice`)
+
+.Storage backend without support for online expansion
+[NOTE]
+====
+If the storage backend does not support online expansion, additional steps that impact the service availability are required to conclude the resizing.
+====
+
+To resize the PVC for the registry and the `jobservice` components of {spr}, update the `harbor-values.yaml` configuration file with the new storage sizes for the `registry` and `jobservice` components, then apply the change by running `helm upgrade` with the same parameters used during installation, e.g.:
+
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+  persistentVolumeClaim:
+    registry:
+      ...
+      size: 100Gi
+    jobservice:
+      ...
+      size: 5Gi
+----
+
+[source,bash]
+----
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
+----
+
+The above command will set the PVC size of the `jobservice` component to 5 gigabytes and 100 gigabytes for the `registry` PVC.
+
+If the storage backend supports online expansion the PVCs will be automatically resized and no additional action is needed.
+However, If the storage backend does not support online expansion additional steps are required to conclude the volume resize which includes deleting the pods that are using the volume being resized, waiting for the volume to be resized and finally starting new pods. For example, to finalize the resize of the `jobservice` PVC when volume online expansion is not supported:
+
+. Check the status of the PVC to make sure it is waiting for the volume to be detached to perform the resize:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=jobservice | sed -n -e '/Conditions/,$p'
+Conditions:
+  Type       Status  LastProbeTime                     LastTransitionTime                Reason  Message
+  ----       ------  -----------------                 ------------------                ------  -------
+  Resizing   True    Mon, 01 Jan 0001 00:00:00 +0000   Fri, 23 Oct 2020 17:56:33 +0200
+Events:
+  Type     Reason                 Age                 From                         Message
+  ----     ------                 ----                ----                         -------
+  Normal   ProvisioningSucceeded  2m34s               persistentvolume-controller  Successfully provisioned volume pvc-297dfa22-0711-4b43-bea0-cdb3684bc2a0 using kubernetes.io/<plugin>
+  Warning  VolumeResizeFailed     31s (x13 over 73s)  volume_expand                error expanding volume "suse-registry/suse-registry-harbor-jobservice" of plugin "kubernetes.io/<plugin>": volume in in-use status can not be expanded, it must be available and not attached to a node
+----
+
+. Set the number of replicas of the `jobservice` deployment to 0 (this will delete the `jobservice` pods and the service will be unavailable):
++
+[source,bash]
+----
+kubectl -n registry scale deployment -l component=jobservice --replicas=0
+deployment.apps/suse-registry-harbor-jobservice scaled
+----
+
+. Check the status of the PVC, wait until the volume resize is complete and its just waiting for the pod to start to finish resizing the file system:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=jobservice | sed -n '/Conditions/,/Events/p'
+Conditions:
+  Type                      Status  LastProbeTime                     LastTransitionTime                Reason  Message
+  ----                      ------  -----------------                 ------------------                ------  -------
+  FileSystemResizePending   True    Mon, 01 Jan 0001 00:00:00 +0000   Fri, 23 Oct 2020 18:02:03 +0200           Waiting for user to (re-)start a pod to finish file system resize of volume on node.
+----
+
+. Set the number of replicas back to the previous value (1 in this case) to conclude the resize:
++
+[source,bash]
+----
+kubectl -n registry scale deployment -l component=jobservice --replicas=1
+deployment.apps/suse-registry-harbor-jobservice scaled
+----
+
+. Confirm that the file system resize has finished successfully:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=jobservice | sed -n -e '/Events/,$p'
+Events:
+...
+  Normal   FileSystemResizeSuccessful  52s                   kubelet, caasp-worker-eco-caasp4-upd-eco-2                MountVolume.NodeExpandVolume succeeded for volume "pvc-297dfa22-0711-4b43-bea0-cdb3684bc2a0"
+----
+
+The same steps can be followed to conclude expanding the `registry` PVC by replacing `component=jobservice` with `component=registry` on each command.
+
+===== Expanding Volumes Managed by `StatefulSets` (`database`, `redis` and `trivy`)
+
+Kubernetes does not officially support volume expansion through `StatefulSets`, trying to do so by using helm with new values for PVC size will throw the following error:
+
+[source,bash]
+----
+Error: UPGRADE FAILED: cannot patch "suse-registry-release-12-harbor-trivy" with kind StatefulSet: StatefulSet.apps "suse-registry-release-12-harbor-trivy" is invalid: spec: Forbidden: updates to statefulset spec for fields other than 'replicas', 'template', and 'updateStrategy' are forbidden
+----
+
+This means that the `volumeClaimTemplates` field of a `StatefulSet` is immutable and cannot be updated with a new value for size.
+In that way, extra actions are required to perform the resize of PVCs managed by `StatefulSets`.
+
+The following steps describe how to expand volumes managed by `SatefulSets` using the `trivy` component as an example.
+The same steps can be performed also for the database and `redis` components of {spr} just by replacing `trivy` for database or `redis` on each command:
+
+. Delete the StatefulSet while keeping the pods running together with any other resource that was managed by the StatefulSet such as the PVC.
+This can be done by setting `--cascade=false` to the `kubectl delete` command, for example:
++
+[source,bash]
+----
+kubectl -n registry delete sts --cascade=false -l component=trivy
+statefulset.apps "suse-registry-harbor-trivy" deleted
+----
+
+. Edit the PVC spec with the new size (10 gigabytes in this example), this can be done in many different ways. For example using `kubectl` patch:
++
+[source,bash]
+----
+NEW_SIZE="10Gi"
+NAMESPACE="registry"
+# depending on the number of replicas, trivy can have more than one PVC.
+for pvc in $(kubectl -n $NAMESPACE get pvc -l component=trivy -o name); do
+  kubectl -n $NAMESPACE patch $pvc -p "{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"$NEW_SIZE\"}}}}"
+done
+
+persistentvolumeclaim/data-suse-registry-harbor-trivy-0 patched
+persistentvolumeclaim/data-suse-registry-harbor-trivy-1 patched
+----
+
+. Update the `harbor-values.yaml` configuration file with the new storage size for the intended component, then apply the change by running `helm upgrade` with the same parameters used during installation, to re-define the `StatefulSets` with the new size to keep consistency. For trivy, for example:
++
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+  persistentVolumeClaim:
+    trivy:
+      ...
+      size: 10Gi
+----
++
+[source,bash]
+----
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
+----
+
+Just like for deployments, if the storage backend supports online expansion the PVCs will be automatically resized and no additional action is needed. However, If the storage backend does not support online expansion additional steps are required to conclude the volume resize which includes deleting the pods that are using the volume being resized, waiting for the volume to be resized and finally starting new pods. For example, to finalize the resize of the trivy PVC when volume online exapansion is not supported:
+
+. Check the status of the PVCs to make sure it is waiting for the volume to be detached to perform the resize:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=trivy | sed -n -e '/Conditions/,$p'
+Conditions:
+  Type       Status  LastProbeTime                     LastTransitionTime                Reason  Message
+  ----       ------  -----------------                 ------------------                ------  -------
+  Resizing   True    Mon, 01 Jan 0001 00:00:00 +0000   Mon, 26 Oct 2020 13:29:58 +0100
+Events:
+  Type     Reason                 Age                   From                         Message
+  ----     ------                 ----                  ----                         -------
+  Normal   ProvisioningSucceeded  8m8s                  persistentvolume-controller  Successfully provisioned volume pvc-8fe4a4b6-83c8-47d0-a266-f8cdbd4e3918 using kubernetes.io/<plugin>
+  Warning  VolumeResizeFailed     28s (x17 over 5m57s)  volume_expand                error expanding volume "suse-registry/data-suse-registry-harbor-trivy-0" of plugin "kubernetes.io/<plugin>": volume in in-use status can not be expanded, it must be available and not attached to a node
+----
+
+. Set the number of replicas of the trivy statefulset to 0 (this will delete the trivy pods and the service will be unavailable):
++
+[source,bash]
+----
+kubectl -n registry scale sts -l component=trivy --replicas=0
+statefulset.apps/suse-registry-harbor-trivy scaled
+----
+
+. Check the status of the PVC, wait until the volume resize is complete and its just waiting for the pod to start to finish resizing the file system:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=trivy | sed -n '/Conditions/,/Events/p'
+Conditions:
+  Type                      Status  LastProbeTime                     LastTransitionTime                Reason  Message
+  ----                      ------  -----------------                 ------------------                ------  -------
+  FileSystemResizePending   True    Mon, 01 Jan 0001 00:00:00 +0000   Mon, 26 Oct 2020 13:40:55 +0100           Waiting for user to (re-)start a pod to finish file system resize of volume on node.
+----
+
+. Set the number of replicas back to the previous value (2 in this case) to conclude the resize:
++
+[source,bash]
+----
+kubectl -n registry scale sts -l component=trivy --replicas=2
+deployment.apps/suse-registry-harbor-jobservice scaled
+----
+
+. Confirm that the file system resize has finished successfully:
++
+[source,bash]
+----
+kubectl -n registry describe pvc -l component=trivy | sed -n -e '/Events/,$p'
+Events:
+...
+  Normal   FileSystemResizeSuccessful  64s                   kubelet, caasp-worker-eco-caasp4-upd-eco-2  MountVolume.NodeExpandVolume succeeded for volume "pvc-8fe4a4b6-83c8-47d0-a266-f8cdbd4e3918"
+----
+
+//TODO AI (Stefan Nica ) needs content
+// === Installing Updates

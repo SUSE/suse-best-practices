@@ -9,8 +9,8 @@
 *** A predefined external IP address that can be associated with the Load Balancer service used to expose the {spr} services
 *** An FQDN value that can be later on mapped in the external DNS to the external IP address dynamically allocated to the Load Balancer service during installation
 * Choose between using auto-generated TLS certificates or providing your own custom TLS certificates for the Harbor UI/API and Notary API. In the latter case, have the required custom TLS certificates ready.
-* Verify that the target {kube} cluster provides the required `StorageClass`(es). A `StorageClass` with `ReadWriteMany` access mode is required to fully enable high-availability and scalability for {spr} component
-* Choose the persistent storage back-end that will be used to store OCI artifacts.
+* Choose the persistent storage back-end that will be used to store OCI artifacts: a {kube} `StorageClass` or one of the external storage services available from public cloud providers.
+* Verify that the target {kube} cluster provides the required `StorageClass`(es). A `StorageClass` with `ReadWriteMany` access mode is required to fully enable high-availability and scalability for the `registry` {spr} component, unless an external storage service is used to store OCI artifacts.
 * Choose between using an external or internal database service. The internal database service doesn't support high-availability and scalability and is therefore *not recommended for production*.
 The external database service needs to be prepared separately beforehand.
 * Choose between using an external or internal Redis service. Similar to the database case, the internal Redis service doesn't support high-availability and scalability and *is not recommended for production*.
@@ -332,13 +332,12 @@ For each component that uses persistent storage, the following settings can be c
 ... `accessMode`: Volumes can be mounted on a container in any way supported by the storage provider. Valid values are:
 [arabic]
 .... `ReadWriteOnce`: the volume can be mounted as read-write by a single container
-.... `ReadWriteMany`: the volume can be mounted as read-write by many containers (required for jobservice when configured in high-availability mode and for registry when configured in high-availability mode and using persistent volume to store OCI artifacts)
+.... `ReadWriteMany`: the volume can be mounted as read-write by many containers. This is only required for the `registry` component, when configured in high-availability mode and using a persistent volume to store OCI artifacts. If an external storage service is used to store OCI artifacts, or if a `ReadWriteMany` `StorageClass` isn't available in your {kube} cluster, this value shouldn't be used.
 (default: `ReadWriteOnce`)
 ... size: the size of the volume to be provisioned (e.g. 5Gi for 5 gigabytes). Default values varies by component:
 +
 [arabic]
 .... registry: 5Gi
-.... jobservice: 1Gi
 .... databasae: 1Gi
 .... redis: 1Gi
 .... trivy: 5Gi
@@ -352,7 +351,7 @@ It is recommended to carefully plan and set the volumes size according to the ex
 Expanding in-use persistent volumes claims is supported only by some storage providers and in some cases it requires restarting the pods which will impact the service availability.
 ====
 
-For configuring persistent storage update `harbor-values.yaml` configuration file with the following configuration and set their values accordingly:
+For configuring persistent storage, update the `harbor-values.yaml` configuration file with the following configuration and set their values accordingly:
 
 .harbor-values.yaml
 [source,yaml]
@@ -361,40 +360,32 @@ persistence:
   persistentVolumeClaim:
     registry:
       storageClass: ""
-      accessMode:
-      size:
-    jobservice:
-      storageClass: ""
-      accessMode:
+      accessMode: ReadWriteMany
       size:
     database:
       storageClass: ""
-      accessMode:
       size:
     redis:
       storageClass: ""
-      accessMode:
       size:
     trivy:
       storageClass: ""
-      accessMode:
       size:
 ----
 
 .Using external services
 [NOTE]
 ====
-The above settings will be ignored and may be omitted for components configured to use an external service (`database`, `redis`), as well as for the registry component when external storage is configured for OCI artifacts.
+The above settings will be ignored and may be omitted for components configured to use an external service (`database`, `redis`), as well as for the `registry` component when external storage is configured for OCI artifacts.
 ====
 
 [WARNING]
 ====
-In the absence of a {kube} StorageClass with ReadWriteMany access mode capabilities, the `updateStrategy.type` option must set to `Recreate` in the `harbor-values.yaml` file, otherwise running `helm upgrade` to apply subsequent configuration changes or to perform upgrades will result in failure:
+If a {kube} persistent volume is configured to store OCI artifacts instead of an external storage service, and if your {kube} cluster does not provide a `StorageClass` with `ReadWriteMany` access mode capabilities, the `updateStrategy.type` option must set to `Recreate` in the `harbor-values.yaml` file, otherwise running `helm upgrade` to apply subsequent configuration changes or to perform upgrades will result in failure:
 
 [source,yaml]
 ----
-# The update strategy for deployments with persistent volumes(jobservice, registry
-# and chartmuseum): "RollingUpdate" or "Recreate"
+# The update strategy for deployments with persistent volumes (registry): "RollingUpdate" or "Recreate"
 # Set it as "Recreate" when "RWM" for volumes isn't supported
 updateStrategy:
   type: Recreate
@@ -477,20 +468,16 @@ notary:
 +
 [WARNING]
 ====
-A {kube} `StorageClass` with `ReadWriteMany` access mode is required to enable high-availability for some {spr} components:
+A {kube} `StorageClass` with `ReadWriteMany` access mode is required to enable high-availability for the {spr} `registry` component, when a {kube} persistent volume is used as the storage back-end for OCI artifacts.
 
-* The `jobservice` component
-* The registry component, when a {kube} persistent volume is used as the storage back-end for OCI artifacts
-
-If a `StorageClass` with `ReadWriteMany` access is not available for your {kube} cluster, setting the replica count to a value higher than 1 for these components will result in installation failure.
+If a `StorageClass` with `ReadWriteMany` access is not available for your {kube} cluster, setting the replica count to a value higher than 1 for the `registry` component will result in installation failure.
 Furthermore, using `helm upgrade` to apply subsequent configuration changes or to perform upgrades will also result in failures without a `ReadWriteMany` access mode `StorageClass`.
 To prevent that, ensure the `updateStrategy.type` option is set to `Recreate` in the `harbor-values.yaml` file:
 
 .harbor-values.yaml
 [source,yaml]
 ----
-# The update strategy for deployments with persistent volumes(jobservice, registry
-# and chartmuseum): "RollingUpdate" or "Recreate"
+# The update strategy for deployments with persistent volumes(registry): "RollingUpdate" or "Recreate"
 # Set it as "Recreate" when "RWM" for volumes isn't supported
 updateStrategy:
   type: Recreate
@@ -703,7 +690,6 @@ redis:
     password: access-key // <1>
 ----
 <1> Replace `access-key` with the access key retrieved after creating the Azure Cache for Redis instance.
-// TODO AI (Dirk Mueller) needs to be reviewed
 .. Connect to an Amazon ElastiCache Redis service
 +
 Add the following section to the `harbor-values.yaml` file and fill it with information reflecting the Amazon ElastiCache Redis instance previously prepared:
@@ -718,9 +704,6 @@ redis:
     password: "" // <1>
 ----
 <1> Add password if configured manually (not the default) in AWS ElastiCache.
-
-// .. Connect to an Amazon ElastiCache Redis service
-// TODO - AI jsuchome - Add AWS method for Redis
 
 . [[install-resource-limits]] (Optional) Setup Resource Requests and Limits
 +

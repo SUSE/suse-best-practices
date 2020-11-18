@@ -166,111 +166,244 @@ $ kubectl get nodes -o wide
 
 TIP: This step is optional if you already have a private secure Docker registry. If you do skip this chapter, follow the instructions at <<SUSE Enterprise Storage>>
 
-To satisfy Data Intelligence 3 requirements you also need a Docker Registry.
-The easiest way to build and manage it comes with the project Portus.
+To satisfy SAP Data Intelligence 3 requirements you also need a Docker Registry.
+The easiest way to build and manage it comes with the project Harbor.
 
-** link:http://port.us.org/[Portus]
+** link:https://goharbor.io/[Harbor]
 
-First you need to create a dedicated server for your Docker registry and Portus stack.
+First you need to create a dedicated server for your Docker registry and Harbor stack.
 
-----
-# sudo virt-install --name portus-dr --ram 8192 --disk path=/var/lib/libvirt/VMS/portus-dr.qcow2,size=40 --vcpus 4 --os-type linux --os-variant generic --network bridge=common --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/isos/SLE-12-SP4-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial ifcfg=eth0=10.10.10.11/24,10.10.10.1,10.10.10.11,suse-sap.net hostname=portus-dr domain=suse-sap.net Textmode=1'
-----
+WARNING: As docker does only allow characters within [a-z],[A-Z],[0-9] and '-' for domain names, make sure your FQDN does not contain other characters.
 
-In our example this server will be connected to another local bridge which provides common services (DNS, SMT, Docker-registry) for the Datahub stack.
+In our example the server will be connected to a local bridge which provides common services (DNS, SMT, Docker-registry) for the SAP Data Intelligence stack.
+The FQDN of this server will be *Harbor-Registry.example.com*.
 
-Our Portus deployment will be based on Container, and orchestrated locally with docker-compose.
+=== Prerequistes
 
-Portus docker-compose deployment requires an up-to-date release of docker-compose.
+The prerequisites for Harbor can be taken from link:https://goharbor.io/docs/2.1.0/install-config/installation-prereqs/
 
-----
-sudo curl -L "https://github.com/docker/compose/releases/download/1.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
-----
+According to this, you'll need to install Docker and Docker Compose before you can setup Harbor.
 
-Now you could simply clone the Portus repository, adapt the .env and the nginx configuration to your naming convention.
+To install Docker you can simply run:
 
 ----
-# git clone https://github.com/SUSE/Portus.git /tmp/Portus-DR
-# mv /tmp/Portus-DR/examples/compose ./portus
-# cd portus
+# zypper in -y docker
 ----
 
-Now you could edit both .env and nginx/nginx.conf.
-This is how our configuration looks like :
+To install Docker Compose, you'll need to download the executable from the GitHub repository and put it into a directory within you $PATH.
+Therefore you can run:
 
 ----
-# cat .env
-MACHINE_FQDN=portus-dr.suse-sap.net
-SECRET_KEY_BASE=b494a25faa8d22e430e843e220e424e10ac84d2ce0e64231f5b636d21251eb6d267adb042ad5884cbff0f3891bcf911bdf8abb3ce719849ccda9a4889249e5c2
-PORTUS_PASSWORD=XXXXXXXX
-DATABASE_PASSWORD=YYYYYYYY
+# curl -L "https://github.com/docker/compose/releases/download/1.25.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+
+# chmod +x /usr/local/bin/docker-compose
+
+# ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 ----
 
-In the nginx/nginx.conf file, you should now adapt the following section :
+The next steps are about to generate the certificates used to make Harbor secure, which can also be found at link:https://goharbor.io/docs/2.1.0/install-config/configure-https/[Configure HTTPS Access to Harbor].
+
+First step is to generate a CA certificate private key.
 
 ----
-server {
-    listen 443 ssl http2;
-    server_name portus-dr.suse-sap.net;
-    root /srv/Portus/public;
+# openssl genrsa -out ca.key 4096
 ----
 
-Now, you could pull the latest docker-compose.yml.
-
+Then generate a certificate with the given key for your domain. For all further steps, replace <FQDN> with your fully qualified domain name. In our example this would be *Harbor-Registry.example.com*
 ----
-# rm docker-compose.*
-# wget https://gist.githubusercontent.com/Patazerty/d05652294d5874eddf192c9b633751ee/raw/6bf4ac6ba14192a1fe5c337494ab213200dd076e/docker-compose.yml
-----
-
-To avoid dealing with Docker insecure registry configuration we'll add SSL to our setup.
-
-----
-echo "subjectAltName = DNS:portus-dr.suse-sap.net" > extfile.cnf
-openssl genrsa -out secrets/rootca.key 2048
-openssl req -x509 -new -nodes -key secrets/rootca.key -subj "/C=FR/ST=FR/O=SUSE"  -sha256 -days 1024 -out secrets/rootca.crt
-openssl genrsa -out secrets/portus.key 2048
-openssl req -new -key secrets/portus.key -out secrets/portus.csr -subj "/C=FR/ST=FR/O=SUSE/CN
-openssl req -new -key secrets/portus.key -out secrets/portus.csr -subj "/C=FR/ST=FR/O=SUSE/CN=portus-dr.suse-sap.net"
-openssl x509 -req -in secrets/portus.csr -CA secrets/rootca.crt -extfile extfile.cnf -CAkey secrets/rootca.key -CAcreateserial  -out secrets/portus.crt -days 500 -sha256
+# openssl req -x509 -new -nodes -sha512 -days 3650 \
+  -subj "/C=DE/ST=BW/O=SUSE/CN=<FQDN>" \
+  -key ca.key \
+  -out ca.crt
 ----
 
-Now all we have to do is to make the servers aware of this certificate
+Your CA certificate is now ready for use.
+Next, you'll need to generate a server certificate, which can be done by running:
 
 ----
-cp -p secrets/rootca.crt /etc/pki/trust/anchors/.net-ca.crt
-scp secrets/rootca.crt root@jumpbox.suse-sap.net:/etc/pki/trust/anchors/portus-dr.suse-sap.net-ca.crt
+# openssl genrsa -out <FQDN>.key 4096
 ----
 
-Then on all servers that will needs to interact with the docker-registry :
+
+Generate a certificate signing request (CSR)
 
 ----
-sudo update-ca-certificates
-sudo systemctl restart docker
+# openssl req -sha512 -new \
+  -subj "/C=DE/ST=BW/O=SUSE/CN=<FQDN>" \
+  -key <FQDN>.key \
+  -out <FQDN>.csr
 ----
 
-It's time now to start your Portus setup.
+Create an x509 v3 extension file with the following content:
 
 ----
-docker-compose up -d
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=<FQDN>
+DNS.2=<hostname>
 ----
 
-You could now log on Portus and set the registry.
-
-image::portus-registry.png[portus-registry.png,480,640]
-
-Installation and configuration of a secure private registry using SLES, SLE-Container-Module
-The needed componentes are docker, registry and portus.
-Create SSL certificates as needed.
-Distribute the CA certificate to all your kubernetes nodes.
-Run
+Now use the extension file to generate a certificate:
 
 ----
-# update-ca-certificates
+# openssl x509 -req -sha512 -days 3650 \
+  -extfile v3.ext \
+  -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -in $fqdn.csr \
+  -out $fqdn.crt
+----
+
+Copy the .crt and .key file to the systems certificate directory:
+
+----
+# cp <FQDN>.crt /etc/pki/trust/anchors/
+# cp <FQDN>.key /etc/pki/trust/anchors/
+----
+
+As Docker interprets .crt files as CA certificates and .cert files as clients, you'll need to convert your .crt:
+
+----
+# openssl x509 -inform PEM -in <FQDN>.crt -out $<FQDN>.cert
+----
+
+You can now copy the create certificates to your docker certificate folder. If your folder '/etc/docker/certs.d' does not exist, create it.
+
+----
+# mkdir /etc/docker/certs.d/<FQDN>
+# cp <FQDN>.cert /etc/docker/certs.d/<FQDN>/
+# cp <FQDN>.key /etc/docker/certs.d/<FQDN>/
+# cp ca.crt /etc/docker/certs.d/<FQDN>/
+----
+
+INFO: If you want to expose your registry on a different port then 443, you'll need to create a folder '/etc/docker/certs.d/<FQDN>:<Port>' and copy the certs to this directory instead.
+
+In order to introduce the certificates to Docker, you'll need to restart the docker daemon:
+
+----
 # systemctl restart docker
 ----
 
+++++
+<?pdfpagebreak?>
+++++
+
+=== Setup Harbor
+
+Get Harbor and extract it:
+
+----
+# wget https://github.com/goharbor/harbor/releases/download/v2.1.1/harbor-online-installer-v2.1.1.tgz
+# tar xvf harbor-online-installer-v2.1.1.tgz
+----
+
+Enter the extracted directory:
+
+----
+# cd harbor
+----
+
+Within this directory you should find a file called 'harbor.yml.tmpl'. It holds the configuration for the Harbor Registry and needs to be adjusted.
+First, you'll need to edit the field *hostname* and enter your FQDN.
+Next is the *https* configuration. The subentries *certificate* and *private_key* need to be adjusted, so they point to the .crt and .key file you created in <<Prerequistes>>.
+This then my look like:
+
+image::harbor_yml.png[Harbor Configuration File.png,480,640]
+
+If you want to expose registry on a different port than 443, you can change the subentry *port* to match your desired port.
+
+Further you can change the admin password for Harbor which is defined at the field *harbor_admin_password: Harbor12345* by default.
+
+Last mentionable filed is *data_volume: /data* which defines where all your Harbor data is goind to. If you want Harbor to store the data somewhere else, enter the path to the desired directory here.
+
+When done save your changes and rename the file by removing the suffix *.tmpl*:
+
+----
+# mv harbor.yml.tmpl harbor.yml
+----
+
+AS Harbor uses nginx as a reverse proxy for all services, you'll need to run the prepare script to configure it correctly:
+
+----
+# ./prepare
+----
+
+You can now start up the needed containers using Docker Compose:
+
+----
+# docker-compose up -d
+----
+
+Harbor should now be up and running.
+Distribute the CA certificate to all Kubernetes nodes, so they can access the registry.
+Therefore you may run following commands on the Kubernetes nodes:
+
+----
+# scp <FQDN>:/etc/docker/certs.d/<FQDN>/ca.crt /etc/docker/certs.d/<FQDN>/<FQDN>.crt
+# systemctl restart docker
+
+----
+
+For the example <FQDN> of *Harbor-Registry.example.com* this looks like:
+
+----
+# scp Harbor-Registry.example.com:/etc/docker/certs.d/Harbor-Registry.example.com/ca.crt /etc/docker/certs.d/Harbor-Registry.example.com/Harbor-Registry.example.com.crt
+# systemctl restart docker
+----
+
+
+=== Verify configuration and setup Harbor projects
+
+To verify Harbor is running, you may access its Web-Frontend by calling link:https://<FQDN>[] from your browser.
+You may get a warning about an insecure certificate which looks something like:
+
+image::harbor_security_warning.png[Harbor Certificate Warning,480,640]
+
+You can toggle the lower box by clicking *Advanced...*.
+Then click *Accept the Risk and Continue*.
+You're now redirected to the login page of your Harbor registry.
+
+image::harbor_login.png[Harbor Login,480,640]
+
+Enter the admin as the Username and enter the password specified in the 'harbor.yml' (By default this is *Harbor12345*).
+You're now redirected to the projects page which holds the *libraries* project by default.
+
+image::harbor_projects.png[Harbor Projects,480,640]
+
+// TODO projects aufsetzen
+
+You may further check if the docker clients on your Kubernetes nodes are able to access the registry.
+Therefore run:
+
+----
+# docker login <FQDN>
+----
+
+You will be prompted to enter a username a password.
+Use *admin* for the username and the password you set in your 'harbor.yml' (default: *Harbor12345*).
+
+If docker is able to access the registry, you will see a line like "Login Succeeded".
+
+
+If your machines are not able to resolve the FQDN of your registry, edit your '/etc/hosts' and add a line like:
+
+----
+<IP>  <FQDN>  <Hostname>
+----
+
+In our example this then looks like this:
+
+----
+192.168.180.100  Harbor-Registry.example.com  Harbor-Registry
+----
+
+
+
+//TODO remove everything below for this chapter
 
 Create the namespaces on your registry that are needed for SAP Data Intelligence 3:
 

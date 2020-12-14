@@ -1,11 +1,11 @@
- 
+== Deployment In Air Gap Environment 
 
-== Introduction
+=== Introduction
 
 K3s is a lightweight Kubernetes distribution from Rancher that can be
 deployed on a single node. 
 
-== Use Cases
+=== Use Cases
 
 Testing:: The customer wants to test SUSE Private Registry, but they do not
 have a Kubernetes cluster prepared.
@@ -17,7 +17,7 @@ With the SUSE Private Registry running on such a cluster, it could for example
 serve as an image registry for other Kubernetes clusters in the customer's
 network.
 
-== Requirements
+=== Requirements
 
 You should have Helm installed on the machine where you want to install k3s.
 
@@ -27,7 +27,7 @@ to put the `/var/lib/rancher` directory on any partition or disk where you know
 that you have enough space. In case space starts to run out, you might encounter
 https://github.com/rancher/k3s/issues/1552[k3s issue #1552].
 
-== Deployment
+=== Deployment
 
 . Deploy k3s into an air-gapped environment by following
 https://rancher.com/docs/k3s/latest/en/installation/airgap/#manually-deploy-images-method[the upstream guide].
@@ -42,56 +42,80 @@ Download both these files and transfer them to your air-gapped machine.
 
 .. On the machine where k3s should run, prepare the images and install
 the binary:
-
- sudo mkdir -p /var/lib/rancher/k3s/agent/images/
- sudo cp k3s-airgap-images-amd64.tar /var/lib/rancher/k3s/agent/images/
- sudo cp k3s /usr/local/bin/k3s
- sudo chown +x /usr/local/bin/k3s
++
+[source,bash]
+----
+sudo mkdir -p /var/lib/rancher/k3s/agent/images/
+sudo cp k3s-airgap-images-amd64.tar /var/lib/rancher/k3s/agent/images/
+sudo cp k3s /usr/local/bin/k3s
+sudo chown +x /usr/local/bin/k3s
+----
 
 .. Install k3s. Do not start the service yet.
-
- INSTALL_K3S_SKIP_ENABLE=true INSTALL_K3S_SKIP_DOWNLOAD=true ./install.sh
++
+[source,bash]
+----
+INSTALL_K3S_SKIP_ENABLE=true INSTALL_K3S_SKIP_DOWNLOAD=true ./install.sh
+----
 
 .. Fetch the images required for the SUSE Private Registry and install them
 into the k3s images directory, so that the server can import them when it
 starts:
-
- mkdir images
- for component in core nginx notary-server notary-signer trivy-adapter registryctl jobservice registry db redis; do
-   image="registry.suse.com/harbor/harbor-$component:2.1.0"; \
-   docker pull $image; docker save -o "images/harbor-$component-2.1.0.tar" $image; \
- done
- sudo cp images/*.tar /var/lib/rancher/k3s/agent/images/
++
+[source,bash]
+----
+mkdir images
+for component in core nginx notary-server notary-signer trivy-adapter registryctl jobservice registry db redis; do
+ image="registry.suse.com/harbor/harbor-$component:2.1.0"; \
+ docker pull $image; docker save -o "images/harbor-$component-2.1.0.tar" $image; \
+done
+sudo cp images/*.tar /var/lib/rancher/k3s/agent/images/
+----
 
 .. Start the k3s server as root.
-
- su
- k3s server
++
+[source,bash]
+----
+su
+k3s server
+----
 +
 To see more information, you can to pass the `--debug` option to the command,
 but you will receive a *lot* of information. Alternatively, you can start the
 corresponding `systemd` service:
-
- systemctl start k3s
++
+[source,bash]
+----
+systemctl start k3s
+----
 
 .. In another window, check the start-up process. The first time will be slow,
 as all the images must be imported. Check the current image list with:
-
- su
- k3s crictl images
++
+[source,bash]
+----
+su
+k3s crictl images
+----
 +
 Use the usual `kubectl` command to check the state of initial deployment:
-
- su
- k3s kubectl get deployments
++
+[source,bash]
+----
+su
+k3s kubectl get deployments
+----
 +
 The above command talks to the default Kubernetes instance. If you want to use
 your own `kubectl` file, point to the appropriate config file first:
-
- export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
- # installed kubeconfig is only readable by root after the installation
- sudo chmod a+r /etc/rancher/k3s/k3s.yaml
- kubectl get deployments
++
+[source,bash]
+----
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# installed kubeconfig is only readable by root after the installation
+sudo chmod a+r /etc/rancher/k3s/k3s.yaml
+kubectl get deployments
+----
 
 . Prepare the Trivy offline database
 +
@@ -116,40 +140,44 @@ is running.
 +
 .pv-trivy.yaml
 [source,yaml]
- apiVersion: v1
- kind: PersistentVolume
- metadata:
-   finalizers:
-   - kubernetes.io/pv-protection
-   name: trivy-pv-volume
- spec:
-   accessModes:
-   - ReadWriteOnce
-   capacity:
-     storage: 2Gi
-   hostPath:
-     # local path on my machine
-     path: /data/trivy-pv
-     type: DirectoryOrCreate
-   persistentVolumeReclaimPolicy: Retain
-   storageClassName: local-path
-   volumeMode: Filesystem
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+ finalizers:
+ - kubernetes.io/pv-protection
+ name: trivy-pv-volume
+spec:
+ accessModes:
+ - ReadWriteOnce
+ capacity:
+   storage: 2Gi
+ hostPath:
+   # local path on my machine
+   path: /data/trivy-pv
+   type: DirectoryOrCreate
+ persistentVolumeReclaimPolicy: Retain
+ storageClassName: local-path
+ volumeMode: Filesystem
+----
 +
 .pvc-trivy.yaml
 [source,yaml]
- apiVersion: v1
- kind: PersistentVolumeClaim
- metadata:
-   name: trivy-pvc
-   namespace: registry
- spec:
-   accessModes:
-   - ReadWriteOnce
-   storageClassName: local-path
-   resources:
-     requests:
-       storage: 2Gi
-   volumeName: trivy-pv-volume
+----
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+ name: trivy-pvc
+ namespace: registry
+spec:
+ accessModes:
+ - ReadWriteOnce
+ storageClassName: local-path
+ resources:
+   requests:
+     storage: 2Gi
+ volumeName: trivy-pv-volume
+----
 +
 Save these files as `pv-trivy.yaml` and `pvc-trivy.yaml`.
 
@@ -157,17 +185,23 @@ Save these files as `pv-trivy.yaml` and `pvc-trivy.yaml`.
 `pv-trivy.yaml` file). Unpack the downloaded Trivy database under the `trivy/db`
 subdirectory, and change the ownership of the whole directory to user
 and group 10000:
-
- sudo mkdir -p /data/trivy-pv/trivy/db
- sudo tar -zxf trivy-offline.db.tgz -C /data/trivy-pv/trivy/db/
- sudo chown -R 10000:10000 /data/trivy-pv
++
+[source,bash]
+----
+sudo mkdir -p /data/trivy-pv/trivy/db
+sudo tar -zxf trivy-offline.db.tgz -C /data/trivy-pv/trivy/db/
+sudo chown -R 10000:10000 /data/trivy-pv
+----
 
 . Install SUSE Private Registry
 
 .. Now you can install SUSE Private Registry the usual way. Find out the
 external address provided by the default ingress controller:
-
- kubectl get services
++
+[source,bash]
+----
+kubectl get services
+----
 
 .. Use the IP number to provide correct values for the core components in the Helm
 chart and create, for example, `harbor-config-values.yaml`. Add the parts to
@@ -175,32 +209,39 @@ mount the correct volume with the Trivy database.
 +
 .harbor-config-values.yaml
 [source,yaml]
- expose:
-   # Set the way how to expose the service. Default value is "ingress".
-   ingress:
-     hosts:
-       core: "<ingress_url>"
- externalURL: "https://<ingress_url>"
- trivy:
-   # do not download trivy DB from github:
-   skipUpdate: true
- # use existing trivy PVC (prepare offline DB there)
- persistence:
-   persistentVolumeClaim:
-     trivy:
-       existingClaim: "trivy-pvc"
+----
+expose:
+ # Set the way how to expose the service. Default value is "ingress".
+ ingress:
+   hosts:
+     core: "<ingress_url>"
+externalURL: "https://<ingress_url>"
+trivy:
+ # do not download trivy DB from github:
+ skipUpdate: true
+# use existing trivy PVC (prepare offline DB there)
+persistence:
+ persistentVolumeClaim:
+   trivy:
+     existingClaim: "trivy-pvc"
+----
 
 .. Fetch the Helm chart and install Harbor into the new namespace.
-
- export HELM_EXPERIMENTAL_OCI=1
- helm chart pull registry.suse.com/harbor/harbor:1.5
- helm chart export registry.suse.com/harbor/harbor:1.5
++
+[source,bash]
+----
+export HELM_EXPERIMENTAL_OCI=1
+helm chart pull registry.suse.com/harbor/harbor:1.5
+helm chart export registry.suse.com/harbor/harbor:1.5
+----
 
 .. Do not forget to create Kubernetes objects for the Trivy database:
-
- kubectl create namespace registry
- kubectl apply -n pv-trivy.yaml
- kubectl apply -n pvc-trivy.yaml
- helm install -n negistry suse-registry ./harbor -f
-
++
+[source,bash]
+----
+kubectl create namespace registry
+kubectl apply -n pv-trivy.yaml
+kubectl apply -n pvc-trivy.yaml
+helm install -n negistry suse-registry ./harbor -f
+----
  

@@ -743,3 +743,206 @@ suse-registry-harbor-registry-65854df7bc-mrfnj     2/2     Running   0          
 suse-registry-harbor-trivy-0                       1/1     Running   1          24h
 suse-registry-harbor-trivy-1                       1/1     Running   0          24h
 ----
+
+=== Backup and Restore
+
+Backup and restore for {spr} can be performed by link:https://documentation.suse.com/suse-caasp/4.2/html/caasp-admin/_backup_and_restore_with_velero.html[Velero]. Velero not only handles this, but also disaster recovery, and the migration of Kubernetes cluster resources and persistent volumes.
+
+When {spr} is deployed together with its internal services (database, Redis and filesystem storage for image and artifacts) Velero is able to fully cover the backup and restore. However, as Velero is only responsible for Kubernetes resources, when {spr} is deployed using external service providers, such as managed PostgreSQL database or object storage (Amazon S3 or Azure Blob Storage), additional actions must be performed to ensure the backup of data that is external to the Kubernetes cluster.
+
+In general, the backup and restore process for {spr} can be split in two parts:
+
+* Backup and restore of Kubernetes resources (performed by Velero):
+** Namespace
+** Deployment
+** ReplicaSet
+** StatefulSet
+** Endpoint
+** Service
+** Ingress
+** ConfigMap
+** Secret
+** PersistentVolumeClaim
+** PersistentVolume
+** Pod
+** Other CRDs (e.g. `Certificate` when using `cert-manager` or `RedisFailover` when using `redis-operator`)
+* Backup and restore of external services:
+** Database
+** Redis
+** Object Storage
+
+==== Backup and restore of Kubernetes resources
+
+The following steps describe how to perform the backup and restore of Kubernetes resources using Velero.
+
+===== Backup
+
+. Install Velero as described in the link:https://documentation.suse.com/suse-caasp/4.2/html/caasp-admin/_backup_and_restore_with_velero.html[documentation]
+
+. (optional) If you are using a volume provider that does not support volume snapshots or a volume-snapshot API, or does not have Velero-supported storage plugin, then Velero uses link:https://restic.net/[Restic] as a generic solution to backing and restoring this sort of persistent volume. To perform a Restic backup of persistent volumes, Velero requires the addition of a specific annotation (`backup.velero.io/backup-volumes=<VOLUME_NAME_1>,<VOLUME_NAME_2>,...`) to the pods that have the volumes mounted. This can be achieved by adding the following entries to the {spr}'s Helm chart (`harbor-values.yaml`), then performing `helm upgrade` to apply the annotations:
++
+.harbor-values.yaml
+[source,yaml]
+----
+registry:
+  podAnnotations:
+    backup.velero.io/backup-volumes: registry-data
+trivy:
+  podAnnotations:
+    backup.velero.io/backup-volumes: data
+database:
+  podAnnotations:
+    backup.velero.io/backup-volumes: database-data
+redis:
+  podAnnotations:
+    backup.velero.io/backup-volumes: data
+----
++
+[source,bash]
+----
+helm -n registry upgrade suse-registry ./harbor -f harbor-values.yaml
+----
++
+.External Services
+[NOTE]
+====
+If using an external service, such as a managed PostgreSQL database, you do not need to add the `database` entry. The same applies for `redis` when using an external Redis, and for `registry` when using an external storage back-end for storing images and artifacts.
+====
+
+. Back-up the cluster with the command `velero backup create <backup-name> --include-namespaces <namespace-to-backup>`. For example:
++
+[source,bash]
+----
+> velero backup create registry-backup --include-namespaces registry
+Backup request "registry-backup" submitted successfully.
+Run `velero backup describe registry-backup` or `velero backup logs registry-backup` for more details.
+----
++
+.Scope of the backup
+[NOTE]
+====
+Velero supports backing up all Kubernetes cluster resources; however, in this case, the backup is performed for the registry namespace only. In some cases, such as when using `cert-manager` or `redis-operator`, you might need to include those namespaces in the backup.
+====
++
+
+. To check the backup status and ensure its completion, run `velero backup describe <backup-name>`. For example:
++
+[source,bash]
+----
+> velero backup describe registry-backup
+Name:         registry-backup
+Namespace:    velero
+Labels:       velero.io/storage-location=default
+Annotations:  <none>
+
+Phase:  Completed
+
+Namespaces:
+  Included:  registry
+  Excluded:  <none>
+
+Resources:
+  Included:        *
+  Excluded:        <none>
+  Cluster-scoped:  auto
+
+Label selector:  <none>
+
+Storage Location:  default
+
+Snapshot PVs:  auto
+
+TTL:  720h0m0s
+
+Hooks:  <none>
+
+Backup Format Version:  1
+
+Started:    2020-12-17 12:00:12 +0100 CET
+Completed:  2020-12-17 12:01:36 +0100 CET
+
+Expiration:  2021-01-16 12:00:12 +0100 CET
+
+Persistent Volumes: <none included>
+
+Restic Backups (specify --details for more information):
+  Completed:  4
+----
+
+.Backup options
+[NOTE]
+====
+For more advanced options, such as scheduling backups and configuring expiration times, check the link:https://documentation.suse.com/suse-caasp/4.2/html/caasp-admin/_backup_and_restore_with_velero.html[Velero documentation].
+====
+
+===== Restore
+
+. If you are restoring onto a new Kubernetes cluster, install Velero by following the link:https://documentation.suse.com/suse-caasp/4.2/html/caasp-admin/_backup_and_restore_with_velero.html[CaaSP Velero documentation]. Make sure to use the same storage back-end used to perform the backup, so that Velero can access the existing backups. If restoring onto the same cluster, make sure to completely delete the existing {spr} deployment, including its namespace.
+
+. To restore the cluster, run the command `velero restore create <restore-name> --from-backup <backup-name>`. For example:
++
+[source,bash]
+----
+> velero restore create registry-restore --from-backup registry-backup
+Restore request "registry-restore" submitted successfully.
+Run `velero restore describe registry-restore` or `velero restore logs registry-restore` for more details.
+----
+
+. To check the restore status and ensure its completion, run `velero restore describe <restore-name>`. For example:
++
+[source,bash]
+----
+> velero restore describe registry-restore
+Name:         registry-restore
+Namespace:    velero
+Labels:       <none>
+Annotations:  <none>
+
+Phase:  Completed
+
+Errors:
+  Velero:     <none>
+  Namespaces: <none>
+
+Backup:  registry-backup
+
+Namespaces:
+  Included:  *
+  Excluded:  <none>
+
+Resources:
+  Included:        *
+  Excluded:        nodes, events, events.events.k8s.io, backups.velero.io, restores.velero.io, resticrepositories.velero.io
+  Cluster-scoped:  auto
+
+Namespace mappings:  <none>
+
+Label selector:  <none>
+
+Restore PVs:  auto
+
+Restic Restores (specify --details for more information):
+  Completed:  4
+----
+
+.Restore options
+[NOTE]
+====
+For more advanced options, such restoring from a scheduled backup, see the link:https://documentation.suse.com/suse-caasp/4.2/html/caasp-admin/_backup_and_restore_with_velero.html[Velero documentation].
+====
+
+==== Backup and restore of external services
+
+For backup and restore of external services, see the official documentation of the adopted solution. For example:
+
+* Database:
+** link:https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_CommonTasks.BackupRestore.html[Backing up and restoring an Amazon RDS DB instance]
+** link:https://docs.microsoft.com/en-us/azure/postgresql/concepts-backup[Backup and restore in Azure Database for PostgreSQL]
+
+* Redis:
+** link:https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/backups.html[Backup and Restore for ElastiCache for Redis]
+** link:https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/cache-how-to-premium-persistence[How to configure data persistence for a Premium Azure Cache for Redis]
+
+* Object storage:
+** link:https://docs.aws.amazon.com/AmazonS3/latest/dev/Versioning.html[Amazon Simple Storage Service (S3) Versioning]
+** link:https://docs.microsoft.com/en-us/azure/storage/blobs/versioning-overview[Azure Blob Storage versioning]

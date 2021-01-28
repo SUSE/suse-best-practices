@@ -16,7 +16,6 @@ New documentation series of SUSE Best Practices papers
 | DC-SBP-CloudLS-master | ext | Cloud Computing | https://documentation.suse.com/soc/9/, https://documentation.suse.com/soc/8/ |
 | DC-SBP-DRBD | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-HANAonKVM-SLES12SP2 | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
-| DC-SBP-IaaS-SAP-Cloud | int | Cloud Computing | https://documentation.suse.com/soc/9/, https://documentation.suse.com/soc/8/ |
 | DC-SBP-intelsupport | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-KMP-Manual | ext | ELS | https://documentation.suse.com/sles-12/, https://documentation.suse.com/sled-12/ |
 | DC-SBP-KMP-Manual-SLE12SP2 | ext | ELS | https://documentation.suse.com/sles-15/, https://documentation.suse.com/sles-12/, https://documentation.suse.com/sled-15/, https://documentation.suse.com/sled-12/ |
@@ -51,7 +50,6 @@ New documentation series of SUSE Best Practices papers
 | DC-SLES4SAP-hana-sr-guide-PerfOpt-15 | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
 | DC-SLES-rpiquick | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-Migrate-z-KVM | not published | Virt | [none, outdated] |
-| DC-SBP-openFaaS | not published | ? | [none, unfinished, outdated] |
 
 
 Papers not produced by documentation team which exist only as PDF (no DC file available) but need to be posted:

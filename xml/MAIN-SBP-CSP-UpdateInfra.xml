@@ -47,8 +47,8 @@
 		<date>October 21, 2020</date>
 
 		<abstract>
-			<para>This guide describes the setup of the required infrastructure for a SUSE cloud in
-				generic terms that scales from small to large cloud installations. The guide is an
+			<para>This guide describes the setup of the recommended infrastructure for offering SUSE product as on-demand offerings in a cloud environment.
+				The update infrastructure scales from small to large cloud installations. The guide is an
 				optional, but highly recommended element of a Cloud Service Provider's (CSPs)
 				infrastructure. It allows for central license and repository management.</para>
 		</abstract>
@@ -68,22 +68,9 @@
 			or virtual) and configure the system to connect to a local Repository Mirroring Tool
 			(RMT), be managed by &suse; Manager, or connect to the &scc; (SCC).</para>
 		<para>Generating registration entitlements for every instance for use with SCC and providing
-			these to the user would not meet the <quote>fire up and use</quote> expectation. </para>
-		<para>The RMT for SUSE Linux Enterprise 15 SP1 allows enterprise customers to optimize the
-			management of SUSE Linux Enterprise software updates and subscription entitlements. It
-			establishes a proxy system for &suse; Customer Center with repositories and
-			registration targets. This helps you to centrally manage software updates within a
-			firewall on a per-system basis, while maintaining your corporate security policies and
-			regulatory compliance.</para>
-		<para>RMT allows you to provision updates for all of your devices running a product based on
-			&sls;. By downloading these updates once and distributing them throughout the
-			enterprise, you can set more restrictive firewall policies. This also reduces bandwidth
-			usage, as there is no need to download the same updates for each device. RMT is fully
-			supported and available as a download for customers with an active SUSE Linux Enterprise
-			product subscription.</para>
-		<para>This guide describes the setup of the required infrastructure in generic terms that
-			scale from small to large public cloud installations. In addition, this setup can also
-			be implemented in a private cloud setup.</para>
+		these to the user does not meet the <quote>fire up and use</quote> expectation. </para>
+        <para>RMT establishes a local cache of the SCC content for &sls; based products. Registration can be fully automated against RMT to meet the expectations in a cloud environment.</para>
+		<para>The setup described in this guide can be used for a private cloud or can be used in a public cloud type offering. For a public cloud offering access controls must be implemented that verify access privileges. For a private cloud setup RMT servers may not be exposed to ingress traffic from the Internet.</para>
 	</sect1>
 
 	<sect1 xml:id="sec-overview">
@@ -116,8 +103,8 @@
 
 		<para>Both components run as virtual machines (VMs). All services run on SUSE Linux
 			Enterprise Server 15 SP1 or higher. These systems may be registered directly to SCC or
-			may be managed using SUSE Manager. Optionally, if using Region Servers, the systems must
-			also have the Public Cloud Module repository configured.</para>
+			may be managed using SUSE Manager. All systems must
+			have the Public Cloud Module repository enabled.</para>
 
 		<sect2 xml:id="sec-region-server-s">
 			<title>Region Server(s)</title>
@@ -142,20 +129,16 @@
 			<sect3 xml:id="sec-behind-scenes">
 				<title>Behind the scenes</title>
 
-				<para> SUSE Linux Enterprise Server guest instances connect to a Region Server to
+				<para>A SUSE Linux Enterprise Server guest instance, with the appropriate configuration and the cloud-regionsrv-client package installed will connect to a Region Server to
 					receive a list of RMT servers available in the region in which the guest
 					instance was launched. The information is provided to the client in XML format
-					and is sufficient for the client to automatically register with the region-local
-					RMT server. </para>
+					and is sufficient for the client to automatically register with one of the region-local
+					update servers. </para>
 
 				<para>Generally, multiple Region Server instances should be operated to ensure
 					availability of the Region Service if any Region Server is too distant (high
 					latency), down, or otherwise unavailable. Information about the Region Servers
-					in the cloud framework is encoded in the guest images by including the region
-					server’s public certificate in the <filename>/var/
-						lib/regionService/certs/</filename> directory. The name of the certificates
-					is used to attempt to connect to the Region Server via HTTPS.</para>
-
+					in the cloud framework is encoded in the guest images. The registration code is configured via the <filename>/etc/regionserverclnt.cfg</filename> configuration file. If Region Server have self signed certificates the location of the signing certificates can be configured and verification happend via IP address or DNS name. The client code randomizes the list of configured Region Servers to distribute the access load.</para>
 			</sect3>
 		</sect2>
 
@@ -271,9 +254,12 @@
 				<title>RMT Servers</title>
 
 				<para> The firewall rules for the RMT server need to allow incoming traffic on ports
-					22,80,and 443 from all addresses(<systemitem class="ipaddress"
-						>0.0.0.0/0</systemitem>; <systemitem class="ipaddress">::/0</systemitem>).
-					All other ports should be blocked. </para>
+				22 and 443. For this configuration the client side also needs to be configured to use https (port 443) only. RMT can be configured to serve content over port 80 (http) as well in which case no specific client side configuration is necessary. Access rules based on traffic origination are dependent on your cloud network configuration. The examples provide general considerations.
+                </para>
+                <para>The update servers may run in a network segment that is only accessible from instances within the cloud and instances automatically get this network segment setup via the network configuration handed out by the cloud DHCP servers or other network configuration mechanism. In this scenario ingress to the RMT servers can simply be wild carded to the IP-ranges of this private network. In this case no additional access verification in the RMT authentication plugin infrastructure is necessary and sinatllation of the <emphasis>rmt-server-pubcloud</emphasis> package is sufficient.</para>
+                <para>The cloud does not support VPN, direct connections, or a bring your own IP range feature. The effect of such a configuration is that traffic destined for the update servers can only originate from the cloud itself. Therefore the firewall rules should be configured such that only traffic from the cloud itself is allowed as ingress. In this configuration it is also sufficient to fall back to the generic authentication process provided by the <emphasis>rmt-server-pubcloud</emphasis> package.</para>
+                <para>The cloud supports routing through a customers data center and or a bring your IP range feature. In this case the firewall must allow ingress from all addresses(<systemitem class="ipaddress">0.0.0.0/0</systemitem>; <systemitem class="ipaddress">::/0</systemitem>). It is necessary to develop an authentication plugin for RMT that works in conjuction with the default access controls provided by the <emphasis>rmt-server-pubcloud</emphasis> package.</para>
+                <para>All other ports should be blocked. </para>
 
 			</sect3>
 
@@ -281,10 +267,13 @@
 				<title>Region Servers</title>
 
 				<para>The firewall rules for the Region Servers need to allow incoming traffic on
-					ports 22 and 443 from all addresses <systemitem class="ipaddress"
-						>0.0.0.0/0</systemitem>; <systemitem class="ipaddress">::/0</systemitem>).
-					If you prefer, you can move SSH to run on a different port and configure your
-					firewall rules accordingly. </para>
+					ports 22 and 443. As with the configuration for the update servers originating IP access rules may be configured and of interest. Unlike for RMT server showever, not additional access verification is required if access is granted from all addresses <systemitem class="ipaddress"
+						>0.0.0.0/0</systemitem>; <systemitem class="ipaddress">::/0</systemitem>).</para>
+			</sect3>
+
+            <sect3 xml:id="sec-ssh-access">
+              <title>SSH access and port 22</title>
+              <para>Seting up ssh access to the RMT and region servers provides for system administrative access. Port 22 is well known as the standard port for ssh traffic and as such is often probed by network scanners. It is possible to move the ssh port following standard ssh configuration practivces to a port of your choice on both RMT and Region Servers.</para>
 			</sect3>
 
 			<sect3 xml:id="sec-prepare-ssh-for-server">
@@ -302,13 +291,13 @@ ssh-keygen -t rsa -f regionsrv</screen>
 		<sect2 xml:id="sec-rmt-server-setup">
 			<title>RMT Server Setup</title>
 
-			<para> It is recommended to have two RMT servers per physical location (region)
-				available. The number of RMT servers depends on the bandwidth within the data center
-				and the number of expected simultaneous users. As a reference, SUSE operates two RMT
+			<para> It is recommended to have at three RMT servers per physical location (region)
+				available. A setup of three servers supports a configuration where a minimum HA setup of two is still achieved if one server goes down are requires reboot for a kernel update. The number of RMT servers depends on the bandwidth within the data center
+				and the number of expected simultaneous users. As a reference, SUSE operates three RMT
 				servers per region on Amazon Web Services (AWS) and can easily satisfy the
-				throughput needs for registered clients. </para>
+				throughput needs for registered clients and new registrations. </para>
 
-			<para> Thus, it is unlikely that more than two RMT servers are needed in your setup. The
+			<para> Thus, it is unlikely that more than three RMT servers are needed in your setup. The
 				setup of an RMT server inside a virtual machine is no different from the setup of an
 				RMT Server on a physical machine. A standard RMT server installation is described in
 				the next chapter. For detailed information on the RMT server, refer to the <link
@@ -320,7 +309,7 @@ ssh-keygen -t rsa -f regionsrv</screen>
 				<title>Default RMT Server Installation</title>
 
 				<sect4 xml:id="sec-system-installation">
-					<title>During System Installation</title>
+					<title>System Installation</title>
 
 					<para>During the system installation, make sure you select the
 							<package>rmt-server</package> package.</para>
@@ -451,7 +440,17 @@ ssh-keygen -t rsa -f regionsrv</screen>
 						Packages are downloaded periodically once a day. The download can also be
 						triggered manually at any time. The periodic mirroring is done by the
 							<package>systemd</package> timer
-							<package>rmt-server-mirror.timer</package>.</para>
+							<package>rmt-server-mirror.timer</package>.
+                                                It is recommended that you modify the timer settings such that not all
+                                                RMT servers run the sync at the same time, i.e. every system should have a
+                                                different time value for the <emphasis role="strong">OnCalendar</emphasis>
+                                                entry in the <file>/usr/lib/systemd/system/rmt-server-sync.timer</file>. In
+                                                addition you want to have a generous value for the
+                                                <emphasis role="strong">RandomizedDelaySec</emphasis>. SUSE operations uses
+                                                a value of <emphasis role="strong">6h</emphasis> to accomodate latency
+                                                differences in different parts of the world w.r.t. access of the SCC caches
+                                                provided by the SUSE CDN provider.
+                                        </para>
 
 					<procedure>
 						<step>
@@ -520,11 +519,26 @@ ssh-keygen -t rsa -f regionsrv</screen>
 							</substeps>
 						</step>
 						<step>
-							<para>Initiate an initial mirroring using the following command:</para>
+                                                        <!-- TODO Fix the syntax for the link to the section -->
+							<para>Prior to initiating the mirroring consider
+                                                        using the following command:</para>
 							<screen>sudo rmt-cli mirror</screen>
 						</step>
 					</procedure>
-				</sect4>
+				 </sect4>
+
+                                 <sect4 xml:id="sec-repository-management-automation">
+                                   <title>Repository Management Automation</title>
+                                   <para>The manual configuration described in the previous section is not conducive to maintaining
+                                   more then a few RMT systems. If you operate more then 3 servers, i.e. an update infrastructure in
+                                   more han 1 region it is recommended that you use the tooling provided in the
+                                   <link xlink:href="https://github.com/SUSE-Enceladus/update-infra-utils">update-infra-utils</link>
+                                   project on GitHub. With this setup the repositories to be mirrored can be described in json format.
+                                   This helps to keep all systems in sync w.r.t. mirroring the same repositories and supports keeping
+                                   the mirroring configuration in a source code control system of your choice. Last but not least the
+                                   json description can be used to monitor the servers and ensure that all configured repositories
+                                   are indeed mirrored.
+                                 </sect4>
 
 
 				<!--	duplicated section!! see next section level 3-->
@@ -589,13 +603,14 @@ ssh-keygen -t rsa -f regionsrv</screen>
 				</sect4>-->
 			</sect3>
 
-
 			<sect3 xml:id="sec-configure-data-disks">
 				<title>Configuring Data Disks to Hold Repositories and DB</title>
 
 				<para>After the installation of the RMT server package, the directory structure
 					required by RMT is set up in <filename>/var/lib/rmt/public/repo</filename>.
-					Ideally, use an extra disk to hold the repositories. The following process
+					The repositories should <emphasis role="strong">not</emphasis> be stored on the root volume.
+                                        Storing the repository cash on the root volume will significantly increase the recovery time
+                                        should the RMT system experience issues and need to be re-created. The following process
 					outlines the steps necessary to set up the external device to hold the
 					repositories.</para>
 
@@ -616,7 +631,8 @@ ssh-keygen -t rsa -f regionsrv</screen>
 							device.</para>
 					</step>
 					<step>
-						<para>Optional but recommended: Create a volume group, to easily add more
+					  <para>Optional but recommended if your cloud framework does not have ath capabilities
+                                          to grow attached devices dynamically: Create a volume group, to easily add more
 							storage for repository growth. </para>
 					</step>
 					<step>
@@ -650,7 +666,7 @@ ssh-keygen -t rsa -f regionsrv</screen>
 					</step>
 				</procedure>
 
-				<para>The procedure for placing the DB data onto a separate device is the
+				<para>The procedure for placing the DB data onto a separate device, this is recommeneded, is the
 					same:</para>
 
 				<procedure>
@@ -695,7 +711,6 @@ chown mysql mysql -R</screen>
 			</sect3>
 		</sect2>
 	</sect1>
-
 
 	<sect1 xml:id="sec-migrate-smt-rmt">
 		<title>Migrating from Subscription Management Tool to Repository Mirroring Tool</title>
@@ -764,8 +779,9 @@ sudo cp ssl/cacert.pem /etc/rmt/ssl/rmt-ca.crt
 					<para>Import the data from the SMT server:</para>
 					<screen>sudo rmt-data-import -d ./</screen>
 				</step>
+                                <!-- TODO: This is repeated in the next section  ??? -->
 				<step>
-					<para> Optional: Move the mirrored repository data from to RMT and adjust the
+					<para> Optional: Move the mirrored repository data from SMT to RMT and adjust the
 						ownership of the copied data: </para>
 					<screen>
 sudo cp -r /var/www/htdocs/repo/* /var/lib/rmt/public/repo
@@ -802,7 +818,8 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 				<step>
 					<para>Option 2: In case of an in-place upgrade, and when no separate disk has
 						been used, perform the following action:</para>
-					<substeps>
+					        <substeps>
+                                                  <!-- TODO: Why copy, the repo data should just be moved ??? -->
 						<step>
 							<para>Copy the mirrored data from the location SMT uses to the location
 								RMT uses:</para>
@@ -827,9 +844,9 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 		<sect2 xml:id="sec-intro-rmt-reg-sharing">
 			<title>Introduction</title>
 
-			<para>Registration sharing replicates client registrations. This enables CSPs to provide
+			<para>Registration sharing replicates client registrations across independent servers. This enables CSPs to provide
 				redundant RMT servers per region so registered instances will continue to have
-				access to valid repositories in case of a RMT failure in the region.</para>
+				access to valid repositories in case of an RMT failure in the region.</para>
 
 			<para>For registration sharing you will need to ensure the following:</para>
 
@@ -843,7 +860,7 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 				</listitem>
 				<listitem>
 					<para>Each RMT server is synchronizing repositories from SUSE Customer
-						Center.</para>
+						Center and the repositories mirrored must be identical.</para>
 				</listitem>
 				<listitem>
 					<para>Instances can successfully register and de-register with each individual
@@ -853,7 +870,8 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 					<para>Instance registrations forwarding to SUSE Customer Center is disabled in
 						each RMT setup.</para>
 				</listitem>
-				<listitem>
+				<listitem><!-- TODO: This is not necessary, RMT servers are not necessarily expected to be DNS resolvable
+                                               why do we expect this from CSPs??? -->
 					<para>Name resolution has been configured so all RMT servers in a region can
 						resolve the other RMT servers in the same region.</para>
 				</listitem>
@@ -867,10 +885,13 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 				<step>
 					<para> Stop the RMT servers in the region and install the
 							<package>rmt-server-pubcloud</package> package: </para>
-					<screen>systemctl stop rmt-server
+					                <screen>systemctl stop rmt-server
+                                                        <!-- TODO: decide on a version placeholder or be explicit that this is an example
+                                                             and the version seeting needs to be adjusted accordingly -->
 					SUSEConnect -p sle-module-public-cloud/15.1/x86_64
 					zypper in rmt-server-pubcloud</screen>
 					<para> The following message might be displayed: </para>
+                                        <!-- TODO: See above w.r.t. version, package versions change -->
 					<screen>Problem: rmt-server-config-2.5.7-3.15.1.x86_64 conflicts with rmt-server-configuration provided by rmt-server-pubcloud-2.5.7-3.15.1.x86_64
 					Solution 1: deinstallation of rmt-server-config-2.5.7-3.15.1.x86_64
 					Solution 2: do not install rmt-server-pubcloud-2.5.7-3.15.1.x86_64
@@ -879,24 +900,57 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
 						<filename>rmt-server-config</filename>.</para>
 				</step>
 				<step>
-					<para> Add an Instance Verification example in
-							<filename>/usr/share/rmt/engines/instance_verification/lib/instance_verification/providers/example_csp.rb</filename>
-						by pasting the following information: </para>
+                                  <!-- TODO: Verify that CSPs are allowed to support BYOS; if not this section is superfluous and should
+                                  be removed. -->
+                                  <para>In cases where Pay As You (PAYG), also referred to as On-Demand, and a
+                                  Bring Your Own Subscription (BYOS) models for SUSE products are offered repository access controll
+                                  must be implemented. Only PAYG instance may access the update infrastructure. Customers using BYOS are
+                                  responsible for registering their instances with SCC, their own RMT or SUSE Manager Servers.</para>
+
+					<para> Instance verification is implemented by placing the implementation into
+					<filename>/usr/share/rmt/engines/instance_verification/lib/instance_verification/providers/</filename>.
+                                        The implementation is in Ruby and needs to verify, based on instance information sent by the
+                                        client, whether or not the client is authorized to access the repositories. The implementation must
+                                        support the <emphasis role="strong">isntance_valid</emphasis> method. The following example provides
+                                        guidance for the implementation of the verification plugin.
+					</para>
+                                        <!-- TODO @jesus to verify the example and push it back to RMT example_verification.rb -->
+                                        <!-- RJS -->
 					<screen>
-class InstanceVerification::Providers::Example &lt; InstanceVerification::ProviderBase
-	def instance_valid?
-		@instance_id = 'i-0000000000'
-		@instance_billing_info = 'example'
-		true # this is an example, always returns true
-	end
-end
+                                          class InstanceVerification::Providers::Example &lt; InstanceVerification::ProviderBase
+                                              # Unique identifier for SLES sent by client instance
+                                              SLES_PRODUCT_IDENTIFIER = 1234_SUSE_SLES.freeze
+                                              # Unique identifier for SLES For SAP sent by client instance
+                                              SLES4SAP_PRODUCT_IDENTIFIER = 6789_SUSE_SAP.freeze
+                                              
+                                              def instance_valid?
+                                                  # Extract the instance identifier from the instance data sent by the client
+		                                  instance_product_id = validate_instance_data(@instance_data)
+                                                  return true if (@product_hash[:identifier].downcase == 'sles' && instance_product_id == SLES_PRODUCT_IDENTIFIER)
+                                                  return true if (@product_hash[:identifier].downcase == 'sles_sap' && instance_product_id == SLES4SAP_PRODUCT_IDENTIFIER)
+                                              
+                                                  raise InstanceVerification::Exception, 'Product/instance type mismatch'
+                                              end
+
+                                              def validate_instance_data(instance_data)
+                                                  # The instance data format is determined by the client implementation and needs to
+                                                  # be processed here accordingly. Ideally the data is signed in a way such that it can
+                                                  # be independently verified here to not have been tampered with in flight or injected
+                                                  # into the stream. The AWS implementation of the Instance Identity Document is one possible
+                                                  # implementation route. In this example it is assumed the instance data is json and
+                                                  # contains instance_product_id
+                                                  JSON.parse(instance_product_id)
+	                                      end
+                                          end
 					</screen>
-					<para> By default, the <package>rmt-server-pubcloud</package> package enables
-						instance verification so CSPs can link the RMT systems to a billing system.
-						The following is an example of how a CSP can verify an instance can only
-						access repositories that it is authorized to access. Visit <link
+					<para> In addition to the custom verification module described above the
+                                            <package>rmt-server-pubcloud</package> package implements generic
+					    instance verification applicaple to CSPs deployments. Product upgrade from SLES to
+                                            SLES For SAP, for example is not supported in a CSP framework and this is enforced as part of
+                                            the default verification. For additional details you may reference the implementation
+                                            maintained in <link
 							xlink:href="https://github.com/SUSE/rmt/tree/master/engines/instance_verification"
-						/> for more information. </para>
+						/> GitHub. </para>
 				</step>
 				<step>
 					<para> Add a registration sharing section to the bottom of
@@ -906,24 +960,38 @@ end
 						on any of the RMT servers with the <package>rmt-server-pubcloud
 							package</package> installed. </para>
 					<screen>
-regsharing:
+                                          regsharing:
+                                          api_secret: s3cr3t_t0k3n
+                                          data_dir: /var/lib/rmt/regsharing/data-dir
 peers:
 	- &lt;remote rmt 1&gt;.domain.com
 	- &lt;remote rmt 2&gt;.domain.com
-api_secret: s3cr3t_t0k3n
-data_dir: /var/lib/rmt/regsharing/data-dir
+smt_allowed_ips:
+  - 1.2.3.4
+  - 5.6.7.8
 					</screen>
 
 					<para>In the above screen:</para>
 					<itemizedlist>
-						<listitem>
+					        <listitem>
+							<para><emphasis>api_secret</emphasis> is a secret token only shared
+							between the RMT servers in the region. The same token must be configured
+                                                        on all servers that are expected to communicate with each other.</para>
+						</listitem>
+                                                <listitem>
+						  <para><emphasis>data_dir</emphasis> a directory where the registration
+                                                  sharing replay log is written. The log is processed by the process controlled by the
+                                                  rmt-server-regsharing.timer which is provided by <package>rmt-server-pubcloud</package>
+                                                  and must be enabled.</para>
+                                                <listitem>
 							<para><emphasis>peers</emphasis> is a list of the other RMT servers in
 								the region</para>
 						</listitem>
-						<listitem>
-							<para><emphasis>api_secret</emphasis> is a secret token only shared
-								between the RMT servers in the region</para>
-						</listitem>
+                                                <listitem>
+						  <para><emphasis>smt_allowed_ips</emphasis> are the IP addresses of the peers and
+                                                  used to verify data originates from those systems.</para>
+                                                </listitem>
+                                                
 					</itemizedlist>
 
 				</step>
@@ -938,7 +1006,7 @@ curl --tlsv1.2 --silent --insecure --connect-timeout 10 https://&lt;remote rmt 1
 				<step>
 					<para> Create hashes for the new server certificates: </para>
 					<screen>
-c_rehash
+update-ca-certificates
 					</screen>
 				</step>
 				<step>
@@ -981,7 +1049,7 @@ c_rehash
 
 		<sect2 xml:id="sec-reg-sharing-timer">
 			<title>Starting and Enabling the Registration Sharing Timer</title>
-			<para> The package <package>rmt-server-regsharing.timer</package> defaults to starting
+			<para> The systemd timer <package>rmt-server-regsharing.timer</package> defaults to starting
 				the <package>rmt-server-regsharing</package> every thirty seconds to synchronize
 				registration information. </para>
 			<screen>
@@ -1002,19 +1070,18 @@ systemctl enable rmt-server-regsharing.timer
 				using the Flask framework in Apache. The Region Server is provided with the
 					<package>cloud-regionsrv</package> package.</para>
 
-			<para>Region servers are located within a CSP network. An exmaple of the region server
+			<para>Region servers are located within a CSP network. An example of the region server
 				placement could be based on geographic boundaries like Americas, Europe/Middle East
-				and Asia. It is recommended that a minimum of two region servers are deployed for
+				and Asia. It is recommended that a minimum of three region servers are deployed for
 				redundency. Install, register and fully patch SLES 15 SP1 or newer for each of the
-				region server.</para>
+				region servers.</para>
 
 			<para>A client will attempt to contact a region server from a preconfigured list of
-				available region servers. The client will share either it's IP address information
-				or a hint that will help the region server return a list of the closest RMT servers
-				to the client.</para>
+			available region servers. The client, if configured and with an appropriate implementation
+                        may provide a so called <emphasis role="strong">regionHint</emphasis> to the region server. In the absence
+                        of a region hint the region server will use the originating IP of the client instance to return
+			a list of the closest RMT servers to the client.</para>
 
-			<para>As with the RMT server, the Region Server should be access-restricted to the IP
-				address ranges for the cloud framework. </para>
 		</sect2>
 
 		<sect2 xml:id="sec-region-server-setup">
@@ -1034,7 +1101,7 @@ systemctl enable rmt-server-regsharing.timer
 						<listitem>
 							<para><filename>/etc/regionService/regionInfo.cfg</filename> is used to
 								configure the service and contains the location of the log file and
-								the location of the <filename>regionData.cfg</filename></para>
+								the location of the <filename>regionData.cfg</filename>. </para>
 						</listitem>
 						<listitem>
 							<para><filename>/etc/regionService/regionData.cfg</filename> contains
@@ -1042,8 +1109,12 @@ systemctl enable rmt-server-regsharing.timer
 								client</para>
 						</listitem>
 					</itemizedlist>
-					<para>Both files are available in the <emphasis role="strong">ini</emphasis>
-						format.</para>
+					<para>Both files use in the <emphasis role="strong">ini</emphasis>
+					format. If you have frequent changes to the IP addresses used by the cloud
+                                        framework or IP addresses move between regions it is recommended to implement a generator
+                                        for the <filename>/etc/regionService/regionData.cfg</filename> file. In general it is recommended
+                                        to implement sending the region hint on the client and use the IP address based look up as a fall
+                                        back.</para>
 				</step>
 				<step>
 					<para>Make a copy of
@@ -1154,13 +1225,10 @@ systemctl enable rmt-server-regsharing.timer
 				<step>
 					<para>Generate a region server certificate.</para>
 
-					<para>It is recommended to use name resolution via DNS for new clients that will
-						connect to a region server. One potential advantage of using DNS for the
-						Region Server is that no new client update needs to be released if a Region
-						Server needs to move out of a given region and into a new region where a new
-						IP address would need to be allocated. However, this implies that an entire
-						cloud region would be shut down, which is a very unlikely scenario. The
-						Region Server package (<systemitem>cloud-regionsrv</systemitem>) provides a
+					<para>As with the RMT servers the implementation of the cloud-regionsrv-client is such that
+                                        self signed certificates are assumed to be in use as well as non DNS resolvable names. However,
+                                        it is possible to use publicly signed certificates as wel as DNS resolvable names.
+                                           The Region Server package (<systemitem>cloud-regionsrv</systemitem>) provides a
 						convenient executable to generate the server certificate.</para>
 
 					<screen>genRegionServerCert -c COUNTRY -d DEPARTMENT --host IP_ADDRESS_OR_HOSTNAME -l LOCATION -o ORGANIZATION -s STATE</screen>
@@ -1219,20 +1287,25 @@ systemctl enable rmt-server-regsharing.timer
 				Server via: <link xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo"/>
 			</para>
 
-			<para>As mentioned previously, for environments where the IP address assignment per
-				region is not stable or accessible via API, the option exists to let the client pass
-				a region hint to the Region Server. If the region hint is passed, the Region Server
-				will first try to provide RMT information to the client based on the region name
-				given in the hint. If this fails, the Region Server will fall back to using the IP
-				address. A request using the region hint option provides the region hint as an
-				argument with the URL: <link
+			<para>As mentioned previously, using the <emphasis role="strong">regionHint</emphasis> argument with the REST API
+                        is recommended. This requires the implementation of a plugin, described below and configuration of the plugin in
+                        the region server client configuration file. When a region hint is used the client adds the information provided
+                        by the plugin to for the URL: <link
 					xlink:href="https://IP_ADDRESS_OF_REGION_SERVER/regionInfo?regionHint=REGION_NAME"
 				/>
 			</para>
 
 			<para>In this case, <emphasis>REGION_NAME</emphasis> must match a name of one of the
 				sections in the <filename>regionData.cfg</filename> file as indicated
-				previously.</para>
+				previously. The name is generated by a plugin for region server client. The plugin must be placed in
+                                <filename>cloudregister</filename> subdirectory for the Python interpreter site-packages directory tree.
+                                It is recommended to create an RPM package for the plugin. Details may be obtained from the region server
+                                client GitHub repo <link xlink:href="https://github.com/SUSE-Enceladus/cloud-regionsrv-client"/> which
+                                contains plugin implementations for Amazon, Azure, and Google in the <filename>lib/cloudregister</filename>
+                                subdirectory. The spec file in the repository can be used as a packaging example. The implemented
+                                plugin must provide the generateRegionSrvArgs() function which is expected to return the
+                                "regionHint=REGION_NAME" string.
+                        </para>
 
 			<para>The knowledge of the IP addresses of the Region Servers and the certificates for
 				the Region Servers are built into the guest image. The
@@ -1244,28 +1317,86 @@ systemctl enable rmt-server-regsharing.timer
 
 			<itemizedlist>
 				<listitem>
-					<para>Place the public key file that was generated from the
-							<command>genRegionServerCert</command> command in the
+					<para>The public key files for all region servers generated with the
+					<command>genRegionServerCert</command> command. Filenames must be in pem format
+                                        and end with the .pem extension. Further the names must match the names set in the configuration
+                                        file. The files need to be placed in the 
 							<filename>/var/lib/regionService/certs/</filename> directory.</para>
 				</listitem>
-				<listitem>
-					<para>Add a comma-separated list of region servers to <option>regionsrv</option>
-						and comment the <option>metadata_server</option>,
-							<option>dataProvider</option>, <option>instanceArgs</option> and
-							<option>verifyAccess</option> options in the
-							<filename>/etc/regionserverclnt.cfg</filename> file.</para>
-
-					<!--	<para>
-						<emphasis>NOTE TO REVIEWERS: Probably need to update this item with details
-							about each option that are being commented.</emphasis>
-					</para>-->
-				</listitem>
-				<listitem>
-					<para>Enable the <package>guestregister</package> service so that a new client
-						can determine the closest RMT and automatically register during the initial
-						boot.</para>
-				</listitem>
-			</itemizedlist>
+                                <listitem>
+                                  <para>The configuration file for the client <filename>/etc/regionserverclnt.cfg</filename>. The
+                                  configuration file is init format.</para>
+                                </listitem>
+                        </itemizedlist>
+                        <para>The client configuration file <filename>/etc/regionserverclnt.cfg</filename>. May have 3 sections with
+                        predefined options as follows</para>
+                        <itemizedlist>
+                          <listitem><option>server</option>
+                              <para>This section is processed by the client to obtain the necessary data to request update server information.
+                              The <emphasis role="strong">server</emphasis> supports the following options:
+                              <itemizedlist>
+			        <listitem>
+                                  <option>api</option>
+                                  <para>Specifies the API to use on the region server. This should be set to <value>regionInfo</value>
+                                  unless you are not using the regionserver code from the <link
+                                  xlink:href="https://github.com/SUSE-Enceladus/cloud-regionsrv">cloud-regionsrv</link> project or you have a
+                                  customized version of the code running server side that supports a different API. This option is mandatory.
+                                  if the <option>regionsrv</option> is set.</para>
+                                </listitem>
+                                <listitem>
+			          <option>regionsrv</option>
+                                  <para>A comma separate list of the region servers to query for update server information. The list can be
+                                  resolvable hostnames or IP addresses. For each name a .pem file must exist in the location specified with
+                                  the <option>certLocation</option>. The option is mutually exclusive with the <option>metadata_server</option>
+                                  option. If both are specified only the <option>metadata_server</option> is considered.</para>
+                                </listitem>
+                                <listitem>
+                                  <option>certLocation</option>
+                                  <para>The fully qualified directory path where the region server certs are located. This must match
+                                  with the placement of the cerificates in the filesystem.</para>
+                                </listitem>
+                                <listitem>
+                                  <option>metadata_server</option>
+                                  <para>The URL for a metatdata server that provides the update server information in the expected format.
+                                  If the metadata server uses the https protocol the certificate of the server must be publicly signed.
+                                  It is expected that the specified metadata server is part of the framework infrastructure and as such is
+                                  highly available. Therefore only 1 URL can be specified. The option is mutually exclusive with the
+                                  <option>regionsrv</option> setting.</para>
+                                </listitem>
+                              </itemizedlist>
+                          </listitem>
+                          <listitem>
+                            <option>instance</option>
+                            <para>This section has options to configure information to be retrieved from the instance to send to the
+                            region server.</para>
+                            <itemizedlist>
+                              <listitem>
+                                <option>dataProvider</option>
+                                <para>Set the command to execute to collect instance data to be sent to the update server. This data
+                                is generally used to verify whether or not the instance is eligible to access the repositories on the
+                                update server. As such the data format created by the command and written to STDOUT by the executed
+                                command must match the format expected server side.</para>
+                              </listitem>
+                              <listitem>
+                                <option>instanceArgs</option>
+                                <para>Specifies the name of the plugin that generates the regionHint as discussed previously. The name
+                                specifies the Python module name without the .py extension.</para>
+                              </listitem>
+                            </itemizedlist>
+                          </listitem>
+                          <listitem>
+                            <option>service</option>
+                            <para>Reserved section name not used.</para>
+                            <itemizedlist>
+                              <listitem>
+                                <option>verifyAccess</option>
+                                <para>Reserved option name not used.</para>
+                              </listitem>
+                            </itemizedlist>
+                          </listitem>
+                        </itemizedlist>
+                        <para>The registration with the update infrastructure is set up by enabling the <package>guestregister</package>
+                        service in the image. This will ensure an instance gets register upon first boot.</para>
 		</sect2>
 
 		<sect2 xml:id="sec-man-test-client-registration">

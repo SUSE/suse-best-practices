@@ -61,6 +61,10 @@ Here we list the software components needed to install SAP DI 3.1 on RKE 1:
 
 * Access to a storage solution providing dynamically physical volumes
 
+* If it is planned to use Vora's streaming tables checkpoint store, a S3 bucket like object store is needed 
+
+* If it is planned to enable backup of SAP DI 3.1 during installation access to a S3 compatible object store is needed
+
 
 == Preparations
 
@@ -85,21 +89,24 @@ Here we list the software components needed to install SAP DI 3.1 on RKE 1:
 
 == Installation of Rancher RKE 1 Cluster
 
+The installation of Rancher Kubernetes Engine 1 cluster is straight forward. After the installation and basic configuration of the operating system the Kubernetes cluster configuration is created on the managemant host. Finally the Kuberntes cluster iwill be deployed. The following sections will describe this in more detail.
+
 ===  Preparation of Management Host and Kubernetes Cluster Nodes
 
-On all nodes SUSE Enterprise Linux 15 SP2 will be the OS of choice.
+All servers in this landscape will use SUSE Enterprise Linux 15 SP2 (SLES 15 SP2) for x86_64 architecture.
 
 * See https://documentation.suse.com/sles/15-SP2/
 
 ==== Installation of SUSE Linux Enterprise Server 15 SP2
 
-Install on each server in your environment for SAP Data Intelligence 3 SUSE Linux Enterprise Server SP2 or greater.
-Make sure to not configure swap for the nodes dedicated for Kubernetes. It is highly recommended to use a static network setup for all nodes in this environment.
-Use the following setup for installing SLES:
+Install on each server in your environment for SAP Data Intelligence 3.1 SLES 15 SP2 as operating system.
 
-* SLES 15 SP2
-* add basesystem and application server module at least 
-* add container module 
+* Make sure to not configure swap for the nodes dedicated for Kubernetes. 
+* It is highly recommended to use a static network setup for all nodes in this environment.
+* Use the following setup for installing SLES:
+** SLES 15 SP2
+** add basesystem and application server module at least 
+** add container module 
 
 
 ==== Configuration of SUSE Linux Enterprise 15 SP2 (SLES 15 SP2)
@@ -111,11 +118,15 @@ Use the following setup for installing SLES:
 * enable ssh access
 * disable kdump
 * register installation to SUSE Customer Center or a SMT/RMT server to obtain updates during installation and afterwards
+* install nfs-client, nfs-kernelserver, xfsprogs, ceph-common on any node.
 
 
 === Configure Management Workstation
 
-The management workstation is used to deploy and administer the kubernetes cluster and the workloads running on it.
+The management workstation is used to deploy and administer the Kubernetes cluster and the workloads running on it.
+
+* download and install kubectl in a version matching the Kubernetes version of the cluster (see below).
+* access to the cluster nodes via ssh
 
 
 
@@ -156,6 +167,8 @@ $ ./rke configure --name <name of your config file>
 
 ==== Deploy RKE
 
+Now deploy the Kubernetes cluster:
+
 ----
 $ cd rke
 $ ./rke up --config <name of your config file>
@@ -189,6 +202,7 @@ $ kubectl get nodes
 
 == Installation of SAP DI 3.1
 
+This section describes the installation of SAP DI 3.1 on RKE 1 powered Kubernetes cluster.
 
 === Preparations
 
@@ -199,6 +213,8 @@ These are the steps to fulfill before the deployment of SAP DI 3.1 can start:
 * create a default storage class
 * download and install SAP SLCBridge
 * download the stack.xml file for provisioning the DI 3.1 install
+* check if nfsd nfsv4 kernel modules are loaded and/or loadable on the Kubernetes nodes
+
 
 ==== Create namespace for SAP DI 3.1 in the Kubernetes cluster
 
@@ -212,6 +228,7 @@ $ kubectl get ns
 ==== Create cert file for accessing the secure private regsitry
 
 Create a file named cert that contains the SSL certificate chain for the secure private registry.
+This imports the certificates into SAP DI 3.1. 
 
 ----
 $ cat CA.pem > cert
@@ -230,7 +247,7 @@ Create the yaml files for the storage class, get in contact with your storage ad
 Create config-map:
 
 ----
-$ cat >csi-config-map.yaml<<EOF
+$ cat << EOF > csi-config-map.yaml
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -254,7 +271,7 @@ EOF
 Create a secret to access the storage:
 
 ----
-$ cat >csi-rbd-secret.yaml<<EOF
+$ cat << EOF > csi-rbd-secret.yaml
 ---
 apiVersion: v1
 kind: Secret
@@ -282,7 +299,7 @@ $ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kub
 Create pool on ceph storage where the PVs will be created, insert the poolname and the Ceph cluster id:
 
 ----
-$ cat >csi-rbd-sc.yaml<<EOF
+$ cat << EOF > csi-rbd-sc.yaml
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -305,7 +322,7 @@ EOF
 Create config for encryption, this is needed else the deploment of the CSI driver for ceph/rbd will fail.
 
 ----
-$ cat >kms-config.yaml<<EOF
+$ cat << EOF > kms-config.yaml
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -359,9 +376,28 @@ NAME                   PROVISIONER        RECLAIMPOLICY   VOLUMEBINDINGMODE   AL
 csi-rbd-sc (default)   rbd.csi.ceph.com   Delete          Immediate           false                  103m
 ----
 
+=== Longhorn for Physical Volumes 
+
 A possible valid alternative is to deploy Longhorn storage for the PVs.
 
+==== Pre-requisites
 
+==== Installation of Longhorn
+
+----
+$ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/deploy/longhorn.yaml
+----
+
+==== Create a Storage Class on top of Longhorn
+
+----
+$ kubectl create -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/examples/storageclass.yaml
+----
+
+==== Longhorn Documentation
+
+For more details see the Longhorn documentation:
+https://longhorn.io/docs/1.1.0/
 
 
 === Download SLCBridge

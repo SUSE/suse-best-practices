@@ -1,0 +1,439 @@
+:docinfo:
+
+= SAP Data Intelligence 3.1 on Rancher Kubernetes Engine 1  
+
+== Introduction
+
+This guide describes the installation of SAP Data Intelligence 3.1 on premise on top of Rancher Kubernetes Engine (RKE) 1. In a nutshell the installation of SAP DI 3.1 consists of the following steps.
+
+* Install SUSE Linux Enterprise Server 15 SP2
+
+* Install RKE 1 Kubernetes cluster on the dedicated nodes
+
+* Deploy SAP DI 3.1 on RKE 1 Kubernetes cluster
+
+* Post-Installation steps for SAP DI 3.1
+
+* Test the installation of SAP DI 3.1
+ 
+
+== Pre-requisites
+
+=== Hardware Requirements
+
+This chapter describes the hardware requirements for installing SAP DI 3.1 on RKE 1 on top of SUSE Linux Enterprise Server 15 SP2.
+Only x86_64 architecture is applicable for this use case.
+
+====  Hardware Sizing
+
+
+* Minimal hardware requirements for a SAP DI 3 deployment 
+** Management workstation 16 GiB RAM, 4 CPUs
+** At least 7 nodes are needed for a minimal Kubernetes cluster
+** Master nodes 16 GiB, 4 CPUs, 100GiB+ free disk space
+** Worker nodes 32 GiB, 8 CPUs, 100GiB+ free disk space
+
+* Minimal hardware requirements for production
+** Management workstation 16 GiB RAM, 4 CPUs, 
+** At least 7 nodes are needed for a production grade Kubernetes cluster
+** Master nodes 16 GiB RAM, 4+ CPUs, 100 GiB+ free disk space
+** Worker nodes 64 GiB RAM, 16+ CPUs, 120 GiB+ free disk space
+
+* see Rancher documentation
+
+* For more sizing information see the SAP documentation that can be found here:
+// FIXME add link to SAP sizing guide for DI
+** https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
+
+=== Software Requirements
+
+Here we list the software components needed to install SAP DI 3.1 on RKE 1:
+
+* SUSE Linux Enterprise Server 15 SP2
+
+* Rancher RKE 1
+
+* SAP Software Lifecycle Bridge
+
+* SAP Data Intelligence 3.1
+
+* Secure private registry for container images
+
+* Access to a storage solution providing dynamically physical volumes
+
+
+== Preparations
+
+* Get SUSE SLES subscription
+
+* download installer for SLES 15 SP2
+
+* download rke binary
+
+* check storage requirements
+
+* create or get access to a private container registry
+
+* get an SAP S-user to access software and documentation by SAP
+
+* read relevant SAP documentation
+** Release Note for SAP DI 3
+** SAP SLCBridge
+** Installation Guide at help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
+
+
+
+== Installation of Rancher RKE 1 Cluster
+
+===  Preparation of Management Host and Kubernetes Cluster Nodes
+
+On all nodes SUSE Enterprise Linux 15 SP2 will be the OS of choice.
+
+* See https://documentation.suse.com/sles/15-SP2/
+
+==== Installation of SUSE Linux Enterprise Server 15 SP2
+
+Install on each server in your environment for SAP Data Intelligence 3 SUSE Linux Enterprise Server SP2 or greater.
+Make sure to not configure swap for the nodes dedicated for Kubernetes. It is highly recommended to use a static network setup for all nodes in this environment.
+Use the following setup for installing SLES:
+
+* SLES 15 SP2
+* add basesystem and application server module at least 
+* add container module 
+
+
+==== Configuration of SUSE Linux Enterprise 15 SP2 (SLES 15 SP2)
+
+* static IP configuration is highly recommended
+* deploy a text based install
+* configure ntp client
+* disable firewall
+* enable ssh access
+* disable kdump
+* register installation to SUSE Customer Center or a SMT/RMT server to obtain updates during installation and afterwards
+
+
+=== Configure Management Workstation
+
+The management workstation is used to deploy and administer the kubernetes cluster and the workloads running on it.
+
+
+
+=== Install RKE
+
+In order to install Rancher RKE 1 on the cluster nodes download the RKE 1 binary to your management workstation, create the configuration for the Kubernetes cluster and deploy cluster.
+The single steps are described in the following.
+For reference see the documentation provided by Rancher.
+
+* https://rancher.com/docs/rke/latest/en/installation/
+
+
+==== Download RKE
+
+To download the RKE binary go to the RKE product page and choose "download RKE":
+
+* https://rancher.com/products/rke/
+
+Follow the link to the latest stable release, get the amd64-binary as shown in the example below:
+
+----
+$ mkdir rke
+$ cd rke
+$ curl -LO https://github.com/rancher/rke/releases/download/v1.0.16/rke_linux-amd64
+$ mv rke_linux-amd64 rke
+$ chmod a+x rke
+----
+
+==== Create the  configuration for the RKE cluster
+
+Running the RKE configure option creates the configuration file for the Kubernetes cluster as a yaml-file in an interactive process.
+Make sure to have IP addresses of the dedicated cluster nodes at hand.
+
+----
+$ cd rke
+$ ./rke configure --name <name of your config file>
+----
+
+==== Deploy RKE
+
+----
+$ cd rke
+$ ./rke up --config <name of your config file>
+----
+
+This will create kubeconfig for accessing the Kubernetes cluster in the current directory.
+Please create a backup of the files contained in this directory (here: rke/).
+
+
+==== Check the installation
+
+Download a matching kubectl version to the management workstation:
+
+* Example for kubectl version 1.17.17:
+
+----
+$ curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.17.17/bin/linux/amd64/kubectl
+$ chmod a+x kubectl
+# cp -av kubectl /usr/bin/kubectl
+----
+
+
+Verify by running:
+
+----
+$ export KUBECONFIG=<PATH to your kubeconfig>
+$ kubectl version
+$ kubectl get nodes
+----
+
+
+== Installation of SAP DI 3.1
+
+
+=== Preparations
+
+These are the steps to fulfill before the deployment of SAP DI 3.1 can start:
+
+* create a namespace for SAP DI 3.1
+* create access to secure private registry
+* create a default storage class
+* download and install SAP SLCBridge
+* download the stack.xml file for provisioning the DI 3.1 install
+
+==== Create namespace for SAP DI 3.1 in the Kubernetes cluster
+
+Log on your management workstation and create the namespace in the Kubernetes cluster where DI 3.1 will be deployed.
+
+----
+$ kubectl create ns <NAMESPACE for DI 31>
+$ kubectl get ns
+----
+
+==== Create cert file for accessing the secure private regsitry
+
+Create a file named cert that contains the SSL certificate chain for the secure private registry.
+
+----
+$ cat CA.pem > cert
+$ kubectl -n <NAMESPACE for DI 31> create secret generic cmcertificates --from-file=cert
+----
+
+
+=== Create default storage class
+
+In order to install SAP DI 3.1 a default storage class is needed to provision the installation with physical volumes (PV).
+
+Here is an example for a ceph/rbd based storage class that uses the CSI.
+
+Create the yaml files for the storage class, get in contact with your storage admin to get the information needed:
+
+Create config-map:
+
+----
+$ cat >csi-config-map.yaml<<EOF
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    [
+      {
+        "clusterID": "<ID of your ceph cluster>",
+        "monitors": [
+          "<IP of Monitor 1>:6789",
+          "<IP of Monitor 2>:6789",
+          "<IP of Monitor 3>:6789"
+        ]
+      }
+    ]
+metadata:
+  name: ceph-csi-config
+EOF
+----
+
+Create a secret to access the storage:
+
+----
+$ cat >csi-rbd-secret.yaml<<EOF
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-rbd-secret
+  namespace: default
+stringData:
+  userID: admin
+  userKey: AQCR7htglvJzBxAAtPN0YUeSiDzyTeQe0lveDQ==
+EOF
+----
+
+Download
+
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin-provisioner.yaml
+----
+
+Download
+
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin.yaml
+----
+
+Create pool on ceph storage where the PVs will be created, insert the poolname and the Ceph cluster id:
+
+----
+$ cat >csi-rbd-sc.yaml<<EOF
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+   name: csi-rbd-sc
+provisioner: rbd.csi.ceph.com
+parameters:
+   clusterID: <your ceph cluster id>
+   pool: <your pool>
+   csi.storage.k8s.io/provisioner-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/provisioner-secret-namespace: default
+   csi.storage.k8s.io/node-stage-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/node-stage-secret-namespace: default
+reclaimPolicy: Delete
+mountOptions:
+   - discard
+EOF
+----
+
+Create config for encryption, this is needed else the deploment of the CSI driver for ceph/rbd will fail.
+
+----
+$ cat >kms-config.yaml<<EOF
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    {
+      },
+      "vault-tokens-test": {
+          "encryptionKMSType": "vaulttokens",
+          "vaultAddress": "http://vault.default.svc.cluster.local:8200",
+          "vaultBackendPath": "secret/",
+          "vaultTLSServerName": "vault.default.svc.cluster.local",
+          "vaultCAVerify": "false",
+          "tenantConfigName": "ceph-csi-kms-config",
+          "tenantTokenName": "ceph-csi-kms-token",
+          "tenants": {
+              "my-app": {
+                  "vaultAddress": "https://vault.example.com",
+                  "vaultCAVerify": "true"
+              },
+              "an-other-app": {
+                  "tenantTokenName": "storage-encryption-token"
+              }
+          }
+       }
+    }
+metadata:
+  name: ceph-csi-encryption-kms-config
+EOF
+----
+
+Deploy the ceph/rbd CSI and storage class: 
+
+----
+$ kubectl apply -f csi-config-map.yaml
+$ kubectl apply -f csi-rbd-secret.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-provisioner-rbac.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-nodeplugin-rbac.yaml
+$ kubectl apply -f csi-rbdplugin-provisioner.yaml 
+$ kubectl apply -f csi-rbdplugin.yaml 
+$ kubectl apply -f csi-rbd-sc.yaml 
+$ kubectl apply -f kms-config.yaml
+$ kubectl patch storageclass csi-rbd-sc -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+----
+
+Check your storage class:
+
+----
+$ kubectl get sc
+NAME                   PROVISIONER        RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+csi-rbd-sc (default)   rbd.csi.ceph.com   Delete          Immediate           false                  103m
+----
+
+A possible valid alternative is to deploy Longhorn storage for the PVs.
+
+
+
+
+=== Download SLCBridge
+
+The SLCBridge can be obtained via the following ways
+
+
+=== Download Stack XML
+
+Create a stack xml
+
+
+=== Install the SLCBridge
+
+----
+$ mv SLCB01_XX-70003322.EXE slcb
+$ chmod 0700 slcb
+$ ./slcb init
+----
+During the interactive install the following information is needed:
+
+* URL of secure private registry
+* choose expert mode
+* choose NodePort for the service
+
+Take a note of the service port of the slcbridge, it is needed for the install of SAP DI 3.1 or re-configuring DI 3.1, e.g. enabling backup.
+
+----
+$ kubectl -n sap-slcbridge get svc
+----
+
+
+=== Run the Installation of SAP DI
+
+The installation of SAP DI 3.1 is invoked by:
+
+----
+$ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
+----
+
+This starts an interactive process for configuring and deploying SAP DI 3.1.
+
+
+=== Post-Installation Tasks
+
+* create ingress to access the SAP DI installation
+
+* download vctl
+
+=== Test of Data Intelligence Installation
+
+* create example pipeline
+
+* create ML Scenario
+
+* test machine learning
+
+
+== Troubleshooting
+
+== Day 2 Operation considerations
+
+* security
+
+* availability
+
+
+== Maintenance Tasks
+
+=== Backup
+
+=== Upgrade/Update
+
+
+

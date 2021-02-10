@@ -1,0 +1,1330 @@
+:docinfo:
+
+= SAP Data Intelligence 3 on CaaS Platform 4.2
+
+== Introduction
+
+This guide describes the installation of SAP Data Intelligence 3 on premise on top of SUSE CaaS Platform 4.
+
+== Pre-requisites
+
+=== Hardware
+
+* Sizing
+
+For sizing information see the SAP documentation that can be found here:
+// FIXME add link to SAP sizing guide for DI
+
+* Minimal requirements
+
+At least 8 nodes are needed for a production grade Kubernetes cluster:
+
+* 3 master nodes
+
+* 4 worker nodes
+
+* 1 or 2 Loadbalancer(s) ; those can be virtual machines.
+
+For the installation of CaaSP 4.2 additional hosts are needed
+
+* Management host ; this host can be a virtual machine.
+
+* registry for storing container images ; this can be a virtual machine.
+
+
+=== Software
+
+* SLE 15 SP1
+
+* SUSE CaaSP 4.2
+
+
+
+== Installation of SUSE CaaSP 4.2
+
+=== Documentation
+
+The SUSE CaaS Platform 4.2 is documented here.
+
+* SUSE product documentation link:https://documentation.suse.com/suse-caasp/4.2/
+
+
+// CAVE!
+// This has to be removed when the fix is shipped as maintenance update.
+// Due to a bug in cri-o version shipped with SUSE CaaSP 4.2 at the time of this writing, it is necessary to ask SUSE for a PTF for SUSE bug bsc# 117400.
+// Download the PTF and install it on all your CaaSP cluster nodes.
+
+// Link to the SUSE TID How to install a PTF.
+
+=== Preparations
+
+Install on all nodes SLE 15 SP1 or higher (as released for CaaS Platform 4.x).
+The following Modules/Products are required on the respective hosts:
+
+* Management host
+
+** SLE 15 SP1
+** SLE 15 SP1 Containers Modules
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
+
+
+* Kubernetes master nodes
+
+** SLE 15 SP1
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
+
+* Kubernetes worker nodes
+
+** SLE 15 SP1
+** SLE 15 SP1 Public Cloud
+** SUSE CaaSP 4
+
+* Loadbalancer host
+
+** SLES 15 SP1 for SAP applications
+
+or
+
+** SLE 15 SP1 plus High Availability Extension
+
+=== Base installation of the CaaSP 4 cluster nodes
+
+* Install SLE 15 SP1
+
+** Do not configure swap space for the Kubernetes nodes!
+
+See SLE 15 SP1 Deployment Guide as well as the SUSE CaaSP Deployment Guide
+
+
+
+=== Installing the loadbalancer for the Kubernetes cluster
+
+* Install SLE 15 SP1
+* Install ha-proxy or nginx
+* Configure the loadbalancer
+
+See SUSE CaaSP Deployment Guide
+
+=== Installation of the Management workstation
+
+* Install SLE 15 SP1
+
+* Add necessary SLE 15 SP1 modules
+----
+$ sudo SUSEConnect -r CAASP_REGISTRATION_CODE
+$ sudo SUSEConnect -p sle-module-containers/15.1/x86_64
+$ sudo SUSEConnect -p caasp/4.0/x86_64 -r CAASP_REGISTRATION_CODE
+$ sudo SUSEConnect -p sle-module-python2/15.1/x86_64
+----
+=== Bootstrap the SUSE CaaSP 4 Cluster
+
+Run skuba tool for initialisation of the cluster.
+Make sure that ssh is working between all nodes without using passwords and configure ssh-agent.
+
+$ eval `ssh-agent`
+$ ssh-add <path to key>
+
+----
+$ skuba cluster init --control-plane <LB IP/FQDN> my-cluster
+----
+
+Bootstrap the cluster
+
+----
+$ cd my-cluster
+$ skuba node bootstrap --target <IP/FQDN> <NODE NAME>
+----
+
+Add additional master nodes
+----
+$ cd my-cluster
+$ skuba node join --role master  --target <IP/FQDN> <NODE NAME>
+----
+Repeat for all master nodes
+
+Add worker nodes
+----
+$ cd my-cluster
+$ skuba node join --role worker --target <IP/FQDN> <NODE NAME>
+----
+Repeat for all worker nodes.
+
+Finally check cluster status.
+----
+$ cd my-cluster
+$ skuba cluster status
+$ cp -av  ~/my-cluster/admin.conf  ~/.kube/config
+$ kubectl get nodes -o wide
+----
+
+++++
+<?pdfpagebreak?>
+++++
+== Secure private Docker Registry for container images
+
+TIP: This step is optional if you already have a private secure Docker registry. If you do skip this chapter, follow the instructions at <<SUSE Enterprise Storage>>
+
+To satisfy SAP Data Intelligence 3 requirements you also need a Docker Registry.
+The easiest way to build and manage it comes with the project Harbor.
+
+** link:https://goharbor.io/[Harbor]
+
+First you need to create a dedicated server for your Docker registry and Harbor stack.
+
+WARNING: As docker does only allow characters within [a-z],[A-Z],[0-9] and '-' for domain names, make sure your FQDN does not contain other characters.
+
+In our example the server will be connected to a local bridge which provides common services (DNS, SMT, Docker-registry) for the SAP Data Intelligence stack.
+The FQDN of this server will be *Harbor-Registry.example.com*.
+
+=== Prerequistes
+
+The prerequisites for Harbor can be taken from link:https://goharbor.io/docs/2.1.0/install-config/installation-prereqs/
+
+According to this, you'll need to install Docker and Docker Compose before you can setup Harbor.
+
+To install Docker you can simply run:
+
+----
+# zypper in -y docker
+----
+
+To install Docker Compose, you'll need to download the executable from the GitHub repository and put it into a directory within you $PATH.
+Therefore you can run:
+
+----
+# curl -L "https://github.com/docker/compose/releases/download/1.25.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+
+# chmod +x /usr/local/bin/docker-compose
+
+# ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+----
+
+The next steps are about to generate the certificates used to make Harbor secure, which can also be found at link:https://goharbor.io/docs/2.1.0/install-config/configure-https/[Configure HTTPS Access to Harbor].
+
+First step is to generate a CA certificate private key.
+
+----
+# openssl genrsa -out ca.key 4096
+----
+
+Then generate a certificate with the given key for your domain. For all further steps, replace <FQDN> with your fully qualified domain name. In our example this would be *Harbor-Registry.example.com*
+----
+# openssl req -x509 -new -nodes -sha512 -days 3650 \
+  -subj "/C=DE/ST=BW/O=SUSE/CN=<FQDN>" \
+  -key ca.key \
+  -out ca.crt
+----
+
+Your CA certificate is now ready for use.
+Next, you'll need to generate a server certificate, which can be done by running:
+
+----
+# openssl genrsa -out <FQDN>.key 4096
+----
+
+
+Generate a certificate signing request (CSR)
+
+----
+# openssl req -sha512 -new \
+  -subj "/C=DE/ST=BW/O=SUSE/CN=<FQDN>" \
+  -key <FQDN>.key \
+  -out <FQDN>.csr
+----
+
+Create an x509 v3 extension file with the following content:
+
+----
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=<FQDN>
+DNS.2=<hostname>
+----
+
+Now use the extension file to generate a certificate:
+
+----
+# openssl x509 -req -sha512 -days 3650 \
+  -extfile v3.ext \
+  -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -in $fqdn.csr \
+  -out $fqdn.crt
+----
+
+Copy the .crt and .key file to the systems certificate directory:
+
+----
+# cp <FQDN>.crt /etc/pki/trust/anchors/
+# cp <FQDN>.key /etc/pki/trust/anchors/
+----
+
+As Docker interprets .crt files as CA certificates and .cert files as clients, you'll need to convert your .crt:
+
+----
+# openssl x509 -inform PEM -in <FQDN>.crt -out $<FQDN>.cert
+----
+
+You can now copy the create certificates to your docker certificate folder. If your folder '/etc/docker/certs.d' does not exist, create it.
+
+----
+# mkdir /etc/docker/certs.d/<FQDN>
+# cp <FQDN>.cert /etc/docker/certs.d/<FQDN>/
+# cp <FQDN>.key /etc/docker/certs.d/<FQDN>/
+# cp ca.crt /etc/docker/certs.d/<FQDN>/
+----
+
+INFO: If you want to expose your registry on a different port then 443, you'll need to create a folder '/etc/docker/certs.d/<FQDN>:<Port>' and copy the certs to this directory instead.
+
+In order to introduce the certificates to Docker, you'll need to restart the docker daemon:
+
+----
+# systemctl restart docker
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Setup Harbor
+
+Get Harbor and extract it:
+
+----
+# wget https://github.com/goharbor/harbor/releases/download/v2.1.1/harbor-online-installer-v2.1.1.tgz
+# tar xvf harbor-online-installer-v2.1.1.tgz
+----
+
+Enter the extracted directory:
+
+----
+# cd harbor
+----
+
+Within this directory you should find a file called 'harbor.yml.tmpl'. It holds the configuration for the Harbor Registry and needs to be adjusted.
+First, you'll need to edit the field *hostname* and enter your FQDN.
+Next is the *https* configuration. The subentries *certificate* and *private_key* need to be adjusted, so they point to the .crt and .key file you created in <<Prerequistes>>.
+This then my look like:
+
+image::harbor_yml.png[Harbor Configuration File.png,480,640]
+
+If you want to expose registry on a different port than 443, you can change the subentry *port* to match your desired port.
+
+Further you can change the admin password for Harbor which is defined at the field *harbor_admin_password: Harbor12345* by default.
+
+Last mentionable file is *data_volume: /data* which defines where all your Harbor data is going to. If you want Harbor to store the data somewhere else, enter the path to the desired directory here.
+
+When done save your changes and rename the file by removing the suffix *.tmpl*:
+
+----
+# mv harbor.yml.tmpl harbor.yml
+----
+
+AS Harbor uses nginx as a reverse proxy for all services, you'll need to run the prepare script to configure it correctly:
+
+----
+# ./prepare
+----
+
+You can now start up the needed containers using Docker Compose:
+
+----
+# docker-compose up -d
+----
+
+Harbor should now be up and running.
+Distribute the CA certificate to all Kubernetes nodes, so they can access the registry.
+Therefore you may run following commands on the Kubernetes nodes:
+
+----
+# scp <FQDN>:/etc/docker/certs.d/<FQDN>/ca.crt /etc/docker/certs.d/<FQDN>/<FQDN>.crt
+# systemctl restart docker
+
+----
+
+For the example <FQDN> of *Harbor-Registry.example.com* this looks like:
+
+----
+# scp Harbor-Registry.example.com:/etc/docker/certs.d/Harbor-Registry.example.com/ca.crt /etc/docker/certs.d/Harbor-Registry.example.com/Harbor-Registry.example.com.crt
+# systemctl restart docker
+----
+
+
+=== Verify configuration and setup Harbor projects
+
+To verify Harbor is running, you may access its Web-Frontend by calling link:https://<FQDN>[] from your browser.
+You may get a warning about an insecure certificate which looks something like:
+
+image::harbor_security_warning.png[Harbor Certificate Warning,480,640]
+
+You can toggle the lower box by clicking *Advanced...*.
+Then click *Accept the Risk and Continue*.
+You're now redirected to the login page of your Harbor registry.
+
+image::harbor_login.png[Harbor Login,480,640]
+
+Enter the admin as the Username and enter the password specified in the 'harbor.yml' (By default this is *Harbor12345*).
+You're now redirected to the projects page which holds the *libraries* project by default.
+
+image::harbor_projects.png[Harbor Projects,480,640]
+
+// TODO projects aufsetzen
+
+You may further check if the docker clients on your Kubernetes nodes are able to access the registry.
+Therefore run:
+
+----
+# docker login <FQDN>
+----
+
+You will be prompted to enter a username a password.
+Use *admin* for the username and the password you set in your 'harbor.yml' (default: *Harbor12345*).
+
+If docker is able to access the registry, you will see a line like "Login Succeeded".
+
+
+If your machines are not able to resolve the FQDN of your registry, edit your '/etc/hosts' and add a line like:
+
+----
+<IP>  <FQDN>  <Hostname>
+----
+
+In our example this then looks like this:
+
+----
+192.168.180.100  Harbor-Registry.example.com  Harbor-Registry
+----
+
+
+
+//TODO remove everything below for this chapter
+
+Create the namespaces on your registry that are needed for SAP Data Intelligence 3:
+
+* com.sap.hana.container
+
+* com.sap.datahub.linuxx86_64
+
+* com.sap.datahub.linuxx86_64.gcc6
+
+* consul
+
+* elasticsearch
+
+* fabric8
+
+* google_containers
+
+* grafana
+
+* kibana
+
+* prom
+
+* vora
+
+* kaniko-project
+
+* com.sap.bds.docker
+
+++++
+<?pdfpagebreak?>
+++++
+== SUSE Enterprise Storage
+
+TIP: This step is optional if you already have a storage that provides rbd volumes and/or S3 buckets. If you do skip this chapter and follow the instructions at <<Installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2>>
+
+SAP Data Intelligence 3 installation on premise requires SUSE Enterprise Storage 5.5 or higher.
+If you plan to use SUSE Enterprise Storage not only for your Kubernetes dynamic storageclass but also for your Kubernetes Control plan, virtualised or not, you should reserve enough resources to address etcd requirements regarding
+** link:https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/hardware.md[etcd Hardware]
+
+Follow the next steps to deploy a minimalistic, virtualised, test oriented, SUSE Enterprise Storage 6.
+
+In the following exemple, we’re going to build a 4 nodes (1 admin + 3 OSD) Ceph Cluster.
+
+=== Before starting
+
+* Collect your SUSE Linux Enterprise Server 15 SP1 and SUSE Enterprise Storage registration code from scc.suse.com or have a SMT/RMT properly set up and already mirroring theses products.
+
+** link:https://scc.suse.com[SCC]
+** link:https://documentation.suse.com/smt/11.3/html/SLE-smt/index.html[SMT]
+
+++++
+<?pdfpagebreak?>
+++++
+
+
+ image::scc-sles.png[scc-sle,480,640]
+
+ image::scc-ses.png[scc-ses,480,640]
+
+
+=== Setup the machines
+
+Download the installation media for SLES 15 SP1 e.g. from:
+
+** link:https://www.suse.com/de-de/products/server/download/[]
+** link:https://www.suse.com/de-de/products/suse-enterprise-storage/download/[]
+
+To install boot the desired machine and insert the installation media.
+After boot, you should see a screen like this:
+
+image::SLES_Setup_Init.png[SLES Setup Initial Page,480,640]
+
+
+Select your prefered language and keyboard layout. Then select
+the option *SUSE Linux Enterprise Server 15 SP1* and click the *Next* button.
+
+You then need to agree to the license agreement and click the *Next* button again.
+
+The registration screen is now to be displayed.
+
+image::SLES_Setup_Registration.png[SLES Setup Registration Page,480,640]
+
+Now either enter your email + registration code you collected from the SCC as described in the chapter before, or select *Register System via local SMT Server* and enter the URL of your SMT server.
+
+If required, you can use the *Network Configuration* button at the top right, to configure your network settings.
+
+image::SLES_Setup_AddOn.png[SLES Setup Add On Product Page, 480,640]
+
+When registered the system, you will be shown the *Add On Product* page which you can skip by clicking the *Next* button again.
+
+image::SLES_Setup_Partitioning.png[SLES Setup Partitioning Page, 480,640]
+
+The *Suggested Partitioning* page will be shown. You may now edit the proposed partitioning if needed. For this guide, we'll use the proposal and continue by clicking the *Next* button.
+
+image::SLES_Setup_TimeZone.png[SLES Setup Clock and Time Zone Page, 480,640]
+
+On the *Clock and Time Zone* page you should select your prefered Region and TimeZone. Then click *Other Settings* to open the *Change Date and Time* page. Select the *Synchronize with NTP-Server* option. You can then choose a NTP server of your choice and click the *Accept* button.
+
+image::SLES_Setup_NTP.png[SLES Setup Change Date and Time Page, 480,640]
+
+IMPORTANT: All machines in the cluster should synchronize with the same NTP-Server!
+
+image::SLES_Setup_User.png[SLES Setup Create User Page, 480,640]
+
+Next, you can create a user with name and password of your choice. When done confirm and again click the *Next* button.
+
+image::SLES_Setup_Firewall.png[SLES Setup Installation Settings Page, 480,640]
+
+You now will see the *Installation Settings* page, where you need to disable the firewall. You can achieve this by clicking the *disable* button after *Firewall will be enabled*.
+
+image::SLES_Setup_Extensions.png[SLES Setup Extension Page, 480,640]
+
+Last installation step is the *Extension and Module Selection* where you can pick the option for *SUSE Enterprise Storage 6 x86_64*.
+
+Setup at least four machines this way.
+
+=== Setup SUSE Enterprise Storage
+
+Check that your machines have correctly entered hostnames:
+----
+# hostname -f
+----
+
+This should output the FQDN of the machine. If this is not the case, you can use following command to set it:
+----
+# hostnamectl --set-hostname <FQDN>
+----
+
+For this guide we'll use the *admin.example.com, mon1.example.com, mon2.example.com* and *mon3.example.com* as the machines names.
+
+To ensure the DNS for those names works properly, you might edit the `/etc/hosts` file on the nodes as followed: +
+----
+127.0.0.1   localhost
+<Admin-IP>  admin.example.com admin
+<Mon1-IP>   mon1.example.com  mon1
+<Mon2-IP>   mon2.example.com  mon2
+<Mon3-IP>   mon3.example.com  mon3
+----
+
+If you don't know the ip of your machine, run:
+----
+$ ip a
+----
+
+which outputs something like:
+
+image::fetch_ip.png[Fetch IP, 480,640]
+
+On the OSD nodes install salt-minion and deepsea:
+----
+# zypper in -y salt-minion deepsea
+----
+
+On the admin node install salt-minion, salt-master and deepsea:
+----
+# zypper in -y salt-minion salt-master deepsea
+----
+
+
+Set the salt master on all machines by editing the associated line:
+----
+# echo "master: admin.example.com" > /etc/salt/minion
+----
+
+
+On the admin node, enable the salt-master service:
+----
+# systemctl enable salt-master --now
+----
+
+Enable the salt-minion service:
+----
+# systemctl enable salt-minion --now
+----
+
+Now accept the salt-keys on the admin node:
+----
+# salt-key --accept-all -y
+----
+
+
+To check the keys, the following command can be used:
+----
+# salt-key -L
+----
+
+This should output something like:
+
+image::salt-key.png[salt-key.png,240,319]
+
+
+Make all nodes deepsea minions:
+----
+# echo "deepsea_minions: '*'" > /srv/pillar/ceph/deepsea_minions.sls
+----
+
+Sync your salt-minions:
+----
+# salt '*' saltutil.sync_all
+----
+
+Make sure your desired disks are all cleared. Therefore you can use something like:
+----
+# wipefs -a /dev/vdb
+----
+
+Be aware, that you might need to change the device (vdb) here.
+Also make sure you clear your disks on all nodes.
+
+Next, apply the cleared disks by using:
+----
+# salt '*' state.apply ceph.subvolume
+----
+
+++++
+<?pdfpagebreak?>
+++++
+You now can run the first stages to deploy the CEPH cluster.
+First, prepare the cluster: +
+----
+# salt-run state.orch ceph.stage.prep
+----
+
+If you want, you can watch the progress of your ceph stages in a seperated terminal with:
+----
+$ deepsea monitor
+----
+
+
+++++
+<?pdfpagebreak?>
+++++
+The result for the preparation stage then looks like:
+
+image::ceph-stage-0.png[ceph-stage-0.png,480,500]
+
+++++
+<?pdfpagebreak?>
+++++
+Next stage to run is to collect informations about the nodes:
+
+----
+# salt-run state.orch ceph.stage.discovery
+----
+
+image::ceph-stage-1.png[ceph-stage-1.png,480,640]
+
+
+++++
+<?pdfpagebreak?>
+++++
+Before you can run the last three stages, you will need to provide a role configuration for the nodes, which will be stored in  `/srv/pillar/ceph/proposals/policy.cfg`.
+The following configuration is used for this example:
+
+----
+#General config
+config/stack/default/global.yml
+config/stack/default/ceph/cluster.yml
+
+#CEPH Cluster members
+cluster-ceph/cluster/admin.example.com.sls
+cluster-ceph/cluster/mon1.example.com.sls
+cluster-ceph/cluster/mon2.example.com.sls
+cluster-ceph/cluster/mon3.example.com.sls
+
+#CEPH Admin nodes
+role-admin/cluster/mon1.example.com.sls
+role-admin/cluster/mon2.example.com.sls
+role-admin/cluster/mon3.example.com.sls
+
+#CEPH Master node
+role-master/cluster/admin.example.com.sls
+
+#CEPH Manager nodes
+role-mgr/cluster/mon1.example.com.sls
+role-mgr/cluster/mon2.example.com.sls
+role-mgr/cluster/mon3.example.com.sls
+
+#CEPH Monitor nodes
+role-mon/cluster/mon1.example.com.sls
+role-mon/cluster/mon2.example.com.sls
+role-mon/cluster/mon3.example.com.sls
+
+#CEPH RGW nodes
+role-rgw/cluster/admin.example.com.sls
+role-rgw/cluster/mon1.example.com.sls
+role-rgw/cluster/mon2.example.com.sls
+role-rgw/cluster/mon3.example.com.sls
+
+#CEPH Storage nodes
+role-storage/cluster/admin.example.com.sls
+role-storage/cluster/mon1.example.com.sls
+role-storage/cluster/mon2.example.com.sls
+role-storage/cluster/mon3.example.com.sls
+----
+
+++++
+<?pdfpagebreak?>
+++++
+You can now safely deploy your configuration:
+----
+# salt-run state.orch ceph.stage.configure
+----
+
+image::ceph-stage-2.png[ceph-stage-2.png,480,500]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Deploy your configuration to the cluster
+----
+# salt-run state.orch ceph.stage.deploy
+----
+
+image::ceph-stage-3.png[ceph-stage-3.png,480,500]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Once the deployment stage  has been successfully passed, check the cluster health to insure that all is running properly.
+
+----
+# ceph -s
+----
+
+image::ceph-health.png[ceph-health.png,480,640]
+
+
+++++
+<?pdfpagebreak?>
+++++
+Last stage to run is to deploy the service roles, which where specified in the policy.cfg:
+
+----
+# salt-run state.orch ceph.stage.services
+----
+
+
+image::ceph-stage-4.png[ceph-stage-4.png,480,500]
+
+=== Access the Dashboard and create a new pool
+
+After the CEPH cluster is now up and running, a pool needs to be created for Data Intelligence.
+In this example we'll use the dashboard for this purpose.
+
+The dashboard is published by any of the monitor nodes.
+To access it, use the browser of your choice to address the dashboard:
+
+image::ceph-dashboard-login.png[ceph-dashboard-login.png,480,640]
+
+The credentials to login can be fetched by running the following command on the admin node:
+
+----
+# salt-call grains.get dashboard_creds
+----
+
+image::ceph-dashboard-creds.png[ceph-dashboard-creds.png,480,640]
+
+After login the landing page should be shown. Select the pools tab at the top of the page:
+
+image::ceph-dashboard-landing.png[ceph-dashboard-creds.png,480,640]
+
+The pools page gives an overview of the currently defined pools. Click the button *Create* at the top of the table to create a new pool:
+
+image::ceph-dashboard-pools.png[ceph-dashboard-pools.png,480,640]
+
+Enter the name of the pool and select *replicated* for the *Pool type*. Click on the pencil on the left hand side of *Applications* and choose *rbd*. Confirm the creation of the pool by clicking the *CreatePool* Button at the bottom.
+
+IMPORTANT: Remember the name of the pool as it's needed in chapter <<Create Storage Class>>
+
+image::ceph-dashboard-create-pool.png[ceph-dashboard-create-pool.png,480,640]
+
+++++
+<?pdfpagebreak?>
+++++
+
+After this the pools page is shown again and the newly created pool is shown in the table of pools.
+
+image::ceph-dashboard-pools2.png[ceph-dashboard-pools2.png,480,640]
+
+Now it's needed to provide access to this pool through a RBD device.
+Therefore access the rdb overview page by selecting *Block->Images*
+
+image::ceph-dashboard-access-rbd.png[ceph-dashboard-access-rbd.png,480,640]
+
+An overview of the configured rdb's is now displayed.
+Click on the *Create* button.
+
+image::ceph-dashboard-rbd.png[ceph-dashboard-rbd.png,480,640]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Enter the name and choose the previously created pool if it itn't already. Choose the size of the RBD and confirm the creation by clicking the *CreateRBD* button to create the RBD.
+
+image::ceph-dashboard-create-rbd.png[ceph-dashboard-create-rbd.png,480,640]
+
+The overview page of the RBD's is shown again containg your newly created RBD.
+
+image::ceph-dashboard-rbd2.png[ceph-dashboard-rbd2.png,480,640]
+
+The SUSE Enterprise Storage cluster is now ready for the usage with SAP Data Intelligence.
+
+++++
+<?pdfpagebreak?>
+++++
+== Installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2
+
+=== Documentation
+
+// FIXME add links
+
+* SAP Notes:
+
+** Release Notes for SAP Data Intelligence 3
+   link:https://launchpad.support.sap.com/#/notes/2871970
+
+** Installation Notes
+
+* Installation Guide for SAP Data Intelligence
+  link:https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.0.latest/en-US
+
+
+++++
+<?pdfpagebreak?>
+++++
+=== Planning the Installation with the SAP Maintenance Planner
+
+For the installation of SAP Data Intelligence you have to start with the SAP Maintenance Planner that can be reached by this URL:
+You also need your SAP S-User at hand.
+
+link:https://support.sap.com/en/alm/solution-manager/processes-72/maintenance-planner.html[SAP Maintenance Planner]
+
+The landing page of the SAP Maintenance Planner looks like this:
+
+image::SAP-DI-30-CaaSP42-0001.png[title="SAP Maintenance Planner Start page",480,640,scaledwidth=80%,align=center]
+
+Click on *Plan a New System* on the right hand side. The next page shown looks like:
+
+image::SAP-DI-30-CaaSP42-0002.png[title="SAP Maintenance Planner: Select Plan",480,640,scaledwidth=80%,align=center]
+
+A circle is shown in which all options to click are greyed out, except for *Plan*. Click it.
+
+++++
+<?pdfpagebreak?>
+++++
+Next page shows the "Define Change" step of your planing.
+
+image::SAP-DI-30-CaaSP42-0003.png[title="SAP Maintenance Planner: Select Container Based Product",480,640,scaledwidth=80%,align=center]
+
+On the left hand side there is a window with three toggle buttons. Choose *CONTAINER BASED* and click *OK*.
+
+image::SAP-DI-30-CaaSP42-0004.png[title="SAP Maintenance Planner: Select Container Based Product #2",480,640,scaledwidth=80%,align=center]
+
+++++
+<?pdfpagebreak?>
+++++
+To its right, the option *SAP DATA INTELLIGENCE* should show up. As you select it, a sub selection open with the choices for *SAP DATA INTELLIGENCE 3* and *SAP DATA HUB 2*.
+Choose *SAP DATA INTELLIGENCE 3*.
+
+image::SAP-DI-30-CaaSP42-0005.png[title="SAP Maintenance Planner: Select Data Intelligence 3",480,640,scaledwidth=80%,align=center]
+
+A pop up window appears to inform you about the related SAP note. Click *continue* to go ahead.
+
+image::SAP-DI-30-CaaSP42-0006.png[title="SAP Maintenance Planner: Select Continue",480,640,scaledwidth=80%,align=center]
+
+++++
+<?pdfpagebreak?>
+++++
+On the right hand side a drop down menu is shown with *Select Support Package Stack*. Click it and select from the available patch levels as you need.
+
+image::SAP-DI-30-CaaSP42-0007.png[title="SAP Maintenance Planner: Choose from available patch levels as you need. ",480,640,scaledwidth=80%,align=center]
+
+To it's left, subselection for *SAP DATA INTELLIGENCE 3* changes. Select what you need and click on the *Confirm Selection* at the very right.
+
+image::SAP-DI-30-CaaSP42-0008.png[title="SAP Maintenance Planner: Choose according your needs and confirm.",480,640,scaledwidth=80%,align=center]
+
+++++
+<?pdfpagebreak?>
+++++
+An overview of your selection is shown. If it fits your needs, click on the *Next* button at the upper right corner.
+
+image::SAP-DI-30-CaaSP42-0009.png[title="SAP Maintenance Planner: Choose next if satisfied",480,640,scaledwidth=80%,align=center]
+
+Next, your about to choose the operating system where SAP Data Intelligence is installed on. Select *Linux on x86_64 64bit* and click *Confirm Selection*.
+
+image::SAP-DI-30-CaaSP42-0010.png[title="SAP Maintenance Planner: Choose Linux and confirm",480,640,scaledwidth=80%,align=center]
+
+++++
+<?pdfpagebreak?>
+++++
+The next page shows the preselected files to use/download. Click the *Next* button on the upper right again.
+
+image::SAP-DI-30-CaaSP42-0011.png[title="SAP Maintenance Planner: Confirm",480,640,scaledwidth=80%,align=center]
+
+You are now shown the "Download Files" page. The needed SLC bridge is already preselected. Click *Next* again to go ahead.
+
+image::SAP-DI-30-CaaSP42-0012.png[title="SAP Maintenance Planner: Execute Plan",480,640,scaledwidth=80%,align=center]
+
+++++
+<?pdfpagebreak?>
+++++
+Your maintenance plan is shown as a PDF. Confirm everything by clicking the *Execute Plan* button on the upper right side.
+
+image::SAP-DI-30-CaaSP42-0013.png[title="SAP Maintenance Planner: Download Stack.xml and SLC Bridge Installer",480,640,scaledwidth=80%,align=center]
+
+Download the SLC Bridge Installer and copy it to your management workstation. You will need it in the next Chapter: <<Installing the SAP SLC Bridge>> +
+You are prompted to enter the FQDN and the port of the machine your SLC bridge will run on.
+
+image::SAP-DI-30-CaaSP42-0014.png[title="SAP Maintenance Planner: Enter FQDN of host where the SLC Bridge will run",480,640,scaledwidth=80%,align=center]
+
+Fill in the values. An example looks like:
+
+image::SAP-DI-30-CaaSP42-0015.png[title="SAP Maintenance Planner: Example for host and port",480,640,scaledwidth=80%,align=center]
+
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Installing the SAP SLC Bridge
+
+* Download the file containing the SLC Bridge Installer
+
+* copy this file to the management workstation, if not already done.
+
+* run the installer of the SLC bridge on the management workstation.
+
+// Prepare environment for kubectl, helm etc.
+
+// FIXME check parameters for SLCB01_50
+----
+$ ./SLCB01_<YOUR DOWLOADED VERSION>.EXE init
+----
+
+image::SAP-DI-30-CaaSP42-0017.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
+
+In this interactive script all necessary information to run the SAP SLC Bridge is gathered and at the end deployed in the CaaSP cluster.
+
+image::SAP-DI-30-CaaSP42-0025.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
+
+Identify the service port for the SLC Bridge:
+----
+# kubectl -n sap-slcbridge get pods
+NAME                              READY   STATUS    RESTARTS   AGE
+di-platform-full-product-bridge   2/2     Running   0          3d23h
+slcbridgebase-858f895bd6-74gps    2/2     Running   1          10d
+# kubectl -n sap-slcbridge get svc
+NAME                                      TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+di-platform-full-product-bridge-service   ClusterIP   10.101.2.224   <none>        9000/TCP         3d23h
+slcbridgebase-service                     NodePort    10.97.79.26    <none>        9000:30778/TCP   10d
+----
+
+In this example the port number the SLC Bridge listens on is 30778.
+
+This information is needed for the installation process via SAP Maintenance Planner.
+
+
+image::SAP-DI-30-CaaSP42-0026.png[title="SAP SLC Bridge",480,640,scaledwidth=80%,align=center]
+
+
+
+
+=== Installation of SAP Data Intelligence 3
+
+This section describes the installation of SAP Data Intelligence 3 on top of SUSE CaaSP 4.2
+
+==== Preparations
+
+Before the installation of SAP DI 3 can start, some preparation work has to be done.
+All these tasks are run from the management workstation if not stated otherwise.
+
+
+* Create a namespace on the Kubernetes cluster
+
+* Define a (default) storage class on the Kubernetes cluster
+
+* Adapt PodSecurityPolicies
+
+* create the necessary ClusterRoleBindings
+
+* in case of using self signed certificates for the private registry, a special secret has to be created
+
+===== Create namespace for SAP DI 3 on Kubernetes
+
+Define the namespace where Data Intelligence will be installed to:
+
+----
+$ kubectl create namespace <YOUR NAMESPACE>
+----
+
+
+
+===== Create Storage Class
+
+* Create storage class
+
+Create the storage class to provide volumes for SAP Data Intelligence 3 on SUSE Enterprise Storage:
+
+Make sure you have the connection data for your SUSE Enterprise Storage at hand.
+
+* IP addresses and port number (defaults to 6789) of the monitor nodes of your SUSE Storage
+
+* created a data pool (datahub in this example) on your SUSE Enterprise Storage for the use with SAP Data Intelligence 3
+
+Edit the example below to fit your environment.
+
+----
+$ cat > storageClass.yaml <<EOF
+apiVersion: storage.kubernetes.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  name: datahub
+  namespace: default
+parameters:
+  adminId: admin
+  adminSecretName: ceph-admin-secret
+  adminSecretNamespace:  default
+  imageFeatures: layering
+  imageFormat: "2"
+  monitors: <IP ADDRESS OF MONITOR 1>:6789, <IP ADDRESS OF MONITOR 2>:6789, <IP ADDRESS OF MONITOR 3 >:6789
+  pool: datahub
+  userId: admin
+  userSecretName: ceph-user-secret
+provisioner: kubernetes.io/rbd
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+EOF
+
+$ kubectl create -f storageClass.yaml
+----
+
+* Create secrets for the StorageClass
+
+Create the secrets needed to access the storage:
+Obtain the keys from your SUSE Storage located in
+ceph.admin.keyring and ceph.user.keyring.
+
+You have to do a base64 encoding of the keys.
+
+----
+$ echo <YOUR KEY HERE> | base64
+----
+
+
+----
+$ cat > ceph-admin-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+    name: ceph-admin-secret
+type: "kubernetes.io/rbd"
+data:
+   key: <YOUR BASE64 ENCODED KEY HERE>
+EOF
+----
+----
+$ cat > ceph-user-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+    name: ceph-user-secret
+type: "kubernetes.io/rbd"
+data:
+   key: <YOUR BASE64 ENCODED KEY HERE>
+EOF
+
+$ kubectl apply -f ceph-admin-secret.yaml
+$ kubectl apply -f ceph-user-secret.yaml
+----
+
+Create the credentials for accessing the storageClass from the namespace where DI 3 will be installed into.
+
+----
+//does this work ?
+$ kubectl -n <YOUR NAMESPACE FOR DI 3> create -f ceph-admin-secret.yaml
+$ kubectl -n <YOUR NAMESPACE FOR DI 3> create -f ceph-user-secret.yaml
+----
+
+
+===== Create PodSecurityPolicies and ClusterRoleBindings
+
+* PodSecurityPolicies
+----
+$ kubectl edit psp suse.caasp.psp.priviledged
+----
+Change the pathPrefix in allowedHostPaths to /
+
+* ClusterRoleBindings
+----
+$ cat > clusterrolebinding.yaml << EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: suse:caasp:psp:priviliged:default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: suse:caasp:psp:privileged
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vsystem-XXX
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vsystem-XXX-vrep
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-elasticsearch
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-fluentd
+  namespace: XXX
+- kind: ServiceAccount
+  name: XXX-nodeexporter
+  namespace: XXX
+- kind: ServiceAccount
+  name: vora-vflow-server
+  namespace: XXX
+- kind: ServiceAccount
+  name: mlf-deployment-api
+  namespace: XXX
+EOF
+$ sed -i s/XXX/<your-di-namespace>/g clusterrolebinding.yaml
+$ kubectl apply -f clusterrolebinding.yaml
+----
+
+* additional changes
+
+----
+$ kubectl edit clusterrolebinding system:node
+----
+
+Insert the following at the end of the file:
+
+----
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:nodes
+----
+
+* in case selfsigned ssl certificates are used for the secure private registry create a secret for accessing this registry:
+
+** The certificate chain should be saved in pem format into one file called cert.
+----
+export NAMESPACE=<your namespace>
+mv cert cert_with_carriage_return
+tr -d '\r' < cert_with_carriage_return > cert
+kubectl create secret generic cmcertificates --from-file=cert -n $NAMESPACE
+----
+
+==== Installation of SAP DI 3
+
+After the successfully finished preparation proceed with the install of SAP DI 3. To do so several steps have to be taken.
+
+===== Connect to the SLC-Bridge
+
+* Point your browser to the SLC-Bridge service
+
+** https://<yournode>:<yourport>/docs/index.html
+
+* fill in your credentials you created during the deployment of the SLC Bridge.
+
+// The installation workflow starts by connecting the service port of the slcb bridge.
+
+//FIXME screen shot???
+
+
+===== Installation work flow
+
+// FIXME lots of images
+
+
+image::SAP-DI-30-CaaSP42-0030.png[title="Connect and authenticate to the SLCB serive",480,640,scaledwidth=80%,align=center]
+
+Connect and authenticate to the SLCB service created above. Use the credentials created during the setup of the SLC Bridge.
+
+image::SAP-DI-30-CaaSP42-0031.png[title="Installation Choose planned software changes",480,640,scaledwidth=80%,align=center]
+
+Choose "Planned software Changes"
+
+image::SAP-DI-30-CaaSP42-0032.png[title="Installation Select the SAP DI deployment you want to install, e.g. SAP DI Platform Full",480,640,scaledwidth=80%,align=center]
+
+Select the SAP Data Intelligence deployment required by your needs. Choose "Next".
+
+image::SAP-DI-30-CaaSP42-0033.png[title="Installation Pre-requisites Check",480,640,scaledwidth=80%,align=center]
+image::SAP-DI-30-CaaSP42-0034.png[title="Installation Enter kubernetes namespace ",480,640,scaledwidth=80%,align=center]
+
+Enter the Kubernetes namespace created beforehand, e.g. di310. Choose "Next".
+
+image::SAP-DI-30-CaaSP42-0035.png[title="Installation Choose advanced installation",480,640,scaledwidth=80%,align=center]
+
+Choose Advanced installation.
+
+image::SAP-DI-30-CaaSP42-0036.png[title="Installation Private Container registry",480,640,scaledwidth=80%,align=center]
+
+Enter the URI of your Private secure registry. Choose "Next".
+
+image::SAP-DI-30-CaaSP42-0037.png[title="Installation System tenant password",480,640,scaledwidth=80%,align=center]
+
+Enter a password for the system tenant in SAP DI 3.0
+
+image::SAP-DI-30-CaaSP42-0038.png[title="Installation create default tenant",480,640,scaledwidth=80%,align=center]
+
+Assign a name to the initially created tenant, e.g. "default"
+
+
+image::SAP-DI-30-CaaSP42-0039.png[title="Installation Admin username of default tenant",480,640,scaledwidth=80%,align=center]
+
+Create the administrator user for the default tenant in SAP DI 3.0
+
+image::SAP-DI-30-CaaSP42-0040.png[title="Installation set admin user password",480,640,scaledwidth=80%,align=center]
+
+Set the password for the administrator user of the default tenant.
+
+image::SAP-DI-30-CaaSP42-0041.png[title="Installation proxy settings",480,640,scaledwidth=80%,align=center]
+
+If you need a proxy to connect to the internet, set the proxy settings accordingly.
+
+image::SAP-DI-30-CaaSP42-0042.png[title="Installation configure checkpoint storage",480,640,scaledwidth=80%,align=center]
+
+Select if you want to use a checkpoint storage.
+
+image::SAP-DI-30-CaaSP42-0043.png[title="Installation Define storage class to be used",480,640,scaledwidth=80%,align=center]
+
+Define the storage class that should be used by SAP DI 3.0, enter the name of the previously created storage class.
+
+image::SAP-DI-30-CaaSP42-0044.png[title="Installation Docker log path",480,640,scaledwidth=80%,align=center]
+
+For the SAP DI 3 installation on SUSE CaaSP 4.2 the docker log path has to be adapted. Check the checkbox and click "Next".
+
+image::SAP-DI-30-CaaSP42-0045.png[title="Installation Docker log path",480,640,scaledwidth=80%,align=center]
+
+Enter the docker log path: "/var/log/containers"
+
+image::SAP-DI-30-CaaSP42-0046.png[title="Installation Enable usage of  kaniko",480,640,scaledwidth=80%,align=center]
+
+Enable Kaniko.
+
+image::SAP-DI-30-CaaSP42-0047.png[title="Installation Docker registry for SAP DI Modeler images",480,640,scaledwidth=80%,align=center]
+
+Here a different private registry can be configured if needed.
+To proceed click "Next".
+
+
+image::SAP-DI-30-CaaSP42-0048.png[title="Installation Load NFS kernel modules",480,640,scaledwidth=80%,align=center]
+
+Enable the loading of nfs kernel modules. This ensures that the nfs kernel modules are loaded on all kubernetes nodes.
+Check the checkbox and click "Next".
+
+image::SAP-DI-30-CaaSP42-0049.png[title="Installation Enable Network policies",480,640,scaledwidth=80%,align=center]
+
+If needed enable Network policies. Choose "Next".
+
+image::SAP-DI-30-CaaSP42-0050.png[title="Installation Configure timeout during installation of SAP DI 3",480,640,scaledwidth=80%,align=center]
+
+Configure timeout during installation, leave the default and choose "Next".
+
+image::SAP-DI-30-CaaSP42-0051.png[title="Installation Additional Installation Parameters",480,640,scaledwidth=80%,align=center]
+
+Enter "-e diagnostic.fluentd.logDriverFormat=regexp -e vsystem.vRep.exportsMask=true" into "Additional Installation Parameters"
+
+// does not exist image::SAP-DI-30-CaaSP42-0052.png[title="Installation #23",480,640,scaledwidth=80%,align=center]
+image::SAP-DI-30-CaaSP42-0053.png[title="Installation #24",480,640,scaledwidth=80%,align=center]
+image::SAP-DI-30-CaaSP42-0054.png[title="Summary of Installation parameters",480,640,scaledwidth=80%,align=center]
+
+Check the Summary page. If you are happy with the settings therein:
+
+Press "Next" to start the deployment of SAP DI 3.0
+
+//image::SAP-DI-30-CaaSP42-0055.png[title="Installation #26",480,640,scaledwidth=80%,align=center]
+//image::SAP-DI-30-CaaSP42-0056.png[title="Installation #27",480,640,scaledwidth=80%,align=center]
+//image::SAP-DI-30-CaaSP42-0057.png[title="Installation #28",480,640,scaledwidth=80%,align=center]
+//image::SAP-DI-30-CaaSP42-0058.png[title="Installation #29",480,640,scaledwidth=80%,align=center]
+
+
+// FIXME Parameters used in the installation workflow
+// from SAP Note:
+// -e Choose "Configure container log path" for "Docker Container Log Path Configuration"
+// Set "Container Log Path" as "/var/log/containers"
+// Set "Enable Kaniko Usage" as yes
+// Enter "-e diagnostic.fluentd.logDriverFormat=regexp -e vsystem.vRep.exportsMask=true" into "Additional Installation Parameters"
+// container log path
+// enable kaniko
+// load kernel module nfsd and nfsv4 !! CAVE !! 5.x kernels might crash when container tries to load these modules. This for future releases on SLE 15 SP2.
+
+//    If the registry certificate is untrusted or self-signed, follow the steps below in order to create necessary Kubernetes secret with the certificates so that SAP Data Intelligence installation procedure can import it into SAP Data Intelligence Connection Manager.
+//        Certificate chain should be saved into file named "cert" in PEM format.
+//        export DI installation namespace into NAMESPACE environment variable.
+//        Ensure that your file doesn't contain DOS-type line endings. To convert from DOS-type line endings, you may use the following commmands:
+//
+//                mv cert cert_with_carriage_return
+//
+//                tr -d '\r' < cert_with_carriage_return > cert
+//
+//        run "kubectl create secret generic cmcertificates --from-file=cert -n $NAMESPACE" command.
+
+
+
+
+
+== Appendix
+
+
+
+// Standard SUSE Best Practices includes
+== Legal Notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+S
+// Standard SUSE Best Practices includes
+include::common_gfdl1.2_i.adoc[]

@@ -1,0 +1,703 @@
+ifdef::env-daps[]
+:imgpath:
+endif::[]
+ifndef::env-daps[]
+:imgpath: ../images/src/png/
+endif::[]
+:SESProduct: SUSE Enterprise Storage
+:SESversion: (6)
+:SLESversion: 15 SP1
+:vendor: Ampere
+:vplatform: eMAG
+:servermodelcount: two
+:OSDmodel: Lenovo HR350A
+:OSDYESlink: FixMe
+:OSDRAM: 128GB
+:OSDCPUcount: 1
+:OSDCPUmodel: 8180 32Core 3.3GHz
+:drivevendor: Micron
+:OSDOSDrivedesc: 240GB NVMe M.2
+:hbavendor: Broadcom
+:OSDDriveCntrl: BRCM 9500-16i HBA
+:OSDDrivedesc: 3.84TB 7300 PRO NVMe U.2
+:OSDNic: MCX653105A-HDAT ConnectX-6 VPI Adapter
+:node2roles: Admin, monitor, and protocol gateways
+:node2model: Lenovo HR330A
+:node2CPUcount: 1
+:node2RAM: 32GB
+:node2OSDrivedesc: 7300 PRO NVMe M.2 480GB
+:node2YESlink: FixMe
+:switchSpeed: 100Gb
+:switchmodel: Spectrum-2 MSN3700C
+:switchvendor: NVIDIA
+//Set to 1 to include the information on configuring ConnectX-4 as Ethernet
+:MellanoxCX4Present: 0
+:BondingType: FixMe (LAG)
+:Benchmaster: 0
+
+:docinfo:
+
+= SUSE(R) Enterprise Storage on {vendor}(R) {vplatform}: Reference Architecture
+
+''''
+
+== Introduction
+The objective of this guide is to present a step-by-step guide on how to implement {SESProduct} {SESversion} on the {vendor} {vplatform} platform.  It is suggested that the document be read in its entirety, along with the supplemental appendix information before attempting the process.
+
+The deployment presented in this guide aligns with architectural best practices and will support the implementation of all currently supported protocols as identified in the {SESProduct} documentation.
+
+Upon completion of the steps in this document, a working {SESProduct} {SESversion} cluster will be operational as described in the https://documentation.suse.com/ses/6/single-html/ses-deployment/#book-storage-deployment[{SESProduct} Deployment Guide.]
+
+== Target Audience
+This reference guide is targeted at administrators who deploy software defined storage solutions within their data centers and make that storage available to end users.  By following this document, as well as those referenced herein, the administrator should have a full view of the {SESProduct} architecture, deployment and administrative tasks, with a specific set of recommendations for deployment of the hardware and networking platform.
+
+== Business Value
+*{SESProduct}*
+
+{SESProduct} delivers a highly scalable, resilient, self-healing storage system designed for large scale environments ranging from hundreds of Terabytes to Petabytes. This software defined storage product can reduce IT costs by leveraging industry standard servers to present unified storage servicing block, file, and object protocols. Having storage that can meet the current needs and requirements of the data center while supporting topologies and protocols demanded by new web-scale applications, enables administrators to support the ever-increasing storage requirements of the enterprise with ease.
+
+*{vendor} {vplatform}*
+
+The {vendor} {vplatform} server is an high performance, power efficient data center class platform featuring 32 Ampere-designed 64-bit Armv8 cores running up to 3.3 GHz.  Designed for cloud data center workloads, the {vplatform} server is ideal scalable performance applications like the {SESProduct} stack.  The server processor has the following features:
+
+* 32 Ampere Armv8 64-bit CPU cores at 3.3 GHz Sustained - SBSA Level 3 
+* 32 KB L1 I-cache, 32KB L1 D-cache per core 
+* Shared 256 KB L2 cache per 2 cores 
+* 32MB globally shared L3 cache 
+* 8x 72-bit DDR4-2667 channels 
+* ECC, ChipKill, and DDR4 RAS features 
+* Up to 16 DIMMs and 1TB/socket 
+* 42 lanes of PCIE Gen 3, with 8 controllers 
+* TDP: 75-125W 
+
+Also included in this configuration are the following key peripherals and infrastructure components that can be used to build a very high performance Ceph based storage cluster:
+
+*{drivevendor}*
+
+Enterprise IT and cloud managers want the fast, low latency and consistent performance of NVMe storage that won't break the budget.
+
+* The 7300 NVMe SSDs leverage the low power consumption and price-performance efficiencies of 3D NAND technology and deliver fast NVMe IOPS and GB/s for a wide array of workloads.
+
+* Built with the innovative 96-layer 3D TLC NAND, the 5300 series combines the latest in NAND technology and a proven architecture to provide performance upgrades now and a path forward for moving to an all-flash future. The 5300’s high capacity, added security, and enhanced endurance enable strong performance.
+
+
+*{switchvendor}*
+
+System Network Interface Card::
+{OSDNic} is the world's first 200Gb/s capable HDR InfiniBand and Ethernet network adapter card, offering industry-leading performance, smart offloads and in-network computing, leading to the highest return on investment for high-performance computing, cloud, web 2.0, storage and machine learning applications. 
++
+Network Switch::
+{switchmodel} is a 1U 32-port 100GbE spine that can also be used as a high density 10/25GbE leaf when used with splitter cables. SN3700C allows for maximum flexibility, with ports spanning from 1GbE to 100GbE and port density that enables full rack connectivity to any server at any speed, and a variety of blocking ratios. SN3700C ports are fully splittable to up to 128 x 10/25GbE ports.
+
+*{hbavendor}*
+
+The high-port 9500-16i Tri-Mode, PCIe Gen 4.0 HBA is ideal for increased connectivity and maximum performance for enterprise data center flexibility.  With increased bandwidth and IOPS performance compared to previous generations, the 9500-16i adapter delivers the performance and scalability needed by critical applications.
+
+* Connects up to 1024 SAS/SATA devices or 32 NVMe devices
+* Provides maximum connectivity and performance for high-end servers and applications
+* Support critical applications with the bandwidth of PCIe(R) 4.0 connectivity
+* Universal Bay Management (UBM) Ready
+
+
+== Hardware & Software
+The recommended architecture for {SESProduct} on {vendor} {vplatform} leverages {servermodelcount} models of {vendor} servers.  The role and functionality of each type of system within the {SESProduct} environment will be explained in more detail in the architectural overview section.
+
+.Storage Nodes:
+* {vendor} {vplatform} Core 2U Servers ( {OSDmodel} )
+
+.{node2roles}:
+* {vendor} {vplatform} 32 Core 1U Servers ( {node2model} )
+
+.Switches:
+* {switchvendor} {switchmodel} {switchspeed}
+
+.Software:
+* {SESProduct} {SESversion}
+* SUSE Linux Enterprise Server {SLESversion}
+TIP:: Please note that limited use SUSE Linux Enterprise Server operating system subscriptions are provided with {SESProduct} as part of the subscription entitlement
+
+== Requirements
+
+Enterprise storage systems require reliability, manageability, and serviceability. The legacy storage players have established a high threshold for each of these areas and now expect the software defined storage solutions to offer the same.  Focusing on these areas helps SUSE make open source technology enterprise consumable. When combined with highly reliable and manageable hardware from {vendor}, the result is a solution that meets the customer's expectation.
+
+
+=== Functional Requirements
+
+A {SESProduct} solution is:
+
+* Simple to setup and deploy, within the documented guidelines of system hardware, networking and environmental prerequisites.
+* Adaptable to the physical and logical constraints needed by the business, both initially and as needed over time for performance, security, and scalability concerns.
+* Resilient to changes in physical infrastructure components, caused by failure or required maintenance.
+* Capable of providing optimized object and block services to client access nodes, either directly or through gateway services.
+
+// Include solution architecture standard section
+include::SES-Arch.adoc[]
+
+== Component Model
+The preceding sections provided information on the both the overall {vendor} hardware as well as an introduction to the Ceph software architecture. In this section, the focus is on the SUSE components: SUSE Linux Enterprise Server (SLES), {SESProduct} (SES), and the Repository Mirroring Tool (RMT).
+
+.Component overview (SUSE)
+
+* SUSE Linux Enterprise Server - A world class secure, open source server operating system, equally adept at powering physical, virtual, or cloud-based mission-critical workloads. Service Pack 3 further raises the bar in helping organizations to accelerate innovation, enhance system reliability, meet tough security requirements and adapt to new technologies.
+
+
+* Repository Mirroring Tool (RMT) for SLES - allows enterprise customers to optimize the management of SUSE Linux Enterprise (and extensions such as {SESProduct}) software updates and subscription entitlements. It establishes a proxy system for SUSE Customer Center (SCC) with repository and registration targets.
+
+* {SESProduct} - Provided as an extension on top of SUSE Linux Enterprise Server, this intelligent software-defined storage solution, powered by Ceph technology with enterprise engineering and support from SUSE enables customers to transform enterprise infrastructure to reduce costs while providing unlimited scalability.
+
+== Deployment
+
+This deployment section should be seen as a supplement online https://www.suse.com/documentation/[documentation.]  Specifically, the https://documentation.suse.com/ses/6/single-html/ses-deployment/#book-storage-deployment[{SESProduct} {SESversion} Deployment Guide] as well as https://documentation.suse.com/sles/15-SP1/single-html/SLES-admin/#book-sle-admin[SUSE Linux Enterprise Server Administration Guide.] It is assumed that a Repository Mirroring Tool server exists within the environment. If not, please follow the information in https://documentation.suse.com/sles/15-SP1/single-html/SLES-rmt/#book-rmt[Repository Mirroring Tool (RMT) for SLES] to make one available. The emphasis is on specific design and configuration choices.
+
+=== Network Deployment Overview
+The following considerations for the network configuration should be attended to:
+
+* Ensure that all network switches are updated with consistent firmware versions.
+ifeval::[{BondingType} == "lacp"]
+* Configure 802.3ad for system port bonding between the switches, plus enable jumbo frames.
+endif::[]
+* Specific configuration for this deployment can be found in Appendix C: Network Switch Configuration & Appendix D: OS Networking Configuration
+
+
+* Network IP addressing and IP ranges need proper planning. In optimal environments, a single storage subnet should be used for all {SESProduct} nodes on the primary network, with a separate, single subnet for the cluster network. Depending on the size of the installation, ranges larger than /24 may be required. When planning the network, current as well as future growth should be taken into consideration.
+* Setup DNS A records for all nodes. Decide on subnets and VLANs and configure the switch ports accordingly.
+* Ensure that you have access to a valid, reliable NTP service, as this is a critical requirement for all nodes. If not, it is recommended to use the admin node.
+
+[cols="1,1,1,1",options=header,frame=topbot,grid=rows]
+|===
+|Function |Hostname |Primary Network (VLAN) |Cluster Network (VLAN)
+
+|Admin   |amp-admin.suse.lab |172.16.227.60 |N/A
+|Monitor |amp-mon1.suse.lab  |172.16.227.61 |N/A
+|Monitor |amp-mon2.suse.lab  |172.16.227.62 |N/A
+|Monitor |amp-mon3.suse.lab  |172.16.227.63 |N/A
+|Gateway |amp-gw1.suse.lab   |172.16.227.64 |N/A
+|Gateway |amp-gw2.suse.lab   |172.16.227.65 |N/A
+
+|OSD |amp-osd1.suse.lab |172.16.227.59 |172.16.220.59
+|OSD |amp-osd2.suse.lab |172.16.227.58 |172.16.220.58
+|OSD |amp-osd3.suse.lab |172.16.227.57 |172.16.220.57
+|OSD |amp-osd4.suse.lab |172.16.227.56 |172.16.220.56
+|OSD |amp-osd5.suse.lab |172.16.227.55 |172.16.220.55
+|OSD |amp-osd6.suse.lab |172.16.227.54 |172.16.220.54
+|OSD |amp-osd7.suse.lab |172.16.227.53 |172.16.220.52
+|OSD |amp-osd8.suse.lab |172.16.227.52 |172.16.220.52
+|OSD |amp-osd9.suse.lab |172.16.227.51 |172.16.220.51
+|OSD |amp-osd10.suse.lab |172.16.227.50 |172.16.220.50
+|===
+
+////
+=== Hardware Recommended Actions (FixMe)
+The following considerations for the hardware platforms should be attended to:
+
+* Ensure Boot Mode is set to UEFI for all the physical nodes that comprise the {SESProduct} Cluster.
+* Verify BIOS/uEFI level on the physical servers correspond to those on the SUSE YES certification for all the platforms.
+* Configure the boot media as RAID-1 (FixMe)
+* Configure all data and journal devices as individual RAID-0
+
+==== Specific Hardware Configuration (FixMe)
+To ensure maximum performance of the cluster, enter the bios system configuration and click UEFI Setup.  Next click System Settings.  Under Choose Operating Mode, change the setting to Maximum Performance
+[[img-PerformanceMode]]
+.Setting Performance Mode
+image::{imgpath}PerformanceMode.png[Performance Mode, scaledwidth=100%]
+////
+
+ifeval::[{MellanoxCX4Present} == 1]
+
+===== Set ConnectX-4 VPI NICS to Ethernet Mode 
+This configuration includes Mellanox ConnectX-4 VPI Network Interface Cards. These cards often arrive in Infiniband mode and need to be set to Ethernet mode.  The way to affect this change involves following the steps outlined in the http://www.mellanox.com/pdf/prod_software/SUSE_Linux_Enterprise_Server_(SLES)_12_SP3_Driver_User_Manual.pdf[Mellanox manual for the inbox driver on SUSE Linux Enterprise 12 SP3].
+
+_Replace the bold string with your PCI ID's_
+
+The steps required are:
+[subs="attributes,quotes"]
+----
+# zypper in mstflint
+# lspci |grep Mellanox
+# mstconfig -d **_Your_PCI_ID_** s LINK_TYPE_P1=ETH
+# mstconfig -d **_Your_PCI_ID_** s LINK_TYPE_P2=ETH
+# reboot
+----
+[[img-NICmode]]
+.Change Mellanox ConnectX-4 VPI NIC Mode
+image::{imgpath}ConnectX-4_NIC_mode.png[NIC Mode Change, scaledwidth=100%]
+
+endif::[]
+
+
+=== Operating System Installation
+
+There are several key tasks to ensure are performed correctly during the operating system installation.
+
+* During the SUSE Linux Enterprise installation, be sure and register the system with an update server.  Ideally, this is a local RMT server which will reduce the time required for updates to be downloaded and applied to all nodes.  By updating the nodes during installation, the system will deploy with the most up-to-date packages available, helping to ensure the best experience possible.
+
+* To speed installation, on the System Role screen, it is suggested to select *Text Mode*.  The resulting installation is a text mode server that is an appropriate base OS for SUSE Linux Enterprise Server.
+
+* The next item is to ensure that the operating system is installed on the correct device.  Especially on OSD nodes, the system may not choose the right drive by default.  The proper way to ensure the right device is being used is to select *Create Partition Setup* on the Suggested Partitioning screen. This will then display a list of devices, allowing selection of the correct boot device.  Next select *Edit Proposal Settings* and unselect the *Propose Separate Home Partition* checkbox.
+
+* Do ensure that NTP is configured to point to a valid, physical NTP server.  This is critical for {SESProduct} to function properly, and failure to do so can result in an unhealthy or non-functional cluster.
+
+
+=== {SESProduct} Installation & Configuration
+
+==== Software Deployment configuration (Deepsea and Salt)
+Salt, along with DeepSea, is a stack of components that help deploy and manage server infrastructure. It is very scalable, fast, and relatively easy to get running.
+
+There are three key Salt imperatives that need to be followed:
+
+* The Salt Master is the host that controls the entire cluster deployment. Ceph itself should NOT be running on the master as all resources should be dedicated to Salt master services. In our scenario, we used the Admin host as the Salt master.
+
+*	Salt minions are nodes controlled by Salt master. OSD, monitor, and gateway nodes are all Salt minions in this installation.
+
+*	Salt minions need to correctly resolve the Salt master’s host name over the network. This can be achieved through configuring unique host names per interface (e.g. osd1-cluster.suse.lab and osd1-public.suse.lab) in DNS and/or local /etc/hosts files.
+
+
+Deepsea consists of a series of Salt files to automate the deployment and management of a Ceph cluster. It consolidates the administrator's decision making in a single location around cluster assignment, role assignment and profile assignment. Deepsea collects each set of tasks into a goal or stage.
+
+The following steps, performed in order, will be used for this reference implementation:
+
+. Install DeepSea on the Salt master which is the Admin node:
++
+----
+zypper in deepsea
+----
++
+. Start the salt-master service and enable:
++
+----
+systemctl start salt-master.service
+systemctl enable salt-master.service
+----
++
+. Install the salt-minion on all cluster nodes (including the Admin):
++
+----
+zypper in salt-minion
+----
++
+. Configure all minions to connect to the Salt master:
++
+Modify the entry for master in the _/etc/salt/minion_
++
+----
+master: sesadmin.domain.com
+----
++
+.	Start the salt-minion service and enable:
++
+----
+systemctl start salt-minion.service
+systemctl enable salt-minion.service
+----
++
+.	List and accept all Salt keys on the Salt master: salt-key --accept-all and verify their acceptance:
++
+----
+salt-key --list-all
+salt-key --accept-all
+----
++
+.   Select the nodes to participate in the cluster:
++
+----
+salt '*' grains.append deepsea default
+----
++
+.	If the OSD nodes were used in a prior installation, zap ALL the OSD disks (ceph-disk zap <DISK>)
++
+.	At this point, the cluster can be deployed.
+..	Prepare the cluster:
++
+----
+salt-run state.orch ceph.stage.prep
+----
++
+..	Run the discover stage to collect data from all minions and create configuration fragments:
++
+----
+salt-run state.orch ceph.stage.disovery
+----
++
+..	A proposal for the storage layout needs to be generated at this time.  For the hardware configuration used for this work, the following command was utilized:
++
+----
+salt-run proposal.populate name=default target='amp-osd*' 
+----
++
+
++
+The result of the above command is a deployment proposal for the disks that places the RocksDB, Write-Ahead Log (WAL), and on the same device.
+
+..	A _/srv/pillar/ceph/proposals/policy.cfg_ file needs to be created to instruct Salt on the location and configuration files to use for the different components that make up the Ceph cluster (Salt master, admin, monitor, and OSDs).
+***	See Appendix B for the _policy.cfg_ file used in the installation.
+
+..	Next, proceed with the configuration stage to parse the _policy.cfg_ file and merge the included files into the final form
++
+----
+salt-run state.orch ceph.stage.configure
+----
++
+..	The last two steps manage the actual deployment.
++
+Deploy monitors and ODS daemons first:
++
+----
+salt-run state.orch ceph.stage.deploy
+----
++
+Note:: The command can take some time to complete, depending on the size of the cluster.
++
+..	Check for successful completion via:
++
+----
+ceph -s
+----
++
+..	Finally, deploy the services-gateways (iSCSI, RADOS, and openATTIC to name a few):
++
+----
+salt-run state.orch ceph.stage.services
+----
+
+==== Post-deployment quick test
+The steps below can be used (regardless of the deployment method) to validate the overall cluster health:
+
+----
+ceph status
+ceph osd pool create test 1024
+rados bench -p test 300 write --no-cleanup
+rados bench -p test 300 seq
+----
+
+Once the tests are complete, you can remove the test pool via:
+
+----
+ceph tell mon.* injectargs --mon-allow-pool-delete=true
+ceph osd pool delete test test --yes-i-really-really-mean-it
+ceph tell mon.* injectargs --mon-allow-pool-delete=false
+----
+
+=== Deployment Considerations
+Some final considerations before deploying your own version of a {SESProduct} cluster, based on Ceph. As previously stated, please refer to the Administration and Deployment Guide.
+
+* With the default replication setting of 3, remember that the client-facing network will have about half or less of the traffic of the backend network. This is especially true when component failures occur or rebalancing happens on the OSD nodes. For this reason, it is important not to under provision this critical cluster and service resource.
+* It is important to maintain the minimum number of monitor nodes at three. As the cluster increases in size, it is best to increment in pairs, keeping the total number of Mon nodes as an odd number. However, only very large or very distributed clusters would likely need beyond the 3 MON nodes cited in this reference implementation. For performance reasons, it is recommended to use distinct nodes for the MON roles, so that the OSD nodes can be scaled as capacity requirements dictate.
+* As described in this implementation guide and the {SESProduct} documentation, a minimum of four OSD nodes is recommended, with the default replication setting of 3. This will ensure cluster operation, even with the loss of a complete OSD node. Generally speaking, performance of the overall cluster increases as more properly configured OSD nodes are added.
+
+== Conclusion
+The {vendor} {vplatform} servers provides a strong capacity-oriented platform for enterprise, HPC or Cloud Ceph-based storage cluster.  In addition to the strong raw performance demonstrated by this configuration as characterized in industry standard benchmarks like the IO500 workload, the {vendor} systems provide a very compelling value proposition when combining its high performance the with the ultra-efficient power profile and the lighter than expected acquisition cost of the cluster!  These features combined with the access flexibility and reliability of {SESProduct} and industry leading support from {vendor} allows any business to proceed confidently with a solution that addresses many storage use cases driven by the exponential growth in storage capacity and performance currently facing the industry.
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Appendix A: Bill of Materials
+
+[cols="2,1,3,6",options=header,frame=topbot,grid=rows]
+|===
+|Role |Qty |Component |Notes
+
+|{node2roles}
+|6
+|{vendor} 1U Servers ( {node2model} )
+a| Configuration:
+
+* 1x {vendor} {vplatform} {OSDCPUmodel}
+* {node2RAM} DRAM ( 4x8 DIMM 2667 )
+* 2x {drivevendor} {node2OSDrivedesc}
+* 1x {switchvendor} {OSDNIC}
+
+|OSD Nodes
+|10
+|{vendor} 2U Servers ( {OSDmodel} )
+a| Configuration:
+
+* 1x {vendor} {vplatform} {OSDCPUmodel}
+* {OSDRAM} DRAM ( 8x16 DIMM 2667 )
+* 2x {drivevendor} {OSDOSDrivedesc}
+* 4x {drivevendor} {node2OSDrivedesc}
+* 1x {hbavendor} {OSDDriveCntrl}
+* 1x {switchvendor} {OSDNIC}
+
+|Network Switch
+|2
+|{switchvendor} {switchmodel} Switch
+a| Updated with latest OS image
+|===
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Appendix B: policy.cfg
+----
+cluster-ceph/cluster/*.sls
+role-master/cluster/amp-admin*.sls
+role-admin/cluster/amp-admin*.sls
+role-mon/cluster/amp-mon*.sls
+role-mgr/cluster/amp-mon*.sls
+role-storage/cluster/amp-osd*.sls
+role-mds/cluster/amp-[mo]*.sls
+role-grafana/cluster/amp-admin*.sls
+role-prometheus/cluster/amp-admin*.sls
+config/stack/default/global.yml
+config/stack/default/ceph/cluster.yml
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Appendix C: Network Switch Configuration
+The switch uplinks are configured with a LAG.  The load generation nodes are blade servers connected with 16 10Gb ethernet ports bonded in two LACP bonds, one to each upstream switch.
+The cluster network carries back end and is VLAN 220.
+----
+##
+## Active saved database "c3-mellanox-s3700"
+## Generated at 2020/07/13 20:53:19 +0000
+## Hostname: switch-6bdea0
+## Product release: 3.9.0914
+##
+
+##
+## Running-config temporary prefix mode setting
+##
+no cli default prefix-modes enable
+
+##
+## Interface Ethernet configuration
+##
+   interface port-channel 28
+   interface port-channel 30
+   fae interface ethernet 1/1 speed 100G no-autoneg
+   fae interface ethernet 1/2 speed 100G no-autoneg
+   fae interface ethernet 1/3 speed 100G no-autoneg
+   fae interface ethernet 1/4 speed 100G no-autoneg
+   fae interface ethernet 1/5 speed 100G no-autoneg
+   fae interface ethernet 1/6 speed 100G no-autoneg
+   fae interface ethernet 1/7 speed 100G no-autoneg
+   fae interface ethernet 1/8 speed 100G no-autoneg
+   fae interface ethernet 1/9 speed 100G no-autoneg
+   fae interface ethernet 1/10 speed 100G no-autoneg
+   fae interface ethernet 1/11 speed 100G no-autoneg
+   fae interface ethernet 1/12 speed 100G no-autoneg
+   fae interface ethernet 1/13 speed 100G no-autoneg
+   fae interface ethernet 1/14 speed 100G no-autoneg
+   fae interface ethernet 1/15 speed 100G no-autoneg
+   fae interface ethernet 1/16 speed 100G no-autoneg
+   fae interface ethernet 1/30 speed 100G no-autoneg
+   interface ethernet 1/1-1/16 mtu 9216 force
+   interface ethernet 1/28-1/30 mtu 9216 force
+   interface port-channel 28 mtu 9216 force
+   interface ethernet 1/1-1/16 switchport mode hybrid
+   interface ethernet 1/28-1/29 channel-group 28 mode on
+   interface ethernet 1/30-1/32 switchport mode hybrid
+   interface port-channel 28 switchport mode hybrid
+   interface port-channel 28 description uplink LACP
+   
+##
+## LAG configuration
+##
+   lacp
+   interface port-channel 28 lacp-individual enable force
+   port-channel load-balance ethernet source-destination-mac
+   
+##
+## VLAN configuration
+##
+   vlan 197
+   vlan 220-2227
+   interface ethernet 1/1-1/16 switchport access vlan 197
+   interface ethernet 1/1-1/16 switchport hybrid allowed-vlan all
+   interface ethernet 1/30-1/32 switchport hybrid allowed-vlan all
+   interface port-channel 28 switchport hybrid allowed-vlan all
+   vlan 197 name "pxe"
+   vlan 220 name "storage"
+   vlan 227 name "storage2"
+----
+
+== Appendix D: OS Networking Configuration
+Each host is configured with an active passive bond.  This alleviates the need for switch based configuration to support the bonding and still provides sufficient bandwidth for all IO requests
+----
+/etc/sysconfig/network # cat ifcfg-eth0
+BOOTPROTO='dhcp'
+STARTMODE='auto'
+#
+/etc/sysconfig/network # cat ifcfg-vlan227
+BOOTPROTO='static'
+BROADCAST=''
+ETHERDEVICE='eth0'
+ETHTOOL_OPTIONS=''
+IPADDR='172.16.227.50/24'
+MTU=''
+NAME=''
+NETWORK=''
+REMOTE_IPADDR=''
+STARTMODE='auto'
+VLAN_ID='227'
+#
+/etc/sysconfig/network # cat ifcfg-vlan220
+BOOTPROTO='static'
+BROADCAST=''
+ETHERDEVICE='eth0'
+ETHTOOL_OPTIONS=''
+IPADDR='172.16.220.50/24'
+MTU=''
+NAME=''
+NETWORK=''
+REMOTE_IPADDR=''
+STARTMODE='auto'
+VLAN_ID='220'
+----
+// image::{imgpath}osnetwork.png[Yast Network Configuration, scaledwidth=100%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+ifeval::[{Benchmaster} == 1]
+
+== Appendix E: Performance Data (FixMe)
+Comprehensive performance baselines are run as part of a reference build activity.  This activity yields a vast amount of information that may be used to approximate the size and performance of the solution.  The only tuning applied is documented in the implementation portion of this document.
+
+The tests are comprised of a number of Flexible I/O (fio) job files run against multiple worker nodes.  The job files and testing scripts may be found for review at: https://github.com/dmbyte/benchmaster.  This is a personal repository and no warranties are made in regard to the fitness and safety of the scripts found there.
+The testing methodology involves two different types of long running tests.  The types and duration of the tests have very specific purposes.  There are both I/O simulation jobs and single metric jobs.  
+
+The length of the test run, in combination with the ramp-up time specified in the job file, is intended to allow the system to overrun caches.  This is a worst-case scenario for a system and would indicate that it is running at or near capacity.  Given that few applications can tolerate significant amounts of long tail latencies, the job files have specific latency targets assigned.  These targets are intended to be in-line with expectations for the type of I/O operation being performed and set realistic expectations for the application environment.  
+
+The latency target, when combined with the latency window and latency window percentage set the minimum number of I/Os that must be within the latency target during the latency window time period.  For most of the tests, the latency target is 20ms of less.  The latency window is five seconds and the latency target is 99.99999%.  The way that fio uses this is to ramp up the queue depth at each new latency window boundary until more than .00001% of all I/O's during a five second window are higher than 20ms.  At that point, fio backs the queue depth down where the latency target is sustainable.
+
+In the figures below, the x-axis labels indicate the block size in KiB on the top line and the data protection scheme on the bottom line.  3xrep is indicative of the Ceph standard 3 replica configuration for data protection while EC2+2 is Erasure Coded using the ISA plugin with k=3 and m=1.  The Erasure Coding settings were selected to fit within the minimum cluster hardware size supported by SUSE.
+
+These settings, along with block size, max queue depth, jobs per node, and others, are all visible in the job files found at the repository link above.  
+
+Load testing was provided by an additional two {vendor} {vplatform}s on the same {switchspeed} network and 15 blade servers on a 10Gb Network.
+
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Sequential Writes
+Sequential write I/O testing was performed across block sizes ranging from 4KiB to 4MiB.
+
+These tests have associated latency targets: 4k is 10ms, 64k is 20ms, 1MiB is 100ms and 4MiB is 300ms.
+
+// image::{imgpath}cephfsseqwrite.png[CephFS Sequential Writes, scaledwidth=88%]
+// image::{imgpath}rbdseqwrite.png[RBD Sequential Writes, scaledwidth=88%]
+
+=== Sequential Reads
+The sequential read tests were conducted across the same range of block sizes as the write testing. The latency targets are only
+present for 4k sequential reads, where it is set to 10ms. 
+
+// image::{imgpath}cephfsseqread.png[CephFS Sequential Reads, scaledwidth=88%]
+// image::{imgpath}rbdseqread.png[RBD Sequential Reads, scaledwidth=88%]
+
+=== Random Writes
+Random write tests were performed with the smaller I/O sizes of 4k and 64k. The 4k tests have a latency target of 10ms and the 64k
+tests have a latency target of 20ms. 
+
+// image::{imgpath}cephfsrandwrite.png[CephFS Random Writes, scaledwidth=88%]
+// image::{imgpath}rbdrandwrite.png[RBD Random Writes, scaledwidth=88%]
+
+=== Random Reads
+The random read tests were conducted on both 4k and 64k I/O sizes with latency targets of 10ms and 20ms respectively. 
+
+// image::{imgpath}cephfsrandread.png[CephFS Random Reads, scaledwidth=88%]
+// image::{imgpath}rbdrandread.png[RBD Random Reads, scaledwidth=88%]
+
+=== Mixed I/O
+The mixed I/O tests were conducted on 4k and 64k I/O sizes with latency targets of 10ms and 20ms respectively.  I/O is tested with 80% random reads and 20% random writes.
+
+// image::{imgpath}cephfsmixed.png[CephFS Mixed I/O, scaledwidth=88%]
+// image::{imgpath}rbdmixed.png[RBD Mixed Mixed I/O, scaledwidth=88%]
+
+== Workload Simulations
+The following test results are workload oriented.
+
+=== Backup Simulation
+The backup simulation test attempts to simulate the {SESProduct} cluster being used as a disk-based backup target that
+is either hosting file systems on RBDs or is using CephFS. The test had a latency target of 200ms at the time of the test run. The
+latency target has since been removed.
+
+// image::{imgpath}cephfsbackup.png[CephFS Backup, scaledwidth=88%]
+// image::{imgpath}rbdbackup.png[RBD Backup, scaledwidth=88%]
+
+=== Recovery Simulation
+The recovery workload is intended to simulate recovery jobs being run from {SESProduct}. It tests both RBD and CephFS.
+
+// image::{imgpath}cephfsrecovery.png[CephFS Recovery, scaledwidth=88%]
+// image::{imgpath}rbdrecovery.png[RBD Recovery, scaledwidth=88%]
+
+=== KVM Virtual Guest Simulation
+The kvm-krbd test roughly simulates virtual machines running. This test has a 20ms latency target and is 80% read with both reads
+and writes being random.
+
+// image::{imgpath}cephfskvm.png[CephFS KVM, scaledwidth=88%]
+// image::{imgpath}rbdkvm.png[RBD KVM, scaledwidth=88%]
+
+=== Database Simulations
+It is important to keep sight of the fact that Ceph is not designed for high performance database activity. These tests provide a baseline understanding of performance expectations should a database be deployed using {SESProduct}.
+
+=== OLTP Database Log
+The database log simulation is based on documented I/O patterns from several major database vendors. The I/O profile is 80% sequential 8KB writes with a latency target of 1ms. 
+
+// image::{imgpath}cephfsoltp-log.png[CephFS OLTP Log, scaledwidth=88%]
+// image::{imgpath}rbdoltp-log.png[RBD OLTP Log, scaledwidth=88%]
+
+=== OLTP Database Datafile
+The OLTP Datafile simulation is set for an 80/20 mix of random reads and writes. The latency target is 10ms.
+
+// image::{imgpath}cephfsoltp-data.png[CephFS OLTP Data, scaledwidth=88%]
+// image::{imgpath}rbdoltp-data.png[RBD OLTP Data, scaledwidth=88%]
+
+++++
+<?pdfpagebreak?>
+++++
+endif::[]
+
+== Resources
+{SESProduct} Technical Overview
+https://www.suse.com/docrep/documents/1mdg7eq2kz/suse_enterprise_storage_technical_overview_wp.pdf
+
+{SESProduct} {SESversion} Deployment Guide
+https://documentation.suse.com/ses/6/single-html/ses-deployment/#book-storage-deployment
+
+SUSE Linux Enterprise Server {SLESversion} Administration Guide
+https://documentation.suse.com/sles/15-SP1/single-html/SLES-admin/#book-sle-admin
+
+Repository Mirroring Tool
+https://documentation.suse.com/sles/15-SP1/single-html/SLES-rmt/#book-rmt
+
+Armv8
+https://developer.arm.com/architectures/cpu-architecture/a-profile
+
+{vendor}
+https://amperecomputing.com/emag/
+
+{drivevendor}
+Operating system and storage drives
+https://www.micron.com/products/ssd/product-lines/5300
+https://www.micron.com/products/ssd/product-lines/7300
+
+{hbavendor} HBA {OSDDriveCntrl}
+https://www.broadcom.com/products/storage/host-bus-adapters/sas-nvme-9500-16i
+
+{switchvendor}
+System Network Interface Card {OSDNic}
+https://store.mellanox.com/products/mellanox-mcx653105a-hdat-sp-single-pack-connectx-6-vpi-adapter-card-hdr-ib-and-200gbe-single-port-qsfp56-pcie4-0-x16-tall-bracket.html
+and Network Switch {switchmodel}
+https://www.mellanox.com/products/ethernet-switches/sn3000
+
+// Standard SUSE Best Practices includes
+== Legal Notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+// :leveloffset: 1
+include::common_gfdl1.2_i.adoc[]
+

@@ -1,0 +1,2570 @@
+// Load document variables
+include::Variables.adoc[]
+:docinfo:
+
+//
+// Start of the document
+//
+= {SAPHana} System Replication Scale-Out High Availability in Amazon Web Services
+// Fabian Herschel, Bernd Schubert, Lars Pinne, Martin Tegtmeier (AWS), Guilherme G. Felix (AWS), Somckit Khemmanivanh (AWS)
+// 2020/04/14
+
+:Revision: 1.1
+
+////
+// Standard SUSE includes
+include::common_copyright_gfdl.adoc[]
+////
+
+////
+TODO PRIO1: (all) work on all inline TODOs with PRIO1, set them to DONE
+TODO PRIO2: (all) work on all inline TODOs with PRIO2, set them to DONE
+TODO PRIO3: (all) reprioritize all TODOs with Prio >= 3
+TODO PRIO3: Optionally re-add a corosync.conf of the resulting cluster
+DONE PRIO1: (all) Check corosync.conf does not include two_node: 1 but two_node: 0
+DONE PRIO1: (all) Limit or explain the use of FQHN during the SAP HANA installation
+DONE PRIO1: (all) Explain the need of saphostagent to be running in special if nodename <> virtual name
+DONE PRIO1: Check all inline TODOs and set priorities
+DONE PRIO1: Fix CRM snip sets to cover scale-Out instead of scale-Up
+DONE PRIO1: Define limitations like one master-name-server per site only (DONE), no cost-optimized scenario (DONE), no multi-tier-setup (DONE) till tested
+DONE PRIO1: Remove no-quorum-policy or check policy != ignore but == freeze
+DONE PRIO1: "both" nodes -> "all" nodes  or "both" sides/sites
+DONE PRIO1: suseXX scheme (odd: site1, even site2) --> see Variables.txt
+DONE PRIO1: Use and integrate python hook
+DONE PRIO1: Use and configure sudoers
+DONE PRIO2: (all) Remove or at least think about ;-) different networks on the both sites
+DONE PRIO2: Extract variable section to external file
+DONE PRIO2: (all) search for ???
+DONE PRIO3: Setup vs. set up, Backup vs Back up (check with Lee)
+////
+
+== About this Guide
+
+=== Introduction
+
+{sles4sapReg} is optimized in various
+ways for SAP* applications. This guide provides detailed information about
+installing and customizing _{sles4sap}_
+for {saphana} Scale-Out system replication with automated failover in the Amazon Web Services (AWS) Cloud.
+
+High availability is an important aspect of running your mission-critical
+{saphana} servers.
+
+The {saphana} Scale-Out system replication is a replication of all data in
+one {saphana} Scale-Out cluster to a secondary {saphana} cluster in different AWS Availability Zones.
+{saphana} supports asynchronous and synchronous replication modes. We describe here the
+synchronous replication from memory of the primary system to memory of the secondary
+system, because it is the only method which allows the pacemaker cluster to make
+decisions based on the implemented algorithms.
+
+The recovery time objective (RTO) is minimized through the data replication at
+regular intervals.
+
+=== Additional Documentation and Resources
+
+Chapters in this manual contain links to additional documentation resources that
+are either available through Linux manual pages or on the Internet.
+
+For the latest documentation updates, see https://documentation.suse.com.
+
+You can also find numerous whitepapers, guides, and other resources at the 
+{sles4sap} resource library at https://www.suse.com/products/sles-for-sap/resource-library/.
+
+// Standard SUSE includes
+=== Feedback
+include::common_intro_feedback.adoc[]
+
+== Scope of This Documentation
+This document describes how to set up an {saphana} Scale-Out
+system replication cluster installed on separated AWS Availability Zones based on {sles4sap} 12 SP4 or {sles4sap} 15.
+
+To give a better overview, the installation and setup is separated into
+seven steps.
+
+.<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> <<Integration>> <<Cluster>> <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase0.svg[scaledwidth="100%"]
+
+- Planning (section <<Planning>>)
+- Operating System (OS) setup (section <<OsSetup>>)
+- {saphana} installation (section <<SAPHanaInst>>)
+- {saphana} system replication configuration (section <<SAPHanaHsr>>)
+- {saphana} cluster integration (section <<Integration>>)
+- {sles4sapAbbr} cluster configuration (section <<Cluster>>)
+- Testing (section <<Testing>>)
+
+As the result of the setup process you will have a SUSE Linux Enterprise Server for SAP Applications cluster controlling
+two groups of {saphana} Scale-Out nodes in system replication configuration. This architecture
+was named the 'performance optimized scenario' because failovers should only take a few minutes.
+
+.Cluster with {SAPHana} SR - performance optimized
+image::SAPHanaSR-ScaleOut-Cluster.svg[scaledwidth="100%"]
+
+[#Planning]
+== Planning the Installation
+
+Planning the installation is essential for a successful {saphana} cluster setup.
+
+.Planning <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> <<Integration>> <<Cluster>> <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase1.svg[scaledwidth="100%"]
+
+What you need before you start:
+
+- EC2 instances created using _"{sles4sap} 12 SP4"_ , _"{sles4sap} 15"_ or later created from an Amazon Machine Image (AMI). If using a Bring Your Own Subscription (BYOS) AMI, a valid SUSE product subscription is required.
+- {saphana} installation media
+- Two Amazon Elastic File System (EFS) - one per Availability Zone
+- Filled parameter sheet (see below)
+
+=== Environment Requirements
+
+This section defines the minimum requirements to install {saphana} Scale-Out and create a cluster in AWS.
+
+NOTE: The minimum requirements mentioned here do not include SAP sizing information. For sizing information use the official SAP sizing tools and services.
+
+NOTE: The preferred method to deploy SAP HANA scale-out clusters in AWS is to follow the AWS QuickStarts using the "single Availability Zone (AZ) and multi-node architecture" deployment option. If you are installing SAP HANA Scale-Out manually, refer to the link:https://docs.aws.amazon.com/sap/latest/sap-hana/welcome.html[AWS SAP HANA Guides] documentation for detailed installation instructions, including recommended storage configuration and file systems.
+
+.Simplified cluster architecture for {saphana} Scale-Out system replication across two Availability Zones
+image::ScaleOutCluster-AWS.png[scaledwidth="100%"]
+
+As an example, this guide will detail the implementation of a SUSE cluster composed of two 3-node SAP HANA Scale-Out clusters (one per Availability Zone), plus a Majority Maker (mm) node. But apart from the number of EC2 instances, all other requirements should be the same for different numbers of SAP HANA nodes:
+
+- 3 HANA certified EC2 instances (bare metal or virtualized) in AZ-a
+- 3 HANA certified EC2 instances (bare metal or virtualized) in AZ-b
+- 1 EC2 instance, to be used as cluster Majority Maker, with at least 2 vCPUs, 2 GB RAM and 50 GB disk space in AZ-c
+- 2 Amazon Elastic Filesystem (EFS) for /hana/shared
+- 1 Overlay IP address for the primary (active) HANA System cluster
+
+=== Parameter Sheet
+
+Planning the cluster implementation can be very complex. Thus we recommend the installation
+to be planned properly. It is recommended to have all required parameters already in place before starting the deployment. It is a good practice to first fill out
+the parameter sheet and then begin with the installation.
+
+.Parameter sheet to prepare the NFS based setup
+[width="85%",options="header"]
+|=========================================================
+^|Parameter ^| Value
+|Path to {saphana} media |
+|Node names AZ-a  |
+|Node names AZ-b  |
+|Node name majority maker  |
+|IP addresses of all cluster nodes |
+|SAP HANA SID |
+|SAP Instance number |
+|Overlay IP address |
+|AWS Route Table |
+|SAP HANA site name site 1 |
+|SAP HANA site name site 2 |
+|EFS file system AZ-a (/hana/shared) |
+|EFS file system AZ-b (/hana/shared) |
+|Watchdog driver |
+|Placement Group Name |
+|=========================================================
+
+=== SAP Scale-Out Scenario in AWS with SUSE Linux Enterprise High Availability Extension
+
+An SAP HANA Scale-Out cluster in AWS requires the use of a majority maker node in a 3rd Availability Zone. A majority maker, also known as tie-breaker node, will ensure the cluster quorum is maintained in case of the loss of one Availability Zone. In AWS, to maintain functionality of the Scale-Out cluster, at least all nodes in one Availability Zone plus the majority maker node need to be running. Otherwise the cluster quorum will be lost and any remaining SAP HANA node will be automatically rebooted.
+
+It is also recommended that each set of cluster nodes has its own link:https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-groups.html[EC2 placement group] using "cluster" mode. This is needed to ensure that nodes can achieve the low-latency and high-throughput network performance needed for node-to-node communication required by SAP HANA in an Scale-Out deployment.
+
+To automate the failover, the SUSE Linux Enterprise High Availability Extension (HAE) built into 
+_{sles4sap}_ is used. It includes two resource agents which have been created to support
+SAP HANA Scale-Out High Availability.
+
+The first resource agent (RA) is *SAPHanaController*, which checks and
+manages the {saphana} database instances. This RA is configured as a
+master/slave resource.
+
+The master assumes responsibility for the active master name server of the
+{saphana} database running in primary mode. All other instances are
+represented by the slave mode.
+
+The second resource agent is *SAPHanaTopology*. This RA has been created to make configuring the cluster
+as simple as possible.  It runs on all SAP HANA nodes (except the majority maker) of a SUSE Linux Enterprise High Availability Extension 12 cluster. It gathers information about the status and
+configuration of the SAP HANA system replication. It is designed as a normal (stateless) clone
+resource.
+
+.Cluster resource agents and master/slave status mapping
+image::SAPHanaSR-ScaleOut-Cluster-Resources02-AWS.svg[scaledwidth="100%"]
+
+{SAPHANA} system replication for Scale-Out is supported in the following
+scenarios or use cases:
+
+Performance optimized, single container (A > B)::
+In the performance optimized scenario, an {saphana} RDBMS on site "A" is synchronizing with an
+{saphana} RDBMS on a second site "B". As the {saphana} RDBMS on the second site
+is configured to preload the tables, the takeover time is typically very short.
+
+Performance optimized, multi-tenancy also named MDC (%A > %B)::
+Multi-tenancy is supported for all above scenarios and use cases. This scenario
+is supported since {SAPHANA} 1 SPS12. The setup and configuration from a cluster
+point of view is the same for multi-tenancy and single containers. Thus you can use
+the above documents for both kinds of scenarios.
+
+Multi-tenancy is the default installation type for {SAPHANA} 2.0.
+
+=== The Concept of the Performance Optimized Scenario
+
+In case of a failure of the primary {saphana} Scale-Put cluster on AZ-a, the High Availability Extension tries to
+start the takeover process. This allows to use the already loaded data at the SAP HANA Scale-Out located in 
+AZ-b. Typically the takeover is much faster than the local restart.
+
+A site is noticed as "down" or "on error" if the *LandscapeHostConfiguration status* 
+reflects this (return code 1). This happens when the worker nodes are going down without any local SAP HANA
+standby nodes left.
+
+Without any additional intervention the resource agent will wait for the {sap}
+internal HA cluster to repair the situation locally. An additional intervention
+could be a custom python hook using the SAP provider *srServiceStateChanged()*
+available since {SAPHANA} 2.0 SPS01.
+
+To achieve an automation of this resource handling process, we can use the
+{SAPHANA} resource agents included in the SAPHanaSR-ScaleOut RPM package delivered with
+{sles4sapReg}.
+
+You can configure the level of automation by setting the parameter
+*AUTOMATED_REGISTER*. If automated registration is activated, the cluster will
+also automatically register a former failed primary to become the new secondary.
+
+=== Important Prerequisites
+
+The _SAPHanaSR-ScaleOut_ resource agent software package supports Scale-Out (multiple-node to
+multiple-node) system replication with the following configurations and parameters:
+
+* The cluster must include a valid STONITH method; in AWS the STONITH mechanism used is diskless SBD with watchdog.
+* Since HANA primary and secondary reside in different link:https://aws.amazon.com/about-aws/global-infrastructure/regions_az/[Availability Zones (AZs)], an link:https://docs.aws.amazon.com/es_es/sap/latest/sap-hana/sap-ha-overlay-ip.html[Overlay IP] address is required.
+* Linux users and groups, such as _{refsidadm}_, are defined *locally* in the Linux operating system.
+* Time synchronization of all nodes relies on Amazon's Time Sync Service by default.
+* {saphana} Scale-Out groups in different Availability Zones must have the same SAP Identifier (SID) and instance number.
+* EC2 instances must have different host names.
+* The {SAPHANA} Scale-Out system must only have *one* active master name server per site. It should have up to three master name server candidates (SAP HANA nodes with a configured role 'master<N>').
+* The {SAPHANA} Scale-Out system must only have *one* failover group.
+* The cluster described in this document does not manage any service IP address for a read-enabled secondary site.
+* There is only one {saphana} system replication setup - from AZ-a to AZ-b.
+* The setup implements the performance optimized scenario but not the cost optimized scenario.
+* The {sapHostAgent} must be running on all SAP HANA nodes, as it is needed to translate between
+  the system node names and SAP host names used during the installation of {saphana}.
+* The replication mode should be either 'sync' or 'syncmem'.
+* All {saphana} instances controlled by the cluster must not be activated via _sapinit_ autostart.
+
+[WARNING]
+====
+Automated registration of a failed primary after takeover is possible. But as a
+good starting configuration, it is recommended to *switch off* the
+automated registration of a failed primary. Therefore 
+_AUTOMATED_REGISTER="false"_ is set by *default*.
+
+In this case, you need to manually register a failed primary after a takeover.
+Use SAP tools like *hanastudio* or *hdbnsutil*.
+====
+
+* Automated start of {SAPHANA} instances during system boot must be switched
+  *off* in any case.
+* You need at least SAPHanaSR-ScaleOut version 0.161, _"{sles4sap} 12 SP4"_ or _"{sles4sap} 15"_ and
+  {SAPHANA} 1.0 SPS12 (122) or {SAPHANA} 2.0 SPS03 for all mentioned setups. Refer to SAP Note 2235581.
+
+IMPORTANT: You must implement a valid STONITH method. Without a valid STONITH
+method, the complete cluster is unsupported and will not work properly. For the document at hand,
+diskless SBD is used as STONITH.
+
+This setup guide focuses on the performance optimized setup as it is the
+only supported scenario at the time of writing.
+
+If you need to implement a different scenario, or customize your cluster configuration, it is strongly recommended to define
+a Proof-of-Concept (PoC) with {SUSE} and AWS. This PoC will focus on testing the existing solution in your scenario.
+
+[#OsSetup]
+== Using AWS with SUSE Linux Enterprise High Availability Extension Clusters
+
+The SUSE Linux Enterprise High Availability Extension cluster will be installed in an AWS Region. An AWS Region
+consists of multiple Availability Zones (AZs). An Availability Zone (AZ) is one or more discrete data 
+centers with redundant power, networking, and connectivity in an AWS Region. AZs give customers 
+the ability to operate production applications and databases that are more highly available, fault 
+tolerant, and scalable than would be possible from a single data center. All AZs in an AWS Region 
+are interconnected with high-bandwidth, low-latency networking, over fully redundant, dedicated metro 
+fiber providing high-throughput, low-latency networking between AZs. All traffic between AZs is 
+encrypted. The network performance is sufficient to accomplish synchronous replication between AZs. 
+AZs are physically separated by a meaningful distance, many kilometers, from any other AZ, although 
+all are within 100 km (60 miles) of each other. AWS recommends link:https://d0.awsstatic.com/enterprise-marketing/SAP/sap-hana-on-aws-high-availability-disaster-recovery-guide.pdf[architectural patterns] where redundant 
+cluster nodes are being spread across different Availability Zones to overcome individual Availability 
+Zones failures.
+
+An AWS Virtual Private Network (VPC) is spanning all Availability Zones. We assume that a
+customer will have:
+
+-	Identified 3 Availability Zones (AZs) to be used
+-	Created subnets in the 3 AZs used to host the cluster nodes
+-	A routing table attached to the subnets
+
+The virtual IP address for the HANA services will be an link:https://docs.aws.amazon.com/es_es/sap/latest/sap-hana/sap-ha-overlay-ip.html[Overlay IP address].
+This is a specific routing entry which can send network traffic to an instance,
+no matter which Availability Zones (and subnet) the instance is located in.
+
+The cluster will update this routing entry as required.
+All SAP system components in the VPC can reach an AWS instance with
+an SAP system component inside a VPC through this Overlay IP address.
+
+Overlay IP addresses have one requirement, they need to have a CIDR range
+outside of the VPC. Otherwise they would be part of a subnet and a
+given Availability Zone.
+
+On premises users like HANA Studio cannot to reach this IP address
+since the AWS Virtual Private Network (VPN) gateway will not route traffic
+to such an IP address.
+
+=== AWS Environment Configurations
+
+Here are the prerequisites which need to be met before starting the installation in AWS:
+
+* Have an AWS account
+* Have an AWS user with administrator permissions, or with the below permissions:
+** Create security groups
+** Modify AWS routing tables
+** Create policies and attach them to IAM roles
+** Enable/Disable EC2 instances' Source/Destination Check
+** Create placement groups
+*	Understand your landscape:
+** Know your AWS Region and its AWS name
+** Know your VPC and its AWS VPC ID
+** Know which Availability Zones (AZs) you will use
+** Have a subnet in each of the Availability Zones:
+*** Have a routing table which is implicitly or explicitly attached to the subnets
+*** Have free IP addresses in the subnets for your SAP installation
+*** Allow network traffic in between the subnets
+*** Allow outgoing Internet access from the subnets
+
+NOTE: Using AWS SAP HANA QuickStart will automatically deploy all the required AWS resources listed above: This is the
+quickest and safest method to ensure all applicable SAP Notes and configurations are applied to the AWS resources.
+
+=== Security Groups
+
+The following ports and protocols need to be configured to allow the cluster nodes to communicate with each other:
+
+* Port 5405 for inbound UDP: It is used to configure the corosync communication layer.
+Port 5405 is being used in common examples. A different port may be used
+depending on the corosync configuration.
+
+* Port 7630 for inbound TCP: It is used by the SUSE "HAWK" Web GUI.
+
+NOTE: This section lists the ports which need to be available for the SUSE Linux Enterprise HAE cluster only. 
+It does not include SAP related ports.
+
+=== Placement Group
+
+One cluster placement group per Availability Zone is required to ensure that the SAP HANA nodes will achieve the high network throughput required by SAP HANA. 
+For more information about placement groups, refer to the AWS documentation at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/placement-groups.html.
+
+=== AWS EC2 Instance Creation
+
+Create all EC2 instances to configure the SUSE Linux Enterprise HAE cluster. The EC2 instances will be located in 3 different Availability Zones to make them independent of each other.
+
+This document will cover 3 EC2 instances in AZ-a for SAP HANA (Primary site), 3 EC2 instances in AZ-b for SAP HANA (Secondary site), and 1 instance in AZ-c as cluster Majority Maker (MM).
+
+AMI selection:
+
+* Use a "SUSE Linux Enterprise Server for SAP" AMI. Search for "suse-sles-sap-12-sp4" or "suse-sles-sap-15" in
+the list of AMIs. There are several BYOS (Bring Your Own Subscription)
+AMIs available. Use these AMIs if you have a valid SUSE subscription.
+Register your system with the Subscription Management Tool (SMT) from SUSE, SUSE Manager or directly with the SUSE Customer Center!
+
+* Use the AWS Marketplace AMI
+_SUSE Linux Enterprise Server for SAP Applications 15_
+which already includes the SUSE subscription and the HAE software components.
+
+Launch all EC2 instances into the Availability Zones (AZ) specific subnets, and placement groups. The subnets
+need to be able to communicate with each other.
+
+=== Host Names
+
+By default, the EC2 instances will have automatically generated host names. But it is recommended to assign host names that comply with the SAP requirements. See SAP note 611361.
+You need to edit /etc/cloud/cloud.cfg for host names to persist:
+----
+preserve_hostname: true
+----
+
+NOTE: To learn how to change the default host name for an EC2 instance running SUSE Linux Enterprise, refer to the AWS' public documentation at
+https://aws.amazon.com/premiumsupport/knowledge-center/linux-static-hostname-suse/.
+
+=== AWS CLI Profile Configuration
+
+The cluster's resource agents use the AWS Command Line Interface (CLI).
+They will use an AWS CLI profile which needs to be created for
+the _root_ user on all instances. The SUSE cluster resource agents require a profile
+which generates output in text format. 
+
+The name of the profile is arbitrary, and will be added later to the cluster configuration. 
+The name chosen in this example is _cluster_. The region of the instance needs to be added as well.
+Replace the string _region-name_ with your target region in the following example.
+
+One way to create such a profile is to create a file _/root/.aws/config_
+with the following content:
+
+[subs="attributes"]
+----
+[default]
+region = region-name
+[profile cluster]
+region = region-name
+output = text
+----
+
+Another method is to use the _aws configure_ CLI command in the following way:
+
+[subs="attributes"]
+----
+# aws configure
+AWS Access Key ID [None]:
+AWS Secret Access Key [None]:
+Default region name [None]: _region-name_
+Default output format [None]:
+
+# aws configure --profile cluster
+AWS Access Key ID [None]:
+AWS Secret Access Key [None]:
+Default region name [None]: region-name
+Default output format [None]: text
+----
+
+The above commands will create two profiles: a default profile and a cluster profile.
+
+NOTE: AWS recommends _NOT_ to store any AWS user credentials nor API signing
+keys in these profiles. Leave these fields blank and attach an EC2 IAM profile
+with the required permissions to the EC2 instance.
+
+=== Configure HTTP/HTTP Proxies (Optional)
+
+This action is not needed if the system has direct access to the Internet.
+
+Since the cluster resource agents will execute AWS API calls throughout the cluster lifecycle, 
+they need HTTP/HTTPS access to AWS API endpoints. Systems which do not offer
+transparent Internet access may require an HTTP/HTTPS proxy.
+The configuration of the proxy access is described in full detail in the
+AWS documentation.
+
+Add the following environment variables to the root user's _.bashrc_ file:
+
+[subs="attributes"]
+----
+export HTTP_PROXY=http://a.b.c.d:n
+export HTTPS_PROXY=http://a.b.c.d:m
+export NO_PROXY="169.254.169.254"
+----
+
+AWS' Data Provider for SAP will need to reach the instance meta data service
+directly. Add the following environment variable to the root user's _.bashrc_ file:
+
+[subs="attributes"]
+----
+export NO_PROXY="127.0.0.1,localhost,localaddress,169.254.169.254"
+----
+
+SUSE Linux Enterprise HAE also requires to add the proxy configurations to _/etc/sysconfig/pacemaker_ configuration file in the following format:
+
+[subs="attributes"]
+----
+export HTTP_PROXY=http://username:password@a.b.c.d:n
+export HTTPS_PROXY=http://username:password@a.b.c.d:m
+export NO_PROXY="127.0.0.1,localhost,localaddress,169.254.169.254"
+----
+
+==== Verify HTTP Proxy Settings (Optional)
+
+Make sure that the SUSE instance can reach the EC2 instance metadata address URL http://169.254.169.254/latest/meta-data, as multiple system components will required to access it. 
+Therefore it is recommended to disable any firewall rules that restrict it, and to disable proxy access to this URL.
+
+For more information about EC2 Instance metadata server, refer to AWS' documentation at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html.
+
+=== Disable the Source/Destination Check for the Cluster Instances
+
+The source/destination check needs to be disabled on all EC2 instances that are part of the cluster. This can be done
+through scripts using the AWS command line interface (AWS-CLI) or by using the AWS console.
+The following command needs to be executed _one time_ only on all EC2 instances part of the cluster:
+
+[subs="attributes"]
+----
+# aws ec2 modify-instance-attribute --instance-id EC2-instance-id --no-source-dest-check
+----
+
+Replace the variable _EC2-instance-id_ with the instance ID of the AWS EC2 instances. 
+The system on which this command gets executed needs temporarily a role with
+the following policy:
+
+[subs="attributes"]
+----
+{
+   "Version": "2012-10-17",
+   "Statement": [
+   {
+      "Sid": "Stmt1424870324000",
+      "Effect": "Allow",
+      "Action": [ "ec2:ModifyInstanceAttribute"],
+      "Resource": [
+      "arn:aws:ec2:region-name:account-id:instance/instance-a",
+      "arn:aws:ec2:region-name:account-id:instance/instance-b"
+      ]
+   }
+   ]
+}
+----
+
+Replace the following individual parameter with the appropriate values:
+
+* region-name (Example: us-east-1)
+
+* account-id (Example: 123456789012)
+
+* instance-a, instance-b (Example: i-1234567890abcdef)
+
+NOTE: The string "instance" in the policy is a fixed string.
+It is not a variable which needs to be substituted!
+
+The source/destination check can be disabled as well from the AWS console.
+It takes the execution of the following drop-down box in the console for
+both EC2 instances (see below).
+
+.Disable Source/Destination Check at Console
+image::SourceDestinationCheck.png[PNG]
+
+=== Avoid Deletion of Overlay IP Address on the eth0 Interface
+
+SUSE's cloud-netconfig-ec2 package may erroneously remove any secondary IP address which is managed by the cluster
+agents from the eth0 interface. This can cause service interruptions for users of the cluster service. 
+Perform the following task on all cluster nodes:
+
+Check whether the package cloud-netconfig-ec2 is installed with the command:
+[subs="attributes"]
+----
+# zypper info cloud-netconfig-ec2
+----
+
+If the package is installed, update the file _/etc/sysconfig/network/ifcfg-eth0_ and 
+change the following line to a "no“ setting or add the line if the package
+is not yet installed:
+[subs="attributes"]
+----
+CLOUD_NETCONFIG_MANAGE='no'
+----
+
+=== AWS Roles and Policies
+
+SUSE Linux Enterprise HAE cluster software and its agents need several AWS IAM privileges to operate the cluster. An IAM Security Role is required to be attached to the EC2 instance that are part of the cluster. 
+A single IAM Role can be used across the cluster, and associated to all EC2 instances. 
+
+This IAM Security Role will require the IAM Security Policies detailed below.
+
+==== AWS Data Provider Policy
+SAP systems on AWS require the installation of the “AWS Data Provider for SAP”, which needs a policy to access AWS resources.
+Use the policy shown in the
+link:https://docs.aws.amazon.com/sap/latest/general/aws-data-provider.html[“AWS Data Provider for SAP Installation and Operations Guide“] and attach it to the IAM Security Role to be used by the cluster EC2 instance. 
+This policy can be used by all SAP systems.
+Only one policy per AWS account is required for "AWS Data Provider for SAP". Therefore, if an IAM Security Policy for "AWS Data Provider for SAP" already exists, it can be used.
+
+[subs="attributes"]
+----
+{
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "EC2:DescribeInstances",
+                "EC2:DescribeVolumes"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "cloudwatch:GetMetricStatistics",
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::aws-data-provider/config.properties"
+        }
+    ]
+}
+----
+
+==== Overlay IP Agent Policy
+The Overlay IP agent will change a routing entry in an AWS routing table.
+Create a policy with a name like _Manage-Overlay-IP-Policy_ and attach it to
+the IAM Security Role of the cluster instances:
+
+[subs="attributes"]
+----
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+           "Sid": "Stmt1424870324000",
+           "Action": "ec2:ReplaceRoute",
+           "Effect": "Allow",
+           "Resource": "arn:aws:ec2:region-name:account-id:route-table/rtb-XYZ"
+        },
+        {
+           "Sid": "Stmt1424870324000",
+           "Action": "ec2:DescribeRouteTables",
+           "Effect": "Allow",
+           "Resource": "*"
+        }
+    ]
+}
+----
+
+This policy allows the agent to update the routing tables which get used.
+Replace the following variables with the appropriate names:
+
+- region-name : the name of the AWS region
+
+- account-id : The name of the AWS account in which the policy is getting used
+
+- rtb-XYZ : The identifier of the routing table which needs to be updated
+
+=== Add Overlay IP Addresses to Routing Table
+
+Manually create a route entry in the routing table which is assigned to the
+two subnets used by the EC2 cluster instances. This IP address is the virtual service IP address of the HANA cluster.
+The Overlay IP address needs to be outside of the CIDR range of the VPC.
+Use the AWS console and search for “VPC”.
+
+*	Select VPC
+*	Click “Route Tables” in the left column
+*	Select route table used the subnets from one of your SAP EC2 instances and their application servers
+*	Click the tabulator “Routes”
+*	Click “Edit”
+*   Scroll to the end of the list and click “Add another route”
+
+Add the overlay IP address of the HANA database. Use as
+filter /32 (example: 192.168.10.1/32). Add the Elastic Network Interface (ENI)
+name to EC2 instance to be the SAP HANA Master. The resource agent will modify this latter one automatically as required.
+Save your changes by clicking “Save”.
+
+NOTE: It is important that the routing table, which will contain the routing entry, needs to be
+inherited to all subnets in the VPC which have consumers of the service.
+Check the AWS VPC documentation at http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/VPC_Introduction.html
+for more details on routing table inheritance.
+
+=== Create EFS File Systems
+
+Each set of {sapHana} Scale-Out clusters needs to have its own Amazon Elastic Filesystem (EFS). To create an EFS file system
+review the AWS public documentation which contains a step-by-step guide of how to create and mount it (see https://docs.aws.amazon.com/efs/latest/ug/getting-started.html). 
+
+=== Configure the Operating System for SAP HANA
+Consider these SAP notes to configure the operating system (modules, packages, kernel settings, etc.) for
+your version of SAP HANA:
+
+If using SUSE Linux Enterprise Server for SAP Applications 12:
+- *1984787* SUSE LINUX Enterprise Server 12: Installation Notes
+- *2205917* SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12
+
+If using SUSE Linux Enterprise Server for SAP Applications 15:
+- *2578899* SUSE Linux Enterprise Server 15: Installation Notes
+- *2684254* SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15
+
+Other related SAP Notes:
+- *1275776* Linux: Preparing SLES for SAP environments
+- *2382421* Optimizing the Network Configuration on HANA- and OS-Level
+
+==== Install SAP HANA Scale-Out Cluster Agent
+{SUSE} delivers with {sles4sapAbbr} special resource agents for {sapHana}. With the installation of pattern "sap-hana" the resource
+agent for {sapHana} Scale-Up is installed, but for the Scale-Out scenario we need a special resource agent.
+Follow these instructions on each node if you have installed the systems based on the existing AWS Amazon Machine Images (AMIs), or deployed the SAP HANA nodes using the AWS QuickStart.
+The pattern _High Availability_ summarizes all tools what we recommend to install on *all* nodes including the
+majority maker node.
+
+* Remove packages: SAPHanaSR SAPHanaSR-doc yast2-sap-ha
+* Install packages: SAPHanaSR-ScaleOut SAPHanaSR-ScaleOut-doc
+
+.Uninstall the {sapHanaSR} agent for Scale-Up
+====
+
+As user root:
+
+----
+zypper remove SAPHanaSR SAPHanaSR-doc yast2-sap-ha
+----
+
+====
+
+.Install the {sapHanaSR} agent for Scale-Out
+====
+
+As user root:
+
+----
+zypper in SAPHanaSR-ScaleOut SAPHanaSR-ScaleOut-doc
+----
+
+If the package is not installed yet. You should get an output like:
+
+----
+Refreshing service 'Advanced_Systems_Management_Module_12_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_for_SAP_Applications_12_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 2 NEW packages are going to be installed:
+  SAPHanaSR-ScaleOut SAPHanaSR-ScaleOut-doc
+
+2 new packages to install.
+Overall download size: 539.1 KiB. Already cached: 0 B. After the operation, additional 763.1 KiB will be used.
+Continue? [y/n/...? shows all options] (y): y
+Retrieving package SAPHanaSR-ScaleOut-0.161.1-1.1.noarch                                                                            (1/2),  48.7 KiB (211.8 KiB unpacked)
+Retrieving: SAPHanaSR-ScaleOut-0.161.1-1.1.noarch.rpm ....................................[done]
+Retrieving package SAPHanaSR-ScaleOut-doc-0.161.1-1.1.noarch                                                                        (2/2), 490.4 KiB (551.3 KiB unpacked)
+Retrieving: SAPHanaSR-ScaleOut-doc-0.161.1-1.1.noarch.rpm ................................[done (48.0 KiB/s)]
+Checking for file conflicts: .............................................................[done]
+(1/2) Installing: SAPHanaSR-ScaleOut-0.161.1-1.1.noarch ..................................[done]
+(2/2) Installing: SAPHanaSR-ScaleOut-doc-0.161.1-1.1.noarch ..............................[done]
+----
+
+Install SUSE's High Availability Pattern
+
+[subs="quotes,attributes"]
+----
+zypper in --type pattern ha_sles
+----
+====
+
+==== Install the Latest Available Updates from SUSE
+If you have the packages installed before, make sure to install the latest package updates on *all* machines to have the latest versions of the resource agents and other packages. There are multiple ways to get updates like {SUSE} Manager,
+SMT, or directly connected to SCC ({SUSE} Costumer Center).
+
+Depending on your company or customer rules use _zypper update_ or _zypper patch_.
+
+.Software update must be triggered from each node
+====
+_Zypper patch_ will install all available needed patches.
+As user root:
+
+----
+zypper patch
+----
+
+_Zypper update_ will update all or specified installed packages with newer versions, if possible.
+As user root:
+
+----
+zypper update
+----
+====
+
+=== Configure {sles4sapAbbr} to Run {sapHana}
+
+==== Tuning / Modification
+All needed operating system tuning are described in SAP Note 2684254 and in SAP Note 2205917. It is recommended
+to manually verify each parameter mentioned in the SAP Notes.
+This is to ensure all performance tunings for {sapHana} are correctly set.
+
+The SAP note covers:
+
+- SLES 15 or SLES 12
+- Additional 3rd-party kernel modules
+- Configure sapconf or saptune
+- Turn off NUMA balancing
+- Disable transparent hugepages
+- Configure C-States for lower latency in Linux (applies to Intel-based systems only)
+- CPU Frequency/Voltage scaling (applies to Intel-based systems only)
+- Energy Performance Bias (EPB, applies to Intel-based systems only)
+- Turn off kernel samepage merging (KSM)
+- Linux Pagecache Limit
+
+
+==== Enable SSH Access via Public Key (optional)
+Public key authentication provides passwordless SSH access to servers.
+
+This setup is based on only one SSH keypair which enables SSH access to all cluster nodes.
+
+.SSH key creation and exchange
+====
+As user root create an SSH key on one node.
+
+----
+ssh-keygen -t rsa
+----
+
+The ssh-key generation ask for missing parameters.
+
+----
+Generating public/private rsa key pair.
+Enter file in which to save the key (/root/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /root/.ssh/id_rsa.
+Your public key has been saved in /root/.ssh/id_rsa.pub.
+The key fingerprint is:
+SHA256:ip/8kdTbYZNuuEUAdsaYOAErkwnkAPBR7d2SQIpIZCU root@<host1>
+The key's randomart image is:
++---[RSA 2048]----+
+|XEooo+ooo+o      |
+|=+.= o=.o+.      |
+|..B o. + o.      |
+|   o  . +... .   |
+|        S.. *    |
+|     . o . B o   |
+|    . . o o =    |
+|     o . . +     |
+|      +.. .      |
++----[SHA256]-----+
+----
+
+After the _ssh-keygen_ is set up, you will have two new files under _/root/.ssh/_ .
+
+----
+ls /root/.ssh/
+id_rsa  id_rsa.pub
+----
+
+Collect the public host keys from all other node. We have used the _ssh-keyscan_ command.
+
+----
+ssh-keyscan
+----
+
+The SSH host key is automatically collected and stored in the file _/root/.ssh/known_host_ during the first SSH
+connection. To avoid to confirm the first login with "yes" which accept the host key, we collect and store
+them beforehand.
+
+----
+ssh-keyscan -t ecdsa-sha2-nistp256 <host1>,<host1 ip> >>.ssh/known_hosts
+ssh-keyscan -t ecdsa-sha2-nistp256 <host2>,<host2 ip> >>.ssh/known_hosts
+ssh-keyscan -t ecdsa-sha2-nistp256 <host3>,<host3 ip> >>.ssh/known_hosts
+...
+----
+
+After collecting all host keys we store them in a file named _authorized_keys_. We push the complete
+directory /root/.ssh/ form the first node to all further cluster members.
+
+----
+rsync -ay /root/.ssh/ <host2>:/root/.ssh/
+rsync -ay /root/.ssh/ <host3>:/root/.ssh/
+rsync -ay /root/.ssh/ <host4>:/root/.ssh/
+....
+----
+
+====
+
+==== Set up Disk Layout for {sapHana}
+
+We highly recommend to follow the storage layout described at
+https://docs.aws.amazon.com/quickstart/latest/sap-hana/planning.html.
+The table on this Web site lists the minimum required number of EBS volumes, volume size
+and IOPS (for IO1) for your desired EC2 instance type. You can choose
+more storage or more IOPS depending on your workload's requirements.
+Configure the EBS volumes for:
+
+- /hana/data
+- /hana/log
+
+File systems:
+
+/hana/shared/{refSID}::
+On SAP HANA Scale-Out this directory is mounted on all nodes of the same Scale-Out cluster, and in AWS this directory uses EFS. It contains shared files, like binaries, trace, and log files.
+
+/hana/log/{refSID}::
+This directory contains the redo log files of the {SAPHANA} host. On AWS this
+directory is local to the instance.
+
+/hana/data/{refSID}::
+This directory contains the data files of the {SAPHANA} host. On AWS this
+directory is local to the instance.
+
+/usr/sap::
+This is the path to the local SAP system instance directories. It is recommended to have a separate volume for /usr/sap.
+
+=== Configure Host Name Resolution
+
+To configure host name resolution, you can either use a DNS server or modify the _/etc/hosts_ on *all* cluster nodes.
+
+With maintaining the _/etc/hosts_ file, you minimize the impact of a failing
+DNS service. Edit the _/etc/hosts_ file on *all* cluster nodes and add all cluster nodes' host name and IPs to it.
+
+[subs="quotes,attributes"]
+----
+vi /etc/hosts
+----
+
+Insert the following lines to _/etc/hosts_. Change the IP address and host name
+to match your environment.
+
+[subs="quotes,attributes"]
+----
+**_{HostIP1}**_ _**{mySite1FirstNode}**_
+**_{HostIP2}**_ _**{mySite2FirstNode}**_
+...
+----
+
+=== Enable Chrony/NTP Service on All Nodes
+
+By default all nodes should automatically synchronize with Amazon Time Sync Service.
+Check the NTP/chrony configuration _/etc/chrony.conf_ of all nodes and confirm that the time source server is 169.254.169.123
+
+[#SAPHanaInst]
+== Installing the {saphana} Databases on both sites
+As now the infrastructure is set up, we can install the {saphana} database on
+both sites. In a cluster a machine is also called a _node_.
+
+.<<Planning>> <<OsSetup>> SAPHanaInst <<SAPHanaHsr>> <<Integration>> <<Cluster>> <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase3.svg[scaledwidth="100%"]
+
+In our example here and to make it more easy to follow the documentation, we
+name the machines (or nodes) _{mySite1FirstNode}_, ... _suseXX_. The nodes with odd numbers
+(suse01, suse03, suse05, ...) will be part of site "A" ({mySite1Name}) and the nodes with even
+(suse02, suse04, suse06, ...) will be part of site "B" ({mySite2Name}) .
+
+The following users are automatically created during the {saphana} installation:
+
+{refsidadm}::
+The user{refsidadm} is the operating system user required for administrative
+tasks, such as starting and stopping the system.
+sapadm::
+The SAP Host Agent  administrator.
+SYSTEM::
+The {saphana} database superuser
+
+=== Preparation
+- Read the SAP Installation and Setup guides available at the SAP Marketplace.
+
+- Download the {SAPHANA} Software from SAP Marketplace.
+
+- Mount the file systems to install {SAPHANA} database software and database
+  content (data, log and shared).
+
+=== Installation
+
+Install the {saphana} Database as described in the {SAPHANA} Server
+Installation Guide. To do this install the HANA primary master server
+first as a single scale-up system. Once that is done change the global.ini parameter
+persistence/basepath_shared to "no".
+----
+ALTER SYSTEM ALTER CONFIGURATION ('global.ini', 'SYSTEM') SET ('persistence','basepath_shared')='no';
+----
+This way the HANA database will not expect shared log/data directories across all nodes.
+After this setting is applied you can add hosts to the database. Add all HANA nodes
+of the scale-out cluster within the same Availability Zone (primary site).
+
+Follow SAP note *2369981 - Required configuration steps for authentication with HANA System Replication*
+to exchange the encryption keys with the secondary site!
+
+Now repeat the same procedure to install the SAP HANA database on the master of the
+secondary site. Change the persistence/basepath_shared parameter and add nodes
+to the secondary scale-out cluster.
+
+=== Checks
+
+Verify that *both* database sites are up and all processes of these databases
+are running correctly.
+
+. As Linux user _{refsidadm}_ use the SAP command line tool _HDB_ to get an
+overview of running {saphana} processes. The output of _HDB_ info should look similar
+to the following screenshot for *both* sites:
++
+.Calling  HDB info (as user {refsidadm})
+==============================
+[subs="specialchars,attributes"]
+----
+HDB info
+----
+
+The _HDB info_ command lists the processes currently running for that SID.
+
+[subs="specialchars,attributes"]
+----
+USER           PID  ...  COMMAND
+{mysidlc}adm         6561 ...  -csh
+{mysidlc}adm         6635 ...    \_ /bin/sh /usr/sap/{sid}/HDB{inst}/HDB info
+{mysidlc}adm         6658 ...        \_ ps fx -U {sid} -o user,pid,ppid,pcpu,vsz,rss,args
+{mysidlc}adm         5442 ...  sapstart pf=/hana/shared/{sid}/profile/{sid}_HDB{inst}_{mySite1FirstNode}
+{mysidlc}adm         5456 ...   \_ /usr/sap/{sid}/HDB{inst}/{mySite1FirstNode}/trace/hdb.sap{sidlc}_HDB{inst} -d -nw -f /usr/sap/{mysidlc}/HDB{inst}/suse
+{mysidlc}adm         5482 ...       \_ hdbnameserver
+{mysidlc}adm         5551 ...       \_ hdbpreprocessor
+{mysidlc}adm         5554 ...       \_ hdbcompileserver
+{mysidlc}adm         5583 ...       \_ hdbindexserver
+{mysidlc}adm         5586 ...       \_ hdbstatisticsserver
+{mysidlc}adm         5589 ...       \_ hdbxsengine
+{mysidlc}adm         5944 ...       \_ sapwebdisp_hdb pf=/usr/sap/{sid}/HDB{inst}}/{mySite1FirstNode}/wdisp/sapwebdisp.pfl -f /usr/sap/SL
+{mysidlc}adm         5363 ...  /usr/sap/{sid}/HDB{inst}/exe/sapstartsrv pf=/hana/shared/{sid}/profile/{sid}_HDB{inst}_{mySite2FirstNode} -D -u s
+----
+==============================
++
+. Use the python script _landscapeHostConfiguration.py_ to show the status of
+an entire {saphana} site.
+// DONE PRIO2: (FH) Add example for landscapeHostConfiguration output
+// DONE PRIO2: (FH) Add sapcontrol ... GetSystemInstanceList
++
+.Query the host roles (as user {refsidadm})
+==========
+[subs="specialchars,attributes"]
+----
+HDBSettings.sh landscapeHostConfiguration.py
+----
+
+The landscape host configuration is shown with a line per {saphana} host.
+
+[subs="specialchars,attributes"]
+----
+ | Host   | Host   |... NameServer  | NameServer  | IndexServer | IndexServer
+ |        | Active |... Config Role | Actual Role | Config Role | Actual Role
+ | ------ | ------ |... ----------- | ----------- | ----------- | -----------
+ | {suse01} | yes    |... master 1    | master      | worker      | master
+ | {suse03} | yes    |... master 2    | slave       | worker      | slave
+ | {suse05} | yes    |... master 3    | slave       | standby     | standby
+
+ overall host status: ok
+----
+==========
++
+. Get an overview of instances of that site (as user {refsidadm})
++
+.Get the list of instances
+=========
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refinst} -function GetSystemInstanceList
+----
+
+You should get a list of {saphana} instances belonging to that site.
+
+[subs="specialchars,attributes"]
+----
+12.06.2018 17:25:16
+GetSystemInstanceList
+OK
+hostname, instanceNr, httpPort, httpsPort, startPriority, features, dispstatus
+{suse01}, {inst}, 5{inst}13, 5{inst}14, 0.3, HDB|HDB_WORKER, GREEN
+{suse05}, {inst}, 5{inst}13, 5{inst}14, 0.3, HDB|HDB_WORKER, GREEN
+{suse03}, {inst}, 5{inst}13, 5{inst}14, 0.3, HDB|HDB_WORKER, GREEN
+----
+=========
+
+
+[#SAPHanaHsr]
+== Set up the {SAPHANA} System Replication
+
+This section describes the setup of the system replication (HSR) after {saphana} has
+been installed properly.
+
+**Procedure**
+
+. Back up the primary database
+. Enable primary database
+. Register the secondary database
+. Verify the system replication
+
+.<<Planning>> <<OsSetup>> <<SAPHanaInst>> SAPHanaHsr <<Integration>> <<Cluster>> <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase4.svg[scaledwidth="100%"]
+
+For more information read the Section _Setting Up System Replication_ of the
+{saphana} Administration Guide.
+
+=== Back Up the Primary Database
+Please, first back up the primary database as described in the
+_{saphana} Administration Guide, Section {saphana} Database Backup and Recovery_.
+
+We provide some examples to back up {saphana} with SQL Commands:
+
+.Simple backup for the system database and all tenants with one singe backup call
+=========================
+As user {refsidadm} enter the following command:
+
+----
+hdbsql -u SYSTEM -d SYSTEMDB \
+   "BACKUP DATA FOR FULL SYSTEM USING FILE ('backup')"
+----
+
+You get the following command output (or similar):
+
+----
+0 rows affected (overall time 15.352069 sec; server time 15.347745 sec)
+----
+=========================
+
+.Simple backup for a single container (non MDC) database
+=========================
+Enter the following command as user {refsidadm}:
+
+[subs="specialchars,attributes"]
+----
+hdbsql -i {refInst} -u <dbuser> \
+   "BACKUP DATA USING FILE ('backup')"
+----
+=========================
+
+IMPORTANT: Without a valid backup, you *cannot* bring {SAPHANA} into a system
+replication configuration.
+
+
+=== Enable Primary Database
+As Linux user _{refsidadm}_ enable the system replication at the primary node. You
+need to define a site name (like _{mySite1Name}_) which must be unique for all {SAPHANA}
+databases which are connected via system replication. This means the secondary
+must have a different site name.
+
+.Enable the system replication on the primary site
+==========
+As user {refsidadm} enable the primary:
+
+[subs="specialchars,attributes"]
+----
+hdbnsutil -sr_enable --name=HAP
+----
+
+Check, if the command output is similar to:
+// DONE PRIO2: (all) Check if the following output is valid:
+
+[subs="specialchars,attributes"]
+----
+nameserver is active, proceeding ...
+successfully enabled system as system replication source site
+done.
+----
+==========
+
+The command line tool _hdbnsutil_ can be used to check the system replication
+mode and site name.
+
+.Check the system replication configuration status as user {refsidadm} on the primary
+==========
+[subs="specialchars,attributes"]
+----
+hdbnsutil -sr_stateConfiguration
+----
+
+If the system replication enablement was successful at the primary, the
+output should look like the following:
+// DONE PRIO2: (all) Check if the following output is valid:
+
+[subs="specialchars,attributes"]
+----
+checking for active or inactive nameserver ...
+System Replication State
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+mode: primary
+site id: 1
+site name: HAP
+done.
+----
+==========
+
+The mode has changed from “none” to “primary”. The site now has a site name
+and a site ID.
+
+=== Register the Secondary Database
+The {saphana} database instance on the secondary side must be stopped before the
+system can be registered for the system replication. You can use your
+preferred method to stop the instance (like _HDB_ or _sapcontrol_). After the
+database instance has been stopped successfully, you can register the instance
+using _hdbnsutil_.
+
+.Stop the secondary as Linux user _{refsidadm}_:
+==========
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refInst} -function StopSystem
+----
+==========
+
+.Register the secondary as Linux user _{refsidadm}_:
+==========
+[subs="specialchars,attributes"]
+----
+hdbnsutil -sr_register --name=<site2> \
+     --remoteHost=<node1-siteA> --remoteInstance={refInst} \
+     --replicationMode=syncmem --operationMode=logreplay
+----
+
+// DONE PRIO2: (all) Check if the following output is valid:
+[subs="specialchars,attributes"]
+----
+adding site ...
+checking for inactive nameserver ...
+nameserver {mySite2FirstNode}:30001 not responding.
+collecting information ...
+updating local ini files ...
+done.
+----
+==========
+
+The _remoteHost_ is the primary node in our case, the _remoteInstance_ is the
+database instance number (here {myHANAInst}).
+
+Now start the secondary database instance again and verify the system replication status.
+On the secondary site, the mode should be one of „SYNC“, „SYNCMEM“ or „ASYNC“.
+The mode depends on the sync option defined during the registration of the
+secondary.
+
+.Start the system on the secondary site as user {refsidadm}
+==========
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refInst} -function StartSystem
+----
+
+Wait till the {sapHana} database is started completely.
+==========
+
+.Check the system replication configuration as Linux user {refsidadm}
+==========
+[subs="specialchars,attributes"]
+----
+hdbnsutil -sr_stateConfiguration
+----
+
+The output should look like:
+
+[subs="specialchars,attributes"]
+----
+System Replication State
+~~~~~~~~~~~~~~~~~~~~~~~~
+mode: sync
+site id: 2
+site name: HAS
+active primary site: 1
+
+primary masters: {suse01} {suse03} {suse05}
+done.
+----
+==========
+
+
+=== Verify the System Replication
+
+To view the replication state of the whole {saphana} cluster, use the following
+command as _{refsidadm}_ user on the primary site.
+
+.Check the system replication status at the primary site (as {refsidadm})
+=========
+[subs="specialchars,attributes,quotes"]
+----
+HDBSettings.sh systemReplicationStatus.py
+----
+
+This script prints a human readable table of the system replication channels and their status. The
+most interesting column is the **Replication Status**, which should be **ACTIVE**.
+
+[subs="specialchars,attributes,quotes"]
+----
+| Database | Host   | .. Site Name | Secondary | .. Secondary | .. **Replication**
+|          |        | ..           | Host      | .. Site Name | .. **Status**
+| -------- | ------ | .. --------- | --------- | .. --------- | .. ------
+| SYSTEMDB | suse01 | .. HAP      | suse02    | .. HAS      | .. **ACTIVE**
+| HA1      | suse01 | .. HAP      | suse02    | .. HAS      | .. **ACTIVE**
+| HA1      | suse01 | .. HAP      | suse02    | .. HAS      | .. **ACTIVE**
+| HA1      | suse03 | .. HAP      | suse04    | .. HAS      | .. **ACTIVE**
+
+status system replication site "2": ACTIVE
+overall system replication status: ACTIVE
+
+Local System Replication State
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+mode: PRIMARY
+site id: 1
+site name: HAP
+----
+=========
+
+[#Integration]
+== Integration of {sapHana} with the Cluster
+
+.<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> Integration <<Cluster>> <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
+
+We need to proceed the following steps:
+
+**Procedure**
+
+. Implement the python hook SAPHanaSR
+. Configure system replication operation mode
+. Allow {refsidadm} to access the cluster
+. Start {saphana}
+. Test the hook integration
+
+=== Implement the Python Hook SAPHanaSR
+
+SUSE's SAPHanaSR-ScaleOut resource agent includes an SAP HANA integration script
+to handle failures on the SAP HANA replication and prevent a cluster failover to
+an out of sync SAP HANA node and avoid data loss.
+
+This integration script will watch SAP HANA's "srConnectionChanged" hook. The method 
+srConnectionChanged() is called on the master name server when one of the replicating 
+services loses or establishes he system replication connection and inform the cluster.
+
+This step must be done on both sites. {SAPHANA} must be stopped to change the
+global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
+
+- Install the HA/DR hook script into a read/writable directory
+- Integrate the hook into global.ini ({saphana} needs to be stopped for doing that offline)
+- Check integration of the hook during start-up
+
+Take the hook from the SAPHanaSR-scaleOut package and copy it to your preferred
+directory like /hana/share/myHooks. The hook must be available on all SAP HANA nodes.
+
+[subs="specialchars,attributes"]
+----
+{mySite1FirstNode}~ # mkdir -p /hana/shared/myHooks
+{mySite1FirstNode}~ # cp /usr/share/SAPHanaSR-ScaleOut/SAPHanaSR.py /hana/shared/myHooks
+{mySite1FirstNode}~ # chown -R {refsidadm}:sapsys /hana/shared/myHooks
+----
+
+Stop {SAPHANA}
+
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refInst} -function StopSystem
+----
+
+.Adding SAPHanaSR via global.ini
+===================================
+----
+[ha_dr_provider_SAPHanaSR]
+provider = SAPHanaSR
+path = /hana/shared/myHooks
+execution_order = 1
+
+[trace]
+ha_dr_saphanasr = info
+----
+===================================
+
+=== Configure System Replication Operation Mode
+
+When your system is connected as an {sapHanaSR} target you can find an entry in the _global.ini_
+which defines the operation mode. Up to now there are two modes available.
+
+* _delta_datashipping_
+* _logreplay_
+
+Until a takeover and re-registration in the opposite direction the entry for the operation mode is missing on
+your primary site. The "classic" operation mode is delta_datashipping. The preferred mode for HA is
+_logreplay_. Using the operation mode logreplay makes your secondary site in the {saphana}
+system replication a HotStandby system.
+For more details regarding both modes check the available SAP documentation like
+"How To Perform System Replication for SAP HANA".
+
+Check both _global.ini_ files and add the operation mode, if needed.
+
+section:: [ system_replication ]
+key:: operation_mode = logreplay
+
+Path for the _global.ini_: /hana/shared/<SID>/global/hdb/custom/config/
+----
+[system_replication]
+operation_mode = logreplay
+----
+
+=== Allow {refsidadm} to Access the Cluster
+
+The current version of the SAPHanaSR python hook uses the command 'sudo' to allow
+the {refsidadm} user to access the cluster attributes. In Linux you can use 'visudo'
+to start the vi editor for the '/etc/sudoers' configuration file.
+
+The user {refsidadm} must be able to set the cluster attribute hana_<sid>_glob_srHook_*.
+The {SAPHANA} system replication hook needs password free access. The following
+example limits the sudo access to exactly setting the needed attribute.
+
+Replace the <sid>> by the *lowercase* SAP system ID.
+
+This change is required in all cluster nodes.
+
+.Entry in sudo permissions /etc/sudoers file
+===================================
+Basic parameter option to allow <sidadm> to use the srHook.
+
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleOut needs for srHook
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v *
+----
+
+More specific parameters option to meet a high security level.
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleOut needs for srHook
+Cmnd_Alias SOK   = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SFAIL -t crm_config -s SAPHanaSR
+{refsidadm} ALL=(ALL) NOPASSWD: SOK, SFAIL
+----
+
+===================================
+
+.Result of replacing {refsidLC} with {mysidLc}
+===================================
+----
+# SAPHanaSR-ScaleOut needs for srHook
+hd1adm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_ha1_glob_srHook -v *
+----
+===================================
+
+=== Start {saphana}
+
+After {saphana} integration has been configured and the communication between
+{saphana} is working the cluster can now start the {saphana} databases on both sites.
+
+.Starting a complete {saphana} site as use {refsidadm}
+==========
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refinst} -function StartSystem
+----
+
+The sapcontrol service commits the request with OK.
+
+----
+11.06.2018 18:30:16
+StartSystem
+OK
+----
+
+Check if {saphana} has finished starting:
+
+[subs="specialchars,attributes"]
+----
+sapcontrol -nr {refinst} -function WaitforStarted 300 20
+----
+==========
+
+=== Test the Hook Integration
+
+When the {SAPHANA} database has been restarted after the changes, check if the hook script is called correctly.
+
+Check the {SAPHANA} trace files as {refsidadm}:
+
+[subs="specialchars,attributes"]
+----
+{mySite1FirstNode}:ha1adm> cdtrace
+{mySite1FirstNode}:ha1adm> awk  '/ha_dr_SAPHanaSR.*crm_attribute/ \
+     { printf "%s %s %s %s\n",$2,$3,$5,$16 }' nameserver_{mySite1FirstNode}.*
+2018-05-04 12:34:04.476445 ha_dr_SAPHanaSR SFAIL
+2018-05-04 12:53:06.316973 ha_dr_SAPHanaSR SOK
+----
+
+If you can spot "ha_dr_SAPHanaSR" messages the hook script is called and executed.
+
+[#Cluster]
+== Configuration of the Cluster and {SAPHANA} Resources
+This chapter describes the configuration of the _{sleha} ({sleHAAbbr}) cluster. The {sleha} is part of the {sles4sap}.
+Further, the integration of {saphana} System Replication with the {sleha} cluster is explained. The integration is done
+by using the SAPHanaSR-ScaleOut package which also is part of the {sles4sap}.
+
+.<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> <<Integration>> Cluster <<Testing>>
+image::SAPHanaSR-ScaleOut-Plan-Phase6.svg[scaledwidth="100%"]
+
+**Procedure**
+
+. Basic Cluster Configuration
+. Configure Cluster Properties and Resources
+. Final steps
+
+=== Basic Cluster Configuration
+
+==== Set up Watchdog for SBD Fencing
+
+All instances will use SUSE's Diskless SBD fencing mechanism. This method
+does not require additional AWS permissions because SBD does not issue AWS API
+calls. Instead SBD relies on (hardware/software) watchdog timers.
+
+Most AWS bare metal instances feature a hardware watchdog, and on these instances
+no additional action is required to use the hardware watchdog, and non-bare metal
+instances will use a software watchdog.
+
+Whenever SBD is used, a correctly working watchdog is crucial. Modern systems support a watchdog that needs to
+be "tickled" or "fed" by a software component. The software component (usually a daemon) regularly
+writes a service pulse to the watchdog. If the daemon stops feeding the watchdog, the hardware will
+enforce a system restart. This protects against failures of the SBD process itself, such as dying, or
+becoming stuck on an I/O error.
+
+Determine the right watchdog module. Alternatively, you can find a list of installed drivers with your
+kernel version.
+
+----
+ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
+----
+
+Check if any watchdog module is already loaded.
+
+----
+lsmod | egrep "(wd|dog|i6|iT)"
+----
+
+If you get a result, the system has already a loaded watchdog.
+
+Check if any software is using the watchdog
+
+----
+lsof /dev/watchdog
+----
+
+If no watchdog is available (on virtualized EC2 instances), you can enable the _softdog_.
+
+To enable softdog persistently across reboots, execute the following step in *all* EC2 instances that are going to be part of the cluster (including the majority maker node)
+
+----
+echo softdog > /etc/modules-load.d/watchdog.conf
+systemctl restart systemd-modules-load
+----
+
+This will also load the software watchdog kernel module during system boot.
+
+Check if the watchdog module is loaded correctly.
+
+----
+lsmod | grep dog
+----
+
+Testing the watchdog can be done with a simple action. Take care to switch off your {sapHana}
+first because the watchdog will force an unclean reset / shutdown of your system.
+
+In case of a hardware watchdog, a desired action is predefined after the timeout of the watchdog has
+reached. If your watchdog module is loaded and not controlled by any other application, run the command below.
+
+IMPORTANT: Triggering the watchdog without continuously updating the watchdog does reset/switches off the system. This is the intended mechanism. The following commands will force your system to be reset/switched off.
+
+----
+touch /dev/watchdog
+----
+
+In case of the softdog module is used the following can be done.
+
+----
+echo 1> /dev/watchdog
+----
+
+After your test was successful you can implement the watchdog on *all* cluster members.
+The example below applies to the softdog module.
+
+----
+for i in suse{02,03,04,05,06,-mm}; do
+ ssh -T $i <<EOSSH
+ hostname
+ echo softdog > /etc/modules-load.d/watchdog.conf
+ systemctl restart systemd-modules-load
+ lsmod |grep -e dog
+EOSSH
+done
+----
+
+Once all cluster nodes have access to hardware/software watchdog devices at
+/dev/watchdog check the following attributes of the SBD configuration at /etc/sysconfig/sbd
+on *all* cluster nodes:
+
+[subs="attributes"]
+----
+#SBD_DEVICE=""
+SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5
+SBD_TIMEOUT_ACTION=flush,reboot
+SBD_OPTS=
+----
+
+Now enable diskless SBD on all cluster nodes:
+
+----
+systemctl enable sbd
+----
+
+==== Initial Cluster Setup
+
+Since AWS VPC does not support multicast traffic corosync communication requires unicast UDP, 
+On the first cluster node create an encryption key for the cluster communication:
+
+----
+corosync-keygen
+----
+
+The above command will generate the file _/etc/corosync/authkey_.
+Copy this key over to *all* nodes while keeping the Unix file owner and permissions unchanged:
+----
+ls -l /etc/corosync/authkey
+-r-------- 1 root root 128 Feb  5 19:47 /etc/corosync/authkey
+----
+
+After distributing the encryption key, create an initial _/etc/corosync/corosync.conf_ configuration using these parameters for cluster timings, transport protocol and encryption. Exchange the _bindnetaddr_ and the _ring0_addr_ (IPv4 addresses) of all cluster nodes in the nodelist according to your network topology.
+
+Example corosync.conf file:
+
+----
+# Read the corosync.conf.5 manual page
+totem {
+   version: 2
+   token: 30000
+   consensus: 32000
+   token_retransmits_before_loss_const: 6
+   secauth: on
+   crypto_hash: sha1
+   crypto_cipher: aes256
+   clear_node_high_bit: yes
+   interface {
+      ringnumber: 0
+      bindnetaddr: <<local-node-ip-address>>
+      mcastport: 5405
+      ttl: 1
+   }
+   transport: udpu
+}
+logging {
+   fileline: off
+   to_logfile: yes
+   to_syslog: yes
+   logfile: /var/log/cluster/corosync.log
+   debug: off
+   timestamp: on
+   logger_subsys {
+      subsys: QUORUM
+      debug: off
+   }
+}
+nodelist {
+   node {
+      ring0_addr: <<ip-node01-AZ-a>>
+      nodeid: 1
+   }
+   node {
+      ring0_addr: <<ip-node02-AZ-a>>
+      nodeid: 2
+   }
+   node {
+      ring0_addr: <<ip-node03-AZ-a>>
+      nodeid: 3
+   }
+   node {
+      ring0_addr: <<ip-node01-AZ-b>>
+      nodeid: 4
+   }
+   node {
+      ring0_addr: <<ip-node02-AZ-b>>
+      nodeid: 5
+   }
+   node {
+      ring0_addr: <<ip-node03-AZ-b>>
+      nodeid: 6
+   }
+   node {
+      ring0_addr: <<ip-majority-maker-node>>
+      nodeid: 7
+   }
+}
+quorum {
+# Enable and configure quorum subsystem (default: off)
+# see also corosync.conf.5 and votequorum.5
+   provider: corosync_votequorum
+}
+----
+
+Distribute the configuration to *all* nodes at /etc/corosync/corosync.conf
+
+==== Start the Cluster
+Start the cluster on all nodes
+----
+systemctl start pacemaker
+----
+
+NOTE: All nodes should be started in parallel. Otherwise unseen nodes might get fenced.
+
+Check the cluster status with _crm_mon_. We use the option "-r" to also see
+resources, which are configured but stopped.
+----
+crm_mon -r
+----
+
+The command will show the "empty" cluster and will print something like the
+following screen output. The most interesting information for now is that
+there are two nodes in the status "online" and the message "partition with quorum".
+
+[subs="specialchars,attributes"]
+----
+Stack: corosync
+Current DC: suse05 (version 1.1.18+20180430.b12c320f5-3.15.1-b12c320f5) - partition with quorum
+Last updated: Fri Nov 29 14:23:19 2019
+Last change: Fri Nov 29 12:31:06 2019 by hacluster via crmd on suse03
+
+7 nodes configured
+0 resource configured
+
+Online: [ suse-mm suse01 suse02 suse03 suse04 suse05 suse06 ]
+
+No resources
+
+----
+
+=== Configure Cluster Properties and Resources
+This section describes how to configure cluster resources, STONITH, and constraints
+using the _crm_ configure shell command. This is also detailed in section
+_Configuring and Managing Cluster Resources_ (Command Line),
+{sleha} of the SUSE Linux Enterprise High Availability Administration Guide at https://www.suse.com/documentation/sle-ha-12/singlehtml/book_sleha/book_sleha.html#cha.ha.manual_config.
+
+Use the command _crm_ to add the objects to the Cluster Resource Management
+(CRM). Copy the following examples to a local file and than load the
+configuration to the Cluster Information Base (CIB). The benefit is here that
+you have a scripted setup and a backup of your configuration.
+
+Perform all _crm_ commands only on *one* node, for example on machine {mySite1FirstNode}
+
+First create a text file with the configuration, which you load into our cluster
+in a second step. This step is as follow:
+
+[subs="specialchars,attributes"]
+----
+vi crm-file<XX>
+crm configure load update crm-file<XX>
+----
+
+==== Cluster Bootstrap and More
+The first example defines the cluster bootstrap options including the resource and
+operation defaults.
+
+The stonith-timeout should be greater than 1.2 times the SBD msgwait timeout.
+
+[subs="specialchars,attributes"]
+----
+vi crm-bs.txt
+----
+
+Enter the following to crm-bs.txt
+
+----
+property $id="cib-bootstrap-options" \
+            no-quorum-policy="freeze" \
+            stonith-enabled="true" \
+            stonith-action="reboot" \
+            stonith-watchdog-timeout="10" \
+
+op_defaults $id="op-options" \
+            timeout="600" 
+
+rsc_defaults rsc-options: \
+            resource-stickiness="1000" \
+            migration-threshold="5"
+----
+
+Now add the configuration to the cluster.
+
+[subs="specialchars,attributes"]
+----
+crm configure load update crm-bs.txt
+----
+
+==== STONITH
+
+As previously explained in the requirements section of this document, STONITH is crucial for a supported cluster setup.
+Without a valid fencing mechanism your cluster is unsupported.
+
+As standard STONITH mechanism diskless SBD fencing is implemented.
+The SBD STONITH method is very stable, reliable and has proven very good road capabilities.
+
+You can use other fencing methods available.
+However, intensive testing the server fencing under all circumstances is crucial.
+
+If diskless SBD has been configured and enabled the SBD daemon will be started automatically
+with the cluster. You can verify this with:
+
+----
+# systemctl status sbd
+● sbd.service - Shared-storage based fencing daemon
+   Loaded: loaded (/usr/lib/systemd/system/sbd.service; enabled; vendor preset: disabled)
+   Active: active (running) since Fri 2019-02-15 08:12:57 UTC; 1 months 22 days ago
+     Docs: man:sbd(8)
+  Process: 10366 ExecStart=/usr/sbin/sbd $SBD_OPTS -p /var/run/sbd.pid watch (code=exited, status=0/SUCCESS)
+ Main PID: 10374 (sbd)
+    Tasks: 3 (limit: 4915)
+   CGroup: /system.slice/sbd.service
+           ├─10374 sbd: inquisitor
+           ├─10375 sbd: watcher: Pacemaker
+           └─10376 sbd: watcher: Cluster
+----
+
+
+==== Cluster in Maintenance Mode
+
+We will load the configuration for the resources and the constraints step-by-step to the cluster. 
+The best way to avoid unexpected cluster reactions is to first set the complete cluster to maintenance mode.
+Then, after all needed changes have been made, as last step, the cluster can be removed from maintenance mode.
+
+----
+crm configure property maintenance-mode=true
+----
+
+==== SAPHanaTopology
+Next, define the group of resources needed, before the {saphana} instances can be
+started. Prepare the changes in a text file, for example _crm-saphanatop.txt_,
+and load these with the _crm_ command.
+
+You need to change maybe the *SID* and *instance  number* (bold) to your values.
+
+.Configure SAPHanaTopology
+==========
+[subs="specialchars,attributes"]
+----
+{mySite1FirstNode}:~ # vi crm-saphanatop.txt
+----
+
+// NOTE: DONE PRIO1: check for scale-Out (SAPHanaTopology)
+
+Enter the following to crm-saphanatop.txt
+
+[subs="attributes,quotes"]
+----
+primitive rsc_SAPHanaTop_{refSID}_HDB{refInst} ocf:suse:SAPHanaTopology \
+        op monitor interval="10" timeout="600" \
+        op start interval="0" timeout="600" \
+        op stop interval="0" timeout="300" \
+        params SID="**{refSID}**" InstanceNumber="**{refInst}**"
+
+clone cln_SAPHanaTop_{refSID}_HDB{refInst} rsc_SAPHanaTop_{refSID}_HDB{refInst} \
+        meta clone-node-max="1" interleave="true"
+----
+
+// !! The example title MUST NOT include a line break in the ADOC source !!
+//.In our setup we replace {refSID} by {mySID} and {refInst} by {Inst}
+//=========================
+[subs="attributes,specialchars,quotes"]
+----
+primitive rsc_SAPHanaTop\_**{SID}**_HDB**{Inst}** ocf:suse:SAPHanaTopology \
+        op monitor interval="10" timeout="600" \
+        op start interval="0" timeout="600" \
+        op stop interval="0" timeout="300" \
+        params SID="**{SID}**" InstanceNumber="**{Inst}**"
+
+clone cln_SAPHanaTop_**{SID}**\_HDB**{Inst}** rsc_SAPHanaTop_**{SID}**_HDB**{Inst}** \
+        meta clone-node-max="1" interleave="true"
+----
+//=========================
+
+For additional information about all parameters could be found with the command
+_man ocf_suse_SAPHanaTopology_.
+
+Again, add the configuration to the cluster.
+
+[subs="specialchars,attributes"]
+----
+crm configure load update crm-saphanatop.txt
+----
+==========
+
+The most important parameters here are _SID_ ({SID}) and _InstanceNumber_ ({Inst}),
+which are self explaining in an SAP context.
+
+Beside these parameters, the timeout values or the operations (start, monitor,
+stop) are typical values to be adjusted to your environment.
+
+==== SAPHanaController
+Next, define the group of resources needed before the {saphana} instances can be
+started. Edit the changes in a text file, for example _crm-saphanacon.txt_ and
+load these with the command _crm_.
+
+// NOTE: DONE PRIO1: check for scale out
+
+[subs="specialchars,attributes"]
+----
+vi crm-saphanacon.txt
+----
+
+// NOTE: DONE PRIO1: check for scale-Out (SAPHanaController)
+
+.Configure SAPHanaController
+==========
+Enter the following to crm-saphanacon.txt
+
+[subs="specialchars,attributes"]
+----
+primitive rsc_SAPHanaCon_{refSID}_HDB{refInst} ocf:suse:SAPHanaController \
+        op start interval="0" timeout="3600" \
+        op stop interval="0" timeout="3600" \
+        op promote interval="0" timeout="3600" \
+        op monitor interval="60" role="Master" timeout="700" \
+        op monitor interval="61" role="Slave" timeout="700" \
+        params SID="{refSID}" InstanceNumber="{refInst}" \
+        PREFER_SITE_TAKEOVER="true" \
+        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false"
+
+ms msl_SAPHanaCon_{refSID}_HDB{refInst} rsc_SAPHanaCon_{refSID}_HDB{refInst} \
+        meta clone-node-max="1" master-max="1" interleave="true"
+----
+
+The most important parameters here are {refSID} ({SID}) and {refInst}
+({Inst}), which are in the SAP context quite self explaining.
+Beside these parameters, the timeout values or the operations (start, monitor,
+stop) are typical tunables.
+
+// !! The example title MUST NOT include a line break in the ADOC source !!
+//.In our setup we replace {refSID} by {mySID} and {refInst} by {Inst}
+//===========================
+[subs="specialchars,attributes,quotes"]
+----
+primitive rsc_SAPHanaCon_**{SID}**_HDB**{Inst}** ocf:suse:SAPHanaController \
+        op start interval="0" timeout="3600" \
+        op stop interval="0" timeout="3600" \
+        op promote interval="0" timeout="3600" \
+        op monitor interval="60" role="Master" timeout="700" \
+        op monitor interval="61" role="Slave" timeout="700" \
+        params SID="**{SID}**" InstanceNumber="**{Inst}**" PREFER_SITE_TAKEOVER="true" \
+        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false"
+
+ms msl_SAPHanaCon_{SID}_HDB{Inst} rsc_SAPHanaCon_{SID}_HDB{Inst} \
+        meta clone-node-max="1" master-max="1" interleave="true"
+----
+//===========================
+
+Add the configuration to the cluster.
+
+[subs="specialchars,attributes"]
+----
+crm configure load update crm-saphanacon.txt
+----
+==========
+
+[cols="1,2", options="header"]
+.Table Description of important Resource Agent parameter
+|===
+|Name
+|Description
+
+|PREFER_SITE_TAKEOVER
+|Defines whether RA should prefer to takeover to the secondary instance instead
+of restarting the failed primary locally.
+
+|AUTOMATED_REGISTER
+|Defines whether a former primary should be automatically registered to be
+secondary of the new primary. With this parameter, you can adapt the level of
+system replication automation. 
+
+If set to false, the former primary must be manually registered. The cluster will
+not start this {SAPHANA} RDBMS until it is registered to avoid double primary up
+situations.
+
+|DUPLICATE_PRIMARY_TIMEOUT
+|Time difference needed between two primary time stamps, if a dual-primary
+situation occurs. If the time difference is less than the time gap, the
+cluster holds one or both sites in a "WAITING" status.
+This is to give an administrator the chance to react on a failover. If the complete node
+of the former primary crashed, the former primary will be registered after the
+time difference is passed. If "only" the {SAPHANA} RDBMS has crashed, then the
+former primary will be registered immediately. After this registration to the
+new primary all data will be overwritten by the system replication.
+|===
+
+Additional information about all parameters could be found with the command
+man ocf_suse_SAPHanaController.
+
+==== Overlay IP Address
+//NOTE: DONE PRIO1: remove azure stuff
+
+The last resource to be added to the cluster is covering the Overlay IP address.
+Replace the bold string with your instance number, {saphana} system id, the AWS VPC routing table(s), and the
+Overlay IP address.
+
+.Configure the IP Address
+==========
+
+[subs="specialchars,attributes"]
+----
+vi crm-oip.txt
+----
+
+// NOTE: DONE PRIO1: check for scale-Out (IPaddr2)
+
+Enter the following to crm-oip.txt
+
+[subs="specialchars,attributes,quotes"]
+----
+primitive rsc_ip_{refSID}_HDB{refInst} ocf:heartbeat:aws-vpc-move-ip \
+        op start interval=0 timeout=180 \
+        op stop interval=0 timeout=180 \
+        op monitor interval=60 timeout=60 \
+        params ip=<overlayIP> routing_table=<aws-route-table>[,<2nd-route-table>] \
+        interface=eth0 profile=<aws-cli-profile>
+----
+
+We load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+crm configure load update crm-oip.txt
+----
+==========
+
+The Overlay IP address needs to be outside the CIDR range of the VPC.
+
+// NOTE: DONE PRIO1: remove nc stuff
+
+==== Constraints
+The constraints are organizing the correct placement of the virtual IP
+address for the client database access and the start order between the two
+resource agents _SAPHana_ and _SAPHanaTopology_. The rules help to remove false positive messages from _crm_mon_ command.
+
+// NOTE: DONE PRIO1: Check config here
+
+.Configure needed constraints
+==========
+
+[subs="specialchars,attributes"]
+----
+vi crm-cs.txt
+----
+
+Enter the following to crm-cs.txt
+
+[subs="specialchars,attributes"]
+----
+
+colocation col_saphana_ip_<SID>_HDB<Inst> 2000: rsc_ip_<SID>_HDB<Inst>:Started \
+ msl_SAPHanaCon_<SID>_HDB<Inst>:Master
+order ord_SAPHana_<SID>_HDB<Inst> Optional: cln_SAPHanaTop_<SID>_HDB<Inst> \
+ msl_SAPHanaCon_<SID>_HDB<Inst>
+location OIP_not_on_majority_maker rsc_ip_<SID>_HDB<Inst> -inf: <majority maker>
+location SAPHanaCon_not_on_majority_maker msl_SAPHanaCon_<SID>_HDB<Inst> -inf:
+ <majority maker>
+location SAPHanaTop_not_on_majority_maker cln_SAPHanaTop_<SID>_HDB<Inst> -inf:
+ <majority maker>
+
+----
+
+Replace "<SID>" by SAP SID, "<Inst>" by SAP HANA instance number, and "<majority maker>" by the majority maker node host name.
+
+----
+
+colocation col_saphana_ip_HA1_HDB00 2000: rsc_ip_HA1_HDB00:Started \
+ msl_SAPHanaCon_HA1_HDB00:Master
+order ord_SAPHana_HA1_HDB00 Optional: cln_SAPHanaTop_HA1_HDB00 \
+ msl_SAPHanaCon_HA1_HDB00
+location OIP_not_on_majority_maker rsc_ip_HA1_HDB00 -inf: suse-mm
+location SAPHanaCon_not_on_majority_maker msl_SAPHanaCon_HA1_HDB00 -inf: suse-mm
+location SAPHanaTop_not_on_majority_maker cln_SAPHanaTop_HA1_HDB00 -inf: suse-mm
+
+----
+
+We load the file to the cluster.
+[subs="specialchars,attributes"]
+----
+crm configure load update crm-cs.txt
+----
+==========
+
+=== Final Steps
+
+==== End the Cluster Maintenance Mode
+
+If maintenance mode has been enabled to configure the cluster then as last step it is required to remove the cluster from maintenance mode.
+
+It may take several minutes for the cluster to stabilize as it may be required to start SAP HANA and other cluster services on the required nodes. 
+
+----
+crm configure property maintenance-mode=false
+----
+
+
+==== Verify the Communication between the Hook and the Cluster
+
+Now check if the HA/DR provider could set the appropriate cluster attribute hana_<sid>_glob_srHook. Replace the <sid> by the *lowercase* SAP system ID (like ha1).
+
+.Query the srHook cluster attribute
+==========
+[subs="specialchars,attributes"]
+----
+crm_attribute -G -n hana_<sid>_glob_srHook
+----
+
+You should get an output like:
+
+[subs="specialchars,attributes"]
+----
+scope=crm_config  name=hana_<sid>_glob_srHook value=SOK
+----
+==========
+
+In this case the HA/DR provider set the attribute to SOK to inform the
+cluster about SAP HANA System Replication status.
+
+==== Using Special Virtual Host Names or FQHN During Installation of {saphana}
+
+If you have used special virtual host names or the fully qualified host name
+(FQHN) instead of the short node name, the resource agents needs to map these
+names. To be able to match the short node name with the used SAP 'virtual
+host name', the {sapHostAgent} needs to report the list of installed instances
+correctly:
+
+.In our setup the virtual host name matches the node name
+==========
+[subs="specialchars,attributes,quotes"]
+----
+**{mySite1FirstNode}**:{mySapAdm}> /usr/sap/hostctrl/exe/saphostctrl -function ListInstances
+ Inst Info : HA1 - 00 - **{mySite1FirstNode}** - 749, patch 418, changelist 1816226
+----
+==========
+
+
+[#Testing]
+== Testing the Cluster
+// DONE PRIO2: (all) Improve the wording and add some more tests
+
+Testing is one of the most important project tasks for implementing clusters.
+Proper testing is crucial. Make sure that all test cases
+derived from project or customer expectations are defined and passed completely.
+*Without testing the project is likely to fail in production use*.
+
+.<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> <<Integration>> <<Cluster>> Testing
+image::SAPHanaSR-ScaleOut-Plan-Phase7.svg[scaledwidth="100%"]
+
+The test prerequisite, if not described differently, is always that all cluster
+nodes are booted, are already normal members of the cluster and the {saphana} RDBMS
+is running. The system replication is in sync represented by 'SOK'.
+The cluster is idle, no actions are pending, no migration constraints left over, no failcounts left over.
+
+In this version of the setup guide we provide a plain list of test cases. We plan to describe the
+test cases more detailed in the future. Either we will provide these details in an update of this guide
+or we will extract the test cases to a separate test plan document.
+
+=== Generic Cluster Tests
+
+This kind of cluster tests covers the cluster reaction during operations. This includes starting and stopping
+the complete cluster or simulating SBD failures and much more.
+
+* Parallel start of all cluster nodes (systemctl start pacemaker should be done in a short time frame).
+* Stop of the complete cluster.
+* Isolate ONE of the two {saphana} sites.
+* Power-off the majority maker.
+* Simulate a maintenance procedure with cluster continuously running.
+* Simulate a maintenance procedure with cluster restart.
+// * ? Force a sr_takeover via cluster migration commands (use force!!).
+* Kill the corosync process of one of the cluster nodes.
+
+=== Tests on the Primary Site
+
+This kind of tests are checking the reaction on several failures of the primary site.
+
+==== Tests Regarding Cluster Nodes of the Primary Site
+
+The tests listed here check the {saphana} and cluster reaction if one or more nodes of the primary site are failing or
+re-joining the cluster.
+
+* Power-off master name server of the primary.
+* Power-off any worker node but not the master name server of the primary.
+* Re-join of a previously powered-off cluster node.
+
+==== Tests Regarding the Complete Primary Site
+
+This test category is simulating a complete site failure.
+
+* Power-off all nodes of the primary site in parallel.
+
+==== Tests regarding the {saphana} Instances of the Primary Site
+
+The tests listed here are checks about the {saphana} and cluster reactions triggered by application failures such as a killed {saphana} instance.
+
+* Kill the {saphana} instance of the master name server of the primary.
+* Kill the {saphana} instance of any worker node but not the master name server of the primary.
+* Kill sapstartrv of any {saphana} instance of the primary.
+
+=== Tests on the Secondary Site
+
+This kind of tests are checking the reaction on several failures of the secondary site.
+
+==== Tests regarding Cluster Nodes of the Secondary Site
+
+The tests listed here check the {saphana} and cluster reaction if one or more nodes of the secondary site are failing or
+re-joining the cluster.
+
+* Power-off master name server of the secondary.
+* Power-off any worker node but not the master name server of the secondary.
+* Re-join of a previously powered-off cluster node.
+
+==== Tests Regarding the Complete Secondary Site
+
+This test category is simulating a complete site failure.
+
+* Power-off all nodes of the secondary site in parallel.
+
+==== Tests Regarding the {saphana} Instances of the Secondary Site
+
+The tests listed here are checks about the {saphana} and cluster reactions triggered by application failures such as a killed {saphana} instance.
+
+* Kill the {saphana} instance of the master name server of the secondary.
+* Kill the {saphana} instance of any worker node but not the master name server of the secondary.
+* Kill sapstartrv of any {saphana} instance of the secondary.
+
+== Administration
+=== Dos and Don'ts
+
+In your project, you should *do*:
+
+* Define (and test) STONITH *before* adding other resources to the cluster.
+
+* Do *intensive* testing.
+
+* *Tune* the timeouts of operations of SAPHanaController and SAPHanaTopology.
+
+* Start with ** PREFER_SITE_TAKEOVER=true**, **AUTOMATED_REGISTER=false** and
+  **DUPLICATE_PRIMARY_TIMEOUT=”7200”**.
+
+* Always make sure that the cluster configuration does not contain any left-over
+  client-prefer location constraints or failcounts.
+
+* Before testing or beginning maintenance procedures check, if the cluster is
+  in idle state.
+
+In your project, *avoid*:
+
+* Rapidly changing/changing back cluster configuration, such as: Setting nodes
+  to standby and online again or stopping/starting the master/slave resource.
+
+* Creating a cluster without proper time synchronization or unstable name
+  resolutions for hosts, users, and groups.
+
+* Adding location rules for the clone, master/slave or IP resource. Only
+  location rules mentioned in this setup guide are allowed.
+
+* As "migrating" or "moving" resources in crm-shell, HAWK or other tools would
+  add client-prefer location rules this activities are completely *forbidden!*.
+
+=== Monitoring and Tools
+You can use the High Availability Web Konsole (HAWK), {SAPHANA} Studio and
+different command line tools for cluster status requests.
+
+==== HAWK – Cluster Status and More
+You can use an Internet browser to check the cluster status. Use the following URL:
+https://<node>:7630
+
+////
+TODO PRIO3: Discuss some disadvantages of HAWK or missing features:
+S_IDLE? cs_clusterstate or crm_simulate
+cli-? crm configure | grep cli
+failcount? -INF?
+////
+
+The login credentials are provided during installation dialog of ha-cluster-init. Keep in mind to
+change the default password of the Linux user _hacluster_.
+
+.Cluster Status in Hawk
+image::cluster_status_hawk_1.png[scaledwidth="95%"]
+
+If you set up the cluster using _ha-cluster-init_ and you have installed all
+packages as described above, your system will provide a very useful Web
+interface. You can use this graphical Web interface to get an overview of the
+complete cluster status, doing administrative tasks or even configure resources
+and cluster bootstrap parameters.
+
+Read our product manuals for a complete documentation of this powerful user
+interface.
+
+==== {SAPHANA} Studio
+Database-specific administration and checks can be done with {SAPHANA} studio.
+
+// DONE PRIO1: (FH) picture studio landscape scale-out
+
+.{SAPHANA} Studio – Landscape of a scale-out system
+image::hana_studio_landscape.png[scaledwidth="95%"]
+
+Be extremely careful with changing any parameters or topology of the
+system replication as it might get an interference with the cluster resource management.
+
+A positive example would be to register a former primary as new secondary and you have
+set AUTOMATED_REGISTER=false.
+
+A negative example would be to deregister a secondary,
+disable the system replication on the primary and such action.
+
+For all actions which would change the system replication we recommend to first check
+for the maintenance procedure.
+
+==== Cluster Command Line Tools
+
+crm_mon::
+A simple overview can be obtained by calling _crm_mon. Using option _-r_ shows
+also stopped but already configured resources. Option _-1_ tells crm_mon to
+output the status once instead of periodically.
+
+// DONE PRIO1: change with actual output
+[subs="specialchars,attributes"]
+----
+Stack: corosync
+Current DC: {suse05} (version 1.1.16-4.8-77ea74d) - partition with quorum
+Last updated: Mon Jun 11 16:55:04 2018
+Last change: Mon Jun 11 16:53:58 2018 by root via crm_attribute on {suse02}
+
+7 nodes configured
+16 resources configured
+
+Online: [ {susemm} {suse01} {suse02} {suse03} {suse04} {suse05} {suse06} ]
+
+Full list of resources:
+
+stonith-sbd     (stonith:external/sbd): Started {susemm}
+rsc_ip_{SID}_HDB{Inst}        (ocf::heartbeat:IPaddr2):       Started {suse02}
+ Master/Slave Set: msl_SAPHanaCon_{SID}_HDB{Inst} [rsc_SAPHanaCon_{SID}_HDB{Inst}]
+     Masters: [ {suse02} ]
+     Slaves: [ {suse01} {suse03} {suse04} {suse05} {suse06} ]
+     Stopped: [ {susemm} ]
+ Clone Set: cln_SAPHanaTop_{SID}_HDB{Inst} [rsc_SAPHanaTop_{SID}_HDB{Inst}]
+     Started: [ {suse01} {suse02} {suse03} {suse04} {suse05} {suse06} ]
+     Stopped: [ {susemm} ]
+----
+
+See the manual page crm_mon(8) for details.
+
+SAPHanaSR-showAttr::
+To show some of the SAPHanaController and SAPHanaTopology resource agent
+internal values, you can call the program _SAPHanaSR-showAttr_. The internal
+values, storage place and their parameter names may change in the next versions.
+The command _SAPHanaSR-showAttr_ will always fetch the values from the correct
+storage place.
+
+[IMPORTANT]
+Do *not* use cluster commands like _crm_attribute_ to fetch the values directly
+from the cluster. In such cases your methods will be broken, when we
+need to move an attribute to a different storage place or even out of the cluster.
+
+For first _SAPHanaSR-showAttr_ is a test program only and should not be used for
+automated system monitoring.
+
+.Check SAPHanaSR-showAttr as user root
+==========
+[subs="specialchars,attributes"]
+----
+suse-mm:~ # SAPHanaSR-showAttr --sid={refsid}
+----
+
+The tool display all interesting cluster attributes in three areas.
+
+* The **global** section includes the information about the cib time stamp and
+  the attributes covering the status of the system replication
+
+* The **site** section includes the attributes per site and shows which site is
+  the primary and the return code of the landscapeHostConfiguration.py
+  script. In addition the active master name server is shown per site.
+
+* The **hosts** section includes the node status, the roles of the host inside the
+  {saphana} database, the calculated score to get the primary master name server and
+  the site name the host belongs to.
+
+[subs="specialchars,attributes"]
+----
+Global cib-time                 prim sec  srHook sync_state
+------------------------------------------------------------
+global Tue Jun 12 15:02:58 2018 {mySite1Name} {mySite2Name} SOK    SOK
+
+
+Site lpt        lss mns    srr
+-------------------------------
+{mySite1Name} 1528808568 4   {suse02} P
+{mySite2Name} 30         4   {suse01} S
+
+
+Hosts   clone_state node_state roles                        score site
+-----------------------------------------------------------------------
+{susemm} online
+{suse01}  DEMOTED     online     master1:master:worker:master 100 {mySite2Name}
+{suse02}  PROMOTED    online     master1:master:worker:master 150 {mySite1Name}
+{suse03}  DEMOTED     online     master3:slave:worker:slave   80  {mySite2Name}
+{suse04}  DEMOTED     online     master2:slave:worker:slave   110 {mySite1Name}
+{suse05}  DEMOTED     online     master2:slave:worker:slave   80  {mySite2Name}
+{suse06}  DEMOTED     online     master3:slave:worker:slave   110 {mySite1Name}
+
+----
+==========
+
+The majority maker suse-mm does not run an {saphana} instance. Therefore it
+neither has a role attribute nor a score or site value.
+
+==== {SAPHANA} LandscapeHostConfiguration
+
+// DONE PRIO2: (FH) ScaleOut
+
+To check the status of an {SAPHANA} database and to figure out if the cluster
+should react, you can use the script _landscapeHostConfiguration.py_.
+
+.Check the landscape status as user {refsidadm}
+==========
+[subs="specialchars,attributes"]
+----
+HDBSettings.sh landscapeHostConfiguration.py
+----
+
+The landscape host configuration is shown with a line per {saphana} host.
+
+[subs="specialchars,attributes"]
+----
+ | Host   | Host   | ... NameServer  | NameServer  | IndexServer | IndexServer |
+ |        | Active | ... Config Role | Actual Role | Config Role | Actual Role |
+ | ------ | ------ | ... ----------- | ----------- | ----------- | ----------- |
+ | {mySite1FirstNode} | yes    | ... master 1    | master      | worker      | master      |
+ | suse03 | yes    | ... master 2    | slave       | worker      | slave       |
+ | suse05 | yes    | ... master 3    | slave       | standby     | standby     |
+
+ overall host status: ok
+----
+==========
+
+Following the SAP HA guideline, the SAPHana resource agent interprets the
+return codes in the following way:
+
+[cols="1,3", options="header"]
+.Table Interpretation of Return Codes
+|===
+|Return Code
+|Description
+
+|4
+|{SAPHANA} database is up and OK. The cluster does interpret this as correctly
+running database.
+
+|3
+|{SAPHANA} database is up and in status INFO. The cluster does interpret this as
+a correctly running database.
+
+|2
+|{SAPHANA} database is up and in status warning. The cluster does interpret this
+as a correctly running database.
+
+|1
+|{SAPHANA} database is down. If the database should be up and is not own by
+intention, this could trigger a takeover.
+
+|0
+|Internal Script Error – to be ignored.
+
+|===
+
+== Useful Links, Manuals, and SAP Notes
+
+=== {SUSE} Best Practices and More
+
+Best Practices for SAP on {sle}::
+https://www.suse.com/products/sles-for-sap/resource-library/sap-best-practices.html
+
+Fail-Safe Operation of {SAPHANA}*: {SUSE} Extends Its High-Availability Solution::
+http://scn.sap.com/community/hana-in-memory/blog/2014/04/04/fail-safe-operation-of-sap-hana-suse-extends-its-high-availability-solution
+
+HOW TO SET UP SAPHanaSR IN THE COST OPTIMIZED {SAPHANA} SR SCENARIO::
+http://scn.sap.com/docs/DOC-65899
+
+=== {SUSE} Product Documentation
+
+The {SUSE} product manuals and documentation can be downloaded at https://www.suse.com/documentation.
+
+Current online documentation of SLES for SAP Applications::
+https://www.suse.com/documentation/sles-for-sap-12/
+
+Current online documentation of {sleha}::
+https://www.suse.com/documentation/sle-ha-12/index.html
+
+Tuning guide for {sles}::
+https://www.suse.com/documentation/sles-12/book_sle_tuning/data/book_sle_tuning.html
+
+Storage admin guide for {sles}::
+https://www.suse.com/documentation/sles-12/stor_admin/data/stor_admin.html
+
+Release notes::
+https://www.suse.com/releasenotes/
+
+TID aws-cli throwing Error on fresh SLES 15 Installation in AWS Cloud::
+https://www.suse.com/support/kb/doc/?id=7023686
+
+TID multipath system unable to boot after installing dracut-037-98.2.x86_64::
+https://www.suse.com/support/kb/doc/?id=7020912
+
+TID Systemd-udev-settle timing out::
+https://www.suse.com/support/kb/doc/?id=7022681
+
+TID How to load the correct watchdog kernel module::
+http://www.suse.com/support/kb/doc.php?id=7016880
+
+TID rpcbind won't start after upgrade from SLES 11 to SLES 12::
+https://www.suse.com/support/kb/doc/?id=7017144
+
+////
+TID Addressing file system performance issues on NUMA machines::
+http://www.suse.com/support/kb/doc.php?id=7008919
+////
+////
+TID Low write performance on SLES 11 servers with large RAM::
+https://www.suse.com/support/kb/doc.php?id=7010287
+////
+TID Memory, I/O and DefaultTasksMax related considerations for SLES for SAP servers with huge memory::
+https://www.suse.com/support/kb/doc/?id=7021211
+
+TID XFS metadata corruption and invalid checksum on SAP Hana servers::
+https://www.suse.com/support/kb/doc/?id=7022921
+
+SUSE Linux Enterprise Server technical information::
+https://www.suse.com/products/server/technical-information/
+
+XFS file system::
+https://www.suse.com/communities/conversations/xfs-the-file-system-of-choice/
+
+=== SAP Product Documentation
+
+{SAPHANA} Installation and Update Guide::
+http://help.sap.com/hana/SAP_HANA_Server_Installation_Guide_en.pdf
+
+{SAPHANA} Administration Guide::
+http://help.sap.com/hana/SAP_HANA_Administration_Guide_en.pdf
+
+=== SAP Notes
+As SAP Notes are changing over time, this list is only a starting point
+
+// SUSE and SAP (and others) are kept literal here, because they are parts of quotes of external titles
+* 611361 Hostnames of SAP servers
+* 1275776 Preparing SLES for Sap Environments
+* 1514967 SAP HANA: Central Note
+* 1523337 SAP In-Memory Database 1.0: Central Note
+* 1501701 Single Computing Unit Performance and Sizing
+* 1846872 "No space left on device" error reported from HANA
+* 1876398 Network configuration for System Replication in HANA SP6
+* 1888072 SAP HANA DB: Indexserver crash in strcmp sse42
+* 1890444 Slow HANA system due to CPU power save mode
+* 1944799 SAP HANA Guidelines for SLES Operating System Installation
+* 1984787 SUSE LINUX Enterprise Server 12: Installation notes and
+* 1999993 How-To: Interpreting SAP HANA Mini Check Results
+* 2000000 FAQ: SAP HANA Performance Optimization
+* 2100040 FAQ: SAP HANA CPU
+* 2205917 SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12.
+* 2382421 Optimizing the Network Configuration on HANA- and OS-Level
+* 2470289 FAQ: SAP HANA Non-Uniform Memory Access (NUMA)
+* 2578899 SUSE Linux Enterprise Server 15: Installation Note
+* 2684254 SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15
+* 2647673 HANA Installation Failure
+
+// Standard SUSE Best Practices includes
+== Legal Notice
+include::common_sbp_legal_notice.adoc[]
+
+include::common_gfdl1.2_i.adoc[]
+
+////
+ASCIIDOC BUILD NOTES:
+You can enable it for any block by using the subs attribute to the block. The
+subs attribute accepts any of the following (in a list):
+
+    none - Disables substitutions
+    normal - Performs all substitutions except for call-outs
+    verbatim - Replaces special characters and processes call-outs
+    specialchars / special characters - Replaces <, >, and & with their
+    corresponding entities
+=>  quotes - Applies text formatting
+=>  attributes - Replaces attribute references
+    replacements - Substitutes textual and character reference replacements
+    macros - Processes macros
+    post_replacements - Replaces the line break character (+)
+
+ We must enable experimental attribute for keyboard shortcuts.
+ experimental:
+
+ Global Settings
+:imagesdir: ./data/GITHUB/saphadoc/SAPHanaSR/doc-slesforsap/images
+:iconsdir: ./icons
+:stylesdir: ./styles
+////
+
+////
+Revisions:
+Revision 0.1 (2017/8) Copy from Scale-Up and worked on the introduction
+Revision 0.2 (2018/4) Entered lot of TODOs and PRIOS to allow parallel working with Bernd
+Revision 0.3 (2018/5) Solved lot of TODOs
+Revision 0.4 (2018/6) First version for reviews
+Revision 0.9 (2018/7) Feedback from Lars Pinne, Rolf Schmidt and others; added test-cases
+Revision 1.0 (2018/7) First version to be published (no draft)
+////

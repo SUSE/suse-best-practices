@@ -1,0 +1,837 @@
+
+== Deployment of {spr}
+=== Preparation
+
+* Ensure you have `kubectl` and `helm` v3 installed and check that you have access to the target {kube} cluster where {spr} will be installed.
+* Decide between using a {kube} Ingress or just a Load Balancer to expose the {spr} services.
+** If {kube} Ingress is the chosen option, ensure that:
+*** You have an Ingress Controller set up in the target {kube} cluster.
+*** You prepare two resolvable FQDN values:
+**** One for the Harbor UI/API.
+**** One for the Notary API (only if `Notary` will be enabled).
+** If using just a LoadBalancer, ensure that you have one of the following:
+*** A predefined external IP address that can be associated with the Load Balancer service used to expose the {spr} services.
+*** An FQDN value that, later on, can be mapped in the external DNS to the external IP address dynamically allocated to the Load Balancer service during installation.
+* For the Harbor UI/API and Notary API, choose between using auto-generated TLS certificates or providing your own custom TLS certificates. If using your own, have the certificates ready.
+* Choose the persistent storage back-end to store OCI artifacts: a {kube} `StorageClass`, or one of the external storage services available from public-cloud providers.
+* Verify that the target {kube} cluster provides the required `StorageClass`(es). A `StorageClass` with `ReadWriteMany` access mode is required to fully enable  and scalability for the `registry` {spr} component, unless an external storage service is used to store OCI artifacts.
+* Choose between using an internal or external database service.
+** The internal database service does not support high availability and scalability, and is therefore *not recommended for production*.
+** If you use an external database service instead, prepare it separately beforehand.
+* Choose between using an internal or external Redis service. Similarly to the database:
+** The internal Redis service does not support high availability and scalability and *is not recommended for production*.
+** Similarly, if you will use an external, public-cloud-managed Redis service, you must prepare it separately beforehand.
+** If you prefer to use the SUSE `redis-ha` operator service, installation instructions are included in the {spr} installation steps covered this section.
+* Optionally, prepare a GitHub personal authentication token, in order to prevent rate-limiting problems when `trivy` downloads its vulnerability database.
+* Determine resource requests and limits based on your Kubernetes cluster setup.
+* Optionally, prepare the Service Accounts to use for Harbor components.
+
+=== Installation Steps
+
+. Download the Helm chart from the official SUSE repository:
++
+[source,bash]
+----
+export HELM_EXPERIMENTAL_OCI=1
+# download a chart from public registry
+helm chart pull registry.suse.com/harbor/harbor:1.5
+# export the chart to local directory
+helm chart export registry.suse.com/harbor/harbor:1.5
+----
+
+. Make sure `KUBECONFIG` is set correctly
++
+When installing on {caasp}, it is expected that the `KUBECONFIG` environment variable is set correctly pointing to the {kube} cluster.
++
+When installing into hosted {kube} clusters such as EKS or AKS, configuration must be fetched first so the following `kubectl` and helm commands work correctly.
++
+For AKS, it is possible to use the `az` command line tool to get the `kubeconfig`:
++
+[source,bash]
+----
+az aks get-credentials --resource-group <azure-resource-group> --name <aks-cluster-name> --file kubeconfig.yaml
+export KUBECONFIG=<full path to kubeconfig.yaml>
+----
++
+For EKS, the `aws` command line tool can be used to generate the `kubeconfig`:
++
+[source,bash]
+----
+aws eks --region <region-code> update-kubeconfig --name <eks-cluster_name> --kubeconfig kubeconfig.yaml
+export KUBECONFIG=<full path to kubeconfig.yaml>
+----
+
+. Prepare a `harbor-values.yaml` file to specify custom {spr} configuration values
++
+[WARNING]
+====
+The default configuration provided with the {spr} helm chart is not suited for production use!
+
+A separate YAML file (referred to as the `harbor-values.yaml` file in the following sections) needs to be populated with customized configuration values to be used during installation.
+The exact configuration options that can be customized, and the values that they can take, are covered in detail in the next installation steps.
+====
++
+[TIP]
+====
+The full list of configuration options and default values that can be overridden in `harbor-values.yaml` is included in the helm chart itself, and can be viewed in YAML format by running the following command:
+
+[source,bash]
+----
+helm show values harbor
+----
+
+It can also be used as a YAML template for configuration values that need to be customized, although it is recommended to keep only the configuration options that are changed from their default values in `harbor-values.yaml`, to allow default configuration changes to be introduced during upgrades.
+====
++
+[IMPORTANT]
+====
+The `harbor-values.yaml` file prepared and used during installation is the source of truth for the {spr} configuration.
+
+It will also be required for some administrative operations, such as subsequent configuration changes and upgrades.
+Make sure to preserve this file in a safe place, preferably under version control, and to update it with every configuration change that is subsequently made to the deployed {spr} instance.
+====
+
+. (Optional) Disable unnecessary components
++
+By default, {spr} has all supported components enabled. Some components may be disabled in the configuration, if they are not required:
++
+--
+[loweralpha]
+. `trivy` - disable if you do not require the security-vulnerability-scanning feature.
+. `notary` - disable if you do not require the artifact-signing feature.
+--
++
+To disable unnecessary components, set the relevant configuration options to false in `harbor-values.yaml`:
++
+.harbor-values.yaml
+[source,yaml]
+----
+trivy:
+  enabled: false
+notary:
+  enabled: false
+----
+
+. Configure a way to expose the {spr} UI and public APIs
++
+The default and recommended way to expose the {spr} services to be consumed from outside the {kube} cluster is to use a {kube} Ingress.
+This requires that a {kube} Ingress controller is already configured in your cluster and resolvable FQDNs to be prepared for the Harbor UI/API and the Notary API services (if enabled).
+Alternatively, services may be exposed using a {kube} LoadBalancer instead.
++
+--
+[loweralpha]
+. Expose {spr} using a {kube} Ingress
++
+This option assumes a {kube} Ingress Controller is already configured for your {kube} cluster, as described in the <<requirements-ingress>> section.
+Update `harbor-values.yaml` with the following configuration values:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+  # Set the way how to expose the service. Default value is "ingress".
+  ingress:
+    hosts:
+      core: "<core_fqdn>"
+      notary: "<notary_fqdn>"
+
+# The external URL for Harbor core service. It is used to
+# 1) populate the docker/helm commands showed on portal
+# 2) populate the token service URL returned to docker/Notary client
+#
+# Format: protocol://domain[:port]. Usually:
+# 1) if "expose.type" is "ingress", the "domain" should be
+# the value of "expose.ingress.hosts.core"
+#
+# If Harbor is deployed behind the proxy, set it as the URL of proxy
+externalURL: "https://<core_fqdn>"
+----
++
+Replace `<core_fqdn>` and `<notary_fqdn>` values with the resolvable FQDN values that were prepared as detailed in the <<requirements>> section.
+If the Notary service was not enabled in the configuration, the `<notary_fqdn>` entry may be omitted.
+The `harbor-values.yaml` configuration would look like this, if, for example, a public service like link:nip.io[nip.io] was used to provide FQDNs:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+  ingress:
+    hosts:
+      core: harbor.10.86.0.237.nip.io
+      notary: notary.10.86.0.237.nip.io
+externalURL: "https://harbor.10.86.0.237.nip.io"
+----
++
+Depending on which {kube} Ingress Controller is used, you may need to add additional annotations to the {spr} Ingress configuration:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+  ingress:
+	...
+    annotations:
+      # To be used for the nginx ingress on AKS:
+      kubernetes.io/ingress.class: nginx
+      # To be used for the ALB ingress on EKS:
+      kubernetes.io/ingress.class: alb
+----
+
+.  Expose {spr} using a {kube} LoadBalancer
++
+Update the `harbor-values.yaml` configuration file with the following configuration values:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+  type: loadBalancer
+  loadBalancer:
+    # Set the IP if the LoadBalancer supports assigning IP
+    IP: ""
+
+# The external URL for Harbor core service. It is used to
+# 1) populate the docker/helm commands showed on portal
+# 2) populate the token service URL returned to docker/Notary client
+#
+# Format: protocol://domain[:port]. Usually:
+# 1) if "expose.type" is "ingress", the "domain" should be
+# the value of "expose.ingress.hosts.core"
+#
+# If Harbor is deployed behind the proxy, set it as the URL of proxy
+externalURL: "https://<harbor_fqdn_or_ip_addr>"
+----
++
+You must set the `<harbor_fqdn_or_ip_addr>` value to an FQDN that can be resolved to the external IP address allocated to the Harbor Load Balancer service.
+Alternatively, if the LoadBalancer solution used for the underlying {kube} distribution supports assigning an IP address beforehand, you can set both the `expose.loadBalancer.IP` configuration option and the `<harbor_fqdn>` value to a predefined external IP address.
+--
+
+. Configure external TLS and certificates
+// TODO - Missing renewal methods (manual, automatic with cert-manager)
++
+TLS certificates are required to secure access to the {spr} services that are exposed for external consumption - the Harbor UI/API and the Notary API (if Notary is enabled).
+These certificates may either be generated automatically during installation (default), or provided as {kube} secrets, or configured beforehand as the default TLS certificate for the {kube} Ingress Controller used to expose the services, as explained in the <<requirements-tls,TLS Certificates requirements>> section.
++
+--
+[loweralpha]
+. Auto-generated certificates
++
+This is the default helm chart setting. If an Ingress was used to expose the {spr} services, the FQDN values configured for the ingress will be used to generate the TLS certificates automatically.
+If using a LoadBalancer to expose the services instead of Ingress, please also set the `commonName` option to the pre-allocated external IP address or the FQDN value that will be resolved to it:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+..
+  tls:
+    enabled: true
+    # The source of the tls certificate. Set it as "auto", "secret"
+    # or "none" and fill the information in the corresponding section
+    # 1) auto: generate the tls certificate automatically
+    # 2) secret: read the tls certificate from the specified secret.
+    # The tls certificate can be generated manually or by cert manager
+    # 3) none: configure no tls certificate for the ingress. If the default
+    # tls certificate is configured in the ingress controller, choose this option
+    certSource: auto
+    auto:
+      # The common name used to generate the certificate, it's necessary
+      # when the type isn't "ingress"
+      commonName: "<harbor_fqdn_or_ip_addr>"
+----
+
+. Custom certificates
++
+One or two custom certificates are required for exposed {spr} services: one for the Harbor UI/API and another one for the Notary API (required only if Notary is enabled). The certificates need to reflect the FQDN values or external IP address values used at the previous step to configure the Kubernete Ingress or LoadBalancer service exposure settings. The helm chart also supports using a single certificate instead of two, as long as the CN or SAN certificate field values match both FQDNs. The certificates need to be supplied in the form of {kube} secrets:
++
+[source,bash]
+----
+kubectl create secret tls -n registry <harbor-tls-secret> --key ${HARBOR_CERT_KEY_FILE} --cert ${HARBOR_CERT_FILE}
+kubectl create secret tls -n registry <notary-tls-secret> --key ${NOTARY_CERT_KEY_FILE} --cert ${NOTARY_CERT_FILE}
+----
++
+In case the certificate has intermediate CAs, you can bundle them into the CERT_FILE prior creating the secret, e.g.:
++
+[source,bash]
+----
+cat $CERT_FILE $bundle_ca_file > bundled_cert_file
+kubectl create secret tls -n registry <tls-secret> --key ${KEY_FILE} --cert bundled_cert_file
+----
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+..
+  tls:
+    enabled: true
+    # The source of the tls certificate. Set it as "auto", "secret"
+    # or "none" and fill the information in the corresponding section
+    # 1) auto: generate the tls certificate automatically
+    # 2) secret: read the tls certificate from the specified secret.
+    # The tls certificate can be generated manually or by cert manager
+    # 3) none: configure no tls certificate for the ingress. If the default
+    # tls certificate is configured in the ingress controller, choose this option
+    certSource: secret
+    secret:
+      # The name of secret which contains keys named:
+      # "tls.crt" - the certificate
+      # "tls.key" - the private key
+      secretName: "<harbor-tls-secret>"
+      # The name of secret which contains keys named:
+      # "tls.crt" - the certificate
+      # "tls.key" - the private key
+      # Only needed when the "expose.type" is "ingress".
+      notarySecretName: "<notary-tls-secret>"
+----
+
+. Default Ingress certificate
++
+If a default TLS certificate has been set up for the {kube} Ingress Controller earlier, as covered in the TLS Certificates section, certificates need not be explicitly supplied during the {spr} installation. It is sufficient to set the `tls.certSource` option to `none`:
++
+.harbor-values.yaml
+[source,yaml]
+----
+expose:
+..
+  tls:
+    enabled: true
+    # The source of the tls certificate. Set it as "auto", "secret"
+    # or "none" and fill the information in the corresponding section
+    # 1) auto: generate the tls certificate automatically
+    # 2) secret: read the tls certificate from the specified secret.
+    # The tls certificate can be generated manually or by cert manager
+    # 3) none: configure no tls certificate for the ingress. If the default
+    # tls certificate is configured in the ingress controller, choose this option
+    certSource: none
+----
+--
+
+. Configure internal TLS
++
+In addition to securing external connections to exposed services, {spr} also supports using TLS to secure internal communication between its components.
+TLS certificates will be generated automatically for this purpose. Enabling internal TLS is optional, but highly recommended:
++
+.harbor-values.yaml
+[source,yaml]
+----
+internalTLS:
+  enabled: true
+----
++
+[IMPORTANT]
+====
+Internal TLS support does not yet cover the internal database and Redis services.
+====
++
+If {spr} is deployed in K3s, note that unmodified Traefik (the default K3s ingress controller) will not work with automatically-generated certificates.
+You must configure Traefik not to verify the backend SSL certificate (`insecureSkipVerify = true` option).
+Learn how to modify Traefik settings in the link:https://rancher.com/docs/k3s/latest/en/helm/#customizing-packaged-components-with-helmchartconfig[upstream documentation].
++
+For example, with K3s version 1.19 and newer, it is possible to use this kind of modification for the Traefik helm chart, then place it into the K3s manifest directory:
++
+.traefik-config.yaml
+[source,yaml]
+----
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ssl:
+      insecureSkipVerify: true
+----
+
+. Configure Persistent Storage
+.. Configure Persistent Volumes
++
+By default, persistent volumes are enabled for all stateful components of {spr}.
+However, a default `StorageClass` must be configured in the {kube} cluster to be able to provision volumes dynamically.
+Alternatively, you can configure explicit `StorageClass` values for each component.
++
+For each component that uses persistent storage, you can configure the following settings:
++
+--
+[lowerroman]
+... `storageClass`: Specify the "storageClass" used to provision the volume; if empty, the default `StorageClass` will be used (default: `empty`).
+... `accessMode`: Volumes can be mounted on a container in any way supported by the storage provider. Valid values are:
+[arabic]
+.... `ReadWriteOnce`: the volume can be mounted as read-write by a single container
+.... `ReadWriteMany`: the volume can be mounted as read-write by many containers. This is only required for the `registry` component, when configured in  mode and using a persistent volume to store OCI artifacts. If an external storage service is used to store OCI artifacts, or if a `ReadWriteMany` `StorageClass` isn't available in your {kube} cluster, you should not use this value.
+(default: `ReadWriteOnce`)
+... size: the size of the volume to be provisioned (e.g. 5Gi for 5 gigabytes). Default values vary by component:
++
+[arabic]
+.... registry: 5Gi
+.... database: 1Gi
+.... redis: 1Gi
+.... trivy: 5Gi
+
++
+[WARNING]
+====
+The default volume sizes provided by {spr} are *not recommended for production*.
+
+We recommend careful planning and setting the volume sizes according to the expected usage.
+Expanding in-use persistent-volume claims is only supported by some storage providers, and in some cases it will require restarting the pods, which will impact service availability.
+====
+
+For configuring persistent storage, update `harbor-values.yaml` with the following configuration, and set the values accordingly:
+
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+  persistentVolumeClaim:
+    registry:
+      storageClass: ""
+      accessMode: ReadWriteMany
+      size:
+    database:
+      storageClass: ""
+      size:
+    redis:
+      storageClass: ""
+      size:
+    trivy:
+      storageClass: ""
+      size:
+----
+
+.Using external services
+[NOTE]
+====
+The above settings will be ignored and may be omitted for components configured to use an external service (`database`, `redis`), and for the `registry` component when external storage is configured for OCI artifacts.
+====
+
+[WARNING]
+====
+If a {kube} persistent volume is configured to store OCI artifacts instead of an external storage service, and if your {kube} cluster does not provide a `StorageClass` with `ReadWriteMany` access mode capabilities, then the `updateStrategy.type` option must set to `Recreate` in the `harbor-values.yaml` file. Otherwise, running `helm upgrade` to apply subsequent configuration changes or to perform upgrades will result in failure:
+
+[source,yaml]
+----
+# The update strategy for deployments with persistent volumes (registry): "RollingUpdate" or "Recreate"
+# Set it as "Recreate" when "RWM" for volumes isn't supported
+updateStrategy:
+  type: Recreate
+----
+====
+--
+
+.. Configure External Storage for OCI Artifacts
++
+The default option for storing OCI artifacts, such as container images and helm charts, is using a persistent volume provided by the default `storageClass` of your {kube} cluster (as described on the previous section).
+However, you can configure {spr} to use an external storage solution such as Amazon S3 or Azure Blob Storage to store those artifacts.
++
+For example, for Azure Blob Storage, you must pre-configure an Azure Storage Account and Azure Storage Container.
+Using the `az` command line client, execute the following commands to create and fetch necessary resources:
++
+[source,bash]
+----
+az storage account create --resource-group <azure-resource-group> --name <azure-storage-account-name>
+az storage account keys list --resource-group <azure-resource-group> --account-name <azure-storage-account-name> -o tsv | head -n 1 | cut -f 3
+az storage container create --account-name <azure-storage-account-name> --name <azure-storage-container-name> --auth-mode key
+----
++
+Then, you must configure the "imageChartStorage" section in `harbor-values.yaml` as follows:
++
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+...
+  imageChartStorage:
+    type: azure
+    azure:
+      accountname: <azure-storage-account-name>
+      accountkey: <azure-storage-account-key>
+      container: <azure-storage-container-name>
+----
++
+For Amazon S3, the process is similar. The `imageChartStorage` section in `harbor-values.yaml` will look like this:
++
+.harbor-values.yaml
+[source,yaml]
+----
+persistence:
+...
+  imageChartStorage:
+    type: s3
+      region: <aws-region>
+      bucket: <aws-s3-bucket-name>
+      accesskey: <aws-account-access-key>
+      secretkey: <aws-account-secret-key>
+----
+
+. (Optional) Configure a GitHub authentication token for Trivy
++
+If the `Trivy` security vulnerability scanner service is enabled, we recommend link:https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token[generating a GitHub personal authentication token] and supplying it in the `harbor-values.yaml` trivy configuration section, to prevent issues with link:https://docs.github.com/en/free-pro-team@latest/rest/reference/rate-limit[the API rate-limiting that GitHub enforces on unauthenticated requests]:
++
+.harbor-values.yaml
+[source,yaml]
+----
+trivy:
+  ...
+  gitHubToken: "<github-token-value>"
+----
+
+. (Optional) Configure  parameters
++
+By default, {spr} uses a replica count (that is, the number of redundant pods providing the same service) value of 1 for all its components.
+To have a highly-available deployment, configure a `ReplicaCount` value of at least 2 for enabled services in `harbor-values.yaml`:
++
+.harbor-values.yaml
+[source,yaml]
+----
+portal:
+  replicas: 3
+core:
+  replicas: 3
+# Only enabled when using a LoadBalancer instead of Ingress to expose services
+nginx:
+  replicas: 3
+jobservice:
+  replicas: 3
+registry:
+  replicas: 3
+trivy:
+  replicas: 3
+notary:
+  server:
+    replicas: 3
+  signer:
+    replicas: 3
+----
++
+[WARNING]
+====
+You must have a {kube} `StorageClass` with `ReadWriteMany` access mode to enable  for the {spr} `registry` component, when a {kube} persistent volume is used as the storage back-end for OCI artifacts.
+
+If a `StorageClass` with `ReadWriteMany` access is not available for your {kube} cluster, setting the replica count to a value higher than 1 for the `registry` component will result in installation failure.
+Furthermore, using `helm upgrade` to apply subsequent configuration changes or to perform upgrades will also result in failures without a `ReadWriteMany` access mode `StorageClass`.
+To prevent that, ensure the `updateStrategy.type` option is set to `Recreate` in the `harbor-values.yaml` file:
+
+.harbor-values.yaml
+[source,yaml]
+----
+# The update strategy for deployments with persistent volumes(registry): "RollingUpdate" or "Recreate"
+# Set it as "Recreate" when "RWM" for volumes isn't supported
+updateStrategy:
+  type: Recreate
+----
+====
+
+. [[install-external-database]] (Optional) External Database Setup
++
+We recommend an external database to deploy {spr} in a fully highly-available and scalable setup.
+This section assumes a managed PostgreSQL database instance has already been setup, either in Azure or AWS, as covered in the <<requirements-external-postgres>>.
++
+[loweralpha]
+.. Connect to an Azure PostgreSQL database
++
+Add the following section to the `harbor-values.yaml` file and fill it with information reflecting the Azure PostgreSQL database instance previously configured as an external database:
++
+.harbor-values.yaml
+[source,yaml]
+----
+database:
+  type: external
+  external:
+    host: <database-fully-qualified-hostname>
+    port: "5432"
+    username: <admin-user>@<database-hostname>
+    password: <admin-password>
+    # "disable" - No SSL
+    # "require" - Always SSL (skip verification)
+    # "verify-ca" - Always SSL (verify that the certificate presented by the
+    # server was signed by a trusted CA)
+    # "verify-full" - Always SSL (verify that the certification presented by the
+    # server was signed by a trusted CA and the server host name matches the one
+    # in the certificate)
+    sslmode: "verify-full"
+----
+
+.. Connect to an AWS PostgreSQL database
++
+Add the following section to `harbor-values.yaml` and fill it with information reflecting the AWS PostgreSQL database instance previously configured as an external database:
++
+.harbor-values.yaml
+[source,yaml]
+----
+database:
+  type: external
+  external:
+    host: <database-fully-qualified-hostname>
+    port: "5432"
+    username: <admin-user>@<database-hostname>
+    password: <admin-password>
+    # "disable" - No SSL
+    # "require" - Always SSL (skip verification)
+    # "verify-ca" - Always SSL (verify that the certificate presented by the
+    # server was signed by a trusted CA)
+    # "verify-full" - Always SSL (verify that the certification presented by the
+    # server was signed by a trusted CA and the server host name matches the one
+    # in the certificate)
+    sslmode: "verify-full"
+----
+
+. [[install-redis-operator]] (Optional) Install Redis Operator
++
+As mentioned above, Redis Operator provides High Availability to the Redis component of {spr}. It can be installed into the same {kube} cluster as {spr}. The installation of Redis operator is also done via a Helm chart, and must happen before the installation of {spr}.
++
+// Preliminary instructions!
++
+[loweralpha]
+... Install Redis operator in its own {kube} namespace using the Helm chart:
++
+[source,bash]
+----
+export HELM_EXPERIMENTAL_OCI=1
+helm chart pull registry.suse.com/harbor/redis-operator:3.1
+helm chart export registry.suse.com/harbor/redis-operator:3.1
+kubectl create namespace redis-operator
+helm -n redis-operator install harbor-redis ./redisoperator
+----
+
+... Configure `RedisFailover` object:
++
+The Redis HA configuration needs to be specified in the `redisfailover` section of `harbor-values.yaml`.
+The following is an example configuration:
++
+.harbor-values.yaml
+[source,yaml]
+----
+redisfailover:
+  enabled: true
+  name: harbor-redisfailover
+----
+
+... Configure {spr} to be connected to the external Redis
++
+Extend the `harbor-values.yaml` file with the configuration specified below.
++
+.harbor-values.yaml
+[source,yaml]
+----
+redis:
+  type: external
+  external:
+    addr: rfs-harbor-redisfailover:26379
+    sentinelMasterSet: mymaster // <1>
+----
+<1> `mymaster` is a predefined value of redisfailover deployment and cannot be changed.
+
+... (Optional) Set up own password
++
+By default, if no secret and password are provided, the {spr} Helm chart will generate a password. A custom password can also be provided:
++
+[source,bash]
+----
+kubectl -n registry create secret generic redis-auth --from-literal=password="<password-value>"
+----
++
+.harbor-values.yaml
+[source,yaml]
+----
+redis:
+  type: external
+  external:
+    addr: rfs-harbor-redisfailover:26379
+    sentinelMasterSet: mymaster
+    password: <password-value>
+----
+
+... (Optional) Configure Redisfailover deployment
++
+By default, the Redisfailover deployment has three sentinel replicas, three redis replicas, and will keep the data when the Helm chart is uninstalled. This behavior can be configured in the `redisfailover` section.
++
+
+. [[install-external-redis]] (Optional) External Redis Setup
++
+We recommend an external Redis to deploy {spr} in a fully highly-available and scalable setup.
+When deployed in AKS or EKS, as an alternative to using the Redis Operator, {spr} may instead be connected to a managed Redis instance running in public cloud.
+This section assumes a managed Redis instance has already been setup, either in Azure or AWS, as covered in the External Redis requirements section.
+
+.. Connect to an Azure Cache for Redis instance
++
+Add the following section to the `harbor-values.yaml` file and fill it with information reflecting the Azure Cache for Redis instance previously prepared.
+As mentioned above in the <<requirements-redis-azure>>, the address will have the form of `<azure-redis-cache>.redis.cache.windows.net`.
++
+.harbor-values.yaml
+[source,yaml]
+----
+redis:
+  type: external
+  external:
+    addr: "192.168.0.2:6379"
+    password: access-key // <1>
+----
+<1> Replace `access-key` with the access key retrieved after creating the Azure Cache for Redis instance.
+.. Connect to an Amazon ElastiCache Redis service
++
+Add the following section to `harbor-values.yaml` and fill it with information reflecting the Amazon ElastiCache Redis instance that you previously prepared:
++
+.harbor-values.yaml
+[source,yaml]
+----
+redis:
+  type: external
+  external:
+    addr: "192.168.0.2:6379"
+    password: "" // <1>
+----
+<1> Add password if configured manually (not the default) in AWS ElastiCache.
+
+. [[install-resource-limits]] (Optional) Setup Resource Requests and Limits
++
+It is a good practice to specify resource requests and limit values.
+For each Harbor component, it is possible to specify a minimal resource value — that is, the amount of CPU units and memory it should get — and a limit value, so that Kubernetes knows the resources given to a component cannot exceed the limit.
+These per-component values are used for all containers that are created for a given Harbor component.
++
+For example, add the following section to `harbor-values.yaml` to specify that the containers from the core component should get at least 0.1 CPU, 256 MiB of RAM, and not more than 1 CPU and 1 GiB of memory:
++
+.harbor-values.yaml
+[source,yaml]
+----
+core:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      cpu: 1
+      memory: 1Gi
+----
++
+Read more about Resource management in the link:https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/[upstream documentation].
+
+. [[install-resource-accounts]] (Optional) Use distinct Service Accounts
++
+[NOTE]
+====
+You can use distinct Service Accounts for each Harbor component.
+
+Refer to the link:https://kubernetes.io/docs/concepts/policy/pod-security-policy/[upstream documentation] to find out more about Pod Security Policies.
+====
++
+Without any changes, all created Pods belong to the default Service Account. For better overall cluster security, we recommend creating a Pod Security Policy that restricts the Pods to only  specific actions.
+Then you can assign new ServiceAccounts to your Pod Security Policy using Roles and Role Bindings.
++
+For example, if you created a `suse-registry` Service Account, add the following section to the `harbor-values.yaml` file so that all Harbor services are associated with it:
++
+.harbor-values.yaml
+[source,yaml]
+----
+nginx:
+  serviceAccountName: "suse-registry"
+portal:
+  serviceAccountName: "suse-registry"
+core:
+  serviceAccountName: "suse-registry"
+jobservice:
+  serviceAccountName: "suse-registry"
+registry:
+  serviceAccountName: "suse-registry"
+trivy:
+  serviceAccountName: "suse-registry"
+notary:
+  server:
+    serviceAccountName: "suse-registry"
+  signer:
+    serviceAccountName: "suse-registry"
+database:
+  internal:
+    serviceAccountName: "suse-registry"
+redis:
+  internal:
+    serviceAccountName: "suse-registry"
+----
+
+. [[install-passwords]] Set up the passwords for deployment
++
+By default, all passwords are automatically generated when installing {spr} with the Helm chart. They can be retrieved post-installation from the created {kube} secrets objects. For example, to retrieve the Harbor adminstrator password necessary to log in into the Harbor Portal UI as admin user, run this command after the deployment is finished:
++
+[source,bash]
+----
+kubectl get secret suse-registry-harbor-core -n registry -o jsonpath="{.data.HARBOR_ADMIN_PASSWORD}" | base64 --decode
+----
++
+To set a custom administrator password before the installation, modify your `harbor-values.yaml` file like this:
++
+.harbor-config-values.yaml
+[source,yaml]
+----
+harborAdminPassword: <password-for-admin-user>
+----
++
+Similarly, custom passwords may be set before the installation for the database and Redis services, if configured as internal services:
++
+.harbor-config-values.yaml
+[source,yaml]
+----
+database:
+  ...
+  internal:
+    password: <password-for-redis>
+
+redis:
+  ...
+  internal:
+    password: <password-for-redis>
+----
+
+. Finally, deploy helm to install {spr}
++
+To install {spr} as a `suse-registry` release into the registry namespace with the custom configuration prepared in `harbor-values.yaml` in the previous steps, run the following command:
++
+[source,bash]
+----
+helm -n registry install suse-registry ./harbor -f harbor-values.yaml
+----
++
+Once the installation is complete, Helm will provide the information about the location of the newly installed registry, e.g.:
++
+[source,bash]
+----
+NAME: suse-registry
+LAST DEPLOYED: Fri Jul 24 10:34:53 2020
+NAMESPACE: registry
+STATUS: deployed
+REVISION: 1
+NOTES:
+Please wait for several minutes for Harbor deployment to complete.
+Then you should be able to visit the Harbor portal at https://core.harbor.domain // <1>
+----
+<1> You will see your `<core_fqdn>` instead of `https://core.harbor.domain`.
+
+. Check the installation
++
+You can check the status of created artifacts and see if everything is running correctly:
++
+[source,bash]
+----
+> kubectl -n registry get deployments
+NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+suse-registry-harbor-core         1/1     1            1           17h
+suse-registry-harbor-jobservice   1/1     1            1           17h
+suse-registry-harbor-portal       1/1     1            1           17h
+suse-registry-harbor-registry     1/1     1            1           17h
+----
++
+[source,bash]
+----
+> kubectl -n registry get pods
+NAME                                                  READY   STATUS    RESTARTS   AGE
+suse-registry-harbor-core-c787885b6-2l7lz             1/1     Running   1          105m
+suse-registry-harbor-database-0                       1/1     Running   0          105m
+suse-registry-harbor-jobservice-698fb5bb44-88mc5      1/1     Running   1          105m
+suse-registry-harbor-nginx-b4f7748c5-8v2rp            1/1     Running   0          105m
+suse-registry-harbor-portal-bff5898cc-tt9ss           1/1     Running   0          105m
+suse-registry-harbor-redis-0                          1/1     Running   0          105m
+suse-registry-harbor-registry-7f65b6f87b-sqhzt        2/2     Running   0          105m
+suse-registry-harbor-trivy-0                          1/1     Running   0          105m
+----
+
+After the installation is complete, please proceed with <<administration>> and configure an authentication method.

@@ -1,0 +1,1383 @@
+<?xml version="1.0" encoding="utf-8"?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude" xmlns:xlink="http://www.w3.org/1999/xlink" xml:base="MAIN-SBP-susemanager.xml" role="sbp" version="5.0" xml:id="art-sbp-suma-life" xml:lang="ja">
+    <info>
+        <title>SUSE Managerを使った高度なパッチライフサイクル管理</title>
+        <subtitle>複数ランドスケープ環境でSUSE Managerを使って更新プログラムを管理する方法とアプローチ</subtitle><!-- <orgname>SUSE Best Practices</orgname>--><productname>SUSE Manager</productname>
+        <productnumber>2.1、3.0、3.1、3.2</productnumber>
+
+
+        <author>
+            <personname>
+                <firstname>Jeff</firstname>
+                <surname>Price, Principal Architect, SUSE</surname>
+            </personname><!--<affiliation>
+                <jobtitle>Principal Architect</jobtitle>
+                <orgname>&suse;</orgname>
+            </affiliation>--></author>
+
+        <date>July 11, 2018</date>
+
+        <abstract>
+            <para>このドキュメントでは、SUSE Manager環境を設定および構成して、よくリクエストされることのある機能を企業で実現する方法について説明します。定義した期間に基づくパッチセットの自動的な作成とアーカイブ、多数のランドスケープと環境を通じてパッチのプロモーションと配信を一貫性のある形で実行する方法、パッチサイクルから除外する必要があるパッチを処理するための例外プロセスを取り上げています。また、パッチ履歴セットを使った環境の作成、導入から廃止までホストチャネルサブスクリプションを操作する必要性の最小化、およびカスタム子チャネルを使ったサービスパックの移行のサポートについても説明します。</para>
+        </abstract>
+    </info>
+
+
+    <section xml:id="sec-overview">
+        <title>概要</title>
+        <para>現在、多くの組織でシステムに最新のパッチを適用してセキュリティを確保することが、システム管理者が直面している最大の課題の1つとなっています。プロプライエタリソフトウェア企業とオープンソースソフトウェア企業では、自社のソフトウェア製品で見つかった不具合を修正する更新プログラムを提供するための作業を常に行っています。</para>
+        <para>また、PCI-DSS（Payment Card Industry Data Security Standard）やSOX（Sarbanes-Oxley）、HIPAA（Health Insurance Portability and Accountability Act）、FIPS 140（Federal Information Processing Standard）などのコンプライアンスイニシアティブから課される要件により、ソフトウェア企業へのプレッシャーが高まっています。 <quote>こうした標準のほとんどでパッチ適用の頻度や期間が指示されていますが、特定のパッチの重要度に応じてスケジュールが変更されることがよくあります。</quote> ###</para>
+        <para>規模の大小にかかわらず、企業はさまざまなコンピューターインフラストラクチャ上で変化し続けるアプリケーションランドスケープに依存しています。これには物理ホストや仮想ホストが含まれ、アプリケーションスタックが複雑になることもあります。こうしたアプリケーションは特定のカーネルバージョンに依存している場合があり、厳格なアップタイム要件が設けられていたり、特定のランタイム環境（Javaなど）と連携しています。一部のLinux OSリリースでしか認定されていなかったり、特定の構成要件がある場合もあります。また、さらに厳しい要件やプラットフォーム要件があることで他のホストと一緒に管理できないこともあります。</para>
+        <para>さらに、変更のテストや検証を行うために、本番環境をミラーリングした開発ランドスケープやQAランドスケープなど、重複するホスト環境を作成している企業が数多くあります。 <quote>###</quote> ###<quote>###</quote> ###<quote>###</quote> ###つまり、管理やパッチ適用、レポートが必要な完全なホストセットが最低でも追加で1つ以上あるのです。これにより、通常は四半期ごと（重大な脆弱性がある場合はそれ以上の頻度）にすべてのホストにパッチ適用が必要な、綿密なパッチスケジュールに従うのがますます困難になります。</para>
+        <para>こうした問題すべてに対処して、複雑なエンタープライズLinux環境の制御を取り戻すための方法はあるのでしょうか。</para>
+
+
+        <section xml:id="sec-susesol">
+            <title>SUSEのソリューション</title>
+            <para>SUSE Managerには、自動化されたソフトウェア管理やシステムのプロビジョニングと監視など、最高クラスのLinuxサーバー管理機能が搭載されています。また、サーバーのパッチ適用と管理を標準化および自動化することで、一元的なLinux管理インフラストラクチャを実現します。こうした作業はスピーディーに実行できてエラーも発生しにくいため、ITスタッフの生産性が向上してサーバーのダウンタイムも削減されます。</para>
+
+            <section xml:id="sec-defin">
+                <title>用語の定義</title>
+                <para>このドキュメントでは、複数あるLinuxホストのグループの1つを指す場合に「<emphasis role="strong">ランドスケープ</emphasis>」という単語を使用します。この単語は、ホストの役割/質を定義するためにエンタープライズソフトウェア環境で一般的に使用されています。たとえば、本番（PROD）、開発（DEV）、品質保証（QA）、ユーザー受け入れ/テスト（UAT）などを指す場合があります。</para>
+                <para>「<emphasis role="strong">環境</emphasis>」という言葉も使われています。このドキュメントでは、コーポレート（CORP）、ストア（STORE）、NPE（非本番環境）など、Linuxホストの物理的な分離を指す場合に使用します。</para>
+                <para>また、「<emphasis role="strong">組織</emphasis>」という言葉も使っています。SUSE Managerには「組織」という考え方があり、これはSUSE Manager Serverを最初にインストールするときに作成されるデフォルト組織の下に配置される個別の管理環境のことを指します。組織には1つの親（LDAP「組織」など）に多数の子（入れ子のないフラットな組織単位に制限されたLDAP「組織単位」など）が配置されています。 <quote>###</quote>### <quote>###</quote>###SUSE Managerの組織には通常、Web UIからの管理が必要な個別の資格情報があります。SUSE Managerが管理するLinuxホストは単一の組織に登録されて、そこからしか表示することができません。これらの用語の意味を念頭に置きながらこのドキュメントを読み進めてください。</para>
+
+            </section>
+
+        </section>
+
+        <section xml:id="sec-example">
+            <title>サンプルシナリオ</title>
+            <para>Chameleon Corporationは世界最大の爬虫類・両生類専門ペットショップで、イエメンに本社を構えています。5か国でLizardsRUsやUnVeiledInc、Chameleo-ramaという名前の店舗を1500店以上展開しています。</para>
+            <para>同社にはLinuxホストのパッチとセキュリティ更新プログラムの管理について以下のような要件があります。コンプライアンスの制限により、同社のパッチライフサイクル（タイミングと配信）は自社のセキュリティポリシー、ホストの環境/ランドスケープ、および将来の管理ニーズをベースにしています。</para>
+            <para>要件の概要は以下のとおりです。</para>
+
+            <orderedlist>
+                <listitem>
+                    <para>公開されているセキュリティポリシーでは、利用可能な最新の更新プログラム、バグ修正、機能強化を四半期ごとにすべてのLinuxシステムに適用するよう定められています。第一四半期が1月1日～3月31日、第二四半期が4月1日～6月30日、第三四半期が7月1日～9月30日、第四四半期が10月1日～12月31日となっています。###<superscript>###</superscript> ###<superscript>###</superscript>######<superscript>###</superscript> ###<superscript>###</superscript>######<superscript>###</superscript> ###<superscript>###</superscript>######<superscript>###</superscript> ###<superscript>###</superscript>###</para>
+                </listitem>
+                <listitem>
+                    <para>公開されているセキュリティポリシーでは、パッチがリリースされてから1か月以内に「重要な」セキュリティ更新プログラム（CVSSスコアが7以上）をすべてのLinuxシステムに適用することも定められています。<quote>###</quote> ###これにより、既存のパッチロールアウトと重なる可能性がある2つ目のスケジュールが発生します。</para>
+                </listitem>
+                <listitem>
+                    <para>同社には、コーポレート、ストア、NPEという3つの異なるホスト環境があります。これらのホスト環境はSUSE Manager組織を使って区切られています。各SUSE Manager組織では、信頼に基づいてデフォルトのSUSE Manager組織のソフトウェアチャネルを見ることができますが、管理対象ホストは当然のことながら環境によってグループ化および管理されます。</para>
+                </listitem>
+                <listitem>
+                    <para>各環境には少なくともDEV、UAT、PRODという3つのランドスケープがあります。一部の環境（SITやDITなど）には他のランドスケープもありますが、それらはさきほど説明したランドスケープと同様の方法で管理されます。パッチライフサイクルプロモーションとは、必要に応じてパッチを追加のステージへと移動させることです。</para>
+                </listitem>
+                <listitem>
+                    <para>### <quote>###</quote> ロールアウトからパッチ（カーネル更新プログラムなど）を削除する必要があることも多いため、パッチ例外プロセスが用意されています。一部のホストには、特定のカーネルバージョンに依存するハードウェアドライバーやサードパーティソフトウェアがある場合もあります。この例外プロセスはケースに応じて適切に対処されます。</para>
+                </listitem>
+            </orderedlist>
+            <para>ここまでの話をまとめると、3つのSUSE Manager組織の3つ（またはそれ以上）のランドスケープで2つのパッチスケジュールが必要であることがわかります。また、コンプライアンスを確保するために、ロールアウトできない（例外）ものの追跡や修復、再導入が必要なパッチの保存場所に対処する方法も必要です。</para>
+            <para>SUSE Managerではこのような複雑さにも適切に対処して、こうした要件にも柔軟に対応できるように設定できます。いくつかのファセットを使って自動化を適用することもできます。また、公開されている企業ポリシーを満たす、パッチを一貫性のある形で配信できる手順を作成できます。</para>
+        </section>
+
+        <section xml:id="sec-features">
+            <title>機能</title>
+            <para>このドキュメントでは、SUSE Manager環境を設定および構成して、以下のよくリクエストされることのある機能を企業で実現する方法について説明します。</para>
+            <itemizedlist>
+                <listitem>
+                    <para>四半期（または任意の期間）ごとのパッチ作成とアーカイブの自動化</para>
+                </listitem>
+                <listitem>
+                    <para>多数のランドスケープと環境における、一貫性のあるパッチのプロモーションと配信</para>
+                </listitem>
+                <listitem>
+                    <para>パッチサイクルから除外する必要があるパッチに対処するための例外プロセス</para>
+                </listitem>
+                <listitem>
+                    <para>パッチ履歴セットを使った環境の作成</para>
+                </listitem>
+                <listitem>
+                    <para>導入から廃止までホストチャネルサブスクリプションを操作する必要性の最小化</para>
+                </listitem>
+                <listitem>
+                    <para>カスタムの子チャンネルを使ったサービスパックの移行のサポート</para>
+                </listitem>
+            </itemizedlist>
+            <para>ランドスケープ（DEVとPRODまたはサンドボックス、DEV、QA、UAT、PRE-PROD、PRODなど）の増減や配信頻度の増減など、要件の変更に合わせてこうした機能の多くをカスタマイズできます。これらを念頭に置きながらこのドキュメントを読み進めてください。SUSE Managerは非常に柔軟性が高い製品であり、これまで多くのお客様が強固なシステムとパッチ管理フレームワークを構築および導入するのをサポートしてきました。貴社の要件はこのドキュメントに記載されているものとは異なるかもしれませんが、SUSE Managerの高い柔軟性によって貴社の現行のニーズや変化するニーズにも対応することができます。</para>
+        </section>
+
+        <section xml:id="sec-guidance">
+            <title>ガイダンス</title>
+            <para>このガイドはSUSE Manager 2.1をベースにしていますが、SUSE Manager 3.0でも使用することができます。Salt minionの詳細や、チャネル組織とパッチ操作に与える影響については説明しません。</para>
+
+            <para>新規インストールは必要ありませんが、ホストがいくつか登録されている、実際に機能するSUSE Manager環境があり、このドキュメントに記載されている用語と機能にある程度精通していることを前提にしている部分もあります。<link xlink:href="https://documentation.suse.com/suma/3.2/"/>にあるSUSE Manager関連のドキュメントは優れた情報源であり、頻繁に更新されています。よくわからないプロセスがある場合はこちらのドキュメントを参照してください。このドキュメントで説明している実装手順の多くは、SUSEの製品ドキュメントの手順や機能、ハウツーをベースに追記したものです。<quote>###</quote> ###</para>
+            <note>
+                <title>実装のテスト</title>
+                <para>一部の高度な機能（spacecmdやXMLRPC APIの使用など）は詳しく説明しますが、すべての情報を網羅しているわけではありません。<command>###</command> ###付録には、そのまま使ったり、特定の環境やニーズに合わせて修正できるコードサンプルがいくつか用意されています。ただし、これらのコードの動作は<emphasis role="strong">保証されておらず</emphasis>、あらゆる実装にぴったりあてはまるわけではありません。本番環境で使用する前に、自社の実装を<emphasis role="strong">必ずテスト</emphasis>してください。</para>
+            </note>
+            <para>次のセクションでは「<emphasis role="strong">シナリオ</emphasis>」セクションで定義した要件を満たすためのSUSE Managerの設定について説明します。最初に、要件を満たすために用意するアーキテクチャ（およびコンポーネント）を説明してから、実際にそれを作成するステップへと移ります。このガイドの各コンポーネントは、これから説明する特定のシナリオに対する包括的なソリューションを実現するためにお互いに組み合わせて使用されますが、貴社独自のソリューション要件に合わせて個別に使用しても構いません。</para>
+        </section>
+
+    </section>
+    <section xml:id="sec-implement">
+        <title>導入</title>
+        <para>まず、SUSE Managerを設定して、パッチライフサイクル管理に役立ついくつかの手順、プロセス、ツール（スクリプト）を作成する必要があります。また、使用するSUSE Linux Enterprise Serverバージョン用に、SUSEが提供する更新プログラムチャネルからパッチアーカイブチャネルを作成（できれば自動作成）します。 <quote>###</quote> ###<quote>###</quote> ###これらのパッチアーカイブがパッチプロモーションのソースになりますが、過去にロールアウトされたパッチセットに基づいてテスト環境を設定するためのソースにもなります。たとえば、これまでのパッチセットがすべて適用されたホストがあるラボを作成するなど、エラー状態のトラブルシューティングに使うことができます。また、タイムスタンプが付いたパッチセットによって定義されたコンプライアンスについてもわかりやすい形で説明、および視覚化できます。</para>
+        <para>ロールアウトが決定した際に<emphasis role="strong"></emphasis>更新プログラムを取得する一連のソフトウェアチャネルも作成する必要があります。### <quote>###</quote> 各ランドスケープでは、過去に検証済みのランドスケープから<emphasis role="strong">のみ</emphasis>更新プログラムを取得する必要があります。つまり、まずはじめにDEVに配置されて、DEVのマシン上でテストされます。その後、QAに移動してそこでもテストされます。そして最後にPRODに移動します。四半期ごとにこのプロセスが行われ、例外が発生した場合にはそれに対処します。あらゆる例外を修復し、できるだけ早くパッチを再導入してコンプライアンス状況を把握するための一貫性のある目標が設定された、確立された別のプロセスによってすべての例外を追跡します。</para>
+        <para>四半期よりも高い頻度でデプロイが必要な、重大なセキュリティパッチのリリースによって四半期ごとのロールアウトに割り込みが入ることもあります。 <quote>###</quote> ###この追加スケジュールに対処するために、重大なパッチを追跡してロールアウトする別のチャネルを作成します。重大なパッチとみなされるのは、CVSSスコアが7.1以上のCVE、または企業セキュリティチームによって必須とされているパッチです。現在、以下の2つの異なるSUSE Linux Enterprise Serverバージョンを管理しています：SUSE Linux Enterprise Server 11 SP3およびSUSE Linux Enterprise Server 12。サービスパック移行のサポートを利用しながらSUSE Managerを使うため、まずはSUSE Linux Enterprise Server 11 SP4に対応する設定から行っていきます。また、SUSE Linux Enterprise Server 11 SP3の32ビットと64ビットのIntel/AMDアーキテクチャバージョンがあるため、両方に対応する必要があります。</para>
+        <para>コーポレート（CORP）とストア（STORE）という2つの異なる環境を管理する必要があります。SUSE Manager組織を個別に作成することで、システム管理者が自分が管理するホストだけを見られるようにしています。各SUSE Manager組織には、パッチのテスト/プロモーションに使う3つのランドスケープ（DEV、QA、およびPROD）があります。</para>
+        <para>それぞれのSUSE Manager組織（各環境）とランドスケープでアクティベーションキーとブートストラップを作成することで、ほとんどの場合ホストを適切な固定ロールに登録することができます。たとえば、あるブートストラップスクリプトでSUSE Linux Enterprise Server 11 SP3（64ビット）のDEVホストを適切な組織に登録し、今後の操作が不要な適切なベースと子チャネルを追加するとします。この場合は自動化が推奨されます。さきほど説明したとおり、スクリプトやスケジュール設定したジョブを使うことで、ソリューションを大幅に強化して管理スタッフに安心感を与えることができます。</para>
+
+        <section xml:id="sec-arch">
+            <title>アーキテクチャ</title>
+            <para>アーキテクチャとチャネルの概要は以下のとおりです。</para>
+            <note>
+                <title>プレフィックスの使用</title>
+                <para>ここに一覧表示されているすべての<emphasis role="strong">ベース</emphasis>チャネルは、SUSEベンダーチャネルのクローンツリーにできるため、名前に<emphasis role="italic">プレフィックス</emphasis>が含まれています。これは、この後のチャネル作成セクションで説明するサービスパックの移行をわかりやすくするための措置です。</para>
+            </note>
+
+            <itemizedlist>
+                <listitem>
+                    <para>SUSE Manager組織</para>
+                    <itemizedlist>
+                        <listitem>
+                            <para>デフォルト（メイン） - 1</para>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>32ビットアーカイブチャンネル（パブリック）</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>Q2 - 06-30-2015 - SLES 11 SP3 Updates for i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Q3 - 09-30-2015 - SLES 11 SP3 Updates for i586</para>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>64ビットアーカイブチャンネル（パブリック）</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>Q2 - 06-30-2015 - SLES 11 SP3 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Q3 - 09-30-2015 - SLES 11 SP3 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Q2 - 06-30-2015 - SLES 12 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Q3 - 09-30-2015 - SLES 12 Updates for x86_64</para>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>SUSEベースチャネル内のクローンセットまたは子チャネル</para>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>ベース：SLES 11 SP3 Pool for i586</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>DEV - Current Patch Set - SLES 11 SP3 Updates for i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>QA - Current Patch Set - SLES 11 SP3 Updates for i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>PROD - Current Patch Set - SLES 11 SP3 Updates for i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Patch Exceptions (DO NOT SUBSCRIBE) - SLES 11 SP3 i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Security ASAP Exceptions - SLES 11 SP3 i586</para>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>ベース：SLES 11 SP3 Pool for x86_64</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>DEV - Current Patch Set - SLES 11 SP3 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>QA - Current Patch Set - SLES 11 SP3 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>PROD - Current Patch Set - SLES 11 SP3 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Patch Exceptions (DO NOT SUBSCRIBE) - SLES 11 SP3 x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Security ASAP Exceptions - SLES 11 SP3 x86_64</para>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>ベース：SLES 12 SP3 Pool for x86_64</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>DEV - Current Patch Set - SLES 12 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>QA - Current Patch Set - SLES 12 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>PROD - Current Patch Set - SLES 12 Updates for x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Patch Exceptions (DO NOT SUBSCRIBE) - SLES 12 x86_64</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Security ASAP Exceptions - SLES 12 x86_64</para>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>パッチ例外チャネル（上記のとおり）</para>
+                                    <itemizedlist>
+                                     <listitem>
+                                     <para>ベースごとのチャネル - 各更新プログラムチャネルに1つのチャネル： <quote>###</quote>###</para>
+                                     <itemizedlist>
+                                     <listitem>
+                                     <para>例：</para>
+                                     <itemizedlist>
+                                     <listitem>
+                                     <para>Patch Exceptions (DO NOT SUBSCRIBE) - SLES 11 SP3 i586</para>
+                                     </listitem>
+                                     <listitem>
+                                     <para>Security ASAP Exceptions - SLES 11 SP3 i586</para>
+                                     </listitem>
+                                     </itemizedlist>
+                                     </listitem>
+                                     </itemizedlist>
+                                     </listitem>
+                                    </itemizedlist>
+                                </listitem>
+                            </itemizedlist>
+                        </listitem>
+                    </itemizedlist>
+                    <itemizedlist>
+                        <listitem>
+                            <para>コーポレート（CORP） - 2</para>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>パブリックチャネルがここに表示される</para>
+                                </listitem>
+                                <listitem>
+                                    <para>プライベートチャネルは組織ごとに共有可能</para>
+                                </listitem>
+                            </itemizedlist>
+                        </listitem>
+                    </itemizedlist>
+                    <itemizedlist>
+                        <listitem>
+                            <para>ストア（STORE） - 3</para>
+                            <itemizedlist>
+                                <listitem>
+                                    <para>パブリックチャネルがここに表示される</para>
+                                </listitem>
+                                <listitem>
+                                    <para>プライベートチャネルは組織ごとに共有可能</para>
+                                </listitem>
+                            </itemizedlist>
+                        </listitem>
+                    </itemizedlist>
+                </listitem>
+            </itemizedlist>
+        </section>
+
+        <section xml:id="sec-design">
+            <title>自動化とプロセスの設計</title>
+            <para>自動化には、アーカイブチャネルのチャネルクローンの自動作成が含まれます。特定の企業のユースケースや製品の使い方にも対応できるように、いくつかのスクリプト（cronとBash）と構成ファイルを組み合わせて使用します。アーカイブ作成は以下のカスタムcronジョブによってトリガーします。日付基準によって正確な設定を特定します。たとえば、四半期ごとのスケジュールを、特定の四半期の開始日または終了日に基づいて実装できます。トリガーする時間を四半期<emphasis role="strong">末</emphasis>にする場合、1か月が30日の3番目と9番目の月（3月と9月）と、1か月が31日の6番目と12番目の月（6月と12月）を考慮に入れる必要があります。<superscript>###</superscript> ###<superscript>###</superscript> ###<superscript>###</superscript> ###<superscript>###</superscript> ###これに対応するには、以下のような2つのcrontabエントリが必要です（cron構文）：</para>
+
+<screen>0 0 30 6,9 * /path/to/archive-create-script</screen>
+
+
+<screen>00 0 31 3,12 * /path/to/archive-create-script</screen>
+
+            <para>四半期の開始日を月の最初の日にする場合は、以下のようなcrontabエントリが1つだけ必要です。<superscript>###</superscript> ###</para>
+
+<screen>0 0 1 1,4,7,10 * /path/to/archive-create-script</screen>
+
+            <para>### <quote>###</quote> 実際のarchive-create-scriptスクリプトでは、スクリプトが実行される四半期を判断するためのロジックと、SUSE Managerチャネルのクローン作成用の正しい構文を提供するフォーマットロジックなどが必要です。スクリプトは、企業の選択に基づいて、アーカイブのフルセットを作成するために各アーキテクチャとSUSE Linux Enterprise Serverバージョンでも実行する必要があります。パッチプロモーションプロセスを作成することで、管理者はパッチセットを特定のランドスケープに<emphasis role="strong">移動</emphasis>するタイミング、そして同様に重要な<emphasis role="strong">移動元</emphasis>を正確かつ明示的に定義することができます。SUSE Managerで公開されているXMLRPC APIを活用したスクリプトを使うと最も簡単にこれを行うことができます。このAPIにはmergePackagesとmergeErrataと呼ばれるsoftwareChannelメソッドが含まれています。 <quote>###</quote> ###<quote>###</quote> ###<quote>###</quote>###ソースチャネルとターゲットチャネルを使ってこれら2つのメソッドを呼び出して、片方のチャネルから素早くコンテンツを取り出してもう一方のチャネルに差分をマージすることができます。</para>
+            <para>最後のプロセスではプロモーションプロセスからパッチを削除して、追跡用に保存するためのワークフローを定義します。例外は修復されるため、これらのパッチ例外は後でパッチロールアウトカレンダーに再導入できます。パッチを<emphasis role="strong">削除</emphasis>する例外プロセスの他に、緊急対応としてパッチを<emphasis role="strong">追加</emphasis>する似たようなプロセスがあります。</para>
+            <para>緊急パッチは最新のSUSE更新プログラムチャネルでほぼ常に利用できますが、アーカイブチャネルにはまだ導入されていない場合があります。四半期ごとのアーカイブチャネル作成ジョブがトリガーされると、利用可能なパッチがアーカイブセットに含まれます。しかし、それ以外のタイミングでは、パッチリリース前に発生するか、この最新のパッチを含む新しいアーカイブが作成されるまで最大で3か月かかる場合があります。そのため、パッチを検索してターゲットチャネルにコピーする方法を用意する必要があります。この方法を用意することで、SUSEが重大なパッチをリリースした場合に対処しますが、四半期が始まるまでアーカイブチャネルにはコピーが作成されません。</para>
+
+            <para>こうした緊急パッチをコピーしても、アーカイブチャネルの通常のデプロイと作成には影響しません。次回のアーカイブチャンネル作成にもこのパッチが含まれ、重複するパッチがある（後で同じパッチをマージする場合）緊急パッチチャネルを使っても、すでにそのパッチをインストールしてるシステムと競合が起きることはありません。</para>
+            <para>詳細な説明については後述する<xref linkend="sec-exception"/>を参照してください。</para>
+        </section>
+
+        <section xml:id="sec-patchpromo">
+            <title>パッチプロモーションサイクル</title>
+            <para>SUSEがパッチ（およびそれを含むパッケージ）を取得する方法、ダウンロード後の保存場所、およびSUSE Managerでのパッチの整理方法を理解することが、高度なパッチライフサイクルシステムを設定するうえで重要になります。デフォルトでは、SUSE ManagerはSUSE Linux Enterprise Serverのバージョンとアーキテクチャ、およびその拡張機能ごとにチャネルセットを整理します。</para>
+            <para>たとえば、SUSE Linux Enterprise Server 11 SP3 x86_64用のSUSE Managerにあるチャネルのベースセットには、親またはプールチャネルと呼ばれるベースチャネルがあります。 <quote>###</quote>###このチャネルにはSUSE Linux Enterprise Server 11 SP3 64ビットのインストールDVDと同じ機能を果たすパッケージがあります。### <quote>###</quote> このプールチャネルには、SUSE Manager Toolsチャネルと呼ばれる、SUSE Manager Clientパッケージ用のチャネル、およびSUSE Linux Enterprise Server 11 SP3 Updates for x86_64と呼ばれる更新プログラムチャネルを含む子チャネルがあります。</para>
+            <para>管理対象ホストがサブスクライブする通常のチャネルセットには親チャネル（プール）、SUSE ManagerToolsチャネル、および更新プログラムチャネルが少なくとも1つずつあります。SUSE Linux Enterprise Server 11 SP2など一部のケースでは、SUSE Linux Enterprise Server 11 SP1 Pool、SP1 Updatesチャネル、SP2 Coreチャネル、SP2 Updates、SP2 Extension Store、およびSP2 SUSE Manager Toolsチャネルが含まれます。</para>
+            <note>
+                <title>長期サービスパックサポート（LTSS）</title>
+                <para>SUSE Linux Enterprise ServerのSP1とSP2はいずれもLTSSフェーズに入っているため、SUSEで非LTSS更新プログラムが作成されることはありません。つまり、企業にSP1ホストやSP2ホストがあり、追加のパッチとサポートを利用する場合は、LTSSを購入してLTSS Updatesチャネルを使用する必要があります。詳細については<link xlink:href="http://www.suse.com/lifecycle"/>をご覧ください。</para>
+            </note>
+
+            <para>こちらの画像はパッチプロモーションプロセスを説明したものです。</para>
+            <figure>
+                <title>パッチプロモーションプロセス</title>
+                <mediaobject>
+                    <imageobject role="fo">
+                        <imagedata fileref="process-flow.png" width="95%" format="PNG"/>
+                    </imageobject>
+                    <imageobject role="html">
+                        <imagedata fileref="process-flow.png" width="90%" format="PNG"/>
+                    </imageobject>
+                </mediaobject>
+            </figure>
+        </section>
+
+        <section xml:id="sec-exception">
+            <title>例外チャネルとエスカレーションチャネル</title>
+            <para>さまざまな理由により、デプロイメントサイクルでパッチを延期したり削除したりする場合があります。パッチがシステムの安定性に問題をもたらしたり、現在または以前のランドスケープのテストサイクルを通過していなかったり、パッチサイクル内でパッチをデプロイしない理由はさまざまです。その一方で、スケジュールを前倒して、（セキュリティの脆弱性や、悪影響のあるバグを修正する）重要なパッチをデプロイする場合もあります。こうしたパッチは重要なものであることから、次の四半期のパッチサイクルを待たずにできるだけ早くテストとデプロイを行う必要があります。</para>
+            <para>このような例外的なパッチの定期的な削除や追加を行うには、プロセスを作成して適切にパッチを追跡する必要があります。これらの例外を追跡する一方で、保管、説明、報告のために専用のチャネルコンテナにコピーします。</para>
+            <para>これらのチャネルは、パッチ例外に対応するSUSE Linux Enterprise Serverバージョンのアーカイブベースチャネル内、またはクローンされたベースチャネル内で作成できます（推奨）。</para>
+            <para>パッチを除外するプロセスでは、まずパッチ（および関連するパッケージ）を例外チャネルに<emphasis role="strong">コピー</emphasis>した後、現在のデプロイランドスケープからパッチ（および関連するパッケージ）を<emphasis role="strong">削除</emphasis>します。必要に応じて直近の四半期のアーカイブチャネルからパッチを削除することもできますが、パッチは今後の四半期のアーカイブにも含まれることを認識しておくことが重要です。SUSE更新プログラムチャネルからパッチを削除したくなるかもしれませんが、多くの場合コンプライアンス上の手違いや誤報告につながります。最初に例外の理由を追跡して<emphasis role="strong">解決</emphasis>しておいた方がはるかにましです。こうすることで、パッチをパッチデプロイワークフローに再導入して、パッチの修正対象である潜在的なセキュリティ問題やコードの欠陥を修復することができます。</para>
+
+            <section xml:id="sec-securityescal">
+                <title>セキュリティエスカレーションチャネルとプロセスの定義</title>
+                <para>セキュリティパッチを<emphasis role="strong">追加</emphasis>するプロセスはパッチを除外するプロセスと似ています。パッチが作成されているもののプロモーションサイクルでまだ使用されていない場合は、パッチをSUSE更新プログラムチャネルか最新のアーカイブからセキュリティ例外チャネルにコピーする必要がある点が、パッチ除外プロセスとの主な違いです。<emphasis role="strong">新しい</emphasis>重大なセキュリティパッチがロールアウトフェーズの途中（すでに直近の四半期のパッチをプロモーションしていたところにこの新しいパッチが来た）でリリースされた場合、この新しいパッチはまだアーカイブに表示されていない可能性があります。</para>
+                <para>この新しいパッチを通常のパッチセットと同じようにランドスケープにプロモーションしてテストする必要がある場合は、必要に応じて任意のステージに直接コピーできます。このセキュリティパッチを最初のランドスケープ（DEV - Currentなど）に<emphasis role="strong">コピー</emphasis>し、通常のデプロイ-テスト-プロモーションサイクルに従って本番環境に適用します。パッチの重要度に応じて、テストの通常スケジュールを早めるか、稀なケースですが、リスクが許容可能なものと想定してテストをスキップします。</para>
+            </section>
+
+        </section>
+        <section xml:id="sec-components">
+            <title>コンポーネント</title>
+            <para>SUSE Manager 2.1を使って高度なパッチライフサイクル管理を実現するために作成するものは以下のとおりです。</para>
+                    <bridgehead>チャネル</bridgehead>
+                <orderedlist>
+                    <listitem>
+                        <para>アーカイブチャネル</para>
+                    </listitem>
+                    <listitem>
+                        <para>最新の更新プログラムチャネル</para>
+                    </listitem>
+                    <listitem>
+                        <para>例外チャネル（Patch ExcludeまたはSecurity-ASAP）</para>
+                    </listitem>
+                    <listitem>
+                        <para>オプションのSP-Migrationクローンセット</para>
+                    </listitem>
+                </orderedlist>
+                <bridgehead>アクティベーションキー/ブートストラップ</bridgehead>
+                <orderedlist>
+                    <listitem>
+                        <para>組織ごと/SLESバージョンごとのアクティベーションキー</para>
+                    </listitem>
+                    <listitem>
+                        <para>組織ごと/SLESバージョンごとの登録ブートストラップ</para>
+                    </listitem>
+                </orderedlist>
+                <bridgehead>スクリプト</bridgehead>
+                <orderedlist>
+                    <listitem>
+                        <para>アーカイブ作成スクリプト</para>
+                    </listitem>
+                    <listitem>
+                        <para>アーカイブソースリスト制御ファイル</para>
+                    </listitem>
+                    <listitem>
+                        <para>マージツールPythonスクリプト</para>
+                    </listitem>
+                </orderedlist>
+                <bridgehead>crontabエントリ/自動化</bridgehead>
+                <orderedlist>
+                    <listitem>
+                        <para>四半期ごと（またはその他の頻度）でのアーカイブ作成呼び出し</para>
+                    </listitem>
+                </orderedlist>
+
+        </section>
+
+        <section xml:id="sec-channels">
+            <title>チャネル</title>
+            <para>さきほどのアーキテクチャのセクションで説明したとおり、パッチプロモーションプロセスをサポートするために複数のカスタムチャネルを作成します。これらのチャネルには（SUSE更新プログラムチャネルのクローンとして作成された）アーカイブと例外パッチが格納されます。各ランドスケープで、プロモーションされたパッチを保持するためのカスタムチャネルを作成します。これらのチャネルには、各サイクルでプロモーションされるパッチが徐々に累積されていきます。</para>
+            <para>たとえば、第一四半期（Q1）にはアーカイブチャネルに159個のパッチがあり、これらがSUSE Linux Enterprise Server 11 SP4のDEV更新プログラムチャネルにマージされたとします。SUSEでは継続的にパッチをリリースするため、次の四半期（たとえば第二四半期）のアーカイブが作成されると、第一四半期のすべてのパッチとは別に第二四半期の130個のパッチも含まれるため、パッチの総数は289個になります。マージ機能によって130個の新しいパッチ（および関連するパッケージ）が取得され、次のパッチサイクル中にDEV更新プログラムチャンネルに追加されます。</para>
+            <para>新しい各パッチサイクルは特定のランドスケープの最新の更新プログラムチャネルにある利用可能なパッチを更新します。 <quote>###</quote> ###こうすることで、それ以降の各パッチプロモーションで新しい更新プログラムが追加されて、チャネルをサブスクライブしているホストに適用することができます。</para>
+            <para>例外チャネルは、個別のパッチを管理し、それらのパッチをいずれかのランドスケープ更新プログラムチャネル、またはアーカイブチャネルからコピーすることで設定します。パッチを例外チャネルにコピーしたら、更新プログラムチャネルまたはアーカイブから削除できます。</para>
+
+            <section xml:id="sec-creatingchan">
+                <title>チャネルの作成</title>
+                <bridgehead>アーカイブチャネル：</bridgehead>
+                <para>カスタムチャネルはSUSE Managerで、新規の何もコンテンツがない空のチャネル、またはクローンとして作成されます。<quote>###</quote>###<quote>###</quote>###技術的にはクローンされたチャネルを空のものとして作成することもできますが、今回のケースでは参照するSUSE更新プログラムチャネル、パッチ、およびパッケージから取得したコンテンツを含むアーカイブチャネルを作成します。各アーカイブチャネルは空のベースチャネル内に配置します。ベースチャネルはIA-32やx86_64、s390x、PPCなど、SUSE Managerが管理するプロセッサーアーキテクチャごとに作成します。SUSE Linux Enterprise Serverのさまざまなバージョンに対応する複数のアーカイブをベースチャネルに配置することもできますが、これらはすべて同じプロセッサーアーキテクチャになります。</para>
+                <para>ベースアーカイブチャネルを作成する手順は以下のとおりです。</para>
+                <para>SUSE Managerが管理するホストで使用するプロセッサーアーキテクチャごとに、32-bit Archives Channel と64-bit Archives Channelという名前の空チャネルを作成します。<quote>###</quote> ###<quote>###</quote>###</para>
+                <orderedlist>
+                    <listitem>
+                        <para>Web UIでChannelsをクリックしたらサブメニューManage Software Channelsをクリックして、その後+Create Channelをクリックします。 <quote>###</quote>### <quote>###</quote> ### <quote>###</quote>###</para>
+                    </listitem>
+                    <listitem>
+                        <para>チャネルラベルはarchitecture-patch-archives-channelという形式にする<emphasis role="strong">必要</emphasis>があります。たとえば、64ビットチャネルラベルの場合はx86_64-patch-archives-channelにします。<quote>###</quote>###<quote>###</quote>###</para>
+                        <important>
+                            <title>チャネルへのラベル付け</title>
+                            <para>これらのチャネルに適切にラベル付けしないと、（修正しない場合）サンプルのアーカイブスクリプトが正しく動作しません。SUSE Managerではチャネルのラベルが厳密に評価され、すべて小文字にして、先頭を数字ではなく文字にし、スペースを使用しないなどさまざまなルールがあります。<quote>###</quote> ###</para>
+                            <para>先頭がx86_64のラベルを作成するこの例では、32ビットチャネルがi586かそれに類似するものと想定しています。 <quote>###</quote> ###<quote>###</quote> ###</para>
+                        </important>
+
+                    </listitem>
+                    <listitem>
+                        <para>これらのアーカイブチャネル自体が親チャネルであるため、これらのチャネルの親チャネルは存在しません。 <quote>###</quote>###<quote>###</quote> ###</para>
+                    </listitem>
+                    <listitem>
+                        <para>64ビットならx86_64、32ビットならIA-32など、チャネルに対して適切なアーキテクチャを選択してください。</para>
+                    </listitem>
+                    <listitem>
+                        <para>各チャネルで「Public」ラジオボタンを選択して、すべての組織で表示されるようにします。</para>
+                    </listitem>
+                    <listitem>
+                        <para>デプロイしたSUSE Linux Enterprise Serverの各アーキテクチャタイプで同じ手順を繰り返します。</para>
+                    </listitem>
+                </orderedlist>
+                <para>クローンのアーカイブチャネルを作成します。</para>
+                <para>使用している各SUSE Linux Enterprise Serverバージョンでクローンチャンネルを作成します。</para>
+                <orderedlist>
+                    <listitem>
+                        <para>Web UIでChannelsをクリックしたらサブメニューManage Software Channelsをクリックして、その後Clone Channelをクリックします。 <quote>###</quote>### <quote>###</quote> ### <quote>###</quote>###</para>
+                    </listitem>
+                    <listitem>
+                        <para>ソースとしてアーカイブを作成するSUSE Linux Enterprise ServerバージョンのSUSE「Updates」チャネルを選択します。</para>
+                    </listitem>
+                    <listitem>
+                        <para>すべてのコンテンツ/パッチでこのラジオボタンを選択してください。</para>
+                    </listitem>
+                    <listitem>
+                        <para>Q3 - 09-30-2015 - Archive of SLES 11 SP3 for x86_64など、日時とアーカイブの内容がわかるようにチャネルに適切な名前をつけます。 <quote>###</quote>###</para>
+                    </listitem>
+                    <listitem>
+                        <para>たとえば、以下のように適切な構文でラベルを作成します。</para>
+                            <screen>q3-09-30-2015-archive-sles11sp3-x86_64</screen>
+                    </listitem>
+                    <listitem>
+                        <para>重要：適切なベースアーカイブチャネルを選択してクローンを含めるようにしてください。</para>
+                    </listitem>
+                    <listitem>
+                        <para>SummaryフィールドとDescriptionフィールドにチャネルの適切な説明を入力します。</para>
+                    </listitem>
+                    <listitem>
+                        <para>完了したらCreate Channelをクリックします。 <quote>###</quote> ###</para>
+                    </listitem>
+                    <listitem>
+                        <para>画面を下にスクロールして「Public」ラジオボタンを選択したら、Update Channelをクリックします。 <quote>###</quote>###</para>
+                    </listitem>
+                    <listitem>
+                        <para>各アーキテクチャのSUSE Linux Enterprise Serverバージョンで同じ手順を繰り返します。</para>
+                    </listitem>
+                </orderedlist>
+
+                <para>省略可：spacewalk-clone-by-dateを使って、過去のものからアーカイブチャネルを作成します。</para>
+                <para>spacewalk-clone-by-dateユーティリティで使えるサンプルのソースファイルについては付録を参照してください。この構成ファイルは、チャネルのコンテンツをフィルタリングする特定の日付範囲が指定されたクローンチャネルを作成するために使用できます。</para>
+                <orderedlist>
+                    <listitem>
+                        <para>このユーティリティは以下の構文を使って呼び出します。</para>
+                            <screen>spacewalk-clone-by-date -c &quot;config file&quot;</screen>
+                    </listitem>
+                    <listitem>
+                        <para>過去の日付がある各アーカイブチャネルでこの手順を繰り返して、適切な日付とチャネルソース/ターゲット名に合うように構成ファイルを修正してください。</para>
+                    </listitem>
+                </orderedlist>
+
+                <section xml:id="sec-spmigration">
+                    <title>更新プログラムチャネルと例外チャネルを使ったサービスパックの移行サポート</title>
+                    <para>サービスパック移行機能を活用する際に、一貫性のある想定通りの動作を可能にするチャネルセットの管理方法として一般的に受け入れられているものがいくつかあります。この機能は各ホストのソフトウェアタブにあります。この機能を使うことで、ワンクリックで特定のホストのサービスパックを更新できます。このドキュメントで説明しているパッチライフサイクル手法を使うと、サービスパック移行機能利用時にいくつかの課題に直面します。特定のホストを選んでサービスパックの移行を実行すると、移行操作のためにサブスクライブされる必須の子チャネルがUIによって提示（表示）されます。 <quote>###</quote>###これら必須の子チャネル（UIではグレーアウトされています）には通常、SUSE Linux Enterprise Serverの特定のバージョン用の、SUSEが提供する更新プログラムチャネルが含まれています。</para>
+                    <para>以下のスクリーンショットを参照してください。</para>
+                    <figure>
+                        <title>サービスパックの移行</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-sp-migration.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-sp-migration.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+                    <para>こちらで説明しているパッチライフサイクルプロセス<emphasis role="strong">と</emphasis>サービスパック移行機能を使うためには、自社で使用しているSUSE Linux Enterprise Serverの製品バージョンの完全なクローンセットを作成するのが最適です。これはclone-treeと呼ばれることもあり、softwarechannel_clonetreeにあるものと同じ名前のspacecmdコマンドを使用することで簡単に作成できます。 <command>###</command>###<command>###</command>###</para>
+                    <para>完全なクローンツリーにはベース/親チャネル（通常はプールと呼ばれる）、および現在その下にあるすべての子チャネルが含まれます。たとえば、SUSE Linux Enterprise Server 11 SP3 Pool x86_64チャネルをソースとして使用している場合、clone-treeコマンドに独自の<emphasis role="strong">プレフィックス</emphasis>を追加することで、プールとすべての子のコピーを作成してすべてのチャネルの名前とラベルの先頭にプレフィックスを追加します。</para>
+                    <para>以下は、元のSUSE Linux Enterprise Server 11 SP3 x86_64チャネルと、その横にプレフィックスバージョンChameleon_Co-が付いたクローンツリーの画像です。<quote>###</quote> ###</para>
+                    <figure>
+                        <title>Chameleon Corporationのソフトウェアチャネルの完全なリスト</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-full-sw-channel-list.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-full-sw-channel-list.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+                    <para>### <command>###</command> spacecmdシェル内からコマンドを呼び出して、直接、または対話形式でソースとプレフィックスの情報を提供することで、spacecmd softwarechannel_clonetreeコマンドを直接呼び出すことができます。</para>
+                    <para>例：</para>
+                        <screen>spacecmd -u &lt;SMadmin&gt; -- softwarechannel_clonetree -s sles11-sp3-pool-x86_64 -p &quot;my_company-&quot;</screen>
+                    <note>
+                        <title>&lt;SMadmin&gt;</title>
+                        <para>&lt;SMadmin&gt;を実際のSUSE Manager webUI管理者ユーザー名と置き換えてください。</para>
+                    </note>
+                    <para>このコマンドを実行すると、先頭にmy_companyと付いたSUSE Linux Enterprise Server 11 SP3 x86_64チャネルの完全なセットが作成されます。 <quote>###</quote>###</para>
+                    <para>SUSE Linux Enterprise Serverの各バージョンでこのプロセスを繰り返し、サービスパック移行機能を使用している場合は、SUSE Linux Enterprise Serverのターゲットバージョンとして<emphasis role="strong">自社</emphasis>で使用しているバージョンを選択し、ホストがあるランドスケープに適切な子チャネルを選択します（以下の画像を参照）：</para>
+                    <para>その後、すべてのパッチ/パッケージを削除することで、クローンされた更新プログラムを修正してから、マージスクリプトプロセスを使って最新のパッチセットを必須の更新プログラムチャネルにマージします。 <quote>###</quote> ###このようにしてサービスパックの移行を行うことができますが、<emphasis role="strong"></emphasis>現在プロモーションされているパッチセットはそのまま保持されます。それ以外の場合、サービスパック移行では常に必須更新プログラム子チャネルの最新パッケージに更新されます。<quote>###</quote> ###</para>
+                    <para>227個のパッケージがあるSUSE Linux Enterprise Server 11 SP4用第三四半期パッチアーカイブ、234個のパッケージがあるSP4用のSUSE更新プログラムチャネル、パッケージがないChameleon Corporation用のSP4更新プログラムチャネルを示した以下のスクリーンショットを見てみてください。</para>
+
+                    <figure>
+                        <title>SUSEとChameleon Corporationのソフトウェアチャネルリストの一部</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-sw-channel-list-1.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-sw-channel-list-1.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+
+                    <para>以降のセクションでは、カスタムの最新の更新プログラムチャネルの作成とマージスクリプトの使い方について説明します。 <quote>###</quote>###### <quote>###</quote> ### <quote>###</quote> ### <quote>###</quote> ###<quote>###</quote> プロモーション済みパッチの独自セットを使ったサービスパック移行では、最新のパッチアーカイブを本番チャネルから更新プログラムチャネルにマージして移行作業に使用します。または、単純に更新プログラムチャネルを常に<emphasis role="strong">空</emphasis>にしておいて、最新更新プログラムチャネルを、選択したオプションの子チャネルに追加します。 <quote>###</quote>###</para>
+                    <para><emphasis role="strong">空</emphasis>の更新プログラムチャネルと、設定済みの最新の更新プログラムチャネルを使って、サービスパックの移行作業を想定通りに進めて、本番よりも新しいバージョンのパッケージがマシンに適用されないようにすることができます。<quote>###</quote> ###<quote>###</quote>###<quote>###</quote>######<quote>###</quote> カスタムの更新プログラムチャネルとマージスクリプトプロセスについては以降のセクションで詳しく説明します。</para>
+
+                    <bridgehead><quote>###</quote>更新プログラムチャネル：</bridgehead>
+
+                    <para>ここからは、ランドスケープに応じて、管理対象ホストがサブスクライブする最新の更新プログラムチャネルを作成します。 <quote>###</quote>###<quote>たとえば、DEV - Current Updates - for SLES 11 SP3 x86_64やPROD - Current Updates - for SLES 12 x86_64という名前のチャネルを作成します。</quote>### <quote>###</quote>###各SUSE Linux Enterprise Serverバージョン用のランドスケープチャネルのフルセットが作成されますが、最初はどれも空です。新しいチャネルを作成したら、必要に応じてそのチャンネルのクローンを作成してタイピングの手間を減らします。<quote>###</quote> ###<quote>###</quote> ###</para>
+
+                    <orderedlist>
+                        <listitem>
+                            <para>Manage Software Channelsサブメニューから+Create Channelをクリックします。 <quote>###</quote> ###<quote>###</quote>###</para>
+                        </listitem>
+                        <listitem>
+                            <para>いずれかのSUSE Linux Enterpriseプールチャネルでチャネルを作成するか、独自のクローンセットがある場合はそのプール内でチャネルを作成します。</para>
+                        </listitem>
+                        <listitem>
+                            <para>チャネルを修正して「Public」にします。</para>
+                        </listitem>
+                        <listitem>
+                            <para>残りのランドスケープにこの新しいチャネル（更新プログラムは含めない）をクローンします。それぞれ「Current Updates -」という名前にし、適切なランドスケーププレフィックスを付けます（「DEV -」、 「TEST - 」、「PROD - 」など）。<quote>###</quote>### <quote>###</quote>### <quote>###</quote>###<quote>###</quote>###</para>
+                        </listitem>
+                        <listitem>
+                            <para>管理することになる各SUSE Linux Enterprise Serverバージョンにランドスケープのフルセットが作成されます。SUSE Linux Enterprise Server 11 SP1チャネルとSP2チャネルでは、2つのフルセット（2倍）、またはLTSSがある4つのフルセット（4倍）が作成されます。ただし、SP1とSP2の更新プログラムチャネルは更新されなくなっているため、現在は静的チャネルとしてサブスクライブすることができます（<xref linkend="sec-patchpromo"/>のLTSSに関する注意事項を参照してください）。</para>
+                        </listitem>
+                    </orderedlist>
+
+                    <figure>
+                        <title>最新の更新プログラムチャネルの例を示したスクリーンショット <quote>###</quote> ###</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-sw-channel-list-2.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-sw-channel-list-2.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+
+                    <bridgehead><quote>例外チャネル：</quote>###</bridgehead>
+
+                    <para>それでは、管理するSUSE Linux Enterprise Serverの各バージョンで例外チャネルを2つ作成しましょう。アーキテクチャ固有の混合チャネルを作成することができますが（アーカイブチャネルベースなど）、パッチ例外がどのディストリビューションのものかを管理するのは面倒な場合があります。異なるSUSE Linux Enterprise Serverバージョンのパッチ/パッケージを混在させた場合、パッチの管理、解決およびパッチワークフローにパッチを再導入するのが難しくなります。パッチに対応するSUSE Linux Enterprise Serverバージョンの例外チャネルにパッチを置いておく方がはるかに簡単です。次の手順に従ってPatch ExceptionチャネルとSecurity ASAP Exceptionチャネルを作成します。 <quote>###</quote> ###<quote>###</quote> ###</para>
+
+                    <orderedlist>
+                        <listitem>
+                            <para>Manage Software Channelsサブメニューから+Create Channelをクリックします。 <quote>###</quote> ###<quote>###</quote>###</para>
+                        </listitem>
+                        <listitem>
+                            <para>いずれかのSUSE Linux Enterprise ServerプールチャネルでPatch Exceptions - DO NOT SUBSCRIBEチャンネルを作成するか、独自のクローンセットがある場合はそのプール内でチャネルを作成します。 <quote>###</quote> ###このチャネルはランドスケープチャネルの隣に配置します。</para>
+                        </listitem>
+                        <listitem>
+                            <para>チャネルを修正して「Public」にします。</para>
+                        </listitem>
+                        <listitem>
+                            <para>上記の手順に従ってSecurity ASAP Exceptionチャネルを作成します。こちらもランドスケープチャネルとパッチ例外チャネルの隣に配置します。 <quote>###</quote> ###</para>
+                        </listitem>
+                        <listitem>
+                            <para>SUSE Linux Enterprise Server 11 SP1とSP2では次の点に注意が必要です。これらは同じSP1プールベースチャネルに配置されるため、各サービスパックには例外チャネルとセキュリティ例外チャネルがあります。</para>
+                        </listitem>
+                    </orderedlist>
+
+                    <figure>
+                        <title>例外チャネルの例を示したスクリーンショット<quote>###</quote> ###</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-sw-channel-list-3.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-sw-channel-list-3.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+                </section>
+
+            </section>
+        </section>
+
+        <section xml:id="sec-actkeys">
+            <title>アクティベーションキー/ブートストラップ</title>
+            <para>通常であれば、ホストがインストールされた特定のSUSE Linux Enterprise Serverバージョンに割り当てられたアクティベーションキーの作成が完了しているはずです。システムグループやさまざまな子チャネル、ソフトウェアパッケージなど、さまざまな特徴がキーに割り当てられている場合があります。既存のアクティベーションキーを修正してそれを再利用するか、今回の実装用に新しいキーを作成することができます。この例ではキーが新しいものと想定しています。</para>
+
+            <orderedlist>
+                <listitem>
+                    <para>Systemsメニューの左側のパネルでActivation Keysサブメニューをクリックします。 <quote>###</quote> ### <quote>###</quote> ###</para>
+                </listitem>
+                <listitem>
+                    <para>右上にある+Create Keyをクリックします。 <quote>###</quote> ###</para>
+                </listitem>
+                <listitem>
+                    <para>この組織内でアクティベーションキーを作成します（必要に応じて別の組織にログインしてキーを作成してください）。必要に応じて適切な権限、ソフトウェアパッケージ、構成チャネルを割り当てます。</para>
+                </listitem>
+                <listitem>
+                    <para>このキーを使って登録する<emphasis role="strong">ランドスケープ</emphasis>ホストに応じてアクティベーションキーに名前を付けます。</para>
+                    <para>例：</para>
+                    <figure>
+                        <title>アクティベーションキーの作成を示したスクリーンショット</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-act-key-details.png" width="95%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-act-key-details.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+                </listitem>
+
+                <listitem>
+                    <para><emphasis role="strong">重要：</emphasis>「Child Channels」タブをクリックします。このキーを使用する<emphasis role="strong">ランドスケープ</emphasis>に応じて適切な最新の更新プログラムチャネルを割り当てることができます。</para>
+                    <para>例：</para>
+
+                    <figure>
+                        <title>「Child Channels」タブのスクリーンショット</title>
+                        <mediaobject>
+                            <imageobject role="fo">
+                                <imagedata fileref="screen-child-channels.png" width="90%" format="PNG"/>
+                            </imageobject>
+                            <imageobject role="html">
+                                <imagedata fileref="screen-child-channels.png" width="90%" format="PNG"/>
+                            </imageobject>
+                        </mediaobject>
+                    </figure>
+                </listitem>
+
+                <listitem>
+                    <para>適切なSUSE Manager Toolsチャネルと必要な他のチャネルを選択して、対象のSUSE Linux Enterprise Serverバージョンの要件を入力します。</para>
+                </listitem>
+                <listitem>
+                    <para><emphasis role="strong">Security ASAP Exceptions</emphasis>チャネルがアクティブな子チャネルとして<emphasis role="strong">選択され</emphasis>、<emphasis role="strong">Patch Exceptions (DO NOT SUBSCRIBE)</emphasis>チャネルが<emphasis role="strong">選択されていない</emphasis>点に注目してください。Patch Exceptionsチャネルにコピーされたすべてのパッチ/パッケージはホストで非表示のままになる一方、Security ASAP Exceptionsチャネルにコピーされたパッチ/パッケージは常に即座にホストに表示されます。</para>
+                </listitem>
+            </orderedlist>
+
+            <para>アクティベーションキーはブートストラップスクリプトによって呼び出されます。通常は登録ブートストラップスクリプトとアクティベーションキーの間に1対1の関係があります。アクティベーションキーを新たに作成するか、ランドスケープ固有の最新の更新プログラムチャネルを指すように既存のキーを修正した場合、アクティベーションキーを呼び出すブートストラップスクリプトを用意する必要があります。 <quote>###</quote> ###</para>
+
+            <para>すべての新規ホストでこれらのブートストラップを使って登録し、SUSE Managerの管理対象になります。ホストが適切なランドスケープ更新プログラムチャネルに割り当てられ、各パッチサイクルで新しい更新プログラムがプロモーションされるたびにそれを受信するため、ホストでチャネル割り当てを変更する必要がないというのが主なメリットの1つです。プロモーションについてはセクション<xref linkend="sec-scripts"/>で説明します。</para>
+
+
+        </section>
+
+        <section xml:id="sec-scripts">
+            <title>スクリプト</title>
+
+            <bridgehead>パッチ/パッケージマージスクリプト：</bridgehead>
+            <para>### <quote>###</quote> パッチ/パッケージマージスクリプトを使うと、あるチャネルから別のチャネルにパッチ（および関連するパッケージ）を <emphasis role="strong">プロモーション</emphasis>できます。まず、アーカイブチャネルからDEVなどの最初のステージ（<emphasis role="strong">ランドスケープ</emphasis>）にコンテンツをマージするためにこのスクリプトを使用します。その後、コンテンツが最後のステージに到達するまで、ステージに順番にコンテンツをプロモートするために使用します。このプロセスは各SUSE Linux Enterprise Serverバージョン（11 SP1やSP2など）と各企業環境（STOREやCORPなど）で繰り返されます。</para>
+
+            <para>最後に、各パッチカレンダーサイクル（四半期ごと/毎月など）でプロセス全体が繰り返されます。</para>
+
+            <bridgehead>チャネルアーカイブ作成スクリプト/チャネルアーカイブソースリスト構成ファイル：</bridgehead>
+            <para>このスクリプトと、関連するソースリスト構成ファイルは手動、またはcrontabエントリで呼び出します。 <quote>###</quote> ###このスクリプトではソースリストファイルを使って、アーカイブを作成するSUSE Linux Enterprise Serverのバージョンとアーキテクチャを判断します。さきほど説明したとおり、さまざまなSUSE Linux Enterprise Server更新プログラムチャネルの特定の時点のクローンとしてアーカイブチャネルは作成されます。</para>
+            <para>適切なアーカイブチャネルを作成するにはソースファイルに行を追加します。各行には3つのフィールドがあります。1つ目がアーキテクチャ、2つ目がソースチャネル、そして3つ目がターゲットチャネルテキストです。スクリプトはソースリストを解析してアーキテクチャごとにアーカイブのターゲット親チャネルを作成してからターゲットチャネルやラベルなどを作成します。</para>
+            <para>このスクリプトはソースリストの各エントリでspacecmdの関数であるsoftwarechannel_cloneとsoftwarechannel_setorgaccessを呼び出します。 <command>###</command>### <command>###</command> ###<command>###</command> ###現在の四半期を計算し、アーカイブを作成してこれらのアーカイブを誰でも表示できるようにします。スクリプト全体については付録を参照してください。</para>
+
+        </section>
+
+        <section xml:id="sec-crontab">
+            <title>crontabエントリ/自動化</title>
+
+            <bridgehead>アーカイブ作成スクリプト用のスケジュールベースのトリガー（四半期末）</bridgehead>
+            <para>特定の月の末日（四半期開始の前日）に四半期を作成するのか、月の初日（前の四半期が終了してから1日後）に作成するのかを決める必要があります。特定のSLESバージョンのSUSE更新プログラムチャネルのクローンを作成することでアーカイブチャネルが作成されるため、決定はコンテンツにも影響します。</para>
+            <para>四半期間で整合性が取れるため、どちらの方法でも構いません。cron構文を説明するために、これら2つの方法より難しい使い方をあえてお見せします。四半期末にアーカイブスクリプトを呼び出すにはどうすればよいでしょうか。1か月が30日の月（6月と9月）と31日の月（3月と12月）の両方に対応する2つのcronエントリが必要になるため、これを実現するのは簡単ではありません。<superscript>###</superscript> ###<superscript>###</superscript> ###</para>
+            <para>crontabエントリはアーカイブ作成スクリプトを指し、3月、6月、9月、および12月に実行されます。cronエントリは以下のようになります。</para>
+
+<screen>0 0 30 6,9 * /path/to/the/archive/script</screen>
+<screen>0 0 31 3,12 * /path/to/the/archive/script</screen>
+
+
+            <para>パスは実際のarchive-channel-create-script.sh（または類似するもの）を指します。これを/usr/sbin/に配置して、<emphasis role="italic">実行可能ファイル</emphasis>にする必要があります（chmod +x）。</para>
+
+            <para>このスクリプトはBashシェルスクリプト内からspacecmdコマンドを呼び出す点も非常に重要ですので覚えておいてください。 <command>###</command> ###spacecmd自体はPythonをベースにした呼び出し可能なシェルであり、シェル<emphasis role="strong">内</emphasis>や、シェル外から仲介コマンドインタープリターとしてさまざまなコマンドが利用できます。</para>
+
+            <para>spacecmdを呼び出すと、呼び出したユーザーのホームディレクトリに<emphasis role="strong">.spacecmd</emphasis>ディレクトリが作成されます。.spacecmdディレクトリには、spacecmdの実行時にプロンプトが表示されなくなるようにするための資格情報セットを保存できる構成ファイルがあります。このファイルに資格情報を保存すると、cronジョブを実行しても認証資格情報が渡されるのを待つために停止することがなくなります。</para>
+
+            <para>crontabエントリはアーカイブ作成スクリプトを指し、3月、6月、9月、および12月に実行されます。cronエントリは以下のようになります。</para>
+
+            <para>
+                <parameter>[spacecmd]</parameter>
+            </para>
+            <para>
+                <parameter>server=localhost</parameter>
+            </para>
+            <para>
+                <parameter>username=admin</parameter>
+            </para>
+            <para>
+                <parameter>password=suse1234</parameter>
+            </para>
+            <para>
+                <parameter>nossl=0</parameter>
+            </para>
+
+            <para>これらの資格情報を保存することで、ユーザー名やパスワードを渡さずにSUSE Managerのルートユーザーがspacecmd操作を実行できるようになり、ある程度時間が経過しても失敗しない、アーカイブ作成用cronジョブを実行できます。<command>###</command> ###</para>
+
+        </section>
+    </section>
+
+    <section xml:id="sec-usage">
+        <title>ワークフローサンプル</title>
+
+        <para>このガイドでは、SUSE Managerを活用して以下のメリットを実現するパッチライフサイクル管理のアプローチについて説明します。</para>
+
+        <itemizedlist>
+            <listitem>
+                <para>パッチアーカイブチャネルの自動作成：</para>
+                <itemizedlist>
+                        <listitem>
+                            <para>これらのチャネルは四半期ごと（またはそれ以上の頻度）で作成することができ、パッチの履歴セットに基づいて組織がテスト環境を作成することを可能とします（たとえば、2つ前の四半期の利用可能なパッチからラボを作成するなど）。</para>
+                        </listitem>
+                    </itemizedlist>
+
+            </listitem>
+            <listitem>
+                <para>最新の更新プログラムチャネルの静的セットを活用することで、ホストのサブスクリプションを変更する必要がなくなります。 <quote>###</quote>###</para>
+                <itemizedlist>
+                    <listitem>
+                        <para>API/スクリプトを使って更新プログラムをパッチアーカイブからサブスクライブしているホストチャネルにマージすることで、常にチャネルのクローン作成と再クローン作成を実行してホストのサブスクリプションを修正する必要がなくなります。 <quote>###</quote> ###</para>
+                    </listitem>
+                    <listitem>
+                        <para>複数のランドスケープがある環境では、プロモーションプロセスを使って、パッチセットのテスト/検証中に各フェーズで更新プログラムをマージできます。</para>
+                    </listitem>
+                </itemizedlist>
+            </listitem>
+            <listitem>
+                <para>パッチロールアウトから除外する必要があるパッチの例外処理：</para>
+                <itemizedlist>
+                        <listitem>
+                            <para>パッチ例外チャネルと、そのチャネルのパッチ/パッケージをコピー（その後、更新プログラムチャネルから削除）するプロセスを作成することで、パッチ例外を追跡できます。 <quote>###</quote> ###このチャネルはすべてのホストチャネルサブスクリプションから<emphasis>除外</emphasis>して、すべてのパッチ/パッケージコンテンツを表示またはインストールできるようにする必要があります。</para>
+                        </listitem>
+                        <listitem>
+                            <para>パッチ例外プロセスを構築してすべての例外の修復を追跡し、増え続ける大量のパッチを将来的に管理する手間を省くようにする必要があります。 <quote>###</quote>###</para>
+                        </listitem>
+                    </itemizedlist>
+
+            </listitem>
+            <listitem>
+                <para>高い優先度でロールアウトする必要があるパッチのセキュリティASAP例外処理：</para>
+                <itemizedlist>
+                        <listitem>
+                            <para>（パッチ例外チャネルとは異なり）セキュリティASAP例外チャネルを必ずサブスクライブする必要があります。<quote>###</quote>###このチャネルをサブスクライブすることで、たとえば、重要とされるセキュリティパッチを通常のパッチスケジュール外でデプロイした場合など、予定外の方法で追加されたパッチ/パッケージをホストが取得できるようになります。このようなパッチは新しいアーカイブから、またはSUSE（ベンダー）更新プログラムチャネルから直接コピーできます。</para>
+                        </listitem>
+                    </itemizedlist>
+
+            </listitem>
+        </itemizedlist>
+
+        <section xml:id="sec-exprocesswf">
+            <title>プロセスワークフローのサンプル</title>
+
+            <para>ここではパッチプロモーションと例外のプロセスの推奨ワークフローをいくつか説明します。特定の運用グループの既存のプロセスセットにより適合するようにサンプルプロセスを修正することができます。</para>
+
+            <bridgehead>ワークフロー1：パッチプロモーションプロセス</bridgehead>
+
+            <para>パッチプロモーションプロセスは以下のサンプルステップに従います。</para>
+
+            <table>
+                <title>パッチプロモーションプロセス</title>
+                <tgroup cols="3">
+                    <colspec colwidth="3cm"/>
+                    <colspec colwidth="1*"/>
+                    <colspec colwidth="1*"/>
+                    <thead>
+                        <row>
+                            <entry>アクション</entry>
+                            <entry>プロセス</entry>
+                            <entry>説明</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>レビュー</entry>
+                            <entry>既存のカレンダーを参照してパッチロールアウトの開始日を決定します。</entry>
+                            <entry>通常は四半期の1日目が開始日になりますが、ロールアウトの頻度とあらかじめ決められた期間によって開始日は異なります。</entry>
+                        </row>
+                        <row>
+                            <entry>選択</entry>
+                            <entry>パッチロールアウトの対象になるSUSE Manager組織と環境を指定します。</entry>
+                            <entry>このドキュメントのシナリオでは、CORP、STORE 、またはNPEのいずれかになり、SUSE Manager組織の使い方によっては、管理者が組織にログインしてホストを確認する必要があります。</entry>
+                        </row>
+                        <row>
+                            <entry>選択</entry>
+                            <entry>パッチを適用するSUSE Linux Enterprise Serverバージョンを選択します。</entry>
+                            <entry>パッチプロモーションは各SUSE Linux Enterprise Serverバージョンで実行されます。各バージョンにはパッチがプロモートされるランドスケープチャネル（DEV、TEST、QA、 PRODなど）の独自のセットがあります。</entry>
+                        </row>
+                        <row>
+                            <entry>マージ</entry>
+                            <entry>最新のアーカイブを最初のランドスケープ（または選択したランドスケープ）にマージします。</entry>
+                            <entry>### <quote>###</quote>マージスクリプトユーティリティの使用：<emphasis role="strong">ソース</emphasis>チャネル（この場合は<emphasis role="strong">アーカイブ</emphasis>）と<emphasis role="strong">ターゲット</emphasis>チャネル（シリーズを開始するDEV - Current）を選択します。</entry>
+                        </row>
+                        <row>
+                            <entry>デプロイ</entry>
+                            <entry>最新のランドスケープからサブスクライブしているホストにパッチをデプロイします。</entry>
+                            <entry>パッチがマージされると、最新のチャネルをサブスクライブしているホストのステータスに利用可能なパッチが表示されます。<quote>###</quote> ###適切なパッチコマンドを発行してこれらのパッチをデプロイします。</entry>
+                        </row>
+                        <row>
+                            <entry>テスト</entry>
+                            <entry>デプロイされている最新のパッチを受け取ったホストでテストを実施するか、評価を開始するよう適切なチーム/事業部門に連絡します。</entry>
+                            <entry>パッチがデプロイされたらテストやレビューを開始してパッチのデプロイが成功したかどうかを検証します。デプロイを成功に導くにはビジネスパートナーとの調整が必要です。</entry>
+                        </row>
+                        <row>
+                            <entry>評価</entry>
+                            <entry>前のマージ/デプロイの結果を評価して次のランドスケープに進みます。最後のランドスケープの場合はレポートが完了します。</entry>
+                            <entry>最後のランドスケープまで、各ランドスケープでパッチセットのマージとデプロイを継続します。レポートの完了：すべてのホストのステータスがグリーンになります。<quote>###</quote> ###</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+
+
+            <bridgehead>ワークフロー2：パッチ例外プロセス</bridgehead>
+
+            <para>パッチ例外プロセスでは以下のサンプルステップに従います。繰り返しになりますが、特定の運用グループの既存のプロセスセットにより適合するようにサンプルプロセスを修正することができます。</para>
+            <para>以下の表を確認してください。</para>
+
+            <table>
+                <title>パッチ例外プロセス</title>
+                <tgroup cols="3">
+                    <colspec colwidth="3cm"/>
+                    <colspec colwidth="1*"/>
+                    <colspec colwidth="1*"/>
+                    <thead>
+                        <row>
+                            <entry>アクション</entry>
+                            <entry>プロセス</entry>
+                            <entry>説明</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>指定</entry>
+                            <entry>パッチセットから削除する可能性がある、例外として指定するパッチを見つけます。 <quote>###</quote> ###</entry>
+                            <entry>SUSE Managerの検索ツールを使ってパッチを見つけるか、特定のアーカイブやランドスケープチャネルでパッチを見つけます。</entry>
+                        </row>
+                        <row>
+                            <entry>コピー</entry>
+                            <entry>### <quote>###</quote>SUSE Managerのチャネル管理機能の使用：特定のSUSE Linux Enterprise Serverバージョンの<emphasis role="strong">例外</emphasis>チャネルを選択して、（前のステップの）ソースからそこに指定したパッチを追加します。</entry>
+                            <entry>
+                                <para>パッチのソース（チャネル）とパッチのターゲット（例外チャネル）が重要です。SUSE Linux Enterprise Serverバージョンごとにこのステップを繰り返す場合があります。パッチのソースになるものは以下のとおりです。</para>
+                                <orderedlist numeration="loweralpha">
+                                    <listitem>
+                                     <para>アーカイブチャネル</para>
+                                    </listitem>
+                                    <listitem>
+                                     <para>ランドスケープチャネル</para>
+                                    </listitem>
+                                    <listitem>
+                                     <para>SUSE更新プログラムチャネル</para>
+                                    </listitem>
+                                </orderedlist>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>削除</entry>
+                            <entry>### <quote>###</quote>SUSE Managerのチャネル管理機能の使用：パッチを<emphasis>一覧表示</emphasis>して、前のステップで追加されたパッチを見つけます。<quote>###</quote> ###追加されたパッチが見つかったら、現在のフェーズ（もしくは複数のフェーズ）からそれを<emphasis role="strong">削除</emphasis>します。</entry>
+                            <entry>パッチを見つけてランドスケープチャネルから削除することで、チャネルはサブスクライブしているホストにパッチを表示して適合性を報告することができます。</entry>
+                        </row>
+                        <row>
+                            <entry>追跡</entry>
+                            <entry>チケットを送信するか、あらかじめ用意したプロセスを開始してこのパッチ例外を追跡します。</entry>
+                            <entry>追跡の目的は、例外の修復の試みを把握することであり、これによってパッチをパッチデプロイサイクルに再導入することができます。</entry>
+                        </row>
+                        <row>
+                            <entry>修復</entry>
+                            <entry>例外を修復するための作業です。</entry>
+                            <entry>特定の例外で修復を指定/作成したら、パッチをデプロイワークフローに再導入できます。</entry>
+                        </row>
+                        <row>
+                            <entry>注</entry>
+                            <entry>例外は<emphasis role="strong">単一</emphasis>のデプロイサイクルで終了する必要があります。次のアーカイブにもこの同じパッチが含まれるのですが、これは<emphasis role="strong">特に問題ありません</emphasis>。</entry>
+                            <entry>例外は常に一時的な状態にする必要があります。パッチをロールアウトできない理由を修正するための作業を必ず行ってください。例外があるとコンプライアンスがリスクに晒されます。</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+
+            <bridgehead>ワークフロー3：セキュリティパッチASAPプロセス</bridgehead>
+
+            <para>セキュリティ例外プロセスは前のパッチ例外プロセスとは異なり、通常、現在（進行中）のロールアウトの途中でパッチロールアウトサイクルにパッチが<emphasis role="strong">追加</emphasis>されます。よりわかりやすく説明するために、別のプロセステーブルとSUSE Managerインターフェースのスクリーンショットをいくつかここでお見せします。</para>
+            <para>以下の表を確認してください。</para>
+
+            <table>
+                <title>セキュリティパッチASAPプロセス</title>
+                <tgroup cols="3">
+                    <colspec colwidth="3cm"/>
+                    <colspec colwidth="1*"/>
+                    <colspec colwidth="1*"/>
+                    <thead>
+                        <row>
+                            <entry>アクション</entry>
+                            <entry>プロセス</entry>
+                            <entry>説明</entry>
+                        </row>
+                    </thead>
+                    <tbody>
+                        <row>
+                            <entry>指定</entry>
+                            <entry>### <quote>###</quote>特定のランドスケープやパッチセットに<emphasis role="strong">追加する</emphasis>可能性がある、セキュリティ例外として指定するパッチを見つけます。</entry>
+                            <entry>SUSE Managerの検索ツールを使ってパッチを見つけるか、特定のSUSE Linux Enterprise Serverバージョンの特定の更新プログラムチャネルでパッチを見つけます。</entry>
+                        </row>
+                        <row>
+                            <entry>コピー</entry>
+                            <entry>### <quote>###</quote>SUSE Managerのチャネル管理機能を使用し、特定のSUSE Linux Enterprise ServerバージョンのSecurity ASAP Exceptionチャネルを選択して、（前のステップのSUSE更新プログラムチャネル）ソースからそこに指定したパッチを<emphasis>追加</emphasis>します。</entry>
+                            <entry>
+                                <para>セキュリティパッチのソース（SUSE更新プログラムチャネル）とパッチのターゲット（Security Exceptions ASAPチャネル）が重要です。SLESバージョンごとにこのステップを繰り返す場合があります。パッチのソースになるものは以下のとおりです。</para>
+                                <orderedlist numeration="loweralpha">
+                                    <listitem>
+                                     <para>アーカイブチャネル</para>
+                                    </listitem>
+                                    <listitem>
+                                     <para>ランドスケープチャネル</para>
+                                    </listitem>
+                                    <listitem>
+                                     <para>SUSE更新プログラムチャネル</para>
+                                    </listitem>
+                                </orderedlist>
+                            </entry>
+                        </row>
+                        <row>
+                            <entry>デプロイ</entry>
+                            <entry>セキュリティ例外パッチを選択したランドスケープからサブスクライブしているホストにデプロイします。</entry>
+                            <entry>セキュリティパッチがランドスケープチャネルに追加されると、「最新」のチャネルをサブスクライブしているホストのステータスにパッチが利用可能であることが表示されます。適切なパッチコマンドを発行してこれらのパッチをデプロイします。</entry>
+                        </row>
+                        <row>
+                            <entry>追跡</entry>
+                            <entry>チケットを送信するか、あらかじめ用意したプロセスを開始することでこのセキュリティパッチ例外を追跡します。</entry>
+                            <entry>追跡の目的は、セキュリティパッチ例外がデプロイされたことを把握するためです。このパッチは次回の四半期ごとの自動作成中に通常のアーカイブの一部になります。</entry>
+                        </row>
+                        <row>
+                            <entry>レポート</entry>
+                            <entry>セキュリティ例外は通常、コンプライアンスの懸念に対応するために発生します。デプロイされると、コンプライアンス（監査）レポートを生成できます。</entry>
+                            <entry>セキュリティ例外は通常のスケジュールへのエスカレーションとして扱われます。セキュリティ例外は通常の処理として次のアーカイブに組み込まれて、デフォルトのスケジュールの一環としてデプロイされます。そして当然ながら、次の通常のロールアウトではこのパッチを含める必要はありません（すでにデプロイされているため）。</entry>
+                        </row>
+                    </tbody>
+                </tgroup>
+            </table>
+
+            <para>このスクリーンショットはSecurity ASAP Exceptionsチャネル、つまりSLES 11 SP1 x86_64バージョンにパッチを追加する機能を示したものです。</para>
+
+            <figure>
+                <title>Security ASAP Exceptionsチャネルへのパッチの追加</title>
+                <mediaobject>
+                    <imageobject role="fo">
+                        <imagedata fileref="screen-security-exceptions.png" width="95%" format="PNG"/>
+                    </imageobject>
+                    <imageobject role="html">
+                        <imagedata fileref="screen-security-exceptions.png" width="90%" format="PNG"/>
+                    </imageobject>
+                </mediaobject>
+            </figure>
+
+            <para>このスクリーンショットは特定のチャンネル（この場合はDEV - Current - SLES11-SP1-LTSS-Updates for x86_64）の<emphasis role="strong">一覧表示/削除</emphasis>機能を示したもので、パッチをチャネルから削除して、表示される状態にしたまま例外プロセスの一環としてデプロイするインターフェースです。 <quote>###</quote>###</para>
+
+            <figure>
+                <title>Security ASAP Exceptionsチャネルへのパッチの追加</title>
+                <mediaobject>
+                    <imageobject role="fo">
+                        <imagedata fileref="screen-suma-patches.png" width="95%" format="PNG"/>
+                    </imageobject>
+                    <imageobject role="html">
+                        <imagedata fileref="screen-suma-patches.png" width="90%" format="PNG"/>
+                    </imageobject>
+                </mediaobject>
+            </figure>
+        </section>
+    </section>
+
+    <section xml:id="sec-appendix">
+        <title>付録</title>
+
+        <section xml:id="sec-spacewalksample">
+            <title>Spacewalk-Clone-By-Date構成ファイルのサンプル #</title>
+            <para>このサンプルはテキストファイルとして保存されています。<emphasis role="strong">-c</emphasis>フラグを使って<emphasis role="strong">spacewalk-clone-by-date</emphasis>ユーティリティと一緒に使用して、入力構成ファイルを指定します。</para>
+
+            <screen>spacewalk-clone-by-date -c Q3-2015-sles11sp3-x86_64-archive.conf</screen>
+
+            <para>このコードではベースチャネルソース<emphasis role="strong">sles11-sp3-pool-x86_64</emphasis>とターゲットベースチャネル（アーカイブ先）<emphasis role="strong">cc_patch_archives_channel_64bit</emphasis>を指定し、<emphasis role="strong">existing-parent-do-not-modify</emphasis><emphasis role="strong">: true</emphasis>ディレクティブを使用します。これにより、1つのベースの子チャネルをまったく異なるベースチャネルにクローンするようユーティリティに指示します。実際のチャネル名がサンプルと異なっている場合があるため注意してください。チャネル名が異なっている場合は、貴社の環境で動作させるためにサンプルの修正が必要です。例：<emphasis role="strong">Q3-2015-sles11sp3-x86_64-archive.conf</emphasis>の内容は次のとおりです。</para>
+
+
+            <screen>
+{
+ &quot;username&quot;:&quot;SMadmin&quot;,
+ &quot;to_date&quot;: &quot;2015-09-30&quot;,
+ &quot;skip_depsolve&quot;:false,
+ &quot;security_only&quot;:false,
+ &quot;use_update_date&quot;:false,
+ &quot;no_errata_sync&quot;:false,
+ &quot;dry_run&quot;:false,
+ &quot;channels&quot;:[
+       {
+         &quot;sles11-sp3-pool-x86_64&quot;: {
+            &quot;label&quot;: &quot;cc_patch_archives_channel_64bit&quot;,
+            &quot;existing-parent-do-not-modify&quot;: true
+         },
+         &quot;sles11-sp3-updates-x86_64&quot;: {
+            &quot;label&quot;: &quot;09_30_2015_q3_archive-sles11-sp3-updates-x86_64&quot;,
+            &quot;name&quot;: &quot;Q3-2015 Patch Archive - 09-30-2015 - SLES11-SP3-Updates for x86_64&quot;,
+            &quot;summary&quot;: &quot;Q3 - 2015 - Patch Archive Set (9-30-2015) - SUSE Linux Enterprise Server 11 SP3 x86_64&quot;,
+            &quot;description&quot;: &quot;Q3 - 2015 - Patch Archive Set (9-30-2015) - SUSE Linux Enterprise Server 11 SP3 x86_64&quot;
+         }
+        }
+       ]
+}
+</screen>
+
+
+            <note>
+                <title>チャネルパッチコンテンツの確認</title>
+                <para>spacewalk-clone-by-dateユーティリティを使用する際は、作成後にチャネルパッチコンテンツを確認して、適切な終了日のパッチがチャネルに含まれていることを確認してください。間違った期間のパッチがチャネルに余計に含まれている場合がありますが、それらは手動で削除できます。</para>
+            </note>
+
+        </section>
+
+        <section xml:id="sec-samplepatch">
+            <title>Pythonを使ったパッチ/パッケージマージスクリプトのサンプル</title>
+
+            <para>このスクリプトには、MANAGER_URLで定義済みのSUSE ManagerサーバーURLセットがあります。 <varname>###</varname>###このスクリプトではSUSE Managerの管理者IDとパスワードが求められます。その後、ソースチャネルとターゲットチャネルを尋ねられます。チャンネルに間違いがないかを確認する画面が表示され、処理を続行してよいかを尋ねられます。肯定的な回答（Y）をすることで、スクリプトによってソースチャネルからターゲットチャネルにパッチとパッケージがマージされます。</para>
+
+            <screen>#!/usr/bin/python
+import xmlrpclib
+import sys
+import getpass
+
+MANAGER_URL = &quot;https://suma01.chameleoncorp.com/rpc/api&quot;
+MANAGER_LOGIN = raw_input(&quot;Please Enter the SUSE Manager Login Name: &quot;)
+MANAGER_PASSWORD = getpass.getpass(&quot;Please Enter the Password: &quot;)
+
+MERGE_SOURCE = raw_input(&quot;Enter the SOURCE channel label to Merge FROM: &quot;)
+MERGE_TARGET = raw_input(&quot;Enter the TARGET channel label to Merge INTO: &quot;)
+
+print(&quot;This tool is going to take all packages and errata from the SOURCE&quot;)
+print(&quot;Channel : &quot; + MERGE_SOURCE)
+print(&quot;and merge it into the TARGET &quot;)
+print(&quot;Channel : &quot; + MERGE_TARGET)
+
+def query_yes_no(question, default=&quot;yes&quot;):
+    &quot;&quot;&quot;Ask a yes/no question via raw_input() and return their answer.
+
+    &quot;question&quot; is a string that is presented to the user.
+    &quot;default&quot; is the presumed answer if the user just hits &lt;Enter&gt;.
+        It must be &quot;yes&quot; (the default), &quot;no&quot; or None (meaning
+        an answer is required of the user).
+
+        The &quot;answer&quot; return value is True for &quot;yes&quot; or False for &quot;no&quot;.
+        &quot;&quot;&quot;
+        valid = {&quot;yes&quot;: True, &quot;y&quot;: True, &quot;ye&quot;: True,
+                 &quot;no&quot;: False, &quot;n&quot;: False}
+        if default is None:
+            prompt = &quot; [y/n] &quot;
+        elif default == &quot;yes&quot;:
+            prompt = &quot; [Y/n] &quot;
+        elif default == &quot;no&quot;:
+            prompt = &quot; [y/N] &quot;
+        else:
+            raise ValueError(&quot;invalid default answer: '%s'&quot; % default)
+
+        while True:
+            sys.stdout.write(question + prompt)
+            choice = raw_input().lower()
+            if default is not None and choice == '':
+                return valid[default]
+            elif choice in valid:
+                return valid[choice]
+            else:
+                sys.stdout.write(&quot;Please respond with 'yes' or 'no' &quot;
+                                 &quot;(or 'y' or 'n').\n&quot;)
+
+query_yes_no(&quot;Is this information correct?&quot;)
+
+client = xmlrpclib.Server(MANAGER_URL, verbose=0)
+key = client.auth.login(MANAGER_LOGIN, MANAGER_PASSWORD)
+
+client.channel.software.mergePackages(key, MERGE_SOURCE, MERGE_TARGET)
+client.channel.software.mergeErrata(key, MERGE_SOURCE, MERGE_TARGET)
+
+client.auth.logout(key)</screen>
+
+        </section>
+
+        <section xml:id="sec-samblecontab">
+            <title>アーカイブチャネル作成を自動化するためのcrontabエントリのサンプル</title>
+
+            <para>以下は、四半期ごとにチャネルを作成する<emphasis role="strong">アーカイブチャネル作成スクリプト</emphasis>を実行するのに使用できるcronエントリのサンプルです。このサンプルには四半期末までに受信したすべてのパッチのクローンを作成する2つのエントリがあります。四半期末の最初にクローンを作成する場合はエントリが1つだけで問題ありませんが、その場合は<emphasis role="strong">アーカイブスクリプト</emphasis>の計算を修正するのを忘れないようにする必要があります。現在、以下の<emphasis role="strong">アーカイブチャネル作成スクリプト</emphasis>のサンプルでは、現在の日付を見ることで対象となる四半期を判断しています。第四四半期でこのスクリプトを実行すると、第四四半期のアーカイブであることを示すアーカイブが作成されます。<superscript>###</superscript> ###<superscript>###</superscript> ###</para>
+
+            <para>四半期末のcronエントリ：（6月と9月の月末が30日で、3月と12月の月末が31日の場合）：<superscript>###</superscript> ###<superscript>###</superscript> ###</para>
+
+
+                <screen>0 0 30 6,9 * /path/to/the/archive/script</screen>
+
+                <screen>0 0 31 3,12 * /path/to/the/archive/script</screen>
+
+
+        </section>
+
+        <section xml:id="sec-samplechancreation">
+            <title>SUSE Manager 2.1および3.0用のアーカイブチャネル作成サンプルスクリプト</title>
+            <para>以下のスクリプトを<emphasis role="strong">アーカイブチャネルソース</emphasis>ファイル（<xref linkend="sec-samplechansources"/>を参照）と一緒に使用して、SUSE更新プログラムチャネルの四半期ごとのアーカイブを作成します。このサンプルスクリプトは<emphasis role="strong">Bash</emphasis>で書かれていますが、クローン作成を実行するためにspacecmdを呼び出し、新しいアーカイブをパブリック（他の組織からもアクセス可能）に設定します。 <command>###</command> ###</para>
+
+            <para>スクリプトの実行にはしばらく時間がかかります。クローンコマンドはすぐに終了しますが、実際にクローンされたチャネルが利用できるようになり、org-accessコマンドがチャネルにアクセスして処理を完了するまでにはしばらく時間がかかります。<command>###</command> ###これを手動でテストする場合は手間と時間がかかります。スクリプトの通常のcrontab実行はしばらくすると終了します。</para>
+
+
+            <screen>#!/bin/bash
+
+        ####################################################################
+        #    SUMA Archive Channel Creation Script - Called from Cron       #
+        #                                                                  #
+        #    This script creates quarterly archives of SUSE Manager        #
+        #    channels from SUSE Updates channels. It takes a list          #
+        #    of source channels from the archive-sources.lst file          #
+        #    that should be located in the same directory as this          #
+        #    script. Each entry in that file will be used as a             #
+        #    source channel to create an archive for patches/updates       #
+        #    in the appropriate archive channel.                           #
+        #                                                                  #
+        # REQUIRES:                                                        #
+        #                1. cron entries for each quarter :                #
+        #     e.g. 30th of months June and Sept. and 31st of months March  #
+        #       and December:                                              #
+        #                0 0 30 6,9 * /path/to/this/script                 #
+        #                0 0 31 3,12 * /path/to/this/script                #
+        #                                                                  #
+        #                2. archive-sources.lst :                          #
+        #     A list of the architecture, the source updates channel       #
+        #     for each distro and the suffix of the target channel         #
+        #     version and architecture (1 per line - no line-feed at EOF)  #
+        #   Example:                                                       #
+        #  S390x,sles11-sp3-updates-s390x,SLES11-SP3-Updates for s390x     #
+        #  ppc64,sles11-sp4-updates-ppc64,SLES11-SP4-Updates for PPC       #
+        #  x86_64,sles11-sp3-updates-x86_64,SLES11-SP3-Updates for x86_64  #
+        #         etc.                                                     #
+        #                                                                  #
+        ####################################################################
+        #                                                                  #
+        #       Created by - Jeff Price, SUSE Consulting - 2015            #
+        #                                                                  #
+        ####################################################################
+
+## date strings
+month=`date +%m`
+year=`date +%Y`
+fdate=`date +%m-%d-%Y`
+## set quarter
+if [ $month -le 3 ]
+then
+   quar=1
+elif [ $month -gt 3 ] &amp;&amp; [ $month -lt 7 ]
+then
+   quar=2
+elif [ $month -gt 6 ] &amp;&amp; [ $month -lt 10 ]
+then
+   quar=3
+elif [ $month -gt 9 ]
+then
+   quar=4
+fi
+
+## Create archives using source list
+
+while read line
+do
+        arch=`echo &quot;$line&quot; | awk -F, '{print $1}'`
+        src_ch=`echo &quot;$line&quot; | awk -F, '{print $2}'`
+        trg_ch=`echo &quot;$line&quot; | awk -F, '{print $3}'`
+## set archive channel
+
+target_parent=$arch&quot;-patch-archives-channel&quot;
+source_channel=$src_ch
+target_channel_name=&quot;Q&quot;$quar&quot; &quot;$year&quot; - &quot;$fdate&quot; - Archive of &quot;$trg_ch
+target_summary=&quot;Q&quot;$quar&quot;-&quot;$year&quot; Archive Set &quot;$trg_ch
+target_channel_label=&quot;q&quot;$quar&quot;-&quot;$year&quot;-archive-&quot;$src_ch
+
+## Debug Output
+echo &quot;Architecture: &quot; $arch
+echo &quot;Source Channel: &quot;$src_ch
+echo &quot;Target Channel Archive Suffix: &quot;$trg_ch
+echo &quot;Target Archive Parent Channel: &quot;$target_parent
+echo &quot;Source Channel (again): &quot;$source_channel
+echo &quot;Target Channel Name: &quot;$target_channel_name
+lctn=`echo $target_channel_name|tr '[:upper:]' '[:lower:]'`
+echo &quot;lowercase target name: &quot;$lctn
+echo &quot;Target Channel Label: &quot;$target_channel_label
+echo &quot;Target Channel Summary and Description: &quot;$target_summary
+
+/usr/bin/spacecmd -d -- softwarechannel_clone -s “‘$src_ch’” -n
+“‘$target_channel_name’” -l “‘$target_channel_label’” -p “‘$target_parent’” - g
+/usr/bin/spacecmd -d -- softwarechannel_setorgaccess
+“‘$target_channel_label’” -e
+done &lt; ./archive-sources.lst
+
+</screen>
+        </section>
+
+
+
+        <section xml:id="sec-samplechancreation-update">
+            <title>SUSE Manager 3.1および3.2用のアーカイブチャネル作成サンプルスクリプト</title>
+            <para>以下のスクリプトを<emphasis role="strong">アーカイブチャネルソース</emphasis>ファイル（<xref linkend="sec-samplechansources"/>を参照）と一緒に使用して、SUSE更新プログラムチャネルの四半期ごとのアーカイブを作成します。このサンプルスクリプトは<emphasis role="strong">Bash</emphasis>で書かれていますが、クローン作成を実行するためにspacecmdを呼び出し、新しいアーカイブをパブリック（他の組織からもアクセス可能）に設定します。 <command>###</command> ###</para>
+
+            <para>スクリプトの実行にはしばらく時間がかかります。クローンコマンドはすぐに終了しますが、実際にクローンされたチャネルが利用できるようになり、org-accessコマンドがチャネルにアクセスして処理を完了するまでにはしばらく時間がかかります。<command>###</command> ###これを手動でテストする場合は手間と時間がかかります。スクリプトの通常のcrontab実行はしばらくすると終了します。</para>
+
+
+<screen>#!/bin/bash
+
+        ####################################################################
+        #    SUMA Archive Channel Creation Script - Called from Cron       #
+        #                                                                  #
+        #    This script creates quarterly archives of SUSE Manager        #
+        #    channels from SUSE Updates channels. It takes a list          #
+        #    of source channels from the archive-sources.lst file          #
+        #    that should be located in the same directory as this          #
+        #    script. Each entry in that file will be used as a             #
+        #    source channel to create an archive for patches/updates       #
+        #    in the appropriate archive channel.                           #
+        #                                                                  #
+        # REQUIRES:                                                        #
+        #                1. cron entries for each quarter :                #
+        #     e.g. 30th of months June and Sept. and 31st of months March  #
+        #       and December:                                              #
+        #                0 0 30 6,9 * /path/to/this/script                 #
+        #                0 0 31 3,12 * /path/to/this/script                #
+        #                                                                  #
+        #                2. archive-sources.lst :                          #
+        #     A list of the architecture, the source updates channel       #
+        #     for each distro and the suffix of the target channel         #
+        #     version and architecture (1 per line - no line-feed at EOF)  #
+        #   Example:                                                       #
+        #  S390x,sles11-sp3-updates-s390x,SLES11-SP3-Updates for s390x     #
+        #  ppc64,sles11-sp4-updates-ppc64,SLES11-SP4-Updates for PPC       #
+        #  x86_64,sles11-sp3-updates-x86_64,SLES11-SP3-Updates for x86_64  #
+        #         etc.                                                     #
+        #                                                                  #
+        ####################################################################
+        #                                                                  #
+        #       Created by - Jeff Price, SUSE Consulting - 2015            #
+        #       Updated for SUMA 3.1 &amp; 3.2 - Levin Forrest,            #
+        #       Lenovo Consulting - 2018                                   #
+        #                                                                  #
+        ####################################################################
+
+## date strings
+month=`date +%m`
+year=`date +%Y`
+fdate=`date +%m-%d-%Y`
+## set quarter
+if [ $month -le 3 ]
+then
+   quar=1
+elif [ $month -gt 3 ] &amp;&amp; [ $month -lt 7 ]
+then
+   quar=2
+elif [ $month -gt 6 ] &amp;&amp; [ $month -lt 10 ]
+then
+   quar=3
+elif [ $month -gt 9 ]
+then
+   quar=4
+fi
+
+## Create archives using source list
+
+while read line
+do
+        arch=`echo &quot;$line&quot; | awk -F, '{print $1}'`
+        src_ch=`echo &quot;$line&quot; | awk -F, '{print $2}'`
+        trg_ch=`echo &quot;$line&quot; | awk -F, '{print $3}'`
+## set archive channel
+## Note the target_parent requires this EXACT channel already created
+target_parent=$arch&quot;-patch-archives-channel&quot;
+source_channel=$src_ch
+target_channel_name=&quot;Q&quot;$quar&quot; &quot;$year&quot; - &quot;$fdate&quot; - Archive of &quot;$trg_ch
+target_summary=&quot;Q&quot;$quar&quot;-&quot;$year&quot; Archive Set &quot;$trg_ch
+target_channel_label=&quot;q&quot;$quar&quot;-&quot;$year&quot;-archive-&quot;$src_ch
+
+## Debug Output
+echo &quot;Architecture: &quot; $arch
+echo &quot;Source Channel: &quot;$src_ch
+echo &quot;Target Channel Archive Suffix: &quot;$trg_ch
+echo &quot;Target Archive Parent Channel: &quot;$target_parent
+echo &quot;Source Channel (again): &quot;$source_channel
+echo &quot;Target Channel Name: &quot;$target_channel_name
+lctn=`echo $target_channel_name|tr '[:upper:]' '[:lower:]'`
+echo &quot;lowercase target name: &quot;$lctn
+echo &quot;Target Channel Label: &quot;$target_channel_label
+echo &quot;Target Channel Summary and Description: &quot;$target_summary
+
+## removed double quotes from $src_ch to allow spacecmd to parse correctly
+## removed single quotes from $target_channel_label and $target_parent to allow spacecmd to parse correctly
+## only $target_channel_name should have single quotes as this variable contains spaces
+/usr/bin/spacecmd -d -- softwarechannel_clone -s $src_ch -n &quot;'$target_channel_name'&quot; -l &quot;$target_channel_label&quot; -p &quot;$target_parent&quot; -g
+## removed double quotes from $target_channel_label to allow spacecmd to parse correctly
+/usr/bin/spacecmd -d -- softwarechannel_setorgaccess $target_channel_label -e
+## added full directory structure to archive-sources location to allow call from crontab
+done &lt; /usr/sbin/archive-sources.lst
+</screen>
+
+        </section>
+
+
+        <section xml:id="sec-samplechansources">
+            <title>アーカイブチャネルソースリストファイルのサンプル</title>
+
+            <para>このファイルは、前のセクション（<xref linkend="sec-samplechancreation"/>を参照）のアーカイブチャネル作成スクリプトによって呼び出されて使用されます。関数「readline」が使用されているため、ファイルにはデータを含む行しかないはずです。空白行はデータとして取得され、上記のアーカイブチャネル作成スクリプトではエラーが発生します。</para>
+
+            <para>最初のフィールドが<emphasis role="strong">アーキテクチャ</emphasis>で、ソースの親アーカイブチャネルを定義します。ここに新しいアーカイブが子チャネルとして配置されます。2番目のフィールドが<emphasis role="strong">ソースチャネルラベル</emphasis>で、ここからパッチ/パッケージを取得します。最後のフィールドは<emphasis role="strong">ターゲットチャネルの名前指定</emphasis>に使用します。このフィールドはチャネル名の一部、およびチャネルの概要/説明フィールドの一部になります。</para>
+
+
+<screen>s390x,sles11-sp3-updates-s390x,SLES11-SP3-Updates for s390x
+x86_64,sles11-sp4-updates-x86_64,SLES11-SP4-Updates for x86_64
+i586,sles11-sp3-updates-x86_64,SLES11-SP3-Updates for x86_64</screen>
+
+        </section>
+
+        <section xml:id="sec-spacemdauthent">
+            <title>spacecmdの自動認証</title>
+
+            <para>このサンプルアーカイブスクリプトはBashで書かれており、spacecmdシェルを呼び出します。spacecmdとSUSE Manager XMLRPC APIの通常実行には認証資格情報が必要です。アーカイブスクリプトをcronから正常に実行するには、要求されたときに適切なユーザー資格情報を渡すための何らかの方法が必要になります。しかし、心配はご無用です。ユーザーのユーザー名とパスワードを保存するための方法が用意されています。</para>
+
+            <para>初めてspacecmdユーティリティ/シェルを呼び出す際、spacecmdを呼び出したユーザーのホームディレクトリにディレクトリが1つ作成されます。このディレクトリの名前は.spacecmdとなります（「/root/.spacecmd/」など）。このディレクトリにはconfigというファイルがあります。<quote>###</quote>さらに、このファイルには今後ユーザーがspacecmdを呼び出す時に使用するパラメーターを保存できます。パラメーターは以下のとおりです（ユーザー名とパスワードは実際にお使いのものに置き換えてください）：</para>
+
+            <screen>[spacecmd]
+server=localhost
+username=admin
+password=susemgr
+nossl=0</screen>
+
+
+            <para>これらの資格情報が保存されたら、ユーザー名とパスワードを求められることなくspacecmdシェルやspacecmdコマンドをコマンドラインから呼び出すことができるようになります。</para>
+        </section>
+
+    </section>
+
+
+    <section xml:id="sec-legal-notice">
+        <title>法的通知</title>
+        <para>Copyright ©2006–2020 SUSE LLC and contributors.All rights reserved.</para>
+        <para>本書は、GNU Free Documentation Licenseのバージョン1.2または（オプションとして）バージョン1.3の条項に従って、複製、頒布、および/または改変が許可されています。ただし、この著作権表示およびライセンスは変更せずに記載してください。ライセンスバージョン1.2のコピーは、GNU Free Documentation Licenseセクションに含まれています。 <quote>###</quote>###</para>
+        <para>SUSE、SUSEのロゴ、およびYaSTは、米国およびその他の国におけるSUSE LLCの登録商標です。SUSEの商標については、<link xlink:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>を参照してください。Linuxは、Linus Torvaldsの登録商標です。本書に記載されているその他の名称や商標はすべて、それぞれの所有者の商標または登録商標の可能性があります。</para>
+        <para>この記事は、「SUSE Best Practices」と呼ばれる一連の文書の一部です。個々の文書は、SUSE社員および第三者が自主的に作成したものです。</para><!--  <para>The articles are intended only to be one example of how a particular action could be
+            taken. They should not be understood to be the only action and certainly not to be the
+            action recommended by SUSE. Also, SUSE cannot verify either that the actions described
+            in the articles do what they claim to do or that they don't have unintended
+            consequences.</para>--><para>この記事のすべての情報は、細心の注意を払って編集されています。しかし、このことは絶対に正確であることを保証するものではありません。 <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+                for possible errors or the consequences thereof. --></para>
+        <para>SUSE LLC、その関係者、著者、翻訳者のいずれも誤りまたはその結果に対して一切責任を負いかねます。参考までに、これらの記事の基になったライセンスを以下に示します。</para>
+    </section><?pdfpagebreak style="suse2013-sbp" formatter="fop"?><xi:include href="license-gfdl.xml"/>
+
+</article>

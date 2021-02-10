@@ -404,17 +404,23 @@ https://longhorn.io/docs/1.1.0/
 
 The SLCBridge can be obtained via the following ways
 
+* download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download slcbridge
 
-=== Download Stack XML
+* see release note of SLCBridge https://launchpad.support.sap.com/#/notes/2589449
 
-Create a stack xml
+* see https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html
+
+* download the SLCBridge software to the management workstation.
 
 
 === Install the SLCBridge
 
+Re-name the SLCBridge binary to slcb and make it executable. Deploy the SLCBridge to the Kubernetes cluster.
+
 ----
 $ mv SLCB01_XX-70003322.EXE slcb
 $ chmod 0700 slcb
+$ export KUBECONFIG=<KUBE_CONFIG>
 $ ./slcb init
 ----
 During the interactive install the following information is needed:
@@ -429,6 +435,18 @@ Take a note of the service port of the slcbridge, it is needed for the install o
 $ kubectl -n sap-slcbridge get svc
 ----
 
+=== Create and Download Stack XML for SAP DI installation
+
+Follow the steps in SAP DI 3.1 installation guide:
+Install SAP Data Intelligence with SLC Bridge in a Cluster with Internet Access:
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/7e4847e241c340b3a3c50a5db11b46e2.html
+
+==== Create a stack xml
+
+
+The stack.xml can be created via the SAP Maintenance Planner, this tool can be accessed via https://support.sap.com/en/alm/solution-manager/processes-72/maintenance-planner.html
+Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp published on SAP site and generate a Stack XML file with the container image definitions of the SAP Data Intelligence release that you want to install. Download the Stack XML file to a local directory.
+
 
 === Run the Installation of SAP DI
 
@@ -440,14 +458,42 @@ $ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<
 
 This starts an interactive process for configuring and deploying SAP DI 3.1.
 
+This table lists some of the parameters possible for SAP DI 3.1 installation:
+
+[cols="1,2,3",options="header"]
+|===
+| Parameter| Condition | Recommendation
+| Kubernetes Namespace | Always | set to namespace created beforehand
+| Installation Type | installation or update| either
+| Container Registry| Always | add the uri for the secure private registry
+| Checkpoint Store Configuration| installation | wether to enable Checkpoint Store
+| Checkpoint Store Type |if Checkpoint Store is enabled | use S3 object store from SES
+| Checkpoint Store Validation |if Checkpoint is enabled | Object store access will be verified
+| Container Registry Settings for Pipeline Modeler ||
+| StorageClass Configuration ||
+| Default StorageClass ||
+| Enable Kaniko Usage ||
+| Container Image Repository Settings for SAP Data Intelligence Modeler||
+| Container Registry for Pipeline Modeler ||
+| Loading NFS Modules ||
+| Additional Installer Parameters ||
+|===
+See SAP documenation here for details on input parameters.
+
 
 === Post-Installation Tasks
+
+After the successful finish of the installation workflow there are some tasks to be done:
 
 * create ingress to access the SAP DI installation
 
 * download vctl
 
 === Test of Data Intelligence Installation
+
+Finally the SAP DI installation should be verified with some very basic tests:
+
+* logon to SAP DI's launchpad
 
 * create example pipeline
 
@@ -457,6 +503,32 @@ This starts an interactive process for configuring and deploying SAP DI 3.1.
 
 
 == Troubleshooting
+
+
+=== error acessing registry
+
+get sa
+
+----
+ kubectl -n di310 get  -o jsonpath=$'{.spec.serviceAccountName}\n' pod/default-4wtmgwe-backup-hana-zbdlc
+----
+create secret
+
+----
+kubectl -ndi310 create secret docker-registry pull-secret --docker-server="lu0591.wdf.sap.corp:5000" --docker-username=regadmin --docker-password=datahub4SAP
+----
+
+patch sa
+
+----
+kubectl -ndi310 patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
+----
+
+restart pod or parent
+
+----
+kubectl -n $NAMESPACE delete pod 
+----
 
 == Day 2 Operation considerations
 

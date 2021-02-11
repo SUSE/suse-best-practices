@@ -8,12 +8,9 @@
 include::Variables_HA740_AliCoud.adoc[]
 
 ////
-Weitere TODOs:
-TODO use the correct include files and include "places" for the common files to be compatible for the documentation team
-TODO maybe the whole setup could be divided in two parts: Enqueue Replication
-cluster which is the core part, and the auxiliary pieces which might come from somewhere?
+More TODOs:
+TODO: ASE installation chapter
 TODO: PRIO1: Document that autostart for SAP instances must be switched-off
-REJC p.2 either adding the third node to the cluster -> (would change the basic setup)
 TODO p.4 https://blogs.sap.com/2014/05/08/using-sapvendorclusterconnector-for-interaction-between-cluster-framework-and-sapstartsrv/comment-page-1/ -> (check link)
 TODO p.7 (somewhere explain that the D02 and DVEBMGS01 on the DB host just to simplify this lab environment)
 TODO p.7,8 (only short hostnames in /etc/hosts?)
@@ -38,8 +35,6 @@ TODO -> NFS SAP layout for instance
 TODO: non line break with in command or variables
 TODO: table of required values
 TODO: update output of command
-TODO: remove AWS, rework stonith methode and filesystems
-TODO: replace WAS and 00 and wasadm with variables
 TODO: add required parameters, using internal marker to other chapters
 ////
 
@@ -55,7 +50,7 @@ of the technical infrastructure, single points of failure can be eliminated.
 and mid-size companies. Many critical business environments require the highest
 possible {sapReg} application availability.
 
-The described cluster solution can be used for {sapReg} S/4 HANA and for
+The described cluster solution can be used for {sapReg} {s4Hana} and for
 {sapReg} {sapNW}.
 
 {sapNw} is a common stack of middleware functionality used to support the SAP
@@ -278,7 +273,7 @@ command line tool sapcontrol or the {SAP} management consoles ({SAP} MMC or
 
 == Infrastructure Preparation
 
-The next sections contain information about how to prepare the infrastructure.
+The next sections contain information about how to prepare your Alibaba Cloud infrastructure.
 
 === Infrastructure List
 
@@ -288,9 +283,14 @@ To set up your infrastructure, the following components are required:
 https://www.alibabacloud.com/product/vpc[Virtual Private Cloud]
 * 4 Elastic Compute Service (ECS) instances in different zones of the same VPC;
 https://www.alibabacloud.com/product/ecs[Elastic Compute Service]
-* Alibaba Cloud specific Virtual IP Resource Agent and STONITH device;
+* Alibaba Cloud specific Virtual IP Resource Agent (https://github.com/ClusterLabs/resource-agents/blob/master/heartbeat/aliyun-vpc-move-ip) 
+and STONITH device (https://github.com/ClusterLabs/fence-agents/blob/master/agents/aliyun/fence_aliyun.py);
+
+////
+replaced by OpenAPI endpoint
 * NAT Gateway and SNAT entry;
 https://www.alibabacloud.com/help/product/44413.htm[NAT Gateway]
+////
 
 === Creating VPC
 First, create a VPC via *Console->Virtual Private Cloud->VPCs->Create VPC*.
@@ -318,6 +318,8 @@ SUSE Linux Enterprise Server for SAP Applications 15 SP1 image from the Image Ma
 
 image::Alicloud_ECS_ASE.png[instance,width="45%"]
 
+////
+replaced by OpenAPI endpoint
 === Creating NAT Gateway and configure SNAT entry
 Now create an NAT Gateway attached to the given VPC. In the example at hand, an NAT Gateway
 named *ASEHADR* has been created:
@@ -333,15 +335,35 @@ for the cluster. They need to access Alibaba Cloud OpenAPI through a public doma
 In the example at hand, two SNAT entries have been created, for ECS instances located in a different network range:
 
 image::Alicloud_SNAT_ASE.png[SNAT,width="50%"]
+////
 
-=== Creating STONITH Device and Virtual IP Resource Agent
+=== Confirm OpenApi endpoint address inside VPC
+An Alibaba Cloud specific STONITH device and Virtual IP Resource Agent are mandatory for the cluster. 
+Traditionally, these components need to access Alibaba Cloud OpenAPI through a public domain, which used to be implemented by 
+configuring NAT Gateway and corresponding SNAT entries, or Private Zone.
+Nowadays, Alibaba Cloud OpenAPI is accessible inside VPC with specific endpoint address. 
+In Region EU Central 1 (Frankfurt) the endpoint addresses are:
+
+* ECS: ecs-vpc.eu-central-1.aliyuncs.com
+* VPC: vpc-vpc.eu-central-1.aliyuncs.com
+
+For other regions, refer to the following Alibaba Cloud documents to find the corresponding endpoint addresses:
+
+* ECS：https://www.alibabacloud.com/help/doc-detail/117461.htm
+* VPC：https://www.alibabacloud.com/help/doc-detail/185725.htm
+
+=== Creating STONITH Device and Virtual IP ResourceAgent
+////
 Download the STONITH fencing software with the following command:
 
 [subs="attributes"]
 ----
 # wget https://sh-test-hangzhou.oss-cn-hangzhou.aliyuncs.com/sap_packages/pacemaker-2.0.3%2B20200511.2b248d828-1.2.x86_64.rpm
 ----
-
+////
+In order to download/install the components in the following steps, the instance has to be able to access Internet. 
+The easiest way is to purchase an Elastic IP (https://www.alibabacloud.com/product/eip) and assign it to the instance 
+and unassign it once the configuration is done.
 For an HA solution, a fencing device is an essential requirement. Alibaba Cloud provides its own
 STONITH device, which allows the servers in the HA cluster to shut down the node that is not responsive.
 The STONITH device leverages Alibaba Cloud OpenAPI underneath the ECS instance, which is similar
@@ -364,27 +386,113 @@ to a physical reset / shutdown in an on-premise environment.
 # fence_aliyun
 ----
 
-Install Alibaba Cloud OpenAPI SDK.
+The next component to install is Virtual IP Resource Agent (aliyun-vpc-move-ip). By changing the routing entries, 
+it enables a non-overlapping, private IP addresses to be used as a virtual IP resources in an HA solution.
 
 [subs="attributes"]
 ----
-# pip install aliyun-python-sdk-ecs aliyun-python-sdk-vpc aliyuncli
+# mkdir -p /usr/lib/ocf/resource.d/aliyun
+# curl https://raw.githubusercontent.com/ClusterLabs/resource-agents/master/heartbeat/aliyun-vpc-move-ip > /usr/lib/ocf/resource.d/aliyun/vpc-move-ip
+# chmod 755 /usr/lib/ocf/resource.d/aliyun/vpc-move-ip
+# chown root:root /usr/lib/ocf/resource.d/aliyun/vpc-move-ip
+----
+
+Install Alibaba Cloud OpenAPI SDK:
+
+[subs="attributes"]
+----
+# pip install aliyun-python-sdk-core aliyun-python-sdk-vpc aliyun-python-sdk-ecs
 ----
 
 image::Alicloud_image021.png[SDKInstall,width="73%"]
 
-Configure Alibaba Cloud OpenAPI SDK and Client.
+Install Alibaba Cloud CLI:
 
 [subs="attributes"]
 ----
-# aliyuncli configure
+# wget https://github.com/aliyun/aliyun-cli/releases/download/v3.0.65/aliyun-cli-linux-3.0.65-amd64.tgz
+# tar -xvf aliyun-cli-linux-3.0.65-amd64.tgz
+# mv aliyun /usr/local/bin
 ----
 
-//image::Alicloud_image023.png[SDKConfigure,width="100%"]
+Configure Alibaba Cloud RAM role to authenticate Alibaba Cloud CLI (aliyun) to create OpenAPI operation call.
 
-Get your Access Key as shown below:
+Login Alibaba Cloud console -> Resource Access Management (RAM) -> Permissions -> Policies
 
-image::Alicloud_AK_ASE.png[AccessKey,width="45%"]
+Create a customer policy named “SAP-HA-ROLE-POLICY” with the following content:
+
+[subs="attributes"]
+----
+{
+    "Version": "1",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecs:StartInstance",
+                "ecs:StopInstance",
+                "ecs:RebootInstance",
+                "ecs:Describe*"
+            ],
+            "Resource": [
+                "*"
+            ],
+            "Condition": {}
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "vpc:CreateRouteEntry",
+                "vpc:DeleteRouteEntry",
+                "vpc:Describe*"
+            ],
+            "Resource": [
+                "*"
+            ],
+            "Condition": {}
+        }
+    ]
+}
+----
+
+image::Alicloud_Policy.png[Create Custom Policy,width="73%"]
+
+Create a RAM role “SAP-HA-ROLE” and assign above RAM policy to it.
+
+image::Alicloud_assign_Policy.png[RAM role with RAM Policy,width="75%"]
+
+Assign above RAM role to the instance we created:
+
+Login Alibaba Cloud console -> Elastic Computer Service -> Instances -> Select the instance -> More -> Instance Settings -> Bind/Unbind RAM role:
+
+image::Alicloud_RAM_bind.png[Bind/Unbind RAM Role,width="75%"]
+
+
+Configure Alibaba Cloud OpenAPI SDK and CLI:
+
+[subs="attributes"]
+----
+# aliyun configure --profile ecsRamRoleProfile --mode EcsRamRole
+Configuring profile 'ecsRamRoleProfile' in 'EcsRamRole' authenticate mode...
+Ecs Ram Role []: SAP-HA-ROLE   -- Input the RAM role created above
+Default Region Id []: eu-central-1 -- Input current region-ID
+Default Output Format [json]: json (Only support json)
+Default Language [zh|en] en: 
+Saving profile[ecsRamRoleProfile] ...Done.
+Configure Done!!!
+..............888888888888888888888 ........=8888888888888888888D=..............
+...........88888888888888888888888 ..........D8888888888888888888888I...........
+.........,8888888888888ZI: ...........................=Z88D8888888888D..........
+.........+88888888 ..........................................88888888D..........
+.........+88888888 .......Welcome to use Alibaba Cloud.......O8888888D..........
+.........+88888888 ............. ************* ..............O8888888D..........
+.........+88888888 .... Command Line Interface(Reloaded) ....O8888888D..........
+.........+88888888...........................................88888888D..........
+..........D888888888888DO+. ..........................?ND888888888888D..........
+...........O8888888888888888888888...........D8888888888888888888888=...........
+............ .:D8888888888888888888.........78888888888888888888O ..............
+----
+
 
 === Disks and Partitions
 
@@ -501,7 +609,7 @@ tools. The following script could be used for non-interactive setups.
 
 - {myNode3}:   {myDevPartSec}   {myMpSec}
 
-NOTE:  {myInstPas750} => Since NetWeaver 7.5, the primary application server instance
+NOTE:  {myInstPas750} => Since {sapNW} 7.5, the primary application server instance
 directory has been renamed. (D<Instance_Number>)
 
 ////
@@ -510,13 +618,14 @@ directory has been renamed. (D<Instance_Number>)
 //
 //- {myNfsSrv}:{myNFSExpPath}/{mySid}/usrsapsys /usr/sap/{mySid}/SYS
 ////
+
 .Media
 - {myNfsSrv}:{myNFSExpPathSapMedia740} /sapcd
 
 or
 
 - {myNfsSrv}:{myNFSExpPathSapMedia750} /sapcd
-////
+
 
 In our example, we use block storage for database storage. Please execute below command on node {myNode3}:
 [subs="attributes"]
@@ -524,13 +633,14 @@ In our example, we use block storage for database storage. Please execute below 
 # mkdir {myMPDb}
 # echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
 ----
+
 ////
 #sapdb2: mkdir {myMPDb}
 #sapdb2: echo {myDevPartDb} {myMPDb} ext4 acl,user_xattr,noatime 1 1 >> /etc/fstab
 ----
 ////
 
-NOTE:  {myInstPas750} => Since NetWeaver 7.5, the primary application server instance
+NOTE:  {myInstPas750} => Since {sapNW} 7.5, the primary application server instance
 directory has been renamed. (D<Instance_Number>)
 
 === IP Addresses and Virtual Names
@@ -564,23 +674,9 @@ run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 
 - Creating mount points and mounting NFS share on all nodes
 
-////
-.{sapNW} 7.4
-==============================================
-[subs="attributes"]
-----
-# mkdir -p /sapcd
-# mkdir -p /sapmnt
-# mkdir -p /usr/sap/{mySid}/{{myInstAscs},{myInstDSec},{myInstPas740},{myInstErs},SYS}
-# mount -t nfs {myNfsSrv}:{myNFSExpPath}/{mySid}/sapmnt    /sapmnt
-# mount -t nfs {myNfsSrv}:{myNFSExpPath}/{mySid}/usrsapsys /usr/sap/{mySid}/SYS
-# mount -t nfs {myNfsSrv}:{myNFSExpPathSapMedia740} /sapcd
-----
-==============================================
-////
 .{sapNW} 7.5
 ==============================================
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # mkdir -p /sapmnt
 # mkdir -p /usr/sap/{mySid}/{{myInstAscs},{myInstPas750},{myInstDSec},{myInstErs},SYS}
@@ -591,14 +687,14 @@ run the SAP resource. The SYS directory will be on an NFS share for all nodes.
 
 - Only ASEDB:  creating mount points for the database at {myNode3}:
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # mkdir -p /sybase/SSA/srsdata
 ----
 
 - Only HANA: creating mount points for database at {myNode3}:
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # mkdir -p /hana/{shared,data,log}
 ----
@@ -612,6 +708,7 @@ the next system boot.
 ////
 review Lee means this looks like a 4 node cluster, adding additional title???
 ////
+
 .File system layout including NFS shares
 image::sles4sap_nw740_fs.svg[SVG]
 
@@ -702,13 +799,14 @@ User  sdb          3002
 User  sqd{mySidLc}       3003
 User  sapadm       3004
 ----
-//TODO: is this correct?
+
+NOTE: Please adapt the value as you like. These are examples and may not fit into your company policy.
 
 === Installing ASCS on {myNode1}
 
 Temporarily we need to set the service IP address used later in the
 cluster as local IP, because the installer wants to resolve or use it.
-Make sure to use the right virtual host name for each installation step.
+Make sure to use the right virtual hostname for each installation step.
 Take care for the ASCS file systems like {myDevPartAscs} and /sapcd/ (where the installation sources live) which might also need
 to be mounted.
 
@@ -729,11 +827,14 @@ Application Server ABAP -> High-Availability System -> ASCS Instance
 * All passwords: use {mySapPwd}
 * Double-check during the parameter review, if virtual name *{myVipNAscs}* is used
 
+NOTE: Please adapt the value e.g. SID id, instance number, virtual hostname, ... . These
+are examples and may not fit into your company policy.
+
 === Installing ERS on {myNode2}
 
 Temporarily we need to set the service IP address used later in the
 cluster as local IP, because the installer wants to resolve or use it.
-Make sure to use the right virtual host name for each installation step.
+Make sure to use the right virtual hostname for each installation step.
 
 [subs="attributes"]
 ----
@@ -752,6 +853,9 @@ Server Instance
 * Double-check during the parameter review if virtual name *{myVipNErs}* is used
 * If you get an error during the installation about permissions, change the
   ownership of the ERS directory
+
+NOTE: Please adapt the value e.g. SID id, instance number, virtual hostname, ... . These
+are examples and may not fit into your company policy.
 
 [subs="attributes"]
 ----
@@ -813,7 +917,7 @@ LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstErs}/exe:$LD_LIBRARY_PATH; export LD_LIB
 ==== Integrating the Cluster Framework Using {s4sClConnector3}
 
 Install the package *{s4sClConnector3}* version 3.1.x from our
-repositories:
+repositories on *both* cluster nodes:
 
 [subs="attributes"]
 ----
@@ -842,7 +946,7 @@ service/halib_cluster_connector = /usr/bin/sap_suse_cluster_connector
 
 Add the user {mySapAdm} to the unix user group haclient.
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # usermod -aG haclient {mySapAdm}
 ----
@@ -856,7 +960,7 @@ would lead in loss of the locks.
 
 .File /usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 Start_Program_01 = local $(_EN) pf=$(_PF)
 ----
@@ -869,7 +973,7 @@ _Start_Programm_xx_ for the enqueue replication server (enrepserver).
 
 .File /usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 Start_Program_00 = local $(_ER) pf=$(_PFL) NR=$(SCSID)
 ----
@@ -878,7 +982,7 @@ Start_Program_00 = local $(_ER) pf=$(_PFL) NR=$(SCSID)
 
 _On {myNode1}_
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # su - {mySapAdm}
 # sapcontrol -nr {myAscsIno} -function StartService {mySid}
@@ -887,7 +991,7 @@ _On {myNode1}_
 
 _On {myNode2}_
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # su - {mySapAdm}
 # sapcontrol -nr {myErsIno} -function StartService {mySid}
@@ -901,24 +1005,6 @@ _/sapdb_.
 
 A detailed description can be found link:https://documentation.suse.com/sbp/all/single-html/SAP_NW740_SLE12_SetupGuide/#_installing_db_on_hacert03_example_maxdb[here]
 
-////
-[subs="attributes"]
-----
-# ip a a {myVipADb}{myVipNM} dev eth0
-# mount {myDevPartDb} {myMPDb}
-# cd /sapcd/SWPM/
-# ./sapinst SAPINST_USE_HOSTNAME={myVipNDb}
-----
-
-* We are installing SAP NetWeaver 7.40 SR2 -> MaxDB -> SAP-Systems ->
-  Application Server ABAP -> High Availability System -> DB
-* Profile directory /sapmnt/{mySid}/profile
-* DB ID is {mySid}
-* Volume Media Type *keep* File (not raw)
-* Deselect using FQDN
-* Double-check during the parameter review, if virtual name *{myVipNDb}* is used
-////
-
 === Installing DB on {myNode3} (Example SAP HANA)
 
 The HANA DB has very strict HW requirements. The storage sizing depends on many
@@ -928,40 +1014,13 @@ and https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.h
 
 A detailed description can be found at https://documentation.suse.com/sbp/all/single-html/SAP_NW740_SLE12_SetupGuide/#_installing_db_on_hacert03_example_sap_hana[Example HANA DB].
 
-////
-[subs="attributes"]
-----
-# ip a a {myVipADb}{myVipNM} dev eth0
-# mount {bsDevPartDbS} {bsMPDb}/shared
-# mount {bsDevPartDbL} {bsMPDb}/log
-# mount {bsDevPartDbD} {bsMPDb}/data
-# cd /sapcd/SWPM/
-# ./sapinst SAPINST_USE_HOSTNAME={myVipNDb}
-----
-
-* We are installing {sapNW} 7.5 -> SAP HANA Database -> Installation ->
-Application Server ABAP -> High-Availability System -> Database Instance
-* Profile directory /sapmnt/{mySid}/profile
-* Deselect using FQDN
-* Database parameters:
-  ** DBSID is _{bsSidDB}_
-  ** Database Host is _{myVipNDb}_
-  ** Instance Number is _{bsDBIno}_
-* Database System ID:
-  ** Instance Number is _{bsDBIno}_
-  ** SAP Mount Directory is _{bsMPDb}/shared_
-* Account parameters: change them in case of custom values needed
-* Clean up: select *Yes*, remove operating system users from group'sapinst'....
-* Double-check during the parameter review, if virtual name *{myVipNDb}* is
-  used
-////
-
 === Installing DB on {myNode3} (Example ASE DB)
 
-TODO: content for that liegt bei SAP, back to original
+//TODO: content for that liegt bei SAP, back to original
+
 The storage sizing depends on many indicators. Please check the sizing recommendations for the planed use case.
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # cd /<path to the SWPM>/
 # ./sapinst
@@ -981,18 +1040,6 @@ The storage sizing depends on many indicators. Please check the sizing recommend
 * Double-check all values during the parameter review
 
 === Installing the Primary Application Server (PAS) on {myNode3}
-
-////
-[subs="attributes"]
-----
-# ip a a {myVipAPas}{myVipNM} dev eth0
-# mount {myDevPartPas} {myMPPas74}
-# cd /sapcd/SWPM/
-# ./sapinst SAPINST_USE_HOSTNAME={myVipNPas}
-----
-
-or alternatively:
-////
 
 [subs="attributes"]
 ----
@@ -1042,15 +1089,6 @@ the operating system
 * Configure the cluster resource manager
 * Configure the cluster resources
 
-///////////////////////////////
-TODO: Do we really need to stop, unconfigure and unmount?
-Maybe we find a way to configure the resources that the cluster just
-accepts the already started resource groups - lets see ;-)
-
-NOTE: Before we continue to set up the cluster, we first stop all SAP instances, remove
-the (manual added) IP addresses on the cluster nodes and unmount the file systems
-which will be controlled by the cluster later.
-///////////////////////////////
 
 NOTE: The SBD device/partition need to be created in beforehand. In this setup
 guide we do not use the SBD device.
@@ -1061,7 +1099,7 @@ guide we do not use the SBD device.
 
 . Install pattern ha_sles on both cluster nodes
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
 # zypper in -t pattern ha_sles
 ----
@@ -1069,34 +1107,19 @@ guide we do not use the SBD device.
 === Configuring the Cluster Base
 
 .Tasks
-TODO: sbd???
+
 - Install and configure the cluster stack at first machine
 
 You can use either YaST to configure the cluster base or the interactive
 command line tool ha-cluster-init. The following script can be used for
 automated setups.
 
-[subs="attributes"]
+[subs="specialchars,attributes"]
 ----
-# modprobe softdog
-# echo "softdog" > /etc/modules-load.d/softdog.conf
-# systemctl enable sbd
-# ha-cluster-init -y -i eth0 -u -s {myDevPartSbd}
+# ha-cluster-init -y -i eth0 -u
 ----
-
-Keep in mind that a hardware watchdog is preferred instead of the softdog method.
 
 - Join the second node
-
-Find below some preparation steps on the second node.
-
-[subs="attributes"]
-----
-# modprobe softdog
-# echo "softdog" > /etc/modules-load.d/softdog.conf
-# systemctl enable sbd
-# rsync {myIpNode1}:/etc/sysconfig/sbd /etc/sysconfig
-----
 
 You can use either YaST to configure the cluster base or the interactive
 command line tool ha-cluster-join. The following script can be used for
@@ -1114,11 +1137,9 @@ automated setups.
 Last updated: Thu Nov 21 14:25:53 2019		Last change: Thu Nov 21 14:23:21 2019 by {mySidLc}adm via crm_resource on {myNode1}
 Stack: corosync
 Current DC: {myNode1} (version 1.1.19-20181105.ccd6b5b10) - partition with quorum
-2 nodes and 1 resource configured
+2 nodes configured
 
 Online: [ {myNode1} {myNode2} ]
-
-// stonith-sbd	(stonith:external/sbd):	Started {myNode1}
 ----
 
 - After both nodes are listed in the overview, verify the property setting of the basic cluster configuration.
@@ -1129,7 +1150,7 @@ Very important here is the setting: *record-pending=true*.
 # crm configure show
 ...
 property cib-bootstrap-options: \
-        have-watchdog=true \
+        have-watchdog=false \
         dc-version=1.1.19-20181105.ccd6b5b10 \
         cluster-infrastructure=corosync \
         cluster-name=hacluster \
@@ -1177,6 +1198,47 @@ _As user root_
 # crm configure property maintenance-mode="true"
 ----
 
+==== Configuring the Stonith resources for an Alibaba Cloud infrastructure
+
+Alibaba Cloud provides its own STONITH device, which allows the servers in the HA cluster to
+shut down the other which is not responsible. The STONITH device leverage Alibaba Cloud OpenAPI
+underneath the ECS instance, which is similar to a physical reset / shutdown on a on-premise environment."
+
+.Alibaba Cloud fencing agent
+================================================
+[subs="attributes"]
+----
+primitive res_ALIYUN_STONITH_1 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params plug=i-gw87xi82sj2dy2ysaw19 ram_role=SAP-HA-ROLE region=eu-central-1 \
+	meta target-role=Started
+primitive res_ALIYUN_STONITH_2 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params plug=i-gw86pnh1jy1dw0vfer3w ram_role=SAP-HA-ROLE region=eu-central-1 \
+	meta target-role=Started
+----
+================================================
+
+.Stonith location rules
+================================================
+[subs="attributes"]
+----
+location loc_{myNode1}_stonith_not_on_{myNode1} res_ALIYUN_STONITH_1 -inf: {myNode1}
+location loc_{myNode2}_stonith_not_on_{myNode2} res_ALIYUN_STONITH_2 -inf: {myNode2}
+----
+================================================
+
+Create a txt file (like crm_stonith.txt) with your preferred text editor, enter
+both examples (primitives and location rules) to that file and load the configuration to
+the cluster manager configuration.
+
+_As user root_
+
+[subs="attributes"]
+----
+# crm configure load update crm_stonith.txt
+----
+
 ==== Configuring the Resources for the ASCS
 
 First we configure the resources for the file system, IP address and the {sap}
@@ -1188,12 +1250,12 @@ instance. Of course you need to adapt the parameters to your environment.
 ----
 primitive rsc_fs_{mySID}_{myInstAscs} Filesystem \
   params device="{myDevPartAscs}" directory="/usr/sap/{mySID}/{myInstAscs}" \
-     fstype=xfs \
+     fstype=nfs \
   op start timeout=60s interval=0 \
   op stop timeout=60s interval=0 \
   op monitor interval=20s timeout=40s
-primitive rsc_ip_{mySID}_{myInstAscs} IPaddr2 \
-  params ip={myVipAAscs} \
+primitive rsc_ip_{mySID}_{myInstAscs} ocf:aliyun:vpc-move-ip \
+  params ip={myVipAAscs} routing_table=vtb-gw8irrnvm8vd29iji5ufk endpoint=vpc-vpc.eu-central-1.aliyuncs.com interface=eth0 \
   op monitor interval=10s timeout=20s
 primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
@@ -1239,12 +1301,12 @@ The specific parameter _IS_ERS=true_ should only be set for the ERS instance.
 [subs="attributes"]
 ----
 primitive rsc_fs_{mySID}_{myInstErs} Filesystem \
-  params device="{myDevPartErs}" directory="/usr/sap/{mySID}/{myInstErs}" fstype=xfs \
+  params device="{myDevPartErs}" directory="/usr/sap/{mySID}/{myInstErs}" fstype=nfs \
   op start timeout=60s interval=0 \
   op stop timeout=60s interval=0 \
   op monitor interval=20s timeout=40s
-primitive rsc_ip_{mySID}_{myInstErs} IPaddr2 \
-  params ip={myVipAErs} \
+primitive rsc_ip_{mySID}_{myInstErs} ocf:aliyun:vpc-move-ip \
+  params ip={myVipAErs} routing_table=vtb-gw8irrnvm8vd29iji5ufk endpoint=vpc-vpc.eu-central-1.aliyuncs.com interface=eth0 \
   op monitor interval=10s timeout=20s
 primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
@@ -1323,22 +1385,6 @@ _As user root_
 ----
 # crm configure property maintenance-mode="false"
 ----
-
-////
-############## REMOVING THIS FROM THE OUTPUT FOR NOW ###########
-
-=== Installing SAP Licenses
-
-Most likely you have your own established method to maintain your {sap} licenses.
-This section is only a reminder. You should have installed two license keys as
-we need to fail-over the ASCS {sap} instance.
-
-- Get the HWKEY of both cluster nodes
-- Get the license from the SAP launchpad
-- Install the two licenses per HWKEY using transaction SLICENSE
-
-###################
-////
 
 == Administration
 
@@ -1593,47 +1639,24 @@ As user _{mysapadm}_, type the following commands:
 
 * Check the simulation of cluster resource failures
 
-////
-=== Pro's and Con's for Odd and Even Numbers of Cluster Nodes
-
-There are certain use cases and infrastructure requirements which end up in different installation setup's.
-We will cover some advantages and disadvantages of special configuration below:
-
-* The two node cluster and two locations
-    - Advantage: symmetric spread of all nodes over all locations
-    - Disadvantage: no diskless SBD feature allowed for all two node clusters
-* The two node cluster and more than two locations
-    - Advantage: SBD device can be provided from there (must be HA himself)
-    - Advantage: cluster could operate with three SBD devices from different locations
-    - Disadvantage: no diskless SBD feature allowed for all two node clusters
-* The three node cluster and two locations
-    - Advantage: less complex infrastructure
-    - Advantage: diskless SBD feature is allowed
-    - Disadvantage: "pre selected" location (two node + one node)
-* The three node cluster and three locations
-    - Advantage: symmetric spread of all nodes over all locations
-    - Advantage: diskless SBD feature is allowed
-    - Disadvantage: higher planing effort and complexity for infrastructure planning
-////
-
 == Additional Implementation Scenarios
 
 === Adaptive Server Enterprise Replication fail-over Automation Integration
 
 ==== FM Integration with SUSE Linux Enterprise High Availability Extension Cluster
 
-Standard SAP on AWS for an HA setup is Multi-AZ deployment with ASCS, Primary DB running in
+Standard SAP on Alibaba Cloud for an HA setup is Multi-AZ deployment with ASCS, Primary DB running in
 one AZ and their counterpart ERS and Secondary DB running in the second AZ of the same region.
 The Primary Application Server & Additional Application servers based on the load can be distributed
 in both AZ’s as well to provide resiliency.
-Considering a scenario where SAP NetWeaver or Business Suite system is running on SAP Sybase ASE.
+Considering a scenario where {sapNW} or Business Suite system is running on SAP Sybase ASE.
 The completely automated HA for the ABAP Stack (ASCS) is provided by the SUSE Linux Enterprise High Availability Extension Cluster. For
 the Sybase ASE DB the HA feature is provided with the Always On configuration and the fail-over
 orchestration is done by the Fault Manager (FM) utility which traditionally was installed on a third host
 (other than the Primary & Secondary DB). In an SAP world the FM utility comes along with an SAP DB
 dependent Kernel and gets installed in the ASCS Work directory _/usr/sap/<SID>/ASCS<instnr>/exe/_. The
 fail-over of the ASCS instance along with the associated directories (provided they are installed on a
-shared file system using either Amazon EFS or NFS) is taken care by the SUSE Linux Enterprise High Availability Extension Cluster.
+shared file system using NFS) is taken care by the SUSE Linux Enterprise High Availability Extension Cluster.
 
 ==== Sybase ASE Always On
 
@@ -1651,12 +1674,24 @@ as part of the DB (Sybase ASE) dependent SAP Kernel.
 Refer to the SAP Standard ASE HA-DR guide (https://help.sap.com/viewer/efe56ad3cad0467d837c8ff1ac6ba75c/16.0.3.6/en-US/a6645e28bc2b1014b54b8815a64b87ba.html)
 for setting up the Sybase ASE DB in HA mode.
 
-IMPORTANT: In the following section we use sometimes examples and sometimes general examples. In the general are terms like <SID>; <instance nr>. They must be adapted to your environment. As an example, _su - <sid>adm_ means _su - {mySidLc}adm_ or in capital letters _cd /usr/sap/<SID>/ASCS<instance nr>/work_ means _cd /usr/sap/{mySid}/ASCS00/work_
+IMPORTANT: In the following section we use sometimes examples and sometimes general examples. In the general are terms like <SID>; <instance nr>. They must be adapted to your environment.
+As an example, _su - <sid>adm_ means:
+
+[subs="specialchars,attributes"]
+----
+su - {mySidLc}adm
+----
+or in capital letters _cd /usr/sap/<SID>/ASCS<instance nr>/work_ means:
+
+[subs="specialchars,attributes"]
+----
+cd /usr/sap/{mySid}/ASCS{myAscsIno}/work
+----
 
 ==== Database Host Preparation
 
-This guide does not duplicate the official HADR documentation. The following procedure describes the
-key points which you need to take care of.
+IMPORTANT: This guide does not duplicate the official HADR documentation. The following
+procedure describes the key points which you need to take care.
 
 .Installation 32-bit Environment
 
@@ -1673,8 +1708,8 @@ For the example this software stack is used:
 * SAP Installation Export ->  (51051806_1)
 * Sybase RDBMS->  ASE 16.0.03.06 RDBMS (51053561_1)
 
-NOTE: Very useful is that short table of installation information which helps to be prepared for the next steps.
-SAP Adaptive Server Enterprise - Installation Worksheet
+NOTE: It is very useful to refer to the table of installation information which helps to be prepared for the next steps:
+*SAP Adaptive Server Enterprise - Installation Worksheet*
 https://help.sap.com/viewer/efe56ad3cad0467d837c8ff1ac6ba75c/16.0.3.6/en-US/3fe35550f3814b2bb411d5494976e25a.html
 
 IMPORTANT: The Fault Manger is enhanced to work in this setup. The minimal version's which support this scenario are
@@ -1695,7 +1730,8 @@ The following information is requested from the wizard:
 * SAP System Code Page: Unicode (default)
 * Uncheck: -> Set FQDN for SAP system
 * Sybase database Administrator UID: 2003
-* In our test setup we uncheck -> Use separate devices for sybmgmtdb database
+* In our *demo setup* we have deselect -> Use separate devices for sybmgmtdb database
+  (please consider different settings for productive environments)
 
 After the basis installation is finished the primary database must be prepared for the replication. First
 the user *sa* must be unlocked.
@@ -1713,6 +1749,8 @@ the user *sa* must be unlocked.
 ----
 
 In the next step, install the SRS software with a response file and enter the following command as user _syb<sid>_:
+Please look at the HADR guide for an example for such an response file.
+https://help.sap.com/viewer/efe56ad3cad0467d837c8ff1ac6ba75c/16.0.3.8/en-US/47d295cd825f4e878e493afc0ead77a4.html?q=srs%20response%20file
 
 [subs="specialchars,attributes"]
 ----
@@ -1735,7 +1773,7 @@ Environment cleaned up.
 Error: Fail to connect to "PRIM" site SAP ASE at "<hostname>:4901".
 ----
 
-Check if the host name and port number are correct and the database server is up and running. If everything is correct and network connection should be available, it might help to modify the _interface_ file. Try to add a new line in the _/sybase/<SID>/interfaces_ file for the <SID> section with the IP address of the corresponding host name.
+Check if the hostname and port number are correct and the database server is up and running. If everything is correct and network connection should be available, it might help to modify the _interface_ file. Try to add a new line in the _/sybase/<SID>/interfaces_ file for the <SID> section with the IP address of the corresponding hostname.
 
 [subs="specialchars,attributes"]
 ----
@@ -1760,7 +1798,7 @@ Create a secure store key entry for the database:
 The following information is requested from the wizard:
 
 * Replication System Parameters -> SID, Master Password, check Set up a secondary database instance
-* Primary Database server -> host name or virt. name
+* Primary Database server -> hostname or virt. name
 * Primary Database server port -> default is 4901, depends on the setup of your primary server
 
 After the basis installation is finished the companion database must be prepared for the replication. First
@@ -1811,19 +1849,17 @@ Creating a secure store key entry for the database:
 NOTE: Please remember in this scenario the FM will be integrated into a cluster who takes already care of the ASCS and ERS of a SAP system.
 The goal is to make the FM high available itself and reuse existing resources.
 
-//TODO: Explain the two installation option, for business suite and normal
-//TODO: requirement overview for standalone FM, storage, IP, hostname, rewrite text below to fit both installations
 
 The Fault Manager is configured on the ASCS host. The benefit from this setup is that the sybdbfm service
 can be monitored and tracked with the existing pacemaker for the ASCS / ERS replication.
 
 Option one:
 
-* installation of FM service as part of ASCS (Business Suite???)
+* installation of FM service as part of ASCS (Business Suite)
 
 Option two:
 
-* standalone installation of FM (non Business Suite???)
+* standalone installation of FM (non Business Suite)
 ** to make this type of installation ready for a pacemaker implementation, additional requirements needs to be full filled
 ** a filesystem ~ 2GB which can be moved between all cluster nodes
 ** virtual hostname for FM instance
@@ -1869,53 +1905,11 @@ Enter value for use SAP ASE Cockpit if it is installed and running: (no)
 ----
 ====
 
-Update the values as per your environment for the Primary DB & companion DB host name, SID &
-Site Name. Make sure to use the virtual host name for the ASCS host. When the Fault Manager is installed,
+Update the values as per your environment for the Primary DB & companion DB hostname, SID &
+Site Name. Make sure to use the virtual hostname for the ASCS host. When the Fault Manager is installed,
 profile for it will be created in the _/sapmnt/<SID>/profile_ by the name _SYBHA.PFL_ and will have the
 configuration details.
 Restart the ASCS Instance which will also start the Fault Manager that has been added to the start profile as below:
-
-<<ASCSprofile,ASCS profile example>>
-
-
-NOTE: In case of a re-installation it might be better to overwrite the existing user name and password in the secure store for the _sapadm_ and _DR_admin_ if the old values are not 100% known.
-
-.Fault Manager Installation as standalone service
-======================================
-The following preparation steps are needed to make the FM service high available and flexible as possible.
-
-- creating new mount point on *all* nodes where FM should run later
-- mounting shared filesystem (iSCSI, FC-LUN, NFS)
-- manual adding vIP address for FM instance
-- adapting the _/etc/hosts_ with vIP and hostname of FM on *all* nodes where FM should run later
-
-For the example below we used this values:
-SID: {mySid} (the same SID of the SAP system where the DB is connected too simplifies the integration)
-instance number: {aseIno} (new)
-instance name: {aseInstN} (new)
-virtual IP: {myVipAFM} (new), (overlay IP address)
-virtual hostname: {myVipNFM} (new)
-storage: {myDevPartFM} (new), (NFS4 cloud storage)
-
-??? point to HADR setup???
-https://help.sap.com/viewer/efe56ad3cad0467d837c8ff1ac6ba75c/16.0.3.6/en-US/e0b6940a381343a8a7c36e90e4e74ae7.html
-
-
-[subs="specialchars,attributes"]
-----
-----
-
-As _{mysapadm}_ install the Fault Manager
-[subs="specialchars,attributes"]
-----
-# su - <sid>adm
-# cd /usr/sap/{mySid}/{aseInst}
-# sybdbfm install
-----
-//TODO: what is missing???
-======================================
-
-[[ASCSprofile]]
 
 .ASCS profile after FM installation as integrated service
 ======================================
@@ -1944,12 +1938,47 @@ Restart_Program_02 = local $(_SYBHAD) hadm pf=$(_SYBHA_PF)
 ----
 ======================================
 
+NOTE: In case of a re-installation it might be better to overwrite the existing user name and password in the secure store for the _sapadm_ and _DR_admin_ if the old values are not 100% known.
+
+.Fault Manager Installation as standalone service
+======================================
+The following preparation steps are needed to make the FM service high available and flexible as possible.
+
+- creating new mount point on *all* nodes where FM should run later
+- mounting shared filesystem (iSCSI, FC-LUN, NFS)
+- manual adding vIP address for FM instance
+- adapting the _/etc/hosts_ with vIP and hostname of FM on *all* nodes where FM should run later
+
+For the example below we used this values:
+SID: {mySid} (the same SID of the SAP system where the DB is connected too simplifies the integration)
+instance number: {aseIno} (new)
+instance name: {aseInstN} (new)
+virtual IP: {myVipAFM} (new), (overlay IP address)
+virtual hostname: {myVipNFM} (new)
+storage: {myDevPartFM} (new), (NFS4 cloud storage)
+
+The official {sap} documentation can be found here:
+https://help.sap.com/viewer/efe56ad3cad0467d837c8ff1ac6ba75c/16.0.3.6/en-US/e0b6940a381343a8a7c36e90e4e74ae7.html
+
+
+As _{mysapadm}_ install the Fault Manager
+[subs="specialchars,attributes"]
+----
+# su - <sid>adm
+# cd /usr/sap/{mySid}/{aseInst}
+# FaultManager/setup.bin -f <fault_manager_responses.txt>
+----
+The Fault Manager installer response file is automatically generated when you complete the HADR
+configuration on the companion node. The response file is located in $SYBASE/log/fault_manager_responses.txt.
+
+======================================
+
 A few parameters that need to be updated in the _SYBHA.PFL_ to make the fail-over working.
 
-* Option 1: ASCS integration
-* Option 2: independent integration
+* <<Option-1>> : ASCS integration
+* <<Option-2>> : independent integration
 
-.For option 1 the _SYBHA.PFL_ file in case of ASCS integration.
+.For option 1 [[Option-1]] the _SYBHA.PFL_ file in case of ASCS integration.
 ======================================
 [subs="specialchars,attributes,verbatim,quotes"]
 ----
@@ -1965,7 +1994,7 @@ ha/syb/dbfmhost = **virtual hostname of ASCS instance**
 ----
 ======================================
 
-.For option 2 the _SYBHA.PFL_ file in case of independent integration.
+.For option 2 [[Option-2]] the _SYBHA.PFL_ file in case of independent integration.
 ======================================
 [subs="specialchars,attributes,verbatim,quotes"]
 ----
@@ -1984,14 +2013,10 @@ ha/syb/dbfmhost = **virtual hostname of FM instance**
 Details of all the FM parameters can be found in the *SAP ASE HA DR User Guide*. Those highlighted
 in bold are of interest for the setup. Since the FM is installed with the ASCS which can
 fail-over from Node 1 to Node 2, the parameters _ha/syb/cluster_fmhost1_ and
-_ha/syb/cluster_fmhost2_ provide the physical host names of both nodes where the FM can potentially run.
-
-//TODO: restart of ASCS required???? direction of commands???
+_ha/syb/cluster_fmhost2_ provide the physical hostnames of both nodes where the FM can potentially run.
 
 ._As user {mysapadm}_ check if the _sybdbfm_ process is shown.
 ======================================
-The example below show the FM integration as part of the ASCS instance.
-
 [subs="specialchars,attributes,quotes,verbatim"]
 ----
 {mysapadm}> sapcontrol -nr {myAscsIno} -function GetProcessList
@@ -2005,6 +2030,7 @@ enserver, EnqueueServer, GREEN, Running, 2020 04 22 18:28:31, 27:43:21, 17732
 sybdbfm, , GREEN, Running, 2020 04 22 18:28:31, 27:43:21, 17733
 ----
 ======================================
+The example above show the FM integration as part of the ASCS instance.
 
 In a scenario where the complete Availability Zone (AZ1) goes down and the ASCS and Primary database are running there, the DB fail-over is not triggered
 until the ASCS fail-over is complete and the FM is up and running in the 2nd Availability Zone (AZ2). The FM then needs to read the boot file
@@ -2058,7 +2084,7 @@ failover prerequisites fulfilled: YES.
 Checking the log file is also a suitable method to validate the status.
 
 _As user {mysapadm}_
-[subs="specialchars,attributes"]
+[subs="specialchars,attributes,quotes,verbatim"]
 ----
 # cd /usr/sap/<SID>/ASCS<instance number>/work
 # tail -f dev_sybdbfm
@@ -2108,12 +2134,19 @@ We have *two options* to implement the FM in the pacemaker environment.
 
 [discrete]
 ==== FM is part of the ASCS instance
+* This setup is typically use for SAP Business Suite.
+(HADR users guide: Installing HADR for Business Suite -> Using the Fault Manager with Business Suite)
+* The FM instance is monitored and maintained by pacemaker as sub instance of the ASCS primitive.
+That means the FM is started and stop and moved along with the ASCS instance.
 
 image::sles4sap_nw740_cs_fm.svg[SVG]
 
 [discrete]
 ==== FM is running as single instance (own SAP instance and cluster resource)
-* additional configuration steps and resources are required (storage and IP)
+* Additional configuration steps and resources are required (storage and IP).
+* This setup is typically use for SAP none Business Suite.
+(HADR users guide: Installing HADR for Custom Application ->  Installing The Fault Manager)
+* The FM is totally independent from any other cluster resource. This could be a benefit during maintenance procedures.
 
 image::sles4sap_nw740_cs+fm.svg[SVG]
 
@@ -2140,7 +2173,7 @@ primitive rsc_sap_{mySid}_ASCS{myAscsIno} SAPInstance \
         op monitor interval=11 timeout=60 on-fail=restart \
         params InstanceName={mySid}_ASCS{myAscsIno}_{myVipNAscs} \
         START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_ASCS{myAscsIno}_{myVipNAscs}" \
-        AUTOMATIC_RECOVER=false MONITOR_SERVICES="sybdbfm|msg_server|enserver" \
+        AUTOMATIC_RECOVER=false MONITOR_SERVICES="*sybdbfm*|msg_server|enserver" \
         meta resource-stickiness=5000 failure-timeout=60 migration-threshold=1 priority=10
 ----
 The FM service is not part of the default observed SAP instance services. If we specify the *MONITOR_SERVICES*
@@ -2179,7 +2212,7 @@ service with the ASCS we must separate them first.
 .Option two:
 =============================================
 Host preparation on all nodes which are cluster members.
-[subs="specialchars,attributes"]
+[subs="specialchars,attributes,quotes,verbatim"]
 ----
 # mkdir -p /usr/sap/{mySid}/{aseInst}
 ## adding the vIP and the hostname of FM instance
@@ -2212,7 +2245,7 @@ Edit the file _/usr/sap/{mySid}/SYS/profile/{mySid}____{myInstAscs}____{myVipNAs
 # Restart_Program_02 = local $(_SYBHAD) hadm pf=$(_SYBHA_PF)
 ----
 
-Now we need an *new* instance profile for the FM. You can take a *copy* of the ASCS profile and adapt them carefully.
+Now we need a *new* instance profile for the FM. You can take a *copy* of the ASCS profile and adapt them carefully.
 
 *The result should look like this:*
 [subs="specialchars,attributes,quotes,verbatim"]
@@ -2312,7 +2345,7 @@ sybdbfm, , GREEN, Running, 2020 04 22 18:28:31, 27:43:21, 17733
 
 =============================================
 
-.Cluster integration as independent instance
+.Cluster integration as an independent instance
 =============================================
 Prepare a file which contains the resource for the FM. We are using the same method of three primitives
 (IP, filesystem,SAP Instance) as it was done for the ASCS or ERS. The values must be adapted to your infrastructure.
@@ -2337,12 +2370,12 @@ primitive rsc_sap_{mySid}_{aseInst} SAPInstance \
         op monitor interval=11 timeout=60 on-fail=restart \
         params InstanceName={mySid}_{aseInst}_myVipNFM \
         START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_{aseInst}_myVipNFM" \
-        AUTOMATIC_RECOVER=false MONITOR_SERVICES="sybdbfm" \
+        AUTOMATIC_RECOVER=false MONITOR_SERVICES="*sybdbfm*" \
 		meta priority=100 failure-timeout=60 migration-threshold=3 target-role=Started
 group grp_{mySid}_{aseInst} rsc_ip_{mySid}_{aseInst} rsc_fs_{mySid}_{aseInst} rsc_sap_{mySid}_{aseInst}
 ----
 
-.Upload the configuration to the cluster and check the cluster
+*Upload the configuration to the cluster and check the cluster*
 [subs="specialchars,attributes,quotes,verbatim"]
 ----
 # crm configure load update crm-fm.txt
@@ -2356,9 +2389,10 @@ An ASE DB replication setup controlled by FM need some special rules which must 
 First of all how can the status be checked of the replication and FM itself. This chapter
 will also give guidelines how to improve the takeover time and how to control such an environment.
 
+==== Check the Status
+
 .Checking the status of the database situation when FM is running together with ASCS
 ==========
-//TODO: update output
 Check the status and locate the actual primary DB host.
 
 _As user {mysapadm}_ on the ASCS host
@@ -2383,7 +2417,6 @@ And check the log file _dev_sybdbfm_
 
 ==========
 
-//TODO: update output
 .Checking the status of the database situation when FM is running as standalone instance
 ===============
 
@@ -2392,7 +2425,7 @@ Check the status and locate the actual primary DB host.
 _As user {mysapadm}_ on the host where ever the FM is running
 [subs="specialchars,attributes"]
 ----
-# ssh {mysapadm}@{vfmhost}
+# ssh {mysapadm}@{myVipNFM}
 # cd /usr/sap/{mySid}/{aseInst}/work
 # ./sybdbfm.sap{mySid}_{aseInst} status
 ----
@@ -2415,6 +2448,7 @@ _As user syb<sid>_ on the database host
 
 ===============
 
+==== OS Modification for DB Failover
 The application server (PAS and AAS) environment must be adapted for the DB fail-over situation (takeover).
 On each host which is providing a dialog server (PAS; AAS) the _.dbenv.sh_ and or _.dbenv.csh_ file needs to be extended.
 
@@ -2454,7 +2488,7 @@ IMPORTANT: The instance must be restarted to activate the changes.
 =================
 
 The default tcp_retries value is to high and causes a very long takeover time. With ASE16 PL7 the behavior is modified.
-Up to this patch the change below improve the takeover time.
+Up to this patch the change below improves the takeover time.
 
 _As user root_
 [subs="specialchars,attributes"]
@@ -2470,6 +2504,7 @@ net.ipv4.tcp_retries2 = 3
 
 =================
 
+==== Start and Stop Procedures
 
 .Starting and Stopping The SAP System and Databases in Replication Mode
 ================
@@ -2520,7 +2555,8 @@ _As user <sid>adm_ on the host for PAS or AAS
 # sapcontrol -nr <instance number> -function StartSystem
 ----
 
-NOTE: If the system should start one by one, use the command _sapcontrol -nr <instance number> -function StartSystem_. The direction must be: ASCS; ERS; PAS; AAS.
+NOTE: If the system should start one by one, use the command _sapcontrol -nr <instance number> -function StartSystem_.
+The sequence must be: ASCS; ERS; PAS; AAS.
 
 .In general these steps are important to *stop* the system:
 
@@ -2547,7 +2583,8 @@ _As user <sid>adm_ on one of the Pacemaker host for ASCS and ERS or PAS / AAS
 # sapcontrol -nr <instance number> -function StopSystem
 ----
 
-NOTE: If the system should stop one by one, use the command _sapcontrol -nr <instance number> -function Stop_ on each instance host. The direction must be: AAS; PAS; ASCS; ERS.
+NOTE: If the system should stop one by one, use the command _sapcontrol -nr <instance number> -function Stop_ on each instance host.
+The process must be: AAS; PAS; ASCS; ERS.
 
 _As user root_ on primary database host
 [subs="specialchars,attributes"]
@@ -2794,8 +2831,19 @@ The complete crm configuratoin for {sap} system {mySid} looks as follows:
 ----
 ## nodes
 
-node 1084753931: {myNode1}
-node 1084753932: {myNode2}
+node {myNode1}
+node {myNode2}
+
+## aliyun_fence
+
+primitive res_ALIYUN_STONITH_1 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params plug=i-gw87xi82sj2dy2ysaw19 ram_role=SAP-ASE region=eu-central-1 \
+	meta target-role=Started
+primitive res_ALIYUN_STONITH_2 stonith:fence_aliyun \
+	op monitor interval=120 timeout=60 \
+	params plug=i-gw86pnh1jy1dw0vfer3w ram_role=SAP-ASE region=eu-central-1 \
+	meta target-role=Started
 
 ## primitives for ASCS and ERS
 
@@ -2846,10 +2894,15 @@ location loc_sap_{mySid}_fail-over_to_ers rsc_sap_{mySID}_{myInstAscs} \
 	rule 2000: runs_ers_{mySID} eq 1
 order ord_sap_{mySid}_first_ascs Optional: rsc_sap_{mySID}_{myInstAscs}:start rsc_sap_{mySID}_{myInstErs}:stop symmetrical=false
 
+## constraints between node and stonith resources
+
+location loc_{myNode1}_stonith_not_on_{myNode1} res_ALIYUN_STONITH_1 -inf: {myNode1}
+location loc_{myNode2}_stonith_not_on_{myNode2} res_ALIYUN_STONITH_2 -inf: {myNode2}
+
 ## crm properties and more
 
 property cib-bootstrap-options: \
-	have-watchdog=true \
+	have-watchdog=false \
 	dc-version=1.1.19-20181105.ccd6b5b10 \
 	cluster-infrastructure=corosync \
 	cluster-name=hacluster \
@@ -2933,6 +2986,7 @@ quorum {
 }
 ----
 
+////
 === Corosync Configuration of the multi Node Cluster
 
 [subs="specialchars,attributes,quotes"]
@@ -3001,6 +3055,7 @@ quorum {
 		two_node: 0
 	}
 ----
+////
 
 // Standard SUSE Best Practices includes
 == Legal Notice

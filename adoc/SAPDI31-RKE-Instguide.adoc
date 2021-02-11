@@ -28,21 +28,31 @@ Only x86_64 architecture is applicable for this use case.
 
 
 * Minimal hardware requirements for a SAP DI 3 deployment 
-** Management workstation 16 GiB RAM, 4 CPUs
 ** At least 7 nodes are needed for a minimal Kubernetes cluster
-** Master nodes 16 GiB, 4 CPUs, 100GiB+ free disk space
-** Worker nodes 32 GiB, 8 CPUs, 100GiB+ free disk space
+
+[cols="40,.^10,15,.^10,25",options="header"]
+|===
+|Server Role |Count|RAM|CPU|Disk space
+|Management Workstation|1|16 GiB|4|>100 GiB
+|Master Node|3|16 GiB|4|>120 GiB
+|Worker Node|4|32 GiB|8|>120 GiB
+|===
+
 
 * Minimal hardware requirements for production
-** Management workstation 16 GiB RAM, 4 CPUs, 
 ** At least 7 nodes are needed for a production grade Kubernetes cluster
-** Master nodes 16 GiB RAM, 4+ CPUs, 100 GiB+ free disk space
-** Worker nodes 64 GiB RAM, 16+ CPUs, 120 GiB+ free disk space
 
-* see Rancher documentation
+[cols="40,.^10,15,.^10,25",options="header"]
+|===
+|Server Role|Count|RAM|CPU|Disk space
+|Management Workstation|1|16 GiB|4|>100 GiB
+|Master Node|3|16 GiB|4|>120 GiB
+|Worker Node|4|64 GiB|16|>120 GiB
+|===
+
+* see Rancher RKE documentation https://rancher.com/docs/rke/latest/en/os/ 
 
 * For more sizing information see the SAP documentation that can be found here:
-// FIXME add link to SAP sizing guide for DI
 ** https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
 
 === Software Requirements
@@ -81,7 +91,7 @@ Here we list the software components needed to install SAP DI 3.1 on RKE 1:
 * get an SAP S-user to access software and documentation by SAP
 
 * read relevant SAP documentation
-** Release Note for SAP DI 3
+** Release Note for SAP DI 3 https://launchpad.support.sap.com/#/notes/2871970
 ** SAP SLCBridge
 ** Installation Guide at help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
 
@@ -404,7 +414,7 @@ https://longhorn.io/docs/1.1.0/
 
 The SLCBridge can be obtained via the following ways
 
-* download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download slcbridge
+* download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download SLCBridge
 
 * see release note of SLCBridge https://launchpad.support.sap.com/#/notes/2589449
 
@@ -445,7 +455,7 @@ https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/7e
 
 
 The stack.xml can be created via the SAP Maintenance Planner, this tool can be accessed via https://support.sap.com/en/alm/solution-manager/processes-72/maintenance-planner.html
-Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp published on SAP site and generate a Stack XML file with the container image definitions of the SAP Data Intelligence release that you want to install. Download the Stack XML file to a local directory.
+Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp published on SAP site and generate a Stack XML file with the container image definitions of the SAP Data Intelligence release that you want to install. Download the Stack XML file to a local directory. Copy the stack.xml to the management workstation.
 
 
 === Run the Installation of SAP DI
@@ -453,6 +463,7 @@ Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp pub
 The installation of SAP DI 3.1 is invoked by:
 
 ----
+$ export KUBECONFIG=<path to kubeconfig>
 $ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
 ----
 
@@ -460,7 +471,7 @@ This starts an interactive process for configuring and deploying SAP DI 3.1.
 
 This table lists some of the parameters possible for SAP DI 3.1 installation:
 
-[cols="1,2,3",options="header"]
+[cols="3",options="header"]
 |===
 | Parameter| Condition | Recommendation
 | Kubernetes Namespace | Always | set to namespace created beforehand
@@ -469,16 +480,16 @@ This table lists some of the parameters possible for SAP DI 3.1 installation:
 | Checkpoint Store Configuration| installation | wether to enable Checkpoint Store
 | Checkpoint Store Type |if Checkpoint Store is enabled | use S3 object store from SES
 | Checkpoint Store Validation |if Checkpoint is enabled | Object store access will be verified
-| Container Registry Settings for Pipeline Modeler ||
+| Container Registry Settings for Pipeline Modeler |optional| used if a second container registry is used
 | StorageClass Configuration ||
 | Default StorageClass ||
-| Enable Kaniko Usage ||
+| Enable Kaniko Usage |optional if running on Docker| enable
 | Container Image Repository Settings for SAP Data Intelligence Modeler||
-| Container Registry for Pipeline Modeler ||
-| Loading NFS Modules ||
-| Additional Installer Parameters ||
+| Container Registry for Pipeline Modeler |optional|
+| Loading NFS Modules |optional| Make sure that nfsd and nfsv4 kernel modules are loaded on worker nodes
+| Additional Installer Parameters |optional|
 |===
-See SAP documenation here for details on input parameters.
+See SAP documenation here for details on input parameters for SAP DI 3.1 installation.
 https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/abfa9c73f7704de2907ea7ff65e7a20a.html
 
 
@@ -487,6 +498,12 @@ https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/ab
 After the successful finish of the installation workflow there are some tasks to be done:
 
 * create ingress to access the SAP DI installation
+
+----
+$ cat <<EOF > ingress.yaml
+EOF
+$ kubectl apply -f ingress.yaml
+----
 
 * download vctl
 
@@ -505,24 +522,26 @@ Finally the SAP DI installation should be verified with some very basic tests:
 
 == Troubleshooting
 
+Here some are listed some errors and their respective solution.
 
 === error acessing registry
 
 get sa
 
 ----
- kubectl -n di310 get  -o jsonpath=$'{.spec.serviceAccountName}\n' pod/default-4wtmgwe-backup-hana-zbdlc
+ kubectl -n $NAMESPACE get  -o jsonpath=$'{.spec.serviceAccountName}\n' pod/default-4wtmgwe-backup-hana-zbdlc
 ----
+
 create secret
 
 ----
-kubectl -ndi310 create secret docker-registry pull-secret --docker-server="lu0591.wdf.sap.corp:5000" --docker-username=regadmin --docker-password=datahub4SAP
+kubectl -n $NAMESPACE create secret docker-registry pull-secret --docker-server="<URI of registry>" --docker-username=<username> --docker-password=<password>
 ----
 
 patch sa
 
 ----
-kubectl -ndi310 patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
+kubectl -n $NAMESPACE patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
 ----
 
 restart pod or parent
@@ -533,6 +552,9 @@ kubectl -n $NAMESPACE delete pod
 
 == Day 2 Operation considerations
 
+* Monitoring
+** built-in monitoring in SAP DI
+
 * security
 
 * availability
@@ -540,9 +562,21 @@ kubectl -n $NAMESPACE delete pod
 
 == Maintenance Tasks
 
+This section gives some hints what should and could be done to maintain the Kubernetes cluster, operating system and SAP DI.
+
 === Backup
 
+It is good practice to keep backups of all relevant data to be able to restore the environment in case of failure.
+
+* Regular backups
+
+** RKE see https://rancher.com/docs/rke/latest/en/etcd-snapshots/
+
+
+
 === Upgrade/Update
+
+Keep the installation up to date.
 
 ==== Updating the Operating System
 
@@ -572,7 +606,7 @@ $ zypper patch
 
 * Run the update with the new RKE binary with your cluster.yaml file.
 
-* See Rancher RKE documentation
+* See Rancher RKE documentation https://rancher.com/docs/rke/latest/en/upgrades/
 
 ==== Updating SAP Data Intelligence
 

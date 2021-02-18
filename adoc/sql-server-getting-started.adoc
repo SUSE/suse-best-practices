@@ -1,0 +1,258 @@
+= {title}
+:title: SQL Server on SUSE Linux Enterprise: Getting Started
+:author: James Yang
+:revnumber: 0.0.1
+:toc2:
+:toc-title: {title}
+:toclevels: 4
+
+:sles: SUSE Linux Enterprise Server
+
+{sles} 12 SP1-5 / SQL Server 2019
+
+== Motivation
+
+=== Background
+Since Microsoft released SQL Server on Linux in 2017 footnote:[https://cloudblogs.microsoft.com/sqlserver/2017/10/02/sql-server-2017-on-windows-linux-and-docker-is-now-generally-available], the feature gap footnote:[https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-editions-and-components-2019?view=sql-server-ver15#Unsupported] for SQL Server between Windows and Linux has been closing quickly and it’s now viable to start considering running SQL Server workloads on Linux.
+
+=== Audience
+This guide is intended for SQL Server DBA’s, Developers, DevOps/SRE engineers who are familiar with SQL Server on Windows and are looking to migrate to Linux or already run a primarily Linux environment and are adding a SQL Server requirement, but want to retain utilizing tools that run only on Linux servers. Another reason may be lower negotiated pricing for Linux subscriptions which can now be filled to replace existing SQL Server on Windows machines.
+
+=== Scope
+The guide covers a basic installation of SQL Server on {sles}. It’s meant to be agnostic of underlying infrastructure excepting the nuance of server registration discussed xref:server_registration[below].
+
+
+== Installation
+
+=== System Requirements
+* 2 GHz CPU with 2 Cores
+* x64 Architecture
+* XFS or EXT4 File System
+* 6 GB Disk Space (not including data)
+
+[[server_registration]]
+=== Server Registration
+To gain access to SUSE repositories, you'll first need to register your server with `SUSEConnect`. If you have an SUSE SMT (Subscription Management Tool) server you'd like to use reference this https://www.suse.com/support/kb/doc/?id=000019401[support article]. If you’re launching an On-Demand (a.k.a. Pay-As-You-Go) instance and not a BYOS (Bring Your Own Subscription) BYOS instance at a public cloud provider, skip this step.
+
+[source,bash]
+-----
+	$ sudo SUSEConnect --regcode ${REGISTRATION_CODE} --email ${EMAIL_ADDRESS}
+-----
+
+More information about registering can be found https://documentation.suse.com/sles/12-SP5/html/SLES-all/cha-y2-sw.html#sec-y2-sw-register-suseconnect[here].
+
+=== Repositories
+To verify packages from Microsoft’s SQL Server repositories first add their package signing key:
+
+[source,bash]
+----
+	$ sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+----
+
+Then add the repository. The `refresh` option enables auto refresh of the repository and the `check` option validates the URL.
+
+[source,bash]
+----
+	$ sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/mssql-server-2019.repo
+----
+
+=== Package
+To install the SQL Server package noninteractively:
+
+[source,bash]
+----
+	$ sudo zypper install --no-confirm mssql-server
+----
+
+== Configuration
+
+=== Initial Configuration
+To configure and start SQL Server, `mssql-conf` can be used to accept the EULA, set the SQL Server Edition and the SA password. For convenience we can symlink it to `/usr/local/bin` to avoid typing the full path each time.
+
+[source,bash]
+----
+	$ sudo ln --symbolic /opt/mssql/bin/mssql-conf /usr/local/bin/mssql-conf
+----
+
+Then to configure and start
+
+[source,bash]
+----
+	$ sudo ACCEPT_EULA='Y' MSSQL_SA_PASSWORD=Suselove12 MSSQL_PID='Developer' mssql-conf --noprompt setup
+----
+
+* `ACCEPT_EULA` accepts the SQL Server EULA
+* `MSQL_SA_PASSWORD` sets the SA user password. Ensure password xref:password_requirements[requirements] are followed.
+* `MSQL_PID` set the SQL Server edition, acceptable values are:
+** Evaluation
+** Developer
+** Express
+** Web
+** Standard
+** Enterprise
+** Product key formatted as +#####-#####-#####-#####-#####+
+* The `noprompt` option configures SQL Server noninteractively
+
+[CAUTION]
+It is recommended to change the SA password later with `mssql-conf set-sa-password` or disabling the history prior to configuring SQL Server with `set +o history` and reenabling after with `set -o history` (bash).
+
+SQL Server should be started at this point, and we can verify this with `netcat`. SQL Server listens for connections on port `1433` by default.
+
+[source,bash]
+----
+	nc -vz localhost 1433
+----
+
+For further configuration mssql-conf can be used to set additional parameters. Changes will take effect after a restart.
+
+[source,bash]
+----
+	$ sudo mssql-conf set ${parameter}
+	$ sudo systemctl restart mssql-server
+----
+
+Available `mssql-conf` options are described https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf[here]
+
+An alternative way to configure SQL Server is using the `/var/opt/mssql/mssql.conf` file. Settings are stored in https://en.wikipedia.org/wiki/INI_file[INI] format.
+
+A sample `mssql.conf` file is shown below. Simply edit and restart for mssql-server to apply changes.
+
+[source,ini]
+----
+	[EULA]
+	accepteula = Y
+
+	[filelocation]
+	defaultdatadir = /var/opt/mssql/data/
+	defaultdumpdir = /var/opt/mssql/data/
+	defaultlogdir = /var/opt/mssql/data/
+
+	[network]
+	tcpport = 1433
+
+	[sqlagent]
+	enabled = true
+----
+
+== Tools
+Now that SQL Server is running, we can begin to query it. The mssql-tools package includes `sqlcmd`, which is a shell to query SQL Server. We install it similarly to the `mssql-server` package.
+
+Add the repo:
+
+[source,bash]
+----
+	$ sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/prod.repo
+----
+
+Install the mssql-tools package
+
+[source,bash]
+----
+	$ sudo ACCEPT_EULA=Y zypper install --no-confirm mssql-tools
+----
+
+Optionally add it to our path:
+
+[source,bash]
+----
+	$ sudo ln --symbolic /opt/mssql-tools/bin/sqlcmd /usr/local/bin/sqlcmd
+----
+
+Then start sqlcmd and input a query. `-S` option designates the server. `-U` option specifies the user. Available options https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15#syntax[here]. 
+
+[source,bash]
+----
+	$ sudo sqlcmd -S localhost -U SA
+----
+
+[source,sql]
+----
+	1>	SELECT name from sys.databases
+	2>	GO
+	name                                                                              
+	master
+	tempdb
+	model
+	msdb
+	TestDB    
+----
+
+`GO` is required here to execute the previous statements.
+
+To exit `sqlcmd` input `quit`
+
+[source,sql]
+----
+	3> quit
+----
+
+The full `sqlcmd` documentation can be found https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15[here].
+
+== Administration
+
+=== systemd
+The mssql-server package installs and configures SQL Server as a https://systemd.io/[systemd] service. Systemd provides a framework for managing services, mounts, and system states. More reading https://www.freedesktop.org/software/systemd/man/systemd.unit.html[here]. To control the mssql-server service we use `systemctl` to `start`, `stop`, `restart`, and retrieve the `status` of the service.
+
+Start mssql-server
+
+[source,bash]
+----
+	$ sudo systemctl start mssql-server
+----
+
+Stop mssql-server
+
+[source,bash]
+----
+	$ sudo systemctl stop mssql-server
+----
+
+Restart mssql-server
+
+[source,bash]
+----
+	$ sudo systemctl restart mssql-server
+----
+
+Display mssql-server status
+
+[source,bash]
+----
+	$ sudo systemctl status mssql-server
+----
+
+=== Logs
+For troubleshooting, the logs and crash dumps are written to `/var/opt/mssql/log` by default. Notable logs are the *errorlogs* (+errorlog*+), *trace logs* (+*.trc+), *sqlagent logs* (+sqlagent*+), and the *extended events logs* (*.xel). Core dumps are written with the `.tar.gz2` extension and sql dumps with the `.mdmp` extension. To view these resources you’ll need root or the mssql user access.
+
+[source,bash]
+----
+	$ ls /var/opt/mssql/log
+	HkEngineEventFile_0_132574672188100000.xel	errorlog	errorlog.4	log_20.trc	sqlagent.2  		system_health_0_132574672201000000.xel
+	HkEngineEventFile_0_132574672310500000.xel	errorlog.1	health.log	log_21.trc	sqlagent.3			system_health_0_132574672319150000.xel
+	HkEngineEventFile_0_132575629019340000.xel	errorlog.2	log_18.trc	log_22.trc	sqlagent.out		system_health_0_132575629028000000.xel
+	HkEngineEventFile_0_132575645400520000.xel	errorlog.3	log_19.trc	sqlagent.1	sqlagentstartup.log	system_health_0_132575645408320000.xel
+----
+
+== Summary
+Businesses around the world look to SUSE to help them simplify and optimize their IT environments, modernize their applications and infrastructure, and accelerate innovation on-premises, in the cloud, and at the edge. With {sles} support for Microsoft SQL Server, businesses can streamline their IT landscape and operations without changing their preferred enterprise database management system.
+
+At this point, you should have a rudimentary understanding of how to install SQL Server on {sles}, install SQL Server tools, query SQL Server and perform basic administration. To stay up to date on the latest SQL Server on Linux features bookmark this https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-release-notes-2019?view=sql-server-ver15[page].
+
+
+== Appendix
+
+[[password_requirements]]
+=== SQL Server Password Requirements
+SQL Server passwords must be between 8 and 128 (inclusive), cannot contain unicode control characters `[Ll, Lu, Nd, Cc]` and must contain at least 3 of the following:
+
+* upper case letters
+* lower case letters
+* numbers
+* symbols from the set ``(`~!@#$%^&*_-+=|\\{}[]:;\"'<>,.?)/``
+
+=== References
+* https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-setup?view=sql-server-ver15
+* https://docs.microsoft.com/en-us/sql/linux/quickstart-install-connect-suse?view=sql-server-ver15
+* https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf?view=sql-server-ver15
+* https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15
+

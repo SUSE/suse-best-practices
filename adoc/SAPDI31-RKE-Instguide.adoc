@@ -121,7 +121,7 @@ All servers in this landscape will use SUSE Enterprise Linux 15 SP2 (SLES 15 SP2
 On each server in your environment for SAP Data Intelligence 3.1 install SLES 15 SP2 as operating system.
 This chapter will show all recommended steps when during the installation.
 
-TIP: If you already have all machines and the OS setup, you may skip this chapter and follow the instructions at <<Configuration of SUSE Linux Enterprise 15 SP2 (SLES 15 SP2)>>.
+TIP: If you already have all machines and the OS setup, you may skip this chapter and follow the instructions at <<Configuration of Kubernetes nodes>>.
 
 ++++
 <?pdfpagebreak?>
@@ -231,27 +231,123 @@ Finish installation and go to the next chapter.
 ++++
 <?pdfpagebreak?>
 ++++
-==== Configuration of SUSE Linux Enterprise 15 SP2 (SLES 15 SP2)
+=== Configuration of the Kubernetes nodes
 
-* static IP configuration is highly recommended
-* deploy a text based install
-* configure ntp client
-* disable firewall
-* enable ssh access
-* disable kdump
-* register installation to SUSE Customer Center or a SMT/RMT server to obtain updates during installation and afterwards
-* install nfs-client, nfs-kernelserver, xfsprogs, ceph-common on any node.
+In this guide the Workstation will be used to orchestrate all other machines via Salt.
+
+==== Installation and configuration of Salt-Minions
+
+First step is to register all systems to the SUSE Customer Center or a SMT/RMT server to obtain updates during installation and afterwards.
+
+When using a SMT/RMT server the address must be specified:
+----
+$ sudo SUSEConnect --url "https://<SMT/RMT-address>"
+----
+
+When registering via SUSE Customer Center, use your subscription and email address:
+----
+$ sudo SUSEConnect -r <SubscriptionCode> -e <EmailAddress>
+----
+
+The basesystem is required by all other modules. For installation run:
+----
+$ sudo SUSEConnect -p sle-module-basesystem/15.2/x86_64
+----
 
 
-=== Configure Management Workstation
+Before the Workstation can be used for orchestration, Salt needs to be installed and configured on all Kubernetes nodes:
 
-The management workstation is used to deploy and administer the Kubernetes cluster and the workloads running on it.
+----
+$ sudo zypper in -y salt-minion
+$ sudo echo "master: <WorkstationIP>" > /etc/salt/minion
+$ sudo systemctl enable salt-minion --now
+----
 
-* download and install kubectl in a version matching the Kubernetes version of the cluster (see below).
-* access to the cluster nodes via ssh
+++++
+<?pdfpagebreak?>
+++++
+=== Configuration of the Management Workstation
 
+The management workstation is used to deploy and maintain the Kubernetes cluster and workloads running on it.
 
+==== Installation and configuration of Salt-Masters
 
+It's recommended to use Salt to orchestrate all Kubernetes nodes.
+This can be skipped but means every node must be configured manually afterwards.
+
+To install Salt run:
+----
+$ sudo zypper in -y salt-master
+$ sudo systemctl enable salt-master --now
+----
+
+Make sure all Kubernetes nodes show up when running:
+----
+$ salt-key -L
+----
+
+Accept and verify all minion keys:
+
+----
+$ salt-key -A -y
+$ salt-key -L
+----
+
+Since RKE deployment needs ssh, a ssh key is needed.
+To generate a new one run:
+----
+$ ssh-keygen -t rsa -b 4096
+----
+
+The generated key needs to be distributed to all other nodes:
+----
+$ ssh-copy-id -i <path to your sshkey> root@<nodeIP>
+----
+
+++++
+<?pdfpagebreak?>
+++++
+==== Configuration of Kubernetes nodes
+
+Check the status of the firewall and disable it if it isn't allready:
+----
+$ sudo salt '*' cmd.run 'systemctl status firewalld'
+$ sudo salt '*' cmd.run 'systemctl disable firewalld --now'
+----
+
+Check the status of Kdump and disable it if it isn't allready:
+----
+$ sudo salt '*' cmd.run 'systemctl status kdump'
+$ sudo salt '*' cmd.run 'systemctl disable kdump --now'
+----
+
+Check the NTP time synchronization and enable it if it isn't:
+----
+$ sudo salt '*' cmd.run 'systemctl status chronyd'
+$ sudo salt '*' cmd.run 'systemctl enable chronyd --now'
+$ sudo salt '*' cmd.run 'chronyc sources'
+----
+
+Make sure the SSH server is running:
+----
+$ sudo salt '*' cmd.run 'systemctl status sshd'
+$ sudo salt '*' cmd.run 'systemctl enable sshd --now'
+----
+
+Activate needed SUSE modules:
+----
+$ sudo salt '*' cmd.run 'SUSEConnect -p sle-module-containers/15.2/x86_64'
+----
+
+Install packages required to run SAP Data Intelligence and enable the docker service:
+----
+$ sudo salt '*' cmd.run 'zypper in -y nfs-client nfs-kernel-server xfsprogs ceph-common docker'
+$ sudo salt '*' cmd.run 'systemctl enable docker --now'
+----
+
+++++
+<?pdfpagebreak?>
+++++
 === Install RKE
 
 In order to install Rancher RKE 1 on the cluster nodes download the RKE 1 binary to your management workstation, create the configuration for the Kubernetes cluster and deploy cluster.
@@ -277,14 +373,14 @@ $ mv rke_linux-amd64 rke
 $ chmod a+x rke
 ----
 
-==== Create the  configuration for the RKE cluster
+==== Create the configuration for the RKE cluster
 
-Running the RKE configure option creates the configuration file for the Kubernetes cluster as a yaml-file in an interactive process.
+Running the RKE configure option creates the configuration file for the Kubernetes cluster as a .yaml file in an interactive process.
 Make sure to have IP addresses of the dedicated cluster nodes at hand.
 
 ----
 $ cd rke
-$ ./rke configure --name <name of your config file>
+$ ./rke config --name <name of your config file>
 ----
 
 ==== Deploy RKE
@@ -309,7 +405,7 @@ Download a matching kubectl version to the management workstation:
 ----
 $ curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.17.17/bin/linux/amd64/kubectl
 $ chmod a+x kubectl
-# cp -av kubectl /usr/bin/kubectl
+$ sudo cp -av kubectl /usr/bin/kubectl
 ----
 
 

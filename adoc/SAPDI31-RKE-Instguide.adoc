@@ -87,17 +87,17 @@ Here we list the software components needed to install SAP DI 3.1 on RKE 1:
 
 * Get SUSE SLES subscription
 
-* download installer for SLES 15 SP2
+* Download installer for SLES 15 SP2
 
-* download rke binary
+* Download rke binary
 
-* check storage requirements
+* Check storage requirements
 
-* create or get access to a private container registry
+* Create or get access to a private container registry
 
-* get an SAP S-user to access software and documentation by SAP
+* Get an SAP S-user to access software and documentation by SAP
 
-* read relevant SAP documentation
+* Read relevant SAP documentation
 ** Release Note for SAP DI 3 https://launchpad.support.sap.com/#/notes/2871970
 ** SAP SLCBridge
 ** Installation Guide at help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
@@ -428,12 +428,12 @@ This section describes the installation of SAP DI 3.1 on RKE 1 powered Kubernete
 
 These are the steps to fulfill before the deployment of SAP DI 3.1 can start:
 
-* create a namespace for SAP DI 3.1
-* create access to secure private registry
-* create a default storage class
-* download and install SAP SLCBridge
-* download the stack.xml file for provisioning the DI 3.1 install
-* check if nfsd nfsv4 kernel modules are loaded and/or loadable on the Kubernetes nodes
+* Create a namespace for SAP DI 3.1
+* Create access to secure private registry
+* Create a default storage class
+* Download and install SAP SLCBridge
+* Download the stack.xml file for provisioning the DI 3.1 install
+* Check if nfsd nfsv4 kernel modules are loaded and/or loadable on the Kubernetes nodes
 
 
 ==== Create namespace for SAP DI 3.1 in the Kubernetes cluster
@@ -624,13 +624,13 @@ https://longhorn.io/docs/1.1.0/
 
 The SLCBridge can be obtained via the following ways
 
-* download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download SLCBridge
+* Download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download SLCBridge
 
-* see release note of SLCBridge https://launchpad.support.sap.com/#/notes/2589449
+* See release note of SLCBridge https://launchpad.support.sap.com/#/notes/2589449
 
-* see https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html
+* See https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html
 
-* download the SLCBridge software to the management workstation.
+* Download the SLCBridge software to the management workstation.
 
 
 === Install the SLCBridge
@@ -707,27 +707,71 @@ https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/ab
 
 After the successful finish of the installation workflow there are some tasks to be done:
 
-* create ingress to access the SAP DI installation
+* Obtain or create a SSL certificate for securely accessing the SAP DI installation:
+
+----
+$ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
+----
+----
+$ openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
+----
+
+----
+$ export NAMESPACE=<SAP DI namespace>
+$ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
+----
+* Create ingress to access the SAP DI installation
 
 ----
 $ cat <<EOF > ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+  name: vsystem
+spec:
+  rules:
+  - host: "<hostname FQDN must match SSL certificate"
+    http:
+      paths:
+      - backend:
+          serviceName: vsystem
+          servicePort: 8797
+        path: /
+  tls:
+  - hosts:
+    - "<hostname FQDN must match SSL certificate>"
+    secretName: vsystem-tls-certs
 EOF
 $ kubectl apply -f ingress.yaml
 ----
 
-* download vctl
+
+* Now connecting to https://<hostname> brings up the SAP DI login dialog. 
+
 
 === Test of Data Intelligence Installation
 
 Finally the SAP DI installation should be verified with some very basic tests:
 
-* logon to SAP DI's launchpad
+* Logon to SAP DI's launchpad
 
-* create example pipeline
+* Create example pipeline
 
-* create ML Scenario
+* Create ML Scenario
 
-* test machine learning
+* Test machine learning
+
+* Download vctl
 
 ++++
 <?pdfpagebreak?>

@@ -598,15 +598,41 @@ csi-rbd-sc (default)   rbd.csi.ceph.com   Delete          Immediate           fa
 
 === Longhorn for Physical Volumes 
 
-A possible valid alternative is to deploy Longhorn storage for the PVs.
+A possible valid alternative is to deploy Longhorn storage for serving the PVs of SAP DI 3.
+https://longhorn.io
+
+Longhorn uses the CSI for accessing the storage.
 
 ==== Pre-requisites
 
+On the Kubernetes worker nodes that shall act as storage nodes add sufficient disk drives.
+Create mountpoints for these disks and mount them.
+Longhorn will be configured to use these disks for storing data.
+For disk sizes see SAP Sizing Guide for SAP DI 3
+https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
+
 ==== Installation of Longhorn
+
+The installation of Longhorn is straight forward.
+This guide follows the documentation of Longhorn which can be found here:
+https://longhorn.io/docs/1.1.0/
 
 ----
 $ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/deploy/longhorn.yaml
 ----
+
+==== Configuring Longhorn
+
+Access the dashboard
+
+ingress
+
+Configure the disks
+
+Built-in monitor
+
+
+
 
 ==== Create a Storage Class on top of Longhorn
 
@@ -691,11 +717,11 @@ This table lists some of the parameters possible for SAP DI 3.1 installation:
 | Checkpoint Store Type |if Checkpoint Store is enabled | use S3 object store from SES
 | Checkpoint Store Validation |if Checkpoint is enabled | Object store access will be verified
 | Container Registry Settings for Pipeline Modeler |optional| used if a second container registry is used
-| StorageClass Configuration ||
-| Default StorageClass ||
+| StorageClass Configuration |optional, needed if a different StorageClass is used for some components| leave the default
+| Default StorageClass |detected by SAP DI installer| The Kubernetes cluster shall have a storage class annotated as default SC
 | Enable Kaniko Usage |optional if running on Docker| enable
-| Container Image Repository Settings for SAP Data Intelligence Modeler||
-| Container Registry for Pipeline Modeler |optional|
+| Container Image Repository Settings for SAP Data Intelligence Modeler|mandatory|
+| Container Registry for Pipeline Modeler |optional| Needed if a different container registry is used for the pipeline modeler images
 | Loading NFS Modules |optional| Make sure that nfsd and nfsv4 kernel modules are loaded on worker nodes
 | Additional Installer Parameters |optional|
 |===
@@ -709,18 +735,31 @@ After the successful finish of the installation workflow there are some tasks to
 
 * Obtain or create a SSL certificate for securely accessing the SAP DI installation:
 
+** Create a certificate request e.g.:
+
 ----
 $ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
 ----
+
+** Decrypt the key 
+
 ----
 $ openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
 ----
 
+** Let a CA sign the <hostname>.csr
+You will receive  a <hostname>.crt that has to be used in the following step.
+
+** Create a secret from the certificate and the key in the SAP DI 3 namespace
+
 ----
-$ export NAMESPACE=<SAP DI namespace>
+$ export NAMESPACE=<SAP DI 3 namespace>
 $ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
 ----
-* Create ingress to access the SAP DI installation
+
+This secret will be used in the next step. 
+
+* Create an ingress to access the SAP DI installation
 
 ----
 $ cat <<EOF > ingress.yaml
@@ -773,14 +812,25 @@ Finally the SAP DI installation should be verified with some very basic tests:
 
 * Download vctl
 
+For details see the SAP DI 3 Installation Guide here:
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/1551785f3d7e4d37af7fe99185f7acb6.html
+
 ++++
 <?pdfpagebreak?>
 ++++
 == Troubleshooting
 
-Here some are listed some errors and their respective solution.
+Here are listed some errors and their respective solution.
 
 === error acessing registry
+
+If this error is shown in the logs of a pod:
+
+----
+error message 
+----
+
+This can be amended by the following steps:
 
 get sa
 
@@ -791,19 +841,19 @@ get sa
 create secret
 
 ----
-kubectl -n $NAMESPACE create secret docker-registry pull-secret --docker-server="<URI of registry>" --docker-username=<username> --docker-password=<password>
+$ kubectl -n $NAMESPACE create secret docker-registry pull-secret --docker-server="<URI of registry>" --docker-username=<username> --docker-password=<password>
 ----
 
 patch sa
 
 ----
-kubectl -n $NAMESPACE patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
+$ kubectl -n $NAMESPACE patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
 ----
 
 restart pod or parent
 
 ----
-kubectl -n $NAMESPACE delete pod 
+$ kubectl -n $NAMESPACE delete pod 
 ----
 
 ++++
@@ -815,8 +865,12 @@ kubectl -n $NAMESPACE delete pod
 ** built-in monitoring in SAP DI
 
 * security
+** SAP DI
+** RKE
+** Operating System
 
 * availability
+** HA setup of Kubernetes Cluster
 
 
 == Maintenance Tasks
@@ -835,7 +889,7 @@ It is good practice to keep backups of all relevant data to be able to restore t
 
 === Upgrade/Update
 
-Keep the installation up to date.
+Keeping the installation of SAP DI, RKE 1 and SUSE Linux Enterprise Server up to date.
 
 ==== Updating the Operating System
 
@@ -844,12 +898,12 @@ Keep the installation up to date.
 * The OS can be updated using the zypper commandline tool
 
 ----
-$ zypper ref -s
-$ zypper lu
-$ zypper patch
+$ sudo zypper ref -s
+$ sudo zypper lu
+$ sudo zypper patch
 ----
 
-* other methods for updating SLES 15 SP2 are described in the product documentation
+* other methods for updating SLES 15 SP2 are described in the product documentation. see https://documentation.suse.com/sles
 
 * if an update requires a reboot of the server, make sure that this can be done safely, i.e. shutdown SAP DI, drain and cordon the Kubernetes node before rebooting.
 
@@ -871,4 +925,9 @@ $ zypper patch
 
 Follow SAP's update guide and notes.
 
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/b87299d2e8bc436baadfa020abb59892.html
 
+++++
+<?pdfpagebreak?>
+++++
+= Appendix

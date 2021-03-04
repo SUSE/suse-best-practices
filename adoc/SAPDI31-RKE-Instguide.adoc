@@ -7,7 +7,7 @@
 ++++
 == Introduction
 
-This guide describes the installation of SAP Data Intelligence 3.1 on premise on top of Rancher Kubernetes Engine (RKE) 1. In a nutshell the installation of SAP DI 3.1 consists of the following steps:
+This guide describes the on premise installation of SAP Data Intelligence 3.1 on top of Rancher Kubernetes Engine (RKE) 1. In a nutshell the installation of SAP DI 3.1 consists of the following steps:
 
 * Install SUSE Linux Enterprise Server 15 SP2
 
@@ -58,6 +58,7 @@ Only x86_64 architecture is applicable for this use case.
 * see Rancher RKE documentation https://rancher.com/docs/rke/latest/en/os/ 
 
 * For more sizing information see the SAP documentation that can be found here:
+
 ** https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
 
 === Software Requirements
@@ -100,9 +101,12 @@ Here we list the software components needed to install SAP DI 3.1 on RKE 1:
 * Get an SAP S-user to access software and documentation by SAP
 
 * Read relevant SAP documentation:
-** Release Note for SAP DI 3 https://launchpad.support.sap.com/#/notes/2871970
-** SAP SLCBridge
-** Installation Guide at help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
+** Release Note for SAP DI 3  https://launchpad.support.sap.com/#/notes/2871970
+
+** Release Note for SAP SLCBridge 
+ https://launchpad.support.sap.com/#/notes/2589449
+
+** Installation Guide at help.sap.com  https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
 
 
 ++++
@@ -582,13 +586,16 @@ Deploy the ceph/rbd CSI and storage class:
 ----
 $ kubectl apply -f csi-config-map.yaml
 $ kubectl apply -f csi-rbd-secret.yaml
-$ kubectl apply -f https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-provisioner-rbac.yaml
-$ kubectl apply -f https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-nodeplugin-rbac.yaml
+$ kubectl apply -f \ 
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-provisioner-rbac.yaml
+$ kubectl apply -f \
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-nodeplugin-rbac.yaml
 $ kubectl apply -f csi-rbdplugin-provisioner.yaml 
 $ kubectl apply -f csi-rbdplugin.yaml 
 $ kubectl apply -f csi-rbd-sc.yaml 
 $ kubectl apply -f kms-config.yaml
-$ kubectl patch storageclass csi-rbd-sc -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+$ kubectl patch storageclass csi-rbd-sc \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ----
 
 Check your storage class:
@@ -608,11 +615,28 @@ Longhorn uses the CSI for accessing the storage.
 
 ==== Pre-requisites
 
+Each node in the Kubernetes cluster where Longhorn is installed must fulfill the following requirements:
+
+* a matching Kubernetes version, this given due to the fact that we are installing SAP DI 3
+* open-iscsi 
+* support for xfs filesystem
+* nfsv4 client must be installed
+* curl, lsblk, blkid, findmnt, grep, awk must be installed
+* Mount propagations must be enabled on Kubernetes cluster
+
+There is a check script provided by longhorn project. This can be installed on the management workstation.
+
+----
+$ curl -sSfL https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/scripts/environment_check.sh | bash
+----
+
 On the Kubernetes worker nodes that shall act as storage nodes add sufficient disk drives.
-Create mountpoints for these disks and mount them.
+Create mountpoints for these disks, create xfs filesystem on top and mount them.
 Longhorn will be configured to use these disks for storing data.
 For disk sizes see SAP Sizing Guide for SAP DI 3
 https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
+
+
 
 ==== Installation of Longhorn
 
@@ -624,14 +648,66 @@ https://longhorn.io/docs/1.1.0/
 $ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/deploy/longhorn.yaml
 ----
 
+Monitor the deployment progress with the following command:
+
+----
+$ kubectl get pods \
+  --namespace longhorn-system \
+  --watch
+----
+
 ==== Configuring Longhorn
 
-Access the dashboard
+The Longhorn storage administration is done via a built-in UI dashboard.
+To access this UI an ingress has to be configured.
 
-ingress
+===== Create an Ingress with Basic Authentication
 
+Create a basic auth file named "auth":
+
+----
+$ USER=<USERNAME_HERE>; \
+  PASSWORD=<PASSWORD_HERE>; \
+  echo "${USER}:$(openssl passwd -stdin -apr1 <<< ${PASSWORD})" >> auth
+----
+
+Create a secret from the file auth:
+
+----
+$ kubectl -n longhorn-system create secret generic basic-auth --from-file=auth
+----
+
+Create the ingress with basic authentication:
+
+----
+$ cat <<EOF > longhorn-ingress.yaml
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: longhorn-ingress
+  namespace: longhorn-system
+  annotations:
+    # type of authentication
+    nginx.ingress.kubernetes.io/auth-type: basic
+    # prevent the controller from redirecting (308) to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    # name of the secret that contains the user/password definitions
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    # message to display with an appropriate context why the authentication is required
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required '
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: longhorn-frontend
+          servicePort: 80
+EOF
+
+$ kubectl -n longhorn-system apply -f longhorn-ingress.yaml
+----
 Configure the disks
-
 Built-in monitor
 
 
@@ -639,8 +715,17 @@ Built-in monitor
 
 ==== Create a Storage Class on top of Longhorn
 
+The following command creates a storageclass named longhorn.
+
 ----
 $ kubectl create -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/examples/storageclass.yaml
+----
+
+Annotate this storage class as default:
+
+----
+$ kubectl patch storageclass longhorn \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ----
 
 ==== Longhorn Documentation
@@ -653,16 +738,16 @@ https://longhorn.io/docs/1.1.0/
 ++++
 
 === Download SLCBridge
-//FIXME Formulierung
+
 The SLCBridge can be obtained via the following ways:
 
-* Download from SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154 choose download SLCBridge
+* From SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154: Choose download SLCBridge
 
-* See release note of SLCBridge https://launchpad.support.sap.com/#/notes/2589449
+* See the informations in the release notes of the SLCBridge https://launchpad.support.sap.com/#/notes/2589449
 
 * See https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html
 
-* Download the SLCBridge software to the management workstation.
+Download the SLCBridge software to the management workstation.
 
 
 === Install the SLCBridge
@@ -741,7 +826,7 @@ After the installation workflow has finished successfully, there are some tasks 
 // FIXME Formulierung
 * Obtain or create a SSL certificate for securely accessing the SAP DI installation:
 
-** Create a certificate request e.g.:
+** Create a certificate request using openssl e.g.:
 
 ----
 $ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
@@ -863,18 +948,19 @@ $ kubectl -n $NAMESPACE delete pod
 ++++
 <?pdfpagebreak?>
 ++++
-== Day 2 Operation considerations
 
-* Monitoring
-** built-in monitoring in SAP DI
-
-* security
-** SAP DI
-** RKE
-** Operating System
-
-* availability
-** HA setup of Kubernetes Cluster
+// == Day 2 Operation considerations
+// 
+// * Monitoring
+// ** built-in monitoring in SAP DI
+// 
+// * security
+// ** SAP DI
+// ** RKE
+// ** Operating System
+// 
+// * availability
+// ** HA setup of Kubernetes Cluster
 
 
 == Maintenance Tasks
@@ -888,6 +974,7 @@ It is good practice to keep backups of all relevant data to be able to restore t
 * Regular backups
 
 ** RKE see https://rancher.com/docs/rke/latest/en/etcd-snapshots/
+** SAP Data Intelligence 3 can be configured to create regular backups. See //FIXME link to help.sap.com
 
 
 
@@ -899,7 +986,7 @@ Keeping the installation of SAP DI, RKE 1 and SUSE Linux Enterprise Server up to
 
 * In order to be eligible and to obtain updates for SLES 15 SP2, the installations must be registered either to SUSE Customer Center or a SMT/RMT-server or SUSE Manager with a valid subscription.
 
-* The OS can be updated using the zypper commandline tool
+* The SLES 15 SP2  can be updated using the zypper commandline tool
 
 ----
 $ sudo zypper ref -s
@@ -910,8 +997,27 @@ $ sudo zypper patch
 * other methods for updating SLES 15 SP2 are described in the product documentation. see https://documentation.suse.com/sles
 
 * if an update requires a reboot of the server, make sure that this can be done safely, i.e. shutdown SAP DI, drain and cordon the Kubernetes node before rebooting.
+// FIXME give an example order of commands
 
+----
+$ vctl <shutdown DI>
+$ kubectl drain <node>
+----
 
+Check status of node
+
+----
+$kubectl get node <node>
+----
+
+Update SLES 15 SP2
+
+----
+ssh root@node
+# zypper patch
+----
+
+Reboot if necessary
 
 ==== Updating RKE
 
@@ -931,4 +1037,4 @@ Follow SAP's update guide and notes.
 
 https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/b87299d2e8bc436baadfa020abb59892.html
 
-
+== Appendix

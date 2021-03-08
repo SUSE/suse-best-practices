@@ -218,6 +218,10 @@ customer will:
    cluster
 -	Use a routing table which is attached to the two subnets
 -	Optionally: host a Route53 private hosted naming zone to manage names in the VPC
+-	All components of the cluster should reside in the same Amazon Account. The use of networking components such as a route
+    table in another account (shared VPC setup) is not supported by the cluster resource agent.
+    If you do require a multi account landscape then we advise you to reach to your AWS representative
+    to have a look at implementing a Transit GateWay for cross account/VPC access.
 
 The AWS specific components can be installed in two configurations. Both
 configurations use the AWS Overlay IP address. An Overlay IP address is an
@@ -390,6 +394,40 @@ _.bashrc_ file:
 export NO_PROXY=169.254.169.254
 ----
 
+==== Add a Second IP for each Cluster Instance
+
+The cluster configuration will require two IP addresses for each cluster instance.
+Adding a second IP address on the instance will allow the SUSE cluster to implement a
+two ring corosync configuration. The two ring corosync configuration will allow the
+cluster nodes to communicate with each other using the secondary IP address in the event
+that there is an issue communicating with each other over the primary IP address.
+
+Please refer to AWS documentation to understand how to assign a secondary IP address:
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/MultipleIP.html#assignIP-existing
+
+After the secondary IP address is associated to the cluster instance in AWS, you will need
+to add the secondary IP address to the cluster instance. Update the file
+_/etc/sysconfig/network/ifcfg-eth0_. Replace XX.XX.XX.XX with the new secondary IP address
+and replace 'XX' with the two digit subnet mask.
+
+[subs="attributes"]
+----
+IPADDR_1=‘XX.XX.XX.XX/XX'
+LABEL_1="1"
+----
+
+The system will read the file and add the secondary IP address after the cluster instance
+is rebooted. Additionally, executing the command below as root will add the IP address
+to the cluster instance network stack with out rebooting.
+
+[subs="attributes"]
+----
+ip address add XX.XX.XX.XX/XX dev eth0
+----
+
+Replace XX.XX.XX.XX with the new secondary IP address and replace 'XX' with the two digit
+subnet mask.
+
 ==== Disable the Source/Destination Check for the Cluster Instances
 
 The source/destination check can be disabled through scripts using
@@ -552,13 +590,16 @@ the role of the cluster instances:
     "Version": "2012-10-17",
     "Statement": [
         {
-            "Sid": "Stmt1424860166260",
-            "Action": [
-                "ec2:DescribeRouteTables",
-                "ec2:ReplaceRoute"
-            ],
+            "Sid": "VisualEditor0",
             "Effect": "Allow",
+            "Action": "ec2:ReplaceRoute",
             "Resource": "arn:aws:ec2:region-name:account-id:route-table/rtb-XYZ"
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": "ec2:DescribeRouteTables",
+            "Resource": "*"
         }
     ]
 }
@@ -1661,8 +1702,8 @@ Reboot both nodes.
 ===== Configuration of the _corosync.conf_ File
 
 The configuration will have an IP address
-for node node-1 which is supposed to be ip-node-1. Node node-2 has an ip address to
-which we refer as ip-node-2.
+for node node-1 which is supposed to be ip-node-1 and ip2-node-1. Node node-2 has an ip address to
+which we refer as ip-node-2 and ip2-node-2.
 
 All cluster nodes are required to have a local configuration
 file _/etc/corosync/corosync.conf_ which will be structured as follows.
@@ -1681,6 +1722,7 @@ on both cluster nodes:
 # Read the corosync.conf.5 manual page
 totem {
   version: 2
+  rrp_mode: passive
   token: 30000
   consensus: 32000
   token_retransmits_before_loss_const: 10
@@ -1711,10 +1753,12 @@ totem {
 nodelist {
   node {
   ring0_addr: &lt;ip-node-1&gt;
+  ring1_addr: &lt;ip2-node-1&gt;
   nodeid: 1
   }
   node {
   ring0_addr: &lt;ip-node-2&gt;
+  ring1_addr: &lt;ip2-node-2&gt;
   nodeid: 2
   }
 }
@@ -1729,7 +1773,7 @@ quorum {
 
 ----
 
-Replace the variables _ip-node-1_ and _ip-node-2_ with the IP addresses of your
+Replace the variables _ip-node-1_ / _ip2-node-1_ and _ip-node-2_ / _ip2-node-2_ with the IP addresses of your
 two cluster instances. Replace _ip-local-node_ with the IP address of the server
 the file is being created.
 
@@ -1914,7 +1958,7 @@ primitive rsc_ip_{mySID}_{myInstAscs} ocf:suse:aws-vpc-move-ip \
     op monitor interval=60 timeout=60
 primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
     operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
-    op monitor interval=120 timeout=60 on_fail=restart \
+    op monitor interval=120 timeout=60 on-fail=restart \
     params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
         START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
         AUTOMATIC_RECOVER=false \
@@ -2035,7 +2079,7 @@ primitive rsc_ip_{mySID}_{myInstErs} ocf:suse:aws-vpc-move-ip \
   op monitor interval=60 timeout=60
 primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
   operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
-  op monitor interval=120 timeout=60 on_fail=restart \
+  op monitor interval=120 timeout=60 on-fail=restart \
   params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
          START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
          AUTOMATIC_RECOVER=false IS_ERS=true \
@@ -2842,6 +2886,40 @@ to get the prior state of the ASE DB. This is mandatory to ensure that FM can tr
 _ha/syb/use_boot_file_always=1_ makes sure that the FM always reads from the boot file which is part of the work
 directory (the same for ASCS and FM) and failover along with FM.
 
+=== Cluster Integration of Fault Manager
+
+We implement the FM in the pacemaker environment as part of the ASCS instance.
+
+.FM is integrated as included service along with the ASCS.
+==============================================
+The cluster configuration for the _primitive rsc_sap____<SID>____ASCS<instance number>_ have to be modified.
+In the example we use:
+
+- <SID> => {mySid}
+- <instance number> => {myAscsIno}
+- virtual hostname => {myVipNAscs}
+
+[subs="specialchars,attributes,quotes,verbatim"]
+----
+# crm configure edit rsc_sap_{mySid}_ASCS{myAscsIno}
+----
+
+[subs="specialchars,attributes,quotes,verbatim"]
+----
+primitive rsc_sap_{mySid}_ASCS{myAscsIno} SAPInstance \
+        operations $id=rsc_sap_{mySid}_ASCS{myAscsIno}-operations \
+        op monitor interval=11 timeout=60 on-fail=restart \
+        params InstanceName={mySid}_ASCS{myAscsIno}_{myVipNAscs} START_PROFILE="/sapmnt/{mySid}/profile/{mySid}_ASCS{myAscsIno}_{myVipNAscs}" \
+        AUTOMATIC_RECOVER=false MONITOR_SERVICES="sybdbfm|msg_server|enserver" \
+        meta resource-stickiness=5000 failure-timeout=60 migration-threshold=1 priority=10
+----
+The FM service is not part of the default observed SAP instance services. If we specify the *MONITOR_SERVICES*
+all default settings are overwritten by the named services. That means we have to count all services which are shown
+as a result of the _sapcontrol -nr {myAscsIno} -function GetProcessList_ command. The example above is for an ENSA1 configuration.
+
+NOTE: The cluster configuration is different for ENSA1 and ENS2 installation. The names for the MONITOR_SERVICES differ between this two versions.
+==============================================
+
 === Operating a Pacemaker-Controlled and FM-Monitored ASE Replication Setup
 
 To implement an FM controlled ASE replication setup with pacemaker integration for FM some special rules need to be followed. First of all it needs to be detailed how to check the status of the replication and FM itself.
@@ -3288,7 +3366,7 @@ primitive rsc_r53_{mySID}_{myInstAscs} aws-vpc-route53 \
         op monitor interval=300 timeout=180
 primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
 	operations $id=rsc_sap_{mySID}_{myInstAscs}-operations \
-	op monitor interval=120 timeout=60 on_fail=restart \
+	op monitor interval=120 timeout=60 on-fail=restart \
 	params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
      START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstAscs}_{myVipNAscs}" \
      AUTOMATIC_RECOVER=false \
@@ -3296,7 +3374,7 @@ primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
        priority=10
 primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
 	operations $id=rsc_sap_{mySID}_{myInstErs}-operations \
-	op monitor interval=120 timeout=60 on_fail=restart \
+	op monitor interval=120 timeout=60 on-fail=restart \
 	params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
     START_PROFILE="/sapmnt/{mySID}/profile/{mySID}_{myInstErs}_{myVipNErs}" \
     AUTOMATIC_RECOVER=false IS_ERS=true \

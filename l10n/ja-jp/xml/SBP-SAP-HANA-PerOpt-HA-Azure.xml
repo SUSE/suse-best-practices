@@ -1,0 +1,1026 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?asciidoc-toc?><?asciidoc-numbered?>
+<article  xmlns:xi="http://www.w3.org/2001/XInclude" xmlns="http://docbook.org/ns/docbook" xmlns:xl="http://www.w3.org/1999/xlink" version="5.0" xml:lang="ja">
+<info>
+<title>Azure上で動作するSAP HANA高可用性クラスター自動化の概要</title>
+<date>2020-04-02</date><!--<title>Getting Started with SAP HANA High Availability Cluster Automation Operating on Azure</title>--> <!--<subtitle></subtitle>--> <!-- <orgname>SUSE Best Practices</orgname>--><productname>SUSE Linux Enterprise Server for SAP Applications</productname>
+    <productnumber>15 SP1</productnumber>
+
+    <author>
+        <personname>
+            <firstname>Abdelrahman</firstname>
+            <surname>Mohamed, Alliances Solutions Architect, SUSE</surname>
+        </personname><!-- <personname>
+            <firstname>Bernd</firstname>
+            <surname>Schubert</surname>
+            </personname>
+            <affiliation>
+            <jobtitle>SAP Solution Architect</jobtitle>
+            <orgname>SUSE</orgname>
+            </affiliation>--></author><!--  <author>
+        <personname>
+            <firstname>Lars</firstname>
+            <surname>Pinne, System Engineer, SUSE</surname>
+        </personname>
+        <!-\- <personname>
+            <firstname><Lars</firstname>
+            <surname>Pinne</surname>
+            </personname>
+            <affiliation>
+            <jobtitle>System Engineer</jobtitle>
+            <orgname>SUSE</orgname>
+            </affiliation>-\->
+    </author>--><cover role="logos">
+        <mediaobject>
+		<imageobject>
+			<imagedata fileref="suse.svg"/>
+		</imageobject>
+	</mediaobject>
+	</cover>
+
+<date>April 03, 2020</date>
+
+
+<abstract>
+
+    <para>本書では、Microsoft* Azureパブリッククラウド上で動作する自動SAP* HANAシステムレプリケーション（SR）パフォーマンス最適化高可用性（HA）クラスターの構築方法を説明します。本書は、SUSE® Linux Enterprise Server for SAP Applications 15 SP1をベースにしています。この概念は、USE Linux Enterprise Server for SAP Applicationsの新しいサービスパックでも使用できます。</para>
+
+</abstract>
+</info>
+<section xml:id="_about_this_guide">
+<title>このガイドについて</title>
+<section xml:id="_introduction">
+<title>はじめに</title>
+<para>SUSE® Linux Enterprise Server for SAP Applicationsは、高可用性を備えたSAP*アプリケーションを実行するのに最適なプラットフォームです。技術インフラの冗長なレイアウトと組み合わせることで、単一障害点を排除することができます。</para>
+<para>SAP* Business Suiteは、大企業および中規模企業向けの非常に高度なアプリケーションプラットフォームです。重要なビジネス環境には、可能な限り高度なSAPアプリケーションの可用性が不可欠です。</para>
+</section>
+<section xml:id="_additional_documentation_and_resources">
+<title>その他のドキュメントとリソース</title>
+<para>このベストプラクティスガイドの各章に、システムとインターネットのどちらかで利用可能な追加のドキュメンテーションリソースへのリンクが掲載されています。ドキュメンテーションの最新版については、<link xl:href="https://documentation.suse.com">SUSEドキュメンテーションポータル</link>をご確認ください。</para>
+</section>
+<section xml:id="_feedback">
+<title>フィードバック</title>
+<para>複数のフィードバックチャネルを使用できます。</para>
+<variablelist>
+<varlistentry>
+<term>バグと拡張リクエスト</term>
+<listitem>
+<para>ご使用中の製品に関して利用可能なサービスとサポートについては、<link xl:href="http://www.suse.com/support/">http://www.suse.com/support/</link>をご参照ください。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+<para>製品コンポーネントのバグを報告するには、<link xl:href="https://scc.suse.com/support/">https://scc.suse.com/support/</link>のリクエストに移動して、ログインし、「Submit New SR」（サービスリクエスト）を選択します。</para>
+<variablelist>
+<varlistentry>
+<term>メール</term>
+<listitem>
+<para>本製品のドキュメンテーションに対するフィードバックについては、<link xl:href="mailto:doc-team@suse.com">doc-team@suse.com</link>宛てにメールを送信することもできます。ドキュメントのタイトル、製品バージョン、およびドキュメントの発行日を必ず含めてください。エラーの報告または拡張の提案については、問題を簡潔に説明いただくとともに、各セクション番号とページ（またはURL）を示してください。</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</section>
+</section>
+<section xml:id="_document_scope">
+<title>本書のスコープ</title>
+<para>本ガイドの目的は、Microsoft Azureパブリッククラウド上で動作する自動SAP HANAシステムレプリケーション（SR）パフォーマンス最適化高可用性（HA）クラスターを構築することです。</para>
+<para>本ガイドでは、複数の機能を備えた<link xl:href="https://github.com/SUSE/ha-sap-terraform-deployments">Automated SAP HA Deployments in Public/Private Clouds with Terraform</link>プロジェクトを使用します。これらの機能の1つは、パブリッククラウドにSAP HANA HAクラスターをデプロイするための自動化された方法を提供することです。</para>
+<para>Automated SAP HA Deployments in Public/Private Clouds with Terraformプロジェクトでは、デプロイフェーズで<emphasis>Terraform</emphasis>を、プロビジョニングフェーズで<emphasis>Saltstack</emphasis>を使用します。プロジェクトは、パブリックまたはプライベートクラウドプロバイダーによる<emphasis>terraform</emphasis>設定ファイルと<emphasis>Saltstack</emphasis>ピラーが格納されたディレクトリに整理されます。</para>
+<para>Microsoft Azureパブリッククラウド上でのSAP HANA データベーススケールアップパフォーマンス最適化高可用性クラスターの作成方法の詳細については、<link xl:href="https://docs.microsoft.com/en-us/azure/virtual-machines/workloads/sap/sap-hana-high-availability">High Availability of SAP HANA on Azure VMs on SUSE Linux Enterprise Server</link>ガイドを参照してください。</para>
+<important>
+<para>SAP HAソリューションは、お客様の環境に合わせて高度にカスタマイズされたソフトウェアソリューションです。本ガイドでは、Microsoft Azureパブリッククラウドコンポーネントを使用したSAP HANA HAソリューションの基本実装をSUSEのお客様が理解しやすいような<emphasis>テスト環境</emphasis>を用意しました。<emphasis role="strong">本番環境では、デプロイフェーズの前に適切な計画フェーズを設定する必要があります。</emphasis></para>
+<para>ご不明な点は、<link xl:href="https://www.suse.com/services/consulting">SUSEコンサルティングサービス</link>までお問い合わせください。</para>
+</important>
+</section>
+<section xml:id="_environment_preparation">
+<title>環境の準備</title>
+<section xml:id="_azure_command_line_interface_environment_preparation">
+<title>Azureコマンドラインインターフェース環境の準備 </title>
+<para>本ガイドでは、SUSE Linux Enterprise Server 15 Service Pack 1（SP1）上にインストールされたAzureコマンドラインインターフェース（CLI）を使用して、Microsoft Azureパブリッククラウドとやり取りします。SUSEディストリビューション用のAzure CLIをインストールするには、<link xl:href="https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-zypper?view=azure-cli-latest">Microsoftの手順</link>に従ってください。</para>
+<tip>
+<para>詳細については、<link xl:href="https://docs.microsoft.com/en-us/cli/azure/?view=azure-cli-latest">The Azure Command-Line Interface portal</link>を参照してください。</para>
+</tip>
+<para>Azure CLIのインストールが成功したら、<literal>az login</literal>コマンドを使用してAzureポータルにログインします。次に、現在のAzureアカウント情報を一覧表示します。本ガイドの作成中に使用したAzureアカウントの例を以下に示します。</para>
+<example>
+<title>Azureアカウント情報一覧:</title>
+<screen>$ az account list
+[
+  {
+    &quot;cloudName&quot;: &quot;AzureCloud&quot;,
+    &quot;homeTenantId&quot;: &quot;<emphasis role="strong">&lt;HOME TENANT ID&gt;</emphasis>&quot;,
+    &quot;id&quot;: &quot;<emphasis role="strong">&lt;ACCOUNT ID&gt;&quot;,</emphasis>
+    &quot;isDefault&quot;: true,
+    &quot;managedByTenants&quot;: [],
+    &quot;name&quot;: <emphasis role="strong">&quot;&lt;ACCOUNT NAME&gt;&quot;,</emphasis>
+    &quot;state&quot;: &quot;Enabled&quot;,
+    &quot;tenantId&quot;: &quot;<emphasis role="strong">&lt;TENANT ID&gt;</emphasis>&quot;,
+    &quot;user&quot;: {
+      &quot;name&quot;: &quot;<emphasis role="strong">&lt;USER NAME&gt;</emphasis>&quot;,
+      &quot;type&quot;: &quot;<emphasis role="strong">&lt;USER TYPE&gt;</emphasis>&quot;
+    }
+  }
+]</screen>
+</example>
+</section>
+<section xml:id="_azure_storage_account_preparation">
+<title>Azureストレージアカウントの準備 </title>
+<para>Azureストレージアカウントは、SAP HANAインストールメディアをホストするために必要です。</para>
+<para>Azureストレージアカウントで新しい<emphasis>ファイル共有</emphasis>を作成して、SAP HANAインストールメディアを新しく作成したファイル共有にアップロードし、そこで展開します。</para>
+<important>
+<para>SAP HANAインストールメディアは、Azureストレージアカウントのファイル共有内で展開する必要があります。SAP HANA圧縮インストールメディアを使用した場合は、Saltstackプロビジョニングが機能しません。</para>
+</important>
+<tip>
+<para>Azureストレージアカウントの動作の詳細については、Microsoftのドキュメンテーション<link xl:href="https://docs.microsoft.com/en-us/azure/storage/common/storage-account-create?tabs=azure-portal">Create an Azure Storage account</link>を参照してください。</para>
+</tip>
+</section>
+<section xml:id="_terraform_installation">
+<title>Terraformのインストレーション</title>
+<para>SUSE Linux Enterprise Server 15 SP1から、<literal>terraform</literal>がSUSE Linux Enterprise Public Cloud Moduleに追加されています。Public Cloud Moduleをアクティブにして、<literal>terraform</literal>パッケージをインストールします。</para>
+<para>次の例は、本ガイドの作成時点でSUSE Linux Enterprise Server 15 SP1に使用可能なterraformバージョンを示しています。</para>
+<screen>$ sudo zypper in terraform
+
+$ terraform version
+Terraform v0.12.19</screen>
+<para>または、<link xl:href="https://azure.microsoft.com/en-us/features/cloud-shell/">Azure Cloud Shell</link>にプレインストールされている<literal>terraform</literal>バイナリを使用することもできます。次の例は、本ガイドの作成中にAzure Cloud Shellに使用したterraformバージョンを示しています。</para>
+<screen>$ terraform version
+Terraform v0.12.23</screen>
+<tip>
+<para>本ガイドの作成時に使用した<literal>terraform</literal>バージョンは<literal>v0.12.19</literal>です。terraformチームは、terraformバージョンのアップデートを継続的に行っています。本ガイドを参照している時点で、より新しいバージョンが導入されている可能性があります。</para>
+</tip>
+</section>
+<section xml:id="_github_repository_cloning">
+<title>GitHubリポジトリの複製 </title>
+<para>本ガイドでは、<emphasis>プロジェクトディレクトリパス</emphasis>が<literal>/home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments</literal>であると想定しています。ここで、<literal><emphasis role="strong">&lt;USERNAME&gt;</emphasis></literal>は、プロジェクトを作成するために使用されるSUSE Linux Enterprise Server 15 SP1ユーザーです。</para>
+<para><emphasis>Automated SAP HA Deployments in Public/Private Clouds with Terraform</emphasis> GitHubリポジトリを複製します。</para>
+<screen>$ cd /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>
+
+$ git clone https://github.com/SUSE/ha-sap-terraform-deployments.git</screen>
+</section>
+</section>
+<section xml:id="_environment_deployment">
+<title>環境のデプロイ</title>
+<section xml:id="_saltstack_pillars_adaptation">
+<title><emphasis>Saltstack</emphasis>ピラーの適用</title>
+<para>SAP HANAとクラスターSaltStackピラーのテンプレートは、複製先のGitHubリポジトリ<literal>pillar_example</literal>ディレクトリに配置されます。</para>
+<para>SAP HANAとクラスターSaltStackピラーのテンプレートを適切なSaltディレクトリにコピーします。</para>
+<screen>$ cd /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments
+
+$ cp -av pillar_examples/automatic/hana/*.sls salt/hana_node/files/pillar/</screen>
+<para>いくつかのパラメータの値が異なることを除いて、<literal>/home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/salt/hana_node/files/pillar/hana.sls</literal> SaltStackピラーの内容を本ガイドで流用できます。</para>
+<para>更新すべき主なパラメータの値は次のとおりです。</para>
+<itemizedlist>
+<listitem>
+<para>SAPユーザー関連パスワード</para>
+</listitem>
+<listitem>
+<para>SAP HANAプライマリサイト名</para>
+</listitem>
+<listitem>
+<para>SPA HANAセカンダリサイト名</para>
+</listitem>
+</itemizedlist>
+<note>
+<para><emphasis role="strong">付録</emphasis> → <emphasis role="strong">SAP HANA SaltStackピラーの設定</emphasis>のセクションを参照してから、太字で強調表示されたパラメータの値を適切な値に変更してください。</para>
+</note>
+</section>
+<section xml:id="_terraform_configuration_adaptation">
+<title>Terraform設定の適合 </title>
+<para><literal>terraform.tfvars.example</literal>ファイルには、クラスターインフラストラクチャの作成時に使用されたterraform変数テンプレートが保存されています。</para>
+<para>本ガイドでは、以下の変更値を除いてデフォルト値を採用しました。</para>
+<itemizedlist>
+<listitem>
+<para>Azure仮想マシン（VM）インスタンスタイプ</para>
+</listitem>
+<listitem>
+<para>SAP HANA VMとiSCSIオペレーティングシステム（OS）のサブスクリプションモデルの詳細</para>
+</listitem>
+<listitem>
+<para>SSHキーのパス</para>
+</listitem>
+<listitem>
+<para>Azureストレージアカウント名</para>
+</listitem>
+<listitem>
+<para>SAP HANAインストールメディアパス</para>
+</listitem>
+<listitem>
+<para>HA/SAPデプロイメントパッケージソフトウェアリポジトリ</para>
+</listitem>
+</itemizedlist>
+<example>
+<title>Terraform変数ファイルの適合:</title>
+<orderedlist numeration="arabic">
+<listitem>
+<para>ディレクトリをterraform azureプロバイダーディレクトリパスに変更して、<literal>terraform.tfvars.example</literal>ファイルの名前を<literal>terraform.tfvars</literal>に変更します。</para>
+<screen>$ cd /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure
+
+$ mv -v terraform.tfvars.example terraform.tfvars</screen>
+</listitem>
+<listitem>
+<para>TerraformのデプロイとSaltStackのプロビジョニングで使用する秘密鍵と公開鍵を生成します。</para>
+<screen>$ mkdir -v /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/salt/hana_node/files/sshkeys
+
+$ ssh-keygen -t rsa -f /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/salt/hana_node/files/sshkeys/cluster.id_rsa</screen>
+</listitem>
+<listitem>
+<para>本ガイドでは、以下のOS関連値を使用するものとします。</para>
+<informaltable frame="all" rowsep="1" colsep="1">
+<tgroup cols="2">
+<colspec colname="col_1" colwidth="50*"/>
+<colspec colname="col_2" colwidth="50*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">値</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>SAP HANA OS version</para></entry>
+<entry align="left" valign="top"><para>SUSE Linux Enterprise Server 15 for SAP Applications</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>iSCSI Target OS version</para></entry>
+<entry align="left" valign="top"><para>SUSE Linux Enterprise Server 15 SP1</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>Subscription Model</para></entry>
+<entry align="left" valign="top"><para>Pay as you GO (PAYGO)</para></entry>
+</row>
+</tbody>
+</tgroup>
+</informaltable>
+<para><literal>/home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure/terraform.tfvars</literal> terraform変数設定ファイル内の以下のパラメータの値だけを変更します。</para>
+<informaltable frame="all" rowsep="1" colsep="1">
+<tgroup cols="3">
+<colspec colname="col_1" colwidth="33.3333*"/>
+<colspec colname="col_2" colwidth="33.3333*"/>
+<colspec colname="col_3" colwidth="33.3334*"/>
+<thead>
+<row>
+<entry align="left" valign="top">パラメータ</entry>
+<entry align="left" valign="top">古い値</entry>
+<entry align="left" valign="top">新しい値</entry>
+</row>
+</thead>
+<tbody>
+<row>
+<entry align="left" valign="top"><para>instancetype</para></entry>
+<entry align="left" valign="top"><para>Standard_M128s</para></entry>
+<entry align="left" valign="top"><para><emphasis role="strong">&lt;選択されたインスタンスタイプ&gt;</emphasis></para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>hana_public_sku</para></entry>
+<entry align="left" valign="top"><para>12-sp4</para></entry>
+<entry align="left" valign="top"><para>15</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>admin_user</para></entry>
+<entry align="left" valign="top"><para>OUR_USERNAME_HERE</para></entry>
+<entry align="left" valign="top"><para><emphasis role="strong">&lt;選択された管理者ID&gt;</emphasis></para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>public_key_location</para></entry>
+<entry align="left" valign="top"><para>/path/to/your/public/ssh/key</para></entry>
+<entry align="left" valign="top"><para>../salt/hana_node/files/sshkeys/cluster.id_rsa.pub</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>private_key_location</para></entry>
+<entry align="left" valign="top"><para>/path/to/your/private/ssh/key</para></entry>
+<entry align="left" valign="top"><para>../salt/hana_node/files/sshkeys/cluster.id_rsa</para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>storage_account_name</para></entry>
+<entry align="left" valign="top"><para>YOUR_STORAGE_ACCOUNT_NAME</para></entry>
+<entry align="left" valign="top"><para><emphasis role="strong">STORAGE ACCOUNT ID&gt;</emphasis></para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>storage_account_key</para></entry>
+<entry align="left" valign="top"><para>YOUR_STORAGE_ACCOUNT_KEY</para></entry>
+<entry align="left" valign="top"><para><emphasis role="strong">STORAGE ACCOUNT KEY #1&gt;</emphasis></para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>hana_inst_master</para></entry>
+<entry align="left" valign="top"><para>//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/*path/to/your/hana/installation/master</para></entry>
+<entry align="left" valign="top"><para><emphasis role="strong">&lt;SAP HANAインストールメディアパス&gt;</emphasis></para></entry>
+</row>
+<row>
+<entry align="left" valign="top"><para>ha_sap_deployment_repo</para></entry>
+<entry align="left" valign="top"><para>&quot;&quot;</para></entry>
+<entry align="left" valign="top"><para>&quot;https://download.opensuse.org/repositories/network:/ha-clustering:/Factory/SLE_15/&quot;</para></entry>
+</row>
+</tbody>
+</tgroup>
+</informaltable>
+</listitem>
+</orderedlist>
+</example>
+<note>
+<para><literal>terraform.tfvars</literal>設定ファイルのサンプル全体を確認するには、<emphasis role="strong">付録</emphasis> → <emphasis role="strong">Terraformの設定</emphasis> → <emphasis role="strong">Pay as you Goサブスクリプションモデル</emphasis>のセクションを参照してください。</para>
+</note>
+<important>
+<para>本ガイドでは、完全なテストケースシナリオを提供するために特定のOSバージョンとサブスクリプションモデルを使用しますが、<emphasis role="strong">Automated SAP HA Deployments in Public/Private Clouds with Terraform</emphasis>プロジェクトでは、別のOSバージョン、別のサブスクリプションモデル、他のパラメータを使用することができます。</para>
+<para><emphasis role="strong">付録</emphasis> → <emphasis role="strong">Terraformの設定</emphasis> → <emphasis role="strong">Pay as you Goサブスクリプションモデル</emphasis>のセクションで太字で強調表示されているすべてのパラメータは、お客様の環境とニーズに合わせて調整できます。</para>
+</important>
+</section>
+<section xml:id="_terraform_deployment">
+<title>Terraformのデプロイメント</title>
+<example>
+<title><literal>terraform</literal>を使用してAzureインフラストラクチャをデプロイします。</title>
+<orderedlist numeration="arabic">
+<listitem>
+<para>terraform Azureプロバイダーを初期化します。</para>
+<screen>$ cd /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure
+$ terraform init</screen>
+</listitem>
+<listitem>
+<para>新しいterraformワークスペースを作成します。terraformプランで使用するためにそれを選択し、フェーズを適用します。</para>
+<screen>$ terraform workspace new <emphasis role="strong">&lt;TERRAFORM WORKSPACE NAME&gt;</emphasis>
+$ terraform workspace select <emphasis role="strong">&lt;TERRAFORM WORKSPACE NAME&gt;</emphasis></screen>
+</listitem>
+<listitem>
+<para>terraformのデプロイを計画します。</para>
+<screen>$ terraform plan</screen>
+</listitem>
+<listitem>
+<para>terraformのデプロイを適用します。</para>
+<screen>$ terraform apply</screen>
+</listitem>
+</orderedlist>
+<tip>
+<para>TerraformのデプロイとSaltStackのプロビジョニングには、40～50分かかります。</para>
+</tip>
+</example>
+</section>
+</section>
+<section xml:id="_environment_post_deployment_validation">
+<title>環境のデプロイ後の検証</title>
+<section xml:id="_deployment_validation">
+<title>デプロイメントの検証</title>
+<para><literal>terraform apply</literal>コマンド出力には、作成されたクラスターに関する情報が表示されます。</para>
+<example>
+<title><literal>terraform apply</literal>出力の例:</title>
+<screen>$ terraform apply
+<emphasis role="strong">[OUTPUT TRIMMED]</emphasis>
+
+<emphasis role="strong">module.hana_node.null_resource.hana_node_provisioner[1]: Creation complete after 36m4s [id=2647934812513863765]</emphasis>
+
+Apply complete! Resources: 33 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+cluster_nodes_ip = [
+  <emphasis role="strong">&quot;10.74.1.11&quot;,</emphasis>
+  <emphasis role="strong">&quot;10.74.1.12&quot;,</emphasis>
+]
+cluster_nodes_name = [
+  <emphasis role="strong">&quot;vmhana01&quot;,</emphasis>
+  <emphasis role="strong">&quot;vmhana02&quot;,</emphasis>
+]
+cluster_nodes_public_ip = [
+  <emphasis role="strong">&quot;13.81.13.169&quot;,</emphasis>
+  <emphasis role="strong">&quot;13.81.13.149&quot;,</emphasis>
+]
+cluster_nodes_public_name = [
+  &quot;&quot;,
+  &quot;&quot;,
+]
+drbd_ip = []
+drbd_name = []
+drbd_public_ip = []
+drbd_public_name = []
+iscsisrv_ip = [
+  <emphasis role="strong">&quot;10.74.1.14&quot;,</emphasis>
+]
+iscsisrv_name = [
+  <emphasis role="strong">&quot;vmiscsisrv&quot;,</emphasis>
+]
+iscsisrv_public_ip = [
+  <emphasis role="strong">&quot;13.81.13.51&quot;,</emphasis>
+]
+iscsisrv_public_name = [
+  &quot;&quot;,
+]
+<emphasis role="strong">[OUTPUT TRIMMED]</emphasis></screen>
+</example>
+</section>
+<section xml:id="_cluster_status_validation">
+<title>クラスターステータスの検証 </title>
+<para>任意のクラスターノードに接続して、クラスターステータスをチェックします。</para>
+<example>
+<title>クラスターステータスのチェック:</title>
+<orderedlist numeration="arabic">
+<listitem>
+<para>作成されたSSHキーをデフォルトのSSHディレクトリにコピーします。</para>
+<screen>$ cp -v /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/salt/hana_node/files/sshkeys/cluster.id_rsa*  /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/.ssh/</screen>
+</listitem>
+<listitem>
+<para>SSHキーファイルの権限を次のように変更します。</para>
+<screen>$ chmod -v 400 /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/.ssh/cluster.id_rsa
+
+$ chmod -v 600 /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/.ssh/cluster.id_rsa.pub</screen>
+</listitem>
+<listitem>
+<para>任意のクラスターノードに接続します。</para>
+<screen>$ ssh -i .ssh/cluster.id_rsa <emphasis role="strong">&lt;ADMIN USER&gt;</emphasis>@<emphasis role="strong">&lt;CLUSTER NODE PUBLIC IP&gt;</emphasis></screen>
+</listitem>
+<listitem>
+<para>クラスターステータスをチェックします。</para>
+<screen>$ hostname
+<emphasis role="strong">vmhana01</emphasis>
+
+$ sudo su -</screen>
+<screen>vmhana01:~ # crm_mon -rnf1
+Stack: corosync
+Current DC: vmhana01 (version 1.1.18+20180430.b12c320f5-3.18.1-b12c320f5) - partition with quorum
+Last updated: Thu Mar  5 16:04:23 2020
+Last change: Thu Mar  5 16:04:09 2020 by root via crm_attribute on vmhana01
+
+2 nodes configured
+7 resources configured
+
+Node vmhana01: online
+        <emphasis role="strong">rsc_SAPHana_PRD_HDB00  (ocf::suse:SAPHana):    Master</emphasis>
+        <emphasis role="strong">rsc_ip_PRD_HDB00       (ocf::heartbeat:IPaddr2):       Started</emphasis>
+        stonith-sbd     (stonith:external/sbd): Started
+        <emphasis role="strong">rsc_SAPHanaTopology_PRD_HDB00  (ocf::suse:SAPHanaTopology):    Started</emphasis>
+        <emphasis role="strong">rsc_socat_PRD_HDB00    (ocf::heartbeat:anything):      Started</emphasis>
+Node vmhana02: online
+        <emphasis role="strong">rsc_SAPHana_PRD_HDB00  (ocf::suse:SAPHana):    Slave</emphasis>
+        <emphasis role="strong">rsc_SAPHanaTopology_PRD_HDB00  (ocf::suse:SAPHanaTopology):    Started</emphasis>
+
+No inactive resources
+
+
+Migration Summary:
+* Node vmhana01:
+* Node vmhana02:</screen>
+</listitem>
+</orderedlist>
+</example>
+</section>
+</section>
+<section xml:id="_environment_destroy">
+<title>環境の破棄</title>
+<para>Azureアカウントにログインしていることを確認してください。ログインしていなかった場合は、<literal>az login</literal>コマンドを実行します。</para>
+<example>
+<title>環境を破棄します。</title>
+<orderedlist numeration="arabic">
+<listitem>
+<para>ディレクトリをterraform azureプロバイダーパスに変更します。</para>
+<screen>$ cd /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure</screen>
+</listitem>
+<listitem>
+<para>terraformワークスペースを一覧表示します。</para>
+<screen>$ terraform workspace list
+  default
+* &lt;WORKSPACE NAME&gt;</screen>
+</listitem>
+<listitem>
+<para>このプロジェクトを作成するために使用したterraformワークスペースを選択します。</para>
+<screen>$ terraform workspace select <emphasis role="strong">&lt;WORKSPACE NAME&gt;</emphasis></screen>
+</listitem>
+<listitem>
+<para>このプロジェクトを作成するために使用したterraformワークスペースを破棄します。</para>
+<screen>$ terraform destroy</screen>
+</listitem>
+</orderedlist>
+</example>
+</section>
+<section xml:id="_appendix">
+<title>付録</title>
+<section xml:id="_sap_hana_saltstack_pillar_configuration">
+<title>SAP HANA SaltStackピラーの設定 </title>
+<screen>$ cat  /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/salt/hana_node/files/pillar/hana.sls
+hana:
+  {% if grains.get('qa_mode') %}
+  install_packages: false
+  {% endif %}
+  saptune_solution: 'HANA'
+  nodes:
+    - host: {{ grains['name_prefix'] }}01
+      sid: prd
+      instance: &quot;00&quot;
+      password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+      install:
+        software_path: {{ grains['hana_inst_folder'] }}
+        root_user: root
+        {% if grains['provider'] == 'libvirt' %}
+        root_password: linux
+        {% else %}
+        root_password: ''
+        {% endif %}
+        system_user_password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+        sapadm_password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+      primary:
+        name: <emphasis role="strong">&lt;PRIMARY SITNE NAME&gt;</emphasis>
+        backup:
+          key_name: backupkey
+          database: SYSTEMDB
+          file: backup
+        userkey:
+          key_name: backupkey
+          environment: {{ grains['name_prefix'] }}01:30013
+          user_name: SYSTEM
+          user_password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+          database: SYSTEMDB
+    {% if grains.get('monitoring_enabled', False) %}
+      exporter:
+        exposition_port: 9668
+        user: SYSTEM
+        password: YourPassword1234
+    {% endif %}
+
+    - host: {{ grains['name_prefix'] }}02
+      sid: prd
+      instance: &quot;00&quot;
+      password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+      {% if grains['scenario_type'] == 'cost-optimized' %}
+      scenario_type: 'cost-optimized'
+      cost_optimized_parameters:
+        global_allocation_limit: '32100'
+        preload_column_tables: False
+      {% endif %}
+      install:
+        software_path: {{ grains['hana_inst_folder'] }}
+        root_user: root
+        {% if grains['provider'] == 'libvirt' %}
+        root_password: linux
+        {% else %}
+        root_password: ''
+        {% endif %}
+        system_user_password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+        sapadm_password: <emphasis role="strong">&lt;PASSWORD&gt;</emphasis>
+      secondary:
+        name: <emphasis role="strong">&lt;SECONDARY SITE NAME&gt;</emphasis>
+        remote_host: {{ grains['name_prefix'] }}01
+        remote_instance: &quot;00&quot;
+        replication_mode: sync
+        operation_mode: logreplay
+        primary_timeout: 3000
+    {% if grains['scenario_type'] == 'cost-optimized' %}
+    - host: {{ grains['name_prefix'] }}02
+      sid: qas
+      instance: &quot;01&quot;
+      password: YourPassword1234
+      scenario_type: 'cost-optimized'
+      cost_optimized_parameters:
+        global_allocation_limit: '28600'
+        preload_column_tables: False
+      install:
+        software_path: {{ grains['hana_inst_folder'] }}
+        root_user: root
+        {% if grains['provider'] == 'libvirt' %}
+        root_password: linux
+        {% else %}
+        root_password: ''
+        {% endif %}
+        system_user_password: YourPassword1234
+        sapadm_password: YourPassword1234
+      {% if grains.get('monitoring_enabled', False) %}
+      exporter:
+        exposition_port: 9669
+        user: SYSTEM
+        password: YourPassword1234
+      {% endif %}
+    {% endif %}</screen>
+</section>
+<section xml:id="_terraform_configurations">
+<title>Terraformの構成</title>
+<section xml:id="_pay_as_you_go_paygo_subscription_model">
+<title>Pay-as-you-Go（PAYGO）サブスクリプションモデル </title>
+<screen>$ cat /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure/terraform.tfvars
+# VM size to use for the cluster nodes
+<emphasis role="strong">hana_vm_size = &quot;&lt;CHOSEN INSTANCE TYPE&gt;&quot;</emphasis>
+
+# Disk type for HANA
+<emphasis role="strong">hana_data_disk_type = &quot;StandardSSD_LRS&quot;</emphasis>
+
+# Disk size for HANA
+<emphasis role="strong">hana_data_disk_size = &quot;60&quot;</emphasis>
+
+# Caching used for HANA disk
+hana_data_disk_caching = &quot;ReadWrite&quot;
+
+# Number of nodes in the cluster
+hana_count = &quot;2&quot;
+
+# Instance number for the HANA database. 00 by default.
+<emphasis role="strong">hana_instance_number = &quot;00&quot;</emphasis>
+
+# Region where to deploy the configuration
+<emphasis role="strong">az_region = &quot;westeurope&quot;</emphasis>
+
+# Variable to control what is deployed in the nodes. Can be all, skip-hana or skip-cluster
+init_type = &quot;all&quot;
+
+# SLES4SAP image information
+# If custom uris are enabled public information will be omitted
+# Custom sles4sap image
+#sles4sap_uri = &quot;/path/to/your/image&quot;
+
+# Custom iscsi server image
+#iscsi_srv_uri = &quot;/path/to/your/iscsi/image&quot;
+
+# Custom monitoring server image
+#monitoring_uri = &quot;/path/to/your/monitoring/image&quot;
+
+# Custom drbd nodes image
+#drbd_image_uri = &quot;/path/to/your/monitoring/image&quot;
+
+# Public sles4sap image
+hana_public_publisher = &quot;SUSE&quot;
+hana_public_offer     = <emphasis role="strong">&quot;SLES-SAP&quot;</emphasis>
+hana_public_sku       = <emphasis role="strong">&quot;gen2-15&quot;</emphasis>
+hana_public_version   = &quot;latest&quot;
+
+# Public iscsi server image
+iscsi_public_publisher = &quot;SUSE&quot;
+iscsi_public_offer     = <emphasis role="strong">&quot;sles-15-sp1&quot;</emphasis>
+iscsi_public_sku       = <emphasis role="strong">&quot;gen2&quot;</emphasis>
+iscsi_public_version   = &quot;latest&quot;
+
+# Public monitoring server image
+#monitoring_public_publisher = &quot;SUSE&quot;
+#monitoring_public_offer     = &quot;SLES-SAP-BYOS&quot;
+#monitoring_public_sku       = &quot;15&quot;
+#monitoring_public_version   = &quot;latest&quot;
+
+# Public drbd nodes image
+#drbd_public_publisher = &quot;SUSE&quot;
+#drbd_public_offer     = &quot;SLES-SAP-BYOS&quot;
+#drbd_public_sku       = &quot;15&quot;
+#drbd_public_version   = &quot;latest&quot;
+
+# Admin user
+<emphasis role="strong">admin_user = &quot;&lt;CHOSEN USER ID&gt;&quot;</emphasis>
+
+# SSH Public key to configure access to the remote instances
+<emphasis role="strong">public_key_location = &quot;../salt/hana_node/files/sshkeys/cluster.id_rsa.pub&quot;</emphasis>
+
+# Private SSH Key location
+<emphasis role="strong">private_key_location = &quot;../salt/hana_node/files/sshkeys/cluster.id_rsa&quot;</emphasis>
+
+# Azure storage account name
+<emphasis role="strong">storage_account_name = &quot;&lt;AZURE STORAGE ACCOUNT NAME&gt;&quot;</emphasis>
+
+# Azure storage account secret key (key1 or key2)
+<emphasis role="strong">storage_account_key = &quot;&lt;AZURE STORAGE ACCOUNT KEY1&gt;&quot;</emphasis>
+
+# Azure storage account path where HANA installation master is located
+<emphasis role="strong">hana_inst_master = &quot;//&lt;AZURE STORAGE ACCOUNT NAME&gt;.file.core.windows.net/&lt;SAP HANA INSTALLATION MEDIA PATH&gt;&quot;</emphasis>
+
+# Local folder where HANA installation master will be mounted
+hana_inst_folder = &quot;/root/hana_inst_media/&quot;
+
+# Device used by node where HANA will be installed
+hana_disk_device = &quot;/dev/sdc&quot;
+
+# Device used by the iSCSI server to provide LUNs
+iscsidev = &quot;/dev/sdc&quot;
+
+# IP address of the iSCSI server
+<emphasis role="strong">iscsi_srv_ip = &quot;10.74.1.14&quot;</emphasis>
+
+# Path to a custom ssh public key to upload to the nodes
+# Used for cluster communication for example
+cluster_ssh_pub = &quot;salt://hana_node/files/sshkeys/cluster.id_rsa.pub&quot;
+
+# Path to a custom ssh private key to upload to the nodes
+# Used for cluster communication for example
+cluster_ssh_key = &quot;salt://hana_node/files/sshkeys/cluster.id_rsa&quot;
+
+# Each host IP address (sequential order).
+# example : host_ips = [&quot;10.0.1.0&quot;, &quot;10.0.1.1&quot;]
+<emphasis role="strong">host_ips = [&quot;10.74.1.11&quot;, &quot;10.74.1.12&quot;]</emphasis>
+
+# Each drbd cluster host IP address (sequential order).
+# example : drbd_host_ips = [&quot;10.0.1.10&quot;, &quot;10.0.1.11&quot;]
+<emphasis role="strong">drbd_ips = [&quot;10.74.1.21&quot;, &quot;10.74.1.22&quot;]</emphasis>
+
+# Repository url used to install HA/SAP deployment packages&quot;
+# The latest RPM packages can be found at:
+# https://download.opensuse.org/repositories/network:/ha-clustering:/Factory/{YOUR OS VERSION}
+# Contains the salt formulas rpm packages.
+<emphasis role="strong">ha_sap_deployment_repo = &quot;https://download.opensuse.org/repositories/network:/ha-clustering:/Factory/SLE_15/&quot;</emphasis>
+
+# Optional SUSE Customer Center Registration parameters
+#reg_code = &quot;&lt;&lt;REG_CODE&gt;&gt;&quot;
+#reg_email = &quot;&lt;&lt;your email&gt;&gt;&quot;
+
+# For any sle12 version the additional module sle-module-adv-systems-management/12/x86_64 is mandatory if reg_code is provided
+#reg_additional_modules = {
+#    &quot;sle-module-adv-systems-management/12/x86_64&quot; = &quot;&quot;
+#    &quot;sle-module-containers/12/x86_64&quot; = &quot;&quot;
+#    &quot;sle-ha-geo/12.4/x86_64&quot; = &quot;&lt;&lt;REG_CODE&gt;&gt;&quot;
+#}
+
+# Cost optimized scenario
+#scenario_type: &quot;cost-optimized&quot;
+
+# To disable the provisioning process
+#provisioner = &quot;&quot;
+
+# Run provisioner execution in background
+#background = true
+
+# Monitoring variables
+
+# Enable the host to be monitored by exporters
+#monitoring_enabled = true
+
+# IP address of the machine where Prometheus and Grafana are running
+monitoring_srv_ip = &quot;10.74.1.13&quot;
+
+# Enable drbd cluster
+#drbd_enabled = true
+
+# Netweaver variables
+
+#netweaver_enabled = true
+#netweaver_ips = [&quot;10.74.1.30&quot;, &quot;10.74.1.31&quot;, &quot;10.74.1.32&quot;, &quot;10.74.1.33&quot;]
+#netweaver_virtual_ips = [&quot;10.74.1.35&quot;, &quot;10.74.1.36&quot;, &quot;10.74.1.37&quot;, &quot;10.74.1.38&quot;]
+#netweaver_storage_account_key = &quot;YOUR_STORAGE_ACCOUNT_KEY&quot;
+#netweaver_storage_account_name = &quot;YOUR_STORAGE_ACCOUNT_NAME&quot;
+#netweaver_storage_account = &quot;//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/path/to/your/nw/installation/master&quot;
+
+# QA variables
+
+# Define if the deployment is using for testing purpose
+# Disable all extra packages that do not come from the image
+# Except salt-minion (for the moment) and salt formulas
+# true or false (default)
+#qa_mode = false
+
+# Execute HANA Hardware Configuration Check Tool to bench filesystems
+# qa_mode must be set to true for executing hwcct
+# true or false (default)
+#hwcct = false</screen>
+</section>
+<section xml:id="_bring_your_own_subscription_byos_model">
+<title>Bring Your Own Subscription（BYOS）モデル </title>
+<screen>$ cat /home/<emphasis role="strong">&lt;USERNAME&gt;</emphasis>/ha-sap-terraform-deployments/azure/terraform.tfvars
+# Instance type to use for the cluster nodes
+<emphasis role="strong">instancetype = &quot;&lt;CHOSEN INSTANCE TYPE&gt;&quot;</emphasis>
+
+# Disk type for HANA
+<emphasis role="strong">hana_data_disk_type = &quot;StandardSSD_LRS&quot;</emphasis>
+
+# Disk size for HANA
+<emphasis role="strong">hana_data_disk_size = &quot;60&quot;</emphasis>
+
+# Caching used for HANA disk
+hana_data_disk_caching = &quot;ReadWrite&quot;
+
+# Number of nodes in the cluster
+ninstances = &quot;2&quot;
+
+# Region where to deploy the configuration
+<emphasis role="strong">az_region = &quot;westeurope&quot;</emphasis>
+
+# Variable to control what is deployed in the nodes. Can be all, skip-hana or skip-cluster
+init_type = &quot;all&quot;
+
+# SLES4SAP image information
+# If custom uris are enabled public information will be omitted
+# Custom sles4sap image
+#sles4sap_uri = &quot;/path/to/your/image&quot;
+
+# Custom iscsi server image
+#iscsi_srv_uri = &quot;/path/to/your/iscsi/image&quot;
+
+# Custom monitoring server image
+#monitoring_uri = &quot;/path/to/your/monitoring/image&quot;
+
+# Custom drbd nodes image
+#drbd_image_uri = &quot;/path/to/your/monitoring/image&quot;
+
+# Public sles4sap image
+hana_public_publisher = &quot;SUSE&quot;
+hana_public_offer     = &quot;SLES-SAP-BYOS&quot;
+<emphasis role="strong">hana_public_sku       = &quot;15&quot;</emphasis>
+hana_public_version   = &quot;latest&quot;
+
+# Public iscsi server image
+iscsi_public_publisher = &quot;SUSE&quot;
+iscsi_public_offer     = &quot;SLES-SAP-BYOS&quot;
+iscsi_public_sku       = &quot;15&quot;
+iscsi_public_version   = &quot;latest&quot;
+
+# Public monitoring server image
+#monitoring_public_publisher = &quot;SUSE&quot;
+#monitoring_public_offer     = &quot;SLES-SAP-BYOS&quot;
+#monitoring_public_sku       = &quot;15&quot;
+#monitoring_public_version   = &quot;latest&quot;
+
+# Public drbd nodes image
+#drbd_public_publisher = &quot;SUSE&quot;
+#drbd_public_offer     = &quot;SLES-SAP-BYOS&quot;
+#drbd_public_sku       = &quot;15&quot;
+#drbd_public_version   = &quot;latest&quot;
+
+# Admin user
+<emphasis role="strong">admin_user = &quot;&lt;CHOSEN USER ID&gt;&quot;</emphasis>
+
+# SSH Public key to configure access to the remote instances
+<emphasis role="strong">public_key_location = &quot;../salt/hana_node/files/sshkeys/cluster.id_rsa.pub&quot;</emphasis>
+
+# Private SSH Key location
+<emphasis role="strong">private_key_location = &quot;../salt/hana_node/files/sshkeys/cluster.id_rsa&quot;</emphasis>
+
+# Azure storage account name
+<emphasis role="strong">storage_account_name = &quot;&lt;AZURE STORAGE ACCOUNT NAME&gt;&quot;</emphasis>
+
+# Azure storage account secret key (key1 or key2)
+<emphasis role="strong">storage_account_key = &quot;&lt;AZURE STORAGE ACCOUNT KEY1&gt;&quot;</emphasis>
+
+# Azure storage account path where HANA installation master is located
+<emphasis role="strong">hana_inst_master = &quot;//&lt;AZURE STORAGE ACCOUNT NAME&gt;.file.core.windows.net/&lt;SAP HANA INSTALLATION MEDIA PATH&gt;&quot;</emphasis>
+
+# Local folder where HANA installation master will be mounted
+hana_inst_folder = &quot;/root/hana_inst_media/&quot;
+
+# Device used by node where HANA will be installed
+hana_disk_device = &quot;/dev/sdc&quot;
+
+# Device used by the iSCSI server to provide LUNs
+iscsidev = &quot;/dev/sdc&quot;
+
+# Path to a custom ssh public key to upload to the nodes
+# Used for cluster communication for example
+cluster_ssh_pub = &quot;salt://hana_node/files/sshkeys/cluster.id_rsa.pub&quot;
+
+# Path to a custom ssh private key to upload to the nodes
+# Used for cluster communication for example
+cluster_ssh_key = &quot;salt://hana_node/files/sshkeys/cluster.id_rsa&quot;
+
+# Each host IP address (sequential order).
+# example : host_ips = [&quot;10.0.1.0&quot;, &quot;10.0.1.1&quot;]
+<emphasis role="strong">host_ips = [&quot;10.74.1.11&quot;, &quot;10.74.1.12&quot;]</emphasis>
+
+# Each drbd cluster host IP address (sequential order).
+# example : drbd_host_ips = [&quot;10.0.1.10&quot;, &quot;10.0.1.11&quot;]
+<emphasis role="strong">drbd_ips = [&quot;10.74.1.21&quot;, &quot;10.74.1.22&quot;]</emphasis>
+
+# Repository url used to install HA/SAP deployment packages&quot;
+# The latest RPM packages can be found at:
+# https://download.opensuse.org/repositories/network:/ha-clustering:/Factory/{YOUR OS VERSION}
+# Contains the salt formulas rpm packages.
+<emphasis role="strong">ha_sap_deployment_repo = &quot;https://download.opensuse.org/repositories/network:/ha-clustering:/Factory/SLE_15/&quot;</emphasis>
+
+# Optional SUSE Customer Center Registration parameters
+<emphasis role="strong">reg_code = &quot;&lt;SUSE REGISTRATION CODE&gt;&quot;</emphasis>
+<emphasis role="strong">reg_email = &quot;&lt;SUSE REGISTRATION EMAIL&gt;&quot;</emphasis>
+
+# For any sle12 version the additional module sle-module-adv-systems-management/12/x86_64 is mandatory if reg_code is provided
+#reg_additional_modules = {
+#    &quot;sle-module-adv-systems-management/12/x86_64&quot; = &quot;&quot;
+#    &quot;sle-module-containers/12/x86_64&quot; = &quot;&quot;
+#    &quot;sle-ha-geo/12.4/x86_64&quot; = &quot;&lt;&lt;REG_CODE&gt;&gt;&quot;
+#}
+
+# Cost optimized scenario
+#scenario_type: &quot;cost-optimized&quot;
+
+# To disable the provisioning process
+#provisioner = &quot;&quot;
+
+# Run provisioner execution in background
+#background = true
+
+# Monitoring variables
+
+# Enable the host to be monitored by exporters
+#monitoring_enabled = true
+
+# IP address of the machine where Prometheus and Grafana are running
+monitoring_srv_ip = &quot;10.74.1.13&quot;
+
+# Enable drbd cluster
+#drbd_enabled = true
+
+# Netweaver variables
+
+#netweaver_enabled = true
+#netweaver_ips = [&quot;10.74.1.30&quot;, &quot;10.74.1.31&quot;, &quot;10.74.1.32&quot;, &quot;10.74.1.33&quot;]
+#netweaver_virtual_ips = [&quot;10.74.1.35&quot;, &quot;10.74.1.36&quot;, &quot;10.74.1.37&quot;, &quot;10.74.1.38&quot;]
+#netweaver_storage_account_key = &quot;YOUR_STORAGE_ACCOUNT_KEY&quot;
+#netweaver_storage_account_name = &quot;YOUR_STORAGE_ACCOUNT_NAME&quot;
+#netweaver_storage_account = &quot;//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/path/to/your/nw/installation/master&quot;
+
+# QA variables
+
+# Define if the deployment is using for testing purpose
+# Disable all extra packages that do not come from the image
+# Except salt-minion (for the moment) and salt formulas
+# true or false (default)
+#qa_mode = false
+
+# Execute HANA Hardware Configuration Check Tool to bench filesystems
+# qa_mode must be set to true for executing hwcct
+# true or false (default)
+#hwcct = false</screen>
+</section>
+</section>
+<section xml:id="_cluster_configurations">
+<title>クラスターの構成</title>
+<screen>vmhana01:~ # crm cofigure show
+node 1: vmhana01 \
+        attributes lpa_prd_lpt=1583424440 hana_prd_vhost=vmhana01 hana_prd_site=NUE hana_prd_op_mode=logreplay hana_prd_srmode=sync hana_prd_remoteHost=vmhana02
+node 2: vmhana02 \
+        attributes lpa_prd_lpt=30 hana_prd_op_mode=logreplay hana_prd_vhost=vmhana02 hana_prd_remoteHost=vmhana01 hana_prd_site=FRA hana_prd_srmode=sync
+# SAP HANA resources
+primitive rsc_SAPHanaTopology_PRD_HDB00 ocf:suse:SAPHanaTopology \
+        params SID=PRD InstanceNumber=00 \
+        op monitor interval=10 timeout=600 \
+        op start interval=0 timeout=600 \
+        op stop interval=0 timeout=300
+primitive rsc_SAPHana_PRD_HDB00 ocf:suse:SAPHana \
+        params SID=PRD InstanceNumber=00 PREFER_SITE_TAKEOVER=True AUTOMATED_REGISTER=False DUPLICATE_PRIMARY_TIMEOUT=7200 \
+        op start interval=0 timeout=3600 \
+        op stop interval=0 timeout=3600 \
+        op promote interval=0 timeout=3600 \
+        op monitor interval=60 role=Master timeout=700 \
+        op monitor interval=61 role=Slave timeout=700
+# Create virtual ip. gcp must be changed when gcp-vpc-move-route RA is available
+primitive rsc_ip_PRD_HDB00 IPaddr2 \
+        params ip=10.74.1.200 cidr_netmask=24 nic=eth0 \
+        op start timeout=20 interval=0 \
+        op stop timeout=20 interval=0 \
+        op monitor interval=10 timeout=20
+# Platform dependant (stonith, virtual ip address, cib options, etc) resource
+primitive rsc_socat_PRD_HDB00 anything \
+        params binfile=&quot;/usr/bin/socat&quot; cmdline_options=&quot;-U TCP-LISTEN:62500,backlog=10,fork,reuseaddr /dev/null&quot; \
+        op monitor timeout=20 interval=10 \
+        op_params depth=0
+primitive stonith-sbd stonith:external/sbd \
+        params pcmk_delay_max=30s
+group g_ip_PRD_HDB00 rsc_ip_PRD_HDB00 rsc_socat_PRD_HDB00
+ms msl_SAPHana_PRD_HDB00 rsc_SAPHana_PRD_HDB00 \
+        meta clone-max=2 clone-node-max=1 interleave=true
+clone cln_SAPHanaTopology_PRD_HDB00 rsc_SAPHanaTopology_PRD_HDB00 \
+        meta is-managed=true clone-node-max=1 interleave=true
+colocation col_saphana_ip_PRD_HDB00 2000: g_ip_PRD_HDB00:Started msl_SAPHana_PRD_HDB00:Master
+order ord_SAPHana_PRD_HDB00 Optional: cln_SAPHanaTopology_PRD_HDB00 msl_SAPHana_PRD_HDB00
+property cib-bootstrap-options: \
+        have-watchdog=true \
+        dc-version=&quot;1.1.18+20180430.b12c320f5-3.18.1-b12c320f5&quot; \
+        cluster-infrastructure=corosync \
+        cluster-name=hana_cluster \
+        stonith-enabled=true
+rsc_defaults rsc-options: \
+        resource-stickiness=1000 \
+        migration-threshold=5000
+op_defaults op-options: \
+        timeout=600 \
+        record-pending=true</screen>
+</section>
+<section xml:id="_sap_system_overview">
+<title>SAPシステムの概要 </title>
+<screen>vmhana01:~ # su - prdadm
+prdadm@vmhana01:/usr/sap/PRD/HDB00&gt; HDBSettings.sh systemOverview.py
+| Section    | Name            | Status  | Value                                       |
+| ---------- | --------------- | ------- | ------------------------------------------- |
+| System     | Instance ID     |         | PRD                                         |
+| System     | Instance Number |         | 00                                          |
+| System     | Distributed     |         | No                                          |
+| System     | Version         |         | 2.00.040.00.1553674765 (fa/hana2sp04)       |
+| System     | Platform        |         | SUSE Linux Enterprise Server 15             |
+| Services   | All Started     | OK      | Yes                                         |
+| Services   | Min Start Time  |         | 2020-03-05 13:48:38.000                     |
+| Services   | Max Start Time  |         | 2020-03-05 13:50:51.444                     |
+| Memory     | Memory          | OK      | Physical 62.86 GB, Swap 0.00 GB, Used 23.51 |
+| CPU        | CPU             | OK      | Available 8, Used 0.32                      |
+| Disk       | Data            | OK      | Size 60.0 GB, Used 7.1 GB, Free 88 %        |
+| Disk       | Log             | OK      | Size 60.0 GB, Used 3.7 GB, Free 93 %        |
+| Disk       | Trace           | OK      | Size 60.0 GB, Used 14.3 GB, Free 76 %       |
+| Statistics | Alerts          | WARNING | cannot check statistics w/o SQL connection  |</screen>
+</section>
+<section xml:id="_sap_hana_database_version">
+<title>SAP HANA データベースのバージョン</title>
+<screen>vmhana01:~ # su - prdadm
+prdadm@vmhana01:/usr/sap/PRD/HDB00&gt; HDB version
+HDB version info:
+  version:             2.00.040.00.1553674765
+  branch:              fa/hana2sp04
+  machine config:      linuxx86_64
+  git hash:            c8210ee40a82860643f1874a2bf4ffb67a7b2add
+  git merge time:      2019-03-27 09:19:25
+  weekstone:           0000.00.0
+  cloud edition:       0000.00.00
+  compile date:        2019-03-27 09:30:26
+  compile host:        ld4551
+  compile type:        rel</screen>
+</section>
+</section>
+<section xml:id="_legal_notice">
+<title>法的通知</title>
+<para>Copyright © 2006–2020 SUSE LLC and contributors.全著作権所有</para>
+<para>本書は、GNU Free Documentation Licenseのバージョン1.2または（オプションとして）バージョン1.3の条項に従って、複製、頒布、および/または改変が許可されています。ただし、この著作権表示およびライセンスは変更せずに記載してください。ライセンスバージョン1.2のコピーは、「GNU Free Documentation License」セクションに含まれています。</para>
+<para>SUSE、SUSEのロゴ、およびYaSTは、米国およびその他の国におけるSUSE LLCの登録商標です。SUSEの商標については、<link xl:href="http://www.suse.com/company/legal/">http://www.suse.com/company/legal/</link>を参照してください。</para>
+<para>Linuxは、Linus Torvaldsの登録商標です。本書に記載されているその他の名称や商標はすべて、それぞれの所有者の商標または登録商標の可能性があります。</para>
+<para>この記事は、「SUSE Best Practices」と呼ばれる一連の文書の一部です。個々の文書は、SUSE社員および第三者が自主的に作成したものです。これらの記事は、特定の操作をどのように行うかの一例を示しているにすぎません。</para>
+<para>また、SUSEは、これらの記事に記載された操作が主張どおりに機能し、予期せぬ結果をもたらさないことを確認していません。</para>
+<para>この記事のすべての情報は、細心の注意を払って編集されています。しかし、完全に正確であることを保証するものではありません。SUSE LLC、その関係者、著者、翻訳者のいずれも誤りまたはその結果に対して一切責任を負いかねます。参考までに、これらの記事の基になったライセンスを以下に示します。</para>
+</section><?pdfpagebreak style="suse2013-sbp" formatter="fop"?><xi:include href="license-gfdl.xml"/>
+
+</article>

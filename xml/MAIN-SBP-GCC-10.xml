@@ -1,0 +1,1712 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--<?oxygen RNGSchema="http://www.oasis-open.org/docbook/xml/5.0/rng/docbook.rng" type="xml"?>-->
+<!DOCTYPE article [
+<!ENTITY % entity SYSTEM "entity-decl.ent">
+%entity;
+]>
+
+<article role="sbp" xmlns="http://docbook.org/ns/docbook" xmlns:xi="http://www.w3.org/2001/XInclude"
+ xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0" xml:id="art-sbp-amdepyc2-sles15sp1"
+ xml:lang="en">
+
+ <info>
+  <title>Advanced Optimization and New Capabilities of GCC 10</title>
+
+  <productname>Development Tools Module, SUSE Linux Enterprise</productname>
+  <productnumber>15 SP2</productnumber>
+  <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
+   <dm:bugtracker>
+    <dm:url>https://github.com/SUSE/suse-best-practices/issues</dm:url>
+    <dm:product>Advanced Optimization and New Capabilities of GCC 10</dm:product>
+   </dm:bugtracker>
+   <dm:editurl>https://github.com/SUSE/suse-best-practices/blob/master/xml/</dm:editurl>
+  </dm:docmanager>
+
+  <author>
+   <personname>
+    <firstname>Martin</firstname>
+    <surname>Jambor, Toolchain Developer, SUSE</surname>
+   </personname>
+  </author>
+
+  <author>
+   <personname>
+    <firstname>Jan</firstname>
+    <surname>Hubička, Toolchain Developer, SUSE</surname>
+   </personname>
+  </author>
+
+  <author>
+   <personname>
+    <firstname>Richard</firstname>
+    <surname>Biener, Toolchain Developer, SUSE</surname>
+   </personname>
+  </author>
+
+  <author>
+   <personname>
+    <firstname>Martin</firstname>
+    <surname>Liška, Toolchain Developer, SUSE</surname>
+   </personname>
+  </author>
+
+  <author>
+   <personname>
+    <firstname>Michael</firstname>
+    <surname>Matz, Toolchain Team Lead, SUSE</surname>
+   </personname>
+  </author>
+
+  <author>
+   <personname>
+    <firstname>Brent</firstname>
+    <surname>Hollingsworth, Alliance Manager, AMD</surname>
+   </personname>
+  </author>
+
+  <!--    <cover role="logos">
+      <mediaobject>
+        <imageobject>
+          <imagedata fileref="suse.svg"/>
+        </imageobject>
+      </mediaobject>
+      <mediaobject>
+        <imageobject>
+          <imagedata fileref="amd.jpg"/>
+        </imageobject>
+      </mediaobject>
+    </cover>-->
+
+  <date>February 19, 2021</date>
+
+  <abstract>
+   <para> The document at hand provides an overview of GCC 10 as the current Development Tools
+    Module compiler in SUSE Linux Enterprise 15 SP2. It focuses on the important optimization levels
+    and options <emphasis role="strong">Link Time Optimization (LTO)</emphasis> and <emphasis
+     role="strong">Profile Guided Optimization (PGO)</emphasis>. Their effects are demonstrated by
+    compiling the SPEC CPU benchmark suite for AMD EPYC 7002 Series Processors and building Mozilla
+    Firefox for a generic x86_64 machine. </para>
+
+   <para>
+    <emphasis role="strong">Disclaimer</emphasis>: This document is part of the SUSE Best Practices
+    series. All documents published in this series were contributed voluntarily by SUSE employees
+    and by third parties. If not stated otherwise inside the document, the articles are intended
+    only to be one example of how a particular action could be taken. Also, SUSE cannot verify
+    either that the actions described in the articles do what they claim to do or that they do not
+    have unintended consequences. All information found in this document has been compiled with
+    utmost attention to detail. However, this does not guarantee complete accuracy. Therefore, we
+    need to specifically state that neither SUSE LLC, its affiliates, the authors, nor the
+    translators may be held liable for possible errors or the consequences thereof. </para>
+  </abstract>
+ </info>
+
+ <sect1 xml:id="sec-gcc10-overview">
+  <title>Overview</title>
+
+  <para> The first release of the GNU Compiler Collection (GCC) with the major version 10, GCC 10.1,
+   has been released in May 2020. GCC 10.2 with fixes to 94 bugs has followed in June of the same
+   year. Subsequently, it replaced the compiler in the SUSE Linux Enterprise (SLE) Development
+   Module. GCC 10 comes with many new features, such as implementing parts of the most recent
+   versions of specifications of various languages (especially <literal>C2X</literal>,
+    <literal>C++17</literal>, <literal>C++20</literal>) and their extensions (OpenMP, OpenACC),
+   supporting new capabilities of a wide range of computer architectures and numerous generic
+   optimization improvements. </para>
+
+  <para> This document gives an overview of GCC 10. The focus of the document is on how to select
+   appropriate optimization options for your application and stressing benefits of advanced modes of
+   compilation. First, we describe the optimization levels the compiler offers, and other important
+   options developers often use. We explain when and how you can benefit from using <emphasis
+    role="bold">Link Time Optimization (LTO)</emphasis> and <emphasis role="bold">Profile Guided
+    Optimization (PGO)</emphasis> builds. We also detail their effects when building a set of well
+   known CPU intensive benchmarks, and we are looking at how this performs on the AMD Zen 2 based
+   EPYC 7002 Series Processor. Finally, we take a closer look at the effects they have on a big
+   software project: Mozilla Firefox. </para>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-various_worlds_of_compilers">
+  <title>System compiler versus Developer Tools Module compiler</title>
+
+  <para> The major version of the system compiler in SUSE Linux Enterprise 15 remains to be GCC 7,
+   regardless of the service pack level. This is to minimize the danger of any unintended changes
+   over the entire life time of the product. </para>
+
+  <screen>sles15: # gcc --version
+gcc (SUSE Linux) 7.5.0
+Copyright (C) 2017 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+</screen>
+
+  <para> That does not mean that, as a user of SUSE Linux Enterprise 15, you are forced to use a
+   compiler with features frozen in 2016. You can install an add-on module called <emphasis
+    role="strong">Development Tools Module</emphasis>. This module is included in the SUSE Linux
+   Enterprise Server 15 subscription and contains a much newer compiler. </para>
+
+  <para> At the time of writing this document, the compiler included in the Development Tools Module
+   is GCC 10.2. Nevertheless, it is important to stress that, unlike the system compiler, the major
+   version of the most recent GCC from the module will change shortly after the upstream release of
+   GCC 11.2 (most likely in summer 2021), GCC 12.2 (summer 2022) and so forth. Note that only the
+   most recent compiler in the Development Tools Module is supported at any time, except for a six
+   months overlap period after the upgrade happened. Developers on a SUSE Linux Enterprise Server 15
+   system therefore have always access to two supported GCC versions: the almost unchanging system
+   compiler and the most recent compiler from the Development Tools Module. </para>
+
+  <para> Programs and libraries built with the compiler from the Development Tools Module can run on
+   computers running SUSE Linux Enterprise Server 15 which do not have the module installed. All
+   necessary runtime libraries are available from the main repositories of the operating system
+   itself, and new ones are added through the standard update mechanism. In the document at hand, we
+   use the term GCC 10 as synonym for any minor version of the major version 10 and GCC 10.2, to
+   refer to specifically that version. In practice, they should be interchangeable. </para>
+
+  <sect2 xml:id="sec-gcc10-when_module_compiler">
+   <title>When to use compilers from the Development Tools Module</title>
+
+   <para> In many cases you will find that the system compiler perfectly satisfies your needs. After
+    all, it is the compiler used to build all packages and their updates in the system itself. On
+    the other hand, there are situations where a newer compiler is necessary, or where you want to
+    consider using a newer compiler to get some of the benefits of its ongoing development. </para>
+
+   <para> If the program or library you are building uses language features which are not supported
+    by GCC 7, you cannot use the system compiler. However, the compiler from the Development Tools
+    Module will usually be sufficiently new. The most obvious case is <literal>C++</literal>. GCC 10
+    has a mature implementation of <literal>C++17</literal> features, whereas the one in GCC 7 is
+    only experimental and incomplete. The <literal>GNU C++ Library</literal>, which accompanies GCC
+    10, is also almost <literal>C++17</literal> feature-complete. Only <emphasis role="italic"
+     >hardware interference sizes</emphasis>
+    <footnote>
+     <para> Proposal P0154R1</para>
+    </footnote> are not implemented and <emphasis role="italic">elementary string
+     conversions</emphasis>
+    <footnote>
+     <para> Proposal P0067R5</para>
+    </footnote> have extra limitations. Most of the <literal>C++20</literal> features are
+    implemented in GCC 10 as experimental features. Try them out with appropriate caution. Most
+    notably, <emphasis role="italic">Modules</emphasis>
+    <footnote>
+     <para> Proposals P1103R3, P1766R1, P1811R0, P1703R1, P1874R1, P1979R0, P1779R3, P1857R3,
+      P2115R0 and P1815R2</para>
+    </footnote> and <emphasis role="italic">Atomic Compare-and-Exchange with Padding Bits</emphasis>
+    <footnote>
+     <para> Proposal P0528R3</para>
+    </footnote> are not supported yet, while <emphasis role="italic">Coroutines</emphasis>
+    <footnote>
+     <para> Proposal P0912R5</para>
+    </footnote> are implemented but require that the source file is compiled with the
+     <literal>-fcoroutines</literal> switch. If you are interested in the implementation status of
+    any particular <literal>C++</literal> feature in the compiler, consult the following pages: </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/projects/cxx-status.html"><literal>C++</literal>
+       Standards Support in GCC</link>, and </para>
+    </listitem>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/onlinedocs/gcc-10.2.0/libstdc++/manual/">The GNU
+        <literal>C++</literal> Library Manual</link>. </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> Advances in supporting new language specifications are not limited to
+     <literal>C++</literal>. GCC 10 supports several new features from the ISO 202X
+     <literal>C</literal> standard draft, and the Fortran compiler has also seen many improvements.
+    And if you use <literal>OpenMP</literal> or <literal>OpenACC</literal> extensions for parallel
+    programming, you will realize that the compiler supports a lot of features of new versions of
+    these standards. For more details, visit the links at the end of this section. </para>
+
+   <para> In addition to new supported language constructs, GCC 10 offers improved diagnostics when
+    it reports errors and warnings to the user so that they are easier to understand and to be acted
+    upon. This is particularly useful when dealing with issues in templated <literal>C++
+     code</literal>. Furthermore, there are several new warnings which help to avoid common
+    programming mistakes. </para>
+
+   <para> Because GCC10 is newer, it can generate code for many recent processors not supported by
+    GCC 7. Such a list of processors would be too large to be displayed here. Nevertheless, in <xref
+     linkend="sec-gcc10-spec"/> we specifically look at optimizing code for an AMD EPYC 7002 Series
+    Processor which is based on AMD Zen 2 cores. At this point we should stress that the <emphasis
+     role="italic">system compiler</emphasis> does not know this kind of core and therefore cannot
+    optimize for it. GCC 10, on the other hand, is the second major release supporting AMD Zen 2
+    cores, and thus can often produce significantly faster code for it. </para>
+
+   <para> Finally, the general optimization pipeline of the compiler has also significantly improved
+    over the years, which we will demonstrate in the last sections of this document. To find out
+    more about improvements in versions of GCC 8, 9 and 10, visit their respective
+     <quote>changes</quote> pages: </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-8/changes.html">GCC 8 Release Series Changes, New
+       Features, and Fixes</link>, </para>
+    </listitem>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-9/changes.html">GCC 9 Release Series Changes, New
+       Features, and Fixes</link>, and </para>
+    </listitem>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-10/changes.html">GCC 10 Release Series Changes, New
+       Features, and Fixes</link>. </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-issues_with_module_compiler">
+   <title>Potential issues with the Development Tools Module</title>
+
+   <para> GCC 10 from the Development Tools Module can sometimes behave differently in a way that
+    can cause issues which were not present with the system compiler. Such problems encountered by
+    other users are listed in the following documents: </para>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-8/porting_to.html">Porting to GCC 8</link>, </para>
+    </listitem>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-9/porting_to.html">Porting to GCC 9</link>, and
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <link xlink:href="https://gcc.gnu.org/gcc-10/porting_to.html">Porting to GCC 10</link>.
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> We encourage you to read through these three short pages to get an understanding of the
+    problems. The document at hand briefly mentions two such potential pitfalls.</para>
+
+   <para>The first one is that, for performance reasons, GCC 10 defaults to
+     <literal>-fno-common</literal> which means that a linker error will now be reported if the same
+    variable is defined in two <literal>C</literal> compilation units. This can happen if two or
+    more <literal>.c</literal> files include the same header file which intends to declare a
+    variable but omits the <literal>extern</literal> keyword when doing so, inadvertently resulting
+    in multiple definitions. If you encounter such an error, you simply need to add the
+     <literal>extern</literal> keyword to the declaration in the header file and define the variable
+    in only a single compilation unit. Alternatively, you can compile your project with an explicit
+     <literal>-fcommon</literal> if you are willing to accept that this behavior is inconsistent
+    with <literal>C++</literal> and may incur speed and code size penalties. </para>
+
+   <para> The second issue highlighted here is that the <literal>C++</literal> compiler in GCC 8 and
+    later now assumes that no execution path in a non-void function simply reaches the end of the
+    function without a return statement. This means it is assumed that such code paths will never be
+    executed, and thus they will be eliminated. You should therefore pay special attention to
+    warnings produced by <literal>-Wreturn-type</literal>. This option is enabled by default and
+    indicates which functions might be affected. </para>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-installing_module_compiler">
+   <title>Installing GCC 10 from the Development Tools Module</title>
+
+   <para> Similar to other modules and extensions for SUSE Linux Enterprise Server 15, you can
+    activate the Development Tools Module either using the command line tool
+     <command>SUSEConnect</command> or using the <command>YaST</command> setup and configuration
+    tool. To use the former, carry out the following steps: </para>
+
+   <procedure>
+    <step>
+     <para> As root, start by listing the available and activated modules and extensions: </para>
+     <screen>sles15: # SUSEConnect --list-extensions</screen>
+    </step>
+    <step>
+     <para> In the computer output, look for <quote>Development Tools Module</quote>: </para>
+     <screen>
+            Development Tools Module 15 SP2 x86_64
+            Activate with: SUSEConnect -p sle-module-development-tools/15.2/x86_64
+	  </screen>
+     <para> If you see the text <literal>(Activated)</literal> next to the module name, the module
+      is already ready to be used. You can safely proceed to the installation of the compiler
+      packages. </para>
+    </step>
+    <step>
+     <para> Otherwise, issue the activation command that is shown in the computer output above: </para>
+
+     <screen>sles15: # SUSEConnect -p sle-module-development-tools/15.2/x86_64
+Registering system to SUSE Customer Center
+
+Updating system details on https://scc.suse.com ...
+
+Activating sle-module-development-tools 15.2 x86_64 ...
+-> Adding service to system ...
+-> Installing release package ...
+
+Successfully registered system
+     </screen>
+    </step>
+   </procedure>
+
+   <para> If you prefer to use <command>YaST</command>, the procedure is also straightforward. Run
+    YaST as root and go to the <emphasis role="strong">Add-On Products</emphasis> menu in the
+     <command>Software</command> section. If <quote>Development Tools Module</quote> is among the
+    listed installed modules, you already have the module activated and can proceed with installing
+    individual compiler packages. If not, click the <emphasis role="strong">Add</emphasis> button,
+    select <emphasis role="strong">Select Extensions and Modules from Registration
+    Server</emphasis>, and <command>YaST</command> will guide you through a simple procedure to add
+    the module. </para>
+
+   <!--   Too detailed YaST procedure removed, probably not necessary
+
+      <para>To use YaST to install the Development Tools Module on a SUSE Linux Enterprise
+      Server 15 system, carry out the following steps:</para>
+
+      <procedure>
+	<step>
+	  <para>As root, run YaST and go to the <command>Add-On Products</command> menu in the
+	  Software section.</para>
+	</step>
+	<step>
+	  <para>If the list of installed modules already includes <quote>Development Tools
+	  Module</quote>, you already have the module installed and can proceed to installing
+	  individual compiler packages.  Otherwise press the <command>Add</command> button.</para>
+	</step>
+	<step>
+	  <para>Select Extensions and Modules from Registration Server and press the
+	  <command>Next</command> button.</para>
+	</step>
+	<step>
+	  <para>Select the <quote>Development Tools Module</quote>, check the checkbox next to it
+	  and press the <command>Next</command> button.</para>
+	</step>
+	<step>
+	  <para>YaST will present you with the list of changes to the system it is about to make.
+	  Review them and press the <command>Accept</command> button.</para>
+	</step>
+	<step>
+	  <para>Press the <command>OK</command> button to exit the Add-on Products menu and exit
+	  YaST.</para>
+	</step>
+      </procedure>
+      -->
+
+   <para> When you have the Development Tools Module installed, you can verify that the GCC 10
+    packages are available to be installed on your system:. </para>
+
+   <screen>sles15: # zypper search gcc10
+Refreshing service 'Basesystem_Module_15_SP2_x86_64'.
+Refreshing service 'Desktop_Applications_Module_15_SP2_x86_64'.
+Refreshing service 'Development_Tools_Module_15_SP2_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP2_x86_64'.
+Refreshing service 'SUSE_Package_Hub_15_SP2_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP2_x86_64'.
+Loading repository data...
+Reading installed packages...
+
+S | Name                         | Summary
+--+------------------------------+-------------------------------------------------------
+  | gcc10                        | The GNU C Compiler and Support Files
+  | gcc10                        | The GNU C Compiler and Support Files
+  | gcc10-32bit                  | The GNU C Compiler 32bit support
+  | gcc10-ada                    | GNU Ada Compiler Based on GCC (GNAT)
+  | gcc10-ada-32bit              | GNU Ada Compiler Based on GCC (GNAT)
+  | gcc10-c++                    | The GNU C++ Compiler
+  | gcc10-c++-32bit              | The GNU C++ Compiler
+  | gcc10-fortran                | The GNU Fortran Compiler and Support Files
+  | gcc10-fortran-32bit          | The GNU Fortran Compiler and Support Files
+  | gcc10-go                     | GNU Go Compiler
+  | gcc10-go-32bit               | GNU Go Compiler
+  | gcc10-info                   | Documentation for the GNU compiler collection
+  | gcc10-locale                 | Locale Data for the GNU Compiler Collection
+  | libstdc++6-devel-gcc10       | Include Files and Libraries mandatory for Development
+  | libstdc++6-devel-gcc10-32bit | Include Files and Libraries mandatory for Development
+  | libstdc++6-pp-gcc10          | GDB pretty printers for the C++ standard library
+  | libstdc++6-pp-gcc10-32bit    | GDB pretty printers for the C++ standard library
+</screen>
+
+   <para> Now you can simply install the compilers for the programming languages you use with
+     <command>zypper</command>: </para>
+
+   <screen>sles15: # zypper install gcc10 gcc10-c++ gcc10-fortran
+</screen>
+
+   <para> The compilers are installed on your system, the executables are called
+     <command>gcc-10</command>, <command>g++-10</command>, <command>gfortran-10</command> and so on.
+    It is also possible to install the packages in <command>YaST</command>. To do so, simply enter
+    the <quote>Software Management</quote> menu in the <emphasis role="strong">Software</emphasis>
+    section and search for <quote>gcc10</quote>. Then select the packages you want to install.
+    Finally, click the <emphasis role="strong">Accept</emphasis> button. </para>
+
+   <note>
+    <title>Newer compilers on openSUSE Leap 15.2</title>
+    <para> The community distribution openSUSE Leap 15.2 shares most of the base packages with SUSE
+     Linux Enterprise Server 15 SP2. The system compiler on systems running openSUSE Leap 15.2 is
+     also GCC 7.5. There is no Development Tools Module for the community distribution available,
+     but a newer compiler is provided. Simply install the packages <package>gcc10</package>,
+      <package>gcc10-c++</package>, <package>gcc10-fortran</package>, and the like. </para>
+   </note>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-optimization_levels">
+  <title>Optimization levels and related options</title>
+
+  <para> GCC has a rich optimization pipeline that is controlled by approximately a hundred of
+   command line options. It would be impractical to force users to decide about each one of them
+   whether they want to have it switched on when compiling their code. Like all other modern
+   compilers, GCC therefore introduces the concept of optimization levels which allow the user to
+   pick one common configuration from a few options. Optionally, the user can tweak the selected
+   level, but that does not happen frequently. </para>
+
+  <para> The default is to not optimize at all. You can specify this optimization level on the
+   command line as <literal>-O0</literal>. It is often used when developing and debugging a project.
+   This means it is usually accompanied with the command line switch <literal>-g</literal> so that
+   debug information is emitted. As no optimizations take place, no information is lost because of
+   it. No variables are optimized away, the compiler only inlines functions with special attributes
+   that require it, and so on. As a consequence, the debugger can almost always find everything it
+   searches for in the running program and report on its state very well. On the other hand, the
+   resulting code is big and slow. Thus this optimization level should not be used for release
+   builds. </para>
+
+  <para> The most common optimization level for release builds is <literal>-O2</literal> which
+   attempts to optimize the code aggressively but avoids large compile times and excessive code
+   growth. Optimization level <literal>-O3</literal> instructs GCC to simply optimize as much as
+   possible, even if the resulting code might be considerably bigger and the compilation can take
+   longer. Note that neither <literal>-O2</literal> nor <literal>-O3</literal> imply anything about
+   the precision and semantics of floating-point operations. Even at the optimization level
+    <literal>-O3</literal> GCC implements math functions so that they strictly follow the respective
+   IEEE and/or ISO rules. This often means that the compiled programs run markedly slower than
+   necessary if such strict adherence is not required. The command line switch
+    <literal>-ffast-math</literal> is a common way to relax rules governing floating-point
+   operations. It is out of scope of this document to provide a list of the fine-grained options it
+   enables and their meaning. However, if your software crunches floating-point numbers and its
+   runtime is a priority, you can look them up in the GCC manual and review what semantics of
+   floating-point operations you need. </para>
+
+  <para> The most aggressive optimization level is <literal>-Ofast</literal> which does imply
+    <literal>-ffast-math</literal> along with a few other options that disregard strict standard
+   compliance. In GCC 10 this level also means the optimizers may introduce data races when moving
+   memory stores which may not be safe for multithreaded applications. Additionally, the Fortran
+   compiler can take advantage of associativity of math operations even across parentheses and
+   convert big memory allocations on the heap to allocations on stack. The last mentioned
+   transformation may cause the code to violate maximum stack size allowed by
+    <command>ulimit</command> which is then reported to the user as a segmentation fault. We often
+   use level <literal>-Ofast</literal> to build benchmarks. It is a shorthand for the options on top
+   of <literal>-O3</literal>, which often make them run faster, and the benchmarks are usually
+   written in a way that they still run correctly. </para>
+
+  <para> If you feed the compiler with huge machine-generated input, especially if individual
+   functions happen to be extremely large, the compile time can become an issue even when using
+    <literal>-O2</literal>. In such cases, use the most lightweight optimization level
+    <literal>-O1</literal> that avoids running almost all optimizations with quadratic complexity.
+   Finally, the <literal>-Os</literal> level directs the compiler to aggressively optimize for the
+   size of the binary. </para>
+
+  <note>
+   <title>Optimization level recommendation</title>
+   <para> Usually we recommend using <literal>-O2</literal>. This is the optimization level we use
+    to build most SUSE and openSUSE packages, because at this level the compiler makes balanced size
+    and speed trade-offs when building a general-purpose operating system. However, we suggest using
+     <literal>-O3</literal> if you know that your project is compute-intensive and is either small
+    or an important part of your actual workload. Moreover, if the compiled code contains
+    performance-critical floating-point operations, we strongly advise that you investigate whether
+     <literal>-ffast-math</literal> or any of the fine-grained options it implies can be safely
+    used. </para>
+  </note>
+
+  <para> If your project and the techniques you use to debug or instrument it do not depend on
+    <emphasis role="italic">ELF symbol interposition</emphasis>, you may consider trying to speed it
+   up by using <literal>-fno-semantic-interposition</literal>. This allows the compiler to inline
+   calls and propagate information even when it would be illegal if a symbol changed during dynamic
+   linking. Using this option to signal to the compiler that interposition is not going to happen is
+   known to significantly boost performance of some projects, most notably the Python interpreter. </para>
+
+  <para> Some projects use <literal>-fno-strict-aliasing</literal> to work around type punning
+   problems in the source code. This is not recommended except for very low-level hand optimized
+   code such as the Linux kernel. Type-based alias analysis is a very powerful tool. It is used to
+   enable other transforms, such as store, to load propagation that in turn enables other
+   transformations, such as aggressive inlining, vectorization and other high level transformations. </para>
+
+  <para> With the <literal>-g</literal> switch GCC still tries hard to generate useful debug
+   information even when optimizing. However, a lot of information is irrecoverably lost in the
+   process. Debuggers also often struggle to present the user with a view of the state of a program
+   in which statements are not necessarily executed in the original order. Debugging optimized code
+   can therefore be a challenging task but usually is still somewhat possible. </para>
+
+  <para> The complete list of optimization and other command line switches is available in the
+   compiler manual, provided in the info format in the package <package>gcc10-info</package> or
+   online at <link xlink:href="https://gcc.gnu.org/onlinedocs/gcc-10.2.0/gcc/">the GCC project Web
+    site</link>. </para>
+
+  <para> Bear in mind that although almost all optimizing compilers have the concept of optimization
+   levels. But even if their optimization levels might have the same names as those in GCC, they do
+   not necessarily mean to make the same trade-offs. Famously, GCC's <literal>-Os</literal>
+   optimizes for size much more aggressively than LLVM/Clang's level with the same name. Therefore,
+   it often produces slower code; the more equivalent option in Clang is <literal>-Oz</literal>
+   which GCC does not have. Similarly, <literal>-O2</literal> can have different meanings for
+   different compilers. For example, the difference between <literal>-O2</literal> and
+    <literal>-O3</literal> is much bigger in GCC than in LLVM/Clang. </para>
+
+  <note>
+   <title>Changing the optimization level with <command>cmake</command></title>
+   <para> If you use <command>cmake</command> to configure and set up builds of your application, be
+    aware that its <emphasis role="italic">release</emphasis> optimization level defaults to
+     <literal>-O3</literal> which might not be what you want. To change it, you must modify the
+     <literal>CMAKE_C_FLAGS_RELEASE</literal>, <literal>CMAKE_CXX_FLAGS_RELEASE</literal> and/or
+     <literal>CMAKE_Fortran_FLAGS_RELEASE</literal>, since these variables are appended at the end
+    of the compilation command lines, thus overwriting any level set in the variables
+     <literal>CMAKE_C_FLAGS</literal>, <literal>CMAKE_CXX_FLAGS</literal>, and the like. </para>
+  </note>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-target_options">
+  <title>Taking advantage of newer processors</title>
+
+  <para> By default GCC assumes that you want to run the compiled program on a wide variety of CPUs,
+   including fairly old ones, regardless of the selected optimization level. On architectures like
+    <literal>x86_64</literal> and <literal>aarch64</literal> the generated code will only contain
+   instructions available on every CPU model of the architecture, including the earliest ones. On
+    <literal>x86_64</literal> in particular this means that the programs will use the
+    <literal>SSE</literal> and <literal>SSE2</literal> instruction sets for floating point and
+   vector operations but not any more recent ones. </para>
+
+  <para> If you know that the generated binary will run only on machines with newer instruction set
+   extensions, you can specify it on the command line. Their complete list is available in the
+   manual, but the most prominent one is <literal>-march</literal> which lets you select a CPU model
+   to generate code for. For example, if you know that your program will only be executed on AMD
+   EPYC 7002 Series Processors which is based on AMD Zen 2 cores or processors that are compatible
+   with it, you can instruct GCC to take advantage of all the instructions the CPU supports with
+   option <literal>-march=znver2</literal>. Note that on SUSE Linux Enterprise Server 15, the system
+   compiler does not know this particular value of the switch; you need to use GCC 10 from the
+   Development Tools Module to optimize code for these processors. </para>
+
+  <para> To run the program on the machine on which you are compiling it, you can have the compiler
+   auto-detect the target CPU model for you with the option <literal>-march=native</literal>. This
+   only works if the compiler is new enough. The system compiler of SUSE Linux Enterprise Server,
+   for example, misidentifies AMD EPYC 7002 Series Processors as being based on the AMD Zen 1 core.
+   Among other things, this means that it only emits 128bit vector instructions, even though the CPU
+   has data-paths wide enough to efficiently process 256bit ones. Again, the easy solution is to use
+   the compiler from the Development Tools Module when targeting recent processors. </para>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-lto">
+  <title>Link Time Optimization (LTO)</title>
+
+  <para>
+   <xref linkend="fig-gcc10-nonlto_build" xrefstyle="template:Figure %n"/> outlines the classic mode
+   of operation of a compiler and a linker. Pieces of a program are compiled and optimized in chunks
+   defined by the user called compilation units to produce so-called object files which already
+   contain binary machine instructions and which are combined together by a linker. Because the
+   linker works at such low level, it cannot perform much optimization and the division of the
+   program into compilation units thus presents a profound barrier to optimization. </para>
+
+  <figure xml:id="fig-gcc10-nonlto_build">
+   <title>Traditional program build</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="gcc10-nonlto.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="gcc10-nonlto.svg" width="100%" format="SVG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para> This limitation can be overcome by rearranging the process so that the linker does not
+   receive as its input the almost finished object files containing machine instructions, but is
+   invoked on files containing so called <emphasis role="italic">intermediate language</emphasis>
+   (IL) which is a much richer representation of each original compilation unit (see figure <xref
+    linkend="fig-gcc10-lto_build" xrefstyle="template:figure %n"/>). The linker identifies the input
+   as not yet entirely compiled and invokes a linker plugin which in turn runs the compiler again.
+   But this time it has at its disposal the representation of the entire program or library that is
+   being built. The compiler makes decisions about what optimizations across function and
+   compilation unit boundaries will be carried out and then divides the program into a set of
+   partitions. Each of the partitions is further optimized independently, and machine code is
+   emitted for it, which is finally linked the traditional way. Processing of the partitions is
+   performed in parallel. </para>
+
+  <figure xml:id="fig-gcc10-lto_build">
+   <title>Building a program with GCC using Link Time Optimization (LTO)</title>
+   <mediaobject>
+    <imageobject role="fo">
+     <imagedata fileref="gcc10-lto.svg" width="100%" format="SVG"/>
+    </imageobject>
+    <imageobject role="html">
+     <imagedata fileref="gcc10-lto.svg" width="100%" format="SVG"/>
+    </imageobject>
+   </mediaobject>
+  </figure>
+
+  <para> To use <emphasis role="italic">Link Time Optimization</emphasis>, all you need do is to add
+   the <literal>-flto</literal> switch to the compilation command line. The vast majority of
+   packages in the Linux distribution openSUSE Tumbleweed has been built with LTO for over a year
+   without any major problems. A lot of work has recently been put into emitting good debug
+   information when building with LTO. Thus the debugging experience is not limited anymore as it
+   was a couple of years ago. </para>
+
+  <para> LTO in GCC always consists of a <emphasis role="italic">whole program analysis</emphasis>
+   (WHOPR) stage followed by the majority of the compilation process performed in parallel, which
+   greatly reduces the build times of most projects. To control the parallelism, you can explicitly
+   cap the number of parallel compilation processes by <emphasis role="italic">n</emphasis> if you
+   specify <literal>-flto=<replaceable>n</replaceable></literal> at linker command line.
+   Alternatively, it is possible to use the GNU <command>make</command> jobserver with
+    <literal>-flto=jobserv</literal> while also prepending the <emphasis role="strong"
+    >makefile</emphasis> rule invoking link step with character <literal>+</literal> to instruct GNU
+   make to keep the jobserver available to the linker process. You can also use
+    <literal>-flto=auto</literal> which instructs GCC to search for the jobserver and if it is not
+   found, use all available CPU threads. </para>
+
+  <!--
+    <para>The number of partitions a program is split into depends only on the linked program itself
+    because it affects the resulting binary which are required to be identical despite different
+    host CPU configurations.  It is however possible to control the number using <literal>- -param
+    lto-partitions=<emphasis role="italic">n</emphasis></literal> parameter.</para>
+    -->
+
+  <para> Note that there is a technical difference in how GCC and LLVM/Clang approach LTO. Clang
+   provides two LTO mechanisms, so-called <emphasis role="italic">thin LTO</emphasis> and <emphasis
+    role="italic">full LTO</emphasis>. In full LTO, LLVM processes the whole program as if it was a
+   single translation unit which does not allow for any parallelism. GCC can be configured to
+   operate in this way with the option <literal>-flto-partition=one</literal>. LLVM in thin-LTO mode
+   can compile different compilation units in parallel and makes possible inlining across
+   compilation unit boundaries, but not most other types of cross-module optimizations. This
+   mechanism therefore has inherently higher code quality penalty than full LTO or the approach of
+   GCC. </para>
+
+  <sect2 xml:id="sec-gcc10-selected_lto_benefits">
+   <title>Most notable benefits of LTO</title>
+
+   <para> Applications built with LTO are often faster, mainly because the compiler can <emphasis
+     role="italic">inline</emphasis> calls to functions in another compilation unit. This
+    possibility also allows programmers to structure their code according to its logical division
+    because they are not forced to put function definitions into header files to enable their
+    inlining. Not all calls conveying information known at compilation time can be inlined. But GCC
+    can still track and propagate constants, value ranges and devirtualization contexts to the
+    callees, often even when passed in an aggregate or by reference, that can then subsequently save
+    unnecessary computations. LTO allows such propagation across compilation unit boundaries, too. </para>
+
+   <para> Link Time Optimization with <literal>whole program analysis</literal> also offers many
+    opportunities to shrink the code size of the built project. Thanks to <emphasis role="italic"
+     >symbol promotion</emphasis> and inter-procedural <emphasis role="italic">unreachable code
+     elimination</emphasis>, functions and their parts which are not necessary in any particular
+    project can be removed even when they are not declared <literal>static</literal> and are not
+    defined in an anonymous namespace. Automatic <emphasis role="italic">attribute
+     discovery</emphasis> can identify <literal>C++</literal> functions that do not throw exceptions
+    which allows the compiler to avoid generating a lot of code in exception cleanup regions.
+     <emphasis role="italic">Identical code folding</emphasis> can find functions with the same
+    semantics and remove all but one of them. The code size savings are often very significant and a
+    compelling reason to use LTO even for applications which are not CPU-bound. </para>
+
+   <note>
+    <title>Building libraries with LTO</title>
+    <para> The symbol promotion is controlled by resolution information given to the linker and
+     depends on type of the DSO build. When producing a dynamically loaded shared library, all
+     symbols with default visibility can be overwritten by the dynamic linker. This blocks the
+     promotion of all functions not declared inline, Thus it is necessary to use the hidden
+     visibility wherever possible to achieve best results. Similar problems happen even when
+     building static libraries with <literal>-rdynamic</literal>. </para>
+   </note>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-lto_issues">
+   <title>Potential issues with LTO</title>
+
+   <para> As noted earlier, the vast majority of packages in the openSUSE Tumbleweed distribution
+    are built with LTO without any need to tweak them, and they work fine. Nevertheless, some
+    low-level constructs pose a problem for LTO. One typical issue are symbols defined in <emphasis
+     role="italic">inline assembly</emphasis> which can happen to be placed in a different partition
+    from their uses and subsequently fail the final linking step. To build such projects with LTO,
+    the assembler snippets defining symbols must be placed into a separate assembler source file so
+    that they only participate in the final linking step. Global <literal>register</literal>
+    variables are not supported by LTO, and programs either must not use this feature or be built
+    the traditional way. </para>
+
+   <para> Another notable limitation of LTO is that it does not support <emphasis role="italic"
+     >symbol versioning</emphasis> implemented with special inline assembly snippets (as opposed to
+    a linker map file). To define symbol versions in the source files, you can do so with the new
+     <literal>symver</literal> function attribute. As an example, the following snippet will make
+    the function <literal>foo_v1</literal> implement <literal>foo</literal> in <emphasis
+     role="italic">node</emphasis>
+    <literal>VERS_1</literal> (which must be specified in the version script supplied to the
+    linker). Consult <link
+     xlink:href="https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-symver-function-attribute"
+     >the manual</link> for more details. </para>
+   <screen>__attribute__ ((__symver__ ("foo@VERS_1")))
+int foo_v1 (void)
+{
+}
+      </screen>
+
+   <para> Sometimes the extra power of LTO reveals pre-existing problems which do not manifest
+    themselves otherwise. Violations of (strict) <emphasis role="italic">aliasing</emphasis> rules
+    and <literal>C++</literal>
+    <emphasis role="italic">one definition rule</emphasis> tend to cause misbehavior significantly
+    more often; the latter is fortunately reported by the <literal>-Wodr</literal> warning which is
+    on by default and should not be ignored. We have also seen cases where the use of the
+     <literal>flatten</literal> function attribute led to unsustainable amount of inlining with LTO.
+    Furthermore, LTO is not a good fit for code snippets compiled by <literal>configure</literal>
+    scripts (generated by <literal>autoconf</literal>) to discover the availability of various
+    features, especially when the script then searches for a string in the generated assembly. </para>
+
+   <para> Finally, we needed to configure the virtual machines building the biggest openSUSE
+    packages to have more memory than when not using LTO. Whereas in the traditional mode of
+    compilation 1 GB of RAM per core was enough to build Mozilla Firefox, the serial step of LTO
+    means the build-bots need 16 GB even when it has fewer than 16 cores. </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-pgo">
+  <title>Profile-Guided Optimization (PGO)</title>
+
+  <para> Optimizing compilers frequently make decisions according to which path through the code
+   they consider most likely to be executed, how many times a loop is expected to iterate, and
+   similar estimates. They also often face trade-offs between potential runtime benefits and code
+   size growth. Ideally, they would optimize only frequently executed (also called <emphasis
+    role="italic">hot</emphasis>) bits of a program for speed and everything else for size to reduce
+   strain on caches and make the distribution of the built software cheaper. Unfortunately, guessing
+   which parts of a program are the <emphasis role="italic">hot</emphasis> ones is difficult, and
+   even sophisticated estimation algorithms implemented in GCC are no good match for a measurement. </para>
+
+  <para> If you want to add an extra level of complexity to the build system of your project, you
+   can make such measurement part of the process. The <emphasis role="strong">makefile</emphasis>
+   (or any other) build script needs to compile it twice. The first time it needs to compile with
+   the <literal>-fprofile-generate</literal> option and then execute the first binary in one or
+   multiple <emphasis role="italic">train runs</emphasis> during which it will save information
+   about the behavior of the program to special files. Afterward, the project needs to be rebuilt
+   again, this time with the <literal>-fprofile-use</literal> option which instructs the compiler to
+   look for the files with the measurements and use them when making optimization decisions, a
+   process called <emphasis role="italic">Profile-Guided Optimization (PGO)</emphasis>. </para>
+
+  <para> It is important that the train exhibits the same characteristics as the real workload.
+   Unless you use the option <literal>-fprofile-partial-training</literal> in the second build, it
+   needs to exercise the code that is also the most frequently executed in real use, otherwise it
+   will be optimized for size and PGO would make more harm than good. With the option, GCC reverts
+   to guessing properties of portions of the projects not exercised in the train run, as if they
+   were compiled without profile feedback. This however also means that the code size will not
+   typically shrink as much as one would expect from a PGO build. </para>
+
+  <para> On the other hand, train runs do not need to be a perfect simulation of the real workload.
+   For example, even though a test suite should not be a very good train run in theory because it
+   disproportionally often tests various corner cases, in practice many projects use it as a train
+   run and achieve significant runtime improvements with real workloads, too. </para>
+
+  <para> Profiles collected using an instrumented binary for multithreaded programs may be
+   inconsistent because of missed counter updates. You can use
+    <literal>-fprofile-correction</literal> in addition to <literal>-fprofile-use</literal> so that
+   GCC uses heuristics to correct or smooth out such inconsistencies instead of emitting an error. </para>
+
+  <para> Profile-Guided Optimization can be combined and is complimentary to Link Time Optimization.
+   While LTO expands what the compiler can do, PGO informs it about which parts of the program are
+   the important ones and should be focused on. The following sections detail this by means of two
+   rather different case studies. </para>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-spec">
+  <title>Performance evaluation: SPEC CPU 2017</title>
+
+  <para>
+   <emphasis role="italic">Standard Performance Evaluation Corporation</emphasis> (SPEC) is a
+   non-profit corporation that publishes a variety of industry standard benchmarks to evaluate
+   performance and other characteristics of computer systems. Its latest suite of CPU intensive
+   workloads, SPEC CPU 2017, is often used to compare compilers and how well they optimize code with
+   different settings because the included benchmarks are well known and represent a wide variety of
+   computation-heavy programs. This section highlights selected results of a GCC 10 evaluation using
+   the suite. </para>
+
+  <para> Note that when we use SPEC to perform compiler comparisons, we are lenient toward some
+   official SPEC rules which system manufacturers need to observe to claim an official score for
+   their system. We disregard the concepts of <emphasis role="italic">base</emphasis> and <emphasis
+    role="italic">peak</emphasis> metrics and simply focus on results of compilations using a
+   particular set of options. We even patched several benchmarks: </para>
+
+  <itemizedlist>
+   <listitem>
+    <para> Benchmarks <literal>502.gcc_r</literal>, <literal>505.mcf_r</literal>,
+      <literal>511.povray_r</literal>, and <literal>527.cam4_r</literal> contain an implementation
+     of quicksort which violates (strict) <literal>C/C++</literal> aliasing rules which can lead to
+     erroneous behavior when optimizing at link time. SPEC decided not to change the released
+     benchmarks and simply suggests that these benchmarks are built with the
+      <literal>-fno-strict-aliasing</literal> option when they are built with GCC. That makes
+     evaluation of compilers using SPEC problematic, gauging their ability to use aliasing rules to
+     facilitate optimizations is important. We have therefore disabled it only for the problematic
+      <literal>qsort</literal> attributes with the following function attribute: </para>
+    <screen>__attribute__((optimize("-fno-strict-aliasing")))</screen>
+    <para> As a result, the only benchmark which we compile with
+      <literal>-fno-strict-aliasing</literal> is <literal>500.perlbench_r</literal>. </para>
+   </listitem>
+   <listitem>
+    <para> We have increased the tolerance of <literal>549.fotonik3d_r</literal> to rounding errors
+     after it became clear the intention was that the compiler can use relaxed semantics of floating
+     point operations in the benchmark (see <link
+      xlink:href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=84201">GCC bug 84201</link>). </para>
+   </listitem>
+  </itemizedlist>
+
+  <para> For the mentioned reasons (and probably some more), all the results in this document are
+    <emphasis role="italic">non-reportable</emphasis>. Finally, SPEC 2017 CPU offers so-called
+    <emphasis role="italic">speed</emphasis> and <emphasis role="italic">rate</emphasis> metrics.
+   For our purposes, we mostly ignore the differences and simply run the benchmarks configured for
+   rate metrics (mainly because the runtimes are smaller) but we always run all benchmarks
+   single-threaded. </para>
+
+  <para> SPEC specifies a base runtime for each benchmark and defines a <emphasis role="italic"
+    >rate</emphasis> as the ratio of the base runtime and the median measured runtime (this rate is
+   a separate concept from the rate metrics). The overall suite score is then calculated as
+   geometric mean of these ratios. The bigger the rate or score, the better it is. In the remainder
+   of this section, we report runtimes using relative rates and their geometric means as they were
+   measured on an AMD EPYC 7502P Processor running SUSE Linux Enterprise Server 15 SP2. </para>
+
+  <sect2 xml:id="sec-gcc10-spec_lto_pgo">
+   <title>Benefits of LTO and PGO</title>
+
+   <para> In <xref linkend="sec-gcc10-optimization_levels"/> we recommend that HPC workloads are
+    compiled with <literal>-O3</literal> and benchmarks with <literal>-Ofast</literal>. But it is
+    still interesting to look at integer crunching benchmarks built with <literal>-O2</literal> only
+    because that is how Linux distributions often build the programs from which they were extracted.
+    We have already mentioned that almost the whole openSUSE Tumbleweed distribution is now built
+    with LTO, and selected packages with PGO, and the following paragraphs demonstrate why. </para>
+
+   <figure xml:id="fig-gcc10-specint-o2-pgolto-geomean">
+    <title>Overall performance (bigger is better) of SPEC INTrate 2017 built with GCC 10.2 and
+     -O2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <!-- xrefstyle="select:label" in xref also works but puts Figure with capital F everywhere -->
+
+   <para>
+    <xref linkend="fig-gcc10-specint-o2-pgolto-geomean" xrefstyle="template:Figure %n"/> shows the
+    overall performance effect on the whole integer benchmark suite as captured by the geometric
+    mean of all individual benchmark rates. The remarkable uplift of performance when using PGO is
+    mostly down to much quicker <literal>525.x264_r</literal> (see <xref
+     linkend="fig-gcc10-specint-o2-pgolto-perf-x264" xrefstyle="template:figure %n"/>). The reason
+    is that, with profile feedback, GCC performs vectorization also at <literal>-O2</literal> and
+    this benchmark benefits a great deal from vectorization, in practice it really should be
+    compiled with at least <literal>-O3</literal>. Nevertheless, several other benchmarks also
+    benefit from these advanced modes of operation, as can be seen on <xref
+     linkend="fig-gcc10-specint-o2-pgolto-perf-indiv" xrefstyle="template:figure %n"/>. </para>
+
+   <figure xml:id="fig-gcc10-specint-o2-pgolto-perf-x264">
+    <title>Performance (bigger is better) of <literal>525.x264_r</literal> built with GCC 10.2 and
+     -O2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-x264.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-x264.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specint-o2-pgolto-perf-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with GCC 10.2
+     and -O2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-o2-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para>
+    <xref linkend="fig-gcc10-specint-o2-ltopgo-size" xrefstyle="template:Figure %n"/> shows another
+    important reason which is the reduction of the size of the binaries (measured without debug
+    info), which can be significant with LTO or a combination of LTO and PGO. Note that it does not
+    depict that the size of benchmark <literal>548.exchange2_r</literal> grew by 50% and almost 250%
+    when built with PGO or both PGO and LTO respectively, which looks huge but the growth is from a
+    particularly small base. </para>
+
+   <figure xml:id="fig-gcc10-specint-o2-ltopgo-size">
+    <title>Binary size (smaller is better) of selected integer benchmarks built with GCC 10.2 and
+     -O2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-o2-pgolto-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-o2-pgolto-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> The runtime benefits and binary size savings can be even bigger when using the
+    optimization level <literal>-Ofast</literal> and option <literal>-march=native</literal> to
+    allow the compiler to take advantage of all instructions that the AMD EPYC 7502P Processor
+    supports. <xref linkend="fig-gcc10-specint-ofast-pgolto-geomean"
+     xrefstyle="template:Figure
+      %n"/> shows the respective geometric means and <xref
+     linkend="fig-gcc10-specint-ofast-pgolto-perf-indiv" xrefstyle="template:figure %n"/> shows the
+    benchmarks with the most profound effect. Even though optimization levels <literal>-O3</literal>
+    and <literal>-Ofast</literal> are permitted to be relaxed about the final binary size, PGO and
+    especially LTO can bring it nicely down at these levels, too. <xref
+     linkend="fig-gcc10-specint-ofast-pgolto-size" xrefstyle="template:Figure %n"/> depicts the
+    relative binary sizes of the most affected benchmarks. </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-pgolto-geomean">
+    <title>Overall performance (bigger is better) of SPEC INTrate 2017 built with GCC 10.2 and
+     -Ofast</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specint-ofast-pgolto-perf-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with GCC 10.2
+     and -Ofast</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specint-ofast-pgolto-size">
+    <title>Binary size (smaller is better) of SPEC INTrate 2017 built with GCC 10.2 and
+     -Ofast</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-size.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-pgolto-size.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> LTO and PGO also bring about performance increases on several floating point benchmarks.
+     <xref linkend="fig-gcc10-specfp-ofast-pgolto-geomean" xrefstyle="template:Figure %n"/> again
+    illustrates the overall effect on the whole suite and <xref
+     linkend="fig-gcc10-specfp-ofast-pgolto-perf-indiv" xrefstyle="template:figure %n"/> the
+    benchmarks that benefit the most. All the omitted benchmarks had comparable runtimes regardless
+    of the mode of compilation, except for <literal>521.wrf_r</literal> where the PGO profiling data
+    seem to be damaged in the build process, resulting in 13% slowdown with PGO (see <link
+     xlink:href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=90364">GCC bug 90364</link>). This
+    means that the increase by 6.4% of the geometric mean with both PGO and LTO actually does not
+    fully capture the benefits of these technologies when used correctly. Binary size savings are
+    very similar to those achieved on integer benchmarks. </para>
+
+   <figure xml:id="fig-gcc10-specfp-ofast-pgolto-geomean">
+    <title>Overall performance (bigger is better) of SPEC FPrate 2017 built with GCC 10.2 and
+     -Ofast</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-pgolto-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specfp-ofast-pgolto-perf-indiv">
+    <title>Runtime performance (bigger is better) of selected floating-point benchmarks built with
+     GCC 10.2 and -Ofast</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-pgolto-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-spec-cmp_to_gcc7">
+   <title>GCC 10.2 compared to GCC 7.5</title>
+
+   <para> In previous sections we have recommended the use of GCC 10.2 from the Development Tools
+    Module. Among other reasons, we did so because of its more powerful optimization pipeline and
+    its support for newer CPUs. This section compares SPEC CPU 2017 obtained with GCC 7.5, which
+    corresponds to the system compiler in SUSE Linux Enterprise Server 15, and GCC 10.2 on an AMD
+    EPYC 7502P Processor, when all benchmarks are compiled with <literal>-Ofast</literal> and
+     <literal>-march=native</literal>. Note that the latter option means that both compilers differ
+    in their CPU targets because GCC 7.5 does not know the Zen 2 core. This in turn means that in
+    big parts the optimization benefits presented here are because of the fact that the newer
+    compiler can take advantage of the full width of vector paths in the processor. Nevertheless, be
+    aware that simply using wider vectors everywhere often backfires. GCC has made substantial
+    advancements over the recent years, both in its vectorizer and other optimizers, to avoid such
+    issues. It is therefore much better placed to use the extra vector width appropriately and
+    produce code which utilizes the processor better in general. </para>
+
+   <para>
+    <xref linkend="fig-gcc10-specint-ofast-vs7-geomean" xrefstyle="template:Figure %n"/> captures
+    the benefits of using the modern compiler with integer workloads in the form of relative
+    improvements of the geometric mean of the whole SPEC INTrate 2017 suite. <xref
+     linkend="fig-gcc10-specint-ofast-vs7-indiv" xrefstyle="template:Figure %n"/> dives deeper and
+    shows which particular benchmarks gained most in terms of performance. It was already mentioned
+    that <literal>525.x264_r</literal> especially benefits from vectorization and therefore it is
+    not surprising it has improved the most. <literal>531.deepsjeng_r</literal> is faster chiefly
+    because it can emit better code for <emphasis role="italic">count trailing zeros</emphasis>
+    (CTZ) operation which it performs frequently. </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vs7-geomean">
+    <title>Overall performance (bigger is better) of SPEC INTrate 2017 built with GCC 7.5 and 10.2
+     (-Ofast -march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vs7-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vs7-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vs7-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with GCC 7.5
+     and 10.2 (-Ofast -march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vs7-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vs7-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> Floating point computation tends to benefit more from vectorization advancements than
+    integer ones. Thus it should be no surprise that the FPrate suite geometric means improved even
+    more than the integer ones, as shown in <xref linkend="fig-gcc10-specfp-ofast-vs7-geomean"
+     xrefstyle="template:figure %n"/>. Finally, <xref linkend="fig-gcc10-specfp-ofast-vs7-indiv"
+     xrefstyle="template:figure %n"/> again provides a detailed look at which benchmarks contributed
+    most to the overall score difference. </para>
+
+   <figure xml:id="fig-gcc10-specfp-ofast-vs7-geomean">
+    <title>Overall performance (bigger is better) of SPEC FPrate 2017 built with GCC 7.5 and 10.2
+     (-Ofast -march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-vs7-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-vs7-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specfp-ofast-vs7-indiv">
+    <title>Runtime performance (bigger is better) of selected floating-point benchmarks built with
+     GCC 7.5 and 10.2 (-Ofast -march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-vs7-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-vs7-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-spec_fast_math">
+   <title>Effects of <literal>-ffast-math</literal> on floating-point performance</title>
+
+   <para> In <xref linkend="sec-gcc10-optimization_levels"/> we have pointed out that, if you do not
+    relax the semantics of floating point math functions even though you do not need strict
+    adherence to all respective IEEE and/or ISO rules, you are likely to be leaving some performance
+    on the table. This section uses the SPEC FPrate 2017 test suite to illustrate how much
+    performance that might be. </para>
+   <para> We have built the benchmarking suite with LTO, optimization level <literal>-O3</literal>
+    and <literal>-march=native</literal> to target the native ISA of our AMD EPYC 7502P Processor.
+    And we compared its runtime score against the suite built with these options and
+     <literal>-ffast-math</literal>. As you can see in <xref
+     linkend="fig-gcc10-specfp-o3-fastmath-geomean" xrefstyle="template:figure %n"/>, the geometric
+    means grew by over 8%, but a quick look at <xref linkend="fig-gcc10-specfp-o3-fastmath-indiv"
+     xrefstyle="template:figure %n"/> will tell you that some benchmarks ran 20% faster. </para>
+
+   <figure xml:id="fig-gcc10-specfp-o3-fastmath-geomean">
+    <title>Overall performance (bigger is better) of SPEC FPrate 2017 built with GCC 10.2 and -O3,
+     without and with -ffast-math (-march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-fastmath-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-fastmath-perf-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-specfp-o3-fastmath-indiv">
+    <title>Runtime performance (bigger is better) of selected floating-point benchmarks built with
+     GCC 10.2 and -O3, without and with -ffast-math (-march=native)</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-fastmath-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-fastmath-perf-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-spec_compared_to_others">
+   <title>Comparison with other compilers</title>
+
+   <para> The toolchain team at SUSE regularly uses the SPEC CPU 2017 suite to compare the
+    optimization capabilities of GCC with other compilers, mainly Intel ICC and LLVM/Clang. In the
+    final section of this document we will share how the Development Module compiler stands compared
+    to these competitors on SUSE Linux Enterprise Server 15 SP2. Before we start, we should
+    emphasize that the comparison has been carried out by people who have much better knowledge of
+    GCC than the other compilers and are not <quote>unbiased</quote>. Also, keep in mind that
+    everything we explained previously about how we carry out the measurements and patch the
+    benchmarks also applies to this section. On the other hand, the results often guide our work and
+    therefore we strive to be accurate. </para>
+
+   <para> Even though ICC is not intended as a compiler for AMD processors, it is known for its
+    high-level optimization capabilities, especially when it comes to vectorization. Thus we believe
+    comparisons with it are useful even on AMD CPUs. We have therefore compiled SPEC suite with ICC
+    19.1 with options <literal>-Ofast</literal> and <literal>-march=core-avx2</literal> option and
+    compared the runtimes on the AMD EPYC 7502P Processor with binaries produced with GCC 10.2 with
+     <literal>-Ofast</literal> and <literal>-march=native</literal>. </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vsicc-geomean">
+    <title>Overall performance (bigger is better) of SPEC INTrate 2017 built with ICC 19 and GCC
+     10.2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-geomean.svg" width="85%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para>
+    <xref linkend="fig-gcc10-specint-ofast-vsicc-geomean" xrefstyle="template:Figure %n"/> depicts
+    the respective geometric means of rates of all the integer benchmarks when compiled with the two
+    compilers, without and with LTO, relative to performance of ICC without LTO. GCC manages to
+    achieve better score in the traditional compilation mode but loses to ICC with LTO. </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vsicc-exchange2">
+    <title>Performance (bigger is better) of <literal>548.exchange2_r</literal> built with ICC 19
+     and GCC 10.2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-exchg.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-exchg.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> By far the main reason is the performance of benchmark <literal>548.exchange2_r</literal>
+    (see <xref linkend="fig-gcc10-specint-ofast-vsicc-exchange2" xrefstyle="template:figure %n"/>)
+    where ICC achieves 174% compared to itself without LTO. <literal>548.exchange2_r</literal> is
+    the only Fortran benchmark in the integer suite and its only hot function contains a recursive
+    call in a deep loop nest which poses a problem for many loop optimizers. Furthermore, it can be
+    made faster up by inter-procedural constant propagation and cloning if performed to an extent
+    that would typically be excessive. When GCC 10 is instructed to do that with the parameters
+     <literal>--param ipa-cp-eval-threshold=1 --param ipa-cp-unit-growth=80</literal>, it achieves a
+    score on par with ICC with LTO, even without LTO. We do not expect users to compile with such
+    options, and are working to enable the transformation with only <literal>-Ofast</literal> in the
+    next release of GCC. </para>
+
+   <para>
+    <xref linkend="fig-gcc10-specint-ofast-vsicc-indiv" xrefstyle="template:Figure %n"/> shows other
+    integer benchmarks which performed differently when compiled with ICC and GCC. As you can see,
+    although GCC still loses in a few cases, it wins others and is generally competitive against ICC
+    on integer benchmarks. Unfortunately, the same cannot be said for floating point benchmarks, at
+    least not on SUSE Linux Enterprise Server 15 SP2. This is primarily because the performance is
+    also very much influenced by the math library. ICC carries its own, while GCC depends on the one
+    from <package>glibc</package> and the version in SUSE Linux Enterprise Server 15 SP2
+    unfortunately contains slow implementations of some key functions, such as those used to compute
+    complex exponential. Comparing geometric means, ICC beats GCC by 7.7% without LTO and by 10.5%
+    with LTO. When we compared the same compilers on openSUSE Tumbleweed with glibc version 2.31,
+    ICC was still faster but the differences were 0.1% and 3.7% respectively. SUSE is working to
+    upgrade the <emphasis role="strong">glibc</emphasis> version in SUSE Linux Enterprise Server 15
+    SP 3 to exactly this version, which will lead to significant speed-ups. Meanwhile, users can
+    consider using optimized <emphasis role="strong">libm</emphasis> from AMD <footnote>
+     <para> Available at <link
+       xlink:href="https://developer.amd.com/amd-aocl/amd-math-library-libm/"
+       >https://developer.amd.com/amd-aocl/amd-math-library-libm/</link>
+     </para>
+    </footnote> . </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vsicc-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with ICC 19
+     and GCC 10.2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vsicc-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> Comparisons with LLVM/Clang 11.0 are incomplete because although the newest release of
+    this compiler suite already contains a Fortran compiler, we could not compile the SPEC
+    benchmarks with it. Nevertheless, we have built the <literal>clang</literal> and
+     <literal>clang++</literal> compilers from sources obtained from the official git repository
+    (tag <literal>llvmorg-11.0.0</literal>), used it to compile the SPEC CPU 2017 suite with
+     <literal>-Ofast</literal> and <literal>-march=native</literal> and compared the performance
+    against the suites built with GCC 10.2 with the same options. When using Clang's LTO to compile
+    SPEC, we selected the <emphasis role="italic">full</emphasis> variant. </para>
+
+   <figure xml:id="fig-gcc10-specint-ofast-vsclang-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with Clang 11
+     and GCC 10.2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specint-ofast-vsclang-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specint-ofast-vsclang-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para>
+    <xref linkend="fig-gcc10-specint-ofast-vsclang-indiv" xrefstyle="template:Figure %n"/> captures
+    the integer benchmarks with significant performance differences. Clang scores one notable win
+    with <literal>531.deepsjeng_r</literal>, which we can mostly pin down to an if-conversion
+    transformation which we are not certain is generally profitable, and is slightly faster with
+     <literal>557.xz_r</literal>. On the other hand, GCC wins on the benchmark derived from itself
+    and is remarkably faster on <literal>500.perlbench_r</literal> and <literal>505.mcf_r</literal>.
+    If we omitted the one Fortran benchmark in calculating the overall geometric mean, GCC would win
+    by 13% without LTO and by 5% with it. </para>
+
+   <para> The floating point benchmark suite contains many more Fortran benchmarks. For more
+    information, refer to <xref linkend="fig-gcc10-specfp-ofast-vsclang-indiv"
+     xrefstyle="template:figure %n"/> which captures the significant differences in scores of
+    benchmarks written entirely in <literal>C/C++</literal>. Overall, GCC still has a slight lead
+    but Clang manages clear wins on three of the benchmarks. </para>
+
+   <figure xml:id="fig-gcc10-specfp-ofast-vsclang-indiv">
+    <title>Runtime performance (bigger is better) of selected integer benchmarks built with Clang 11
+     and GCC 10.2</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-specfp-ofast-vsclang-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-specfp-ofast-vsclang-indiv.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-gcc10-firefox">
+  <title>Performance evaluation: Mozilla Firefox</title>
+
+  <para> Benchmarks such as SPEC CPU 2017 are very useful to gauge how compilers optimize a
+   particular type of computation when it is embedded in a small- to medium-size project.
+   Nevertheless, many real-world applications are much bigger. This fact alone presents a
+   significant challenge to optimizing compilers. When there are too many opportunities for a
+   transformation which has a potential to increase performance but comes with a substantial code
+   size growth, such as inlining, the compiler simply cannot go ahead and proceed with all of them
+   because the final size of the binary would be unacceptably big. To monitor how well GCC manages
+   to optimize big real applications, we regularly build and benchmark the popular Mozilla Firefox
+   browser <footnote>
+    <para> For older results, see for example <link
+      xlink:href="http://hubicka.blogspot.com/2019/05/gcc-9-link-time-and-inter-procedural.html"
+      >this blog post</link>. </para>
+   </footnote>. This section summarizes our latest findings. </para>
+
+  <para> We use Mozilla's own Treeherder project to build Firefox with different compilers and
+   options, and their Talos and Perfherder infrastructure to evaluate their performance. The
+   evaluation framework compares different binaries using several benchmarks which it can run
+   sufficiently many times to eliminate their noise. The CPUs used in Mozilla Talos to benchmark
+    <literal>x86_64</literal> Linux builds are Intel E3-1585L v5. But as shown further on, we
+   measured similar results on an AMD Ryzen 7 3700X 8-Core Processor, although on simpler benchmarks
+   and with much fewer data points. </para>
+
+  <para> Another important difference to traditional benchmarks is that most of Mozilla Firefox is
+   implemented in a shared object file compiled as <emphasis role="italic">position independent
+    code</emphasis>. This limits code generation in some situations, such as data segment
+   relocations or global variable addressing <footnote>
+    <para> For further details, see <link xlink:href="https://akkadia.org/drepper/dsohowto.pdf"
+       ><quote>How To Write Shared Libraries</quote> by Ulrich Drepper</link>. </para>
+   </footnote>. Note that all Firefox binaries, regardless of the compiler used, were built with the
+   following options in addition to any that are explicitly called out: </para>
+
+  <screen>-fno-sized-deallocation -fno-aligned-new -fno-strict-aliasing -fPIC -fno-exceptions
+-fno-rtti -fno-math-errno -fno-exceptions -fno-fomit-frame-pointer</screen>
+
+  <para> Unfortunately, Mozilla Firefox is one of the projects which has elected to use
+    <literal>-fno-strict-aliasing</literal> rather than fix aliasing violations in their code,
+   despite the performance implications it has. </para>
+
+  <para> When we compare any two Firefox binaries, we start by looking at their size, excluding
+   debug information sections. The size is often important by itself, such as when applications are
+   updated over slower networks, but it is also a sign of how well the compiler can distinguish
+   performance sensitive and rarely executed pieces of a project. To evaluate runtime performance,
+   in this document we selected four benchmarks. The chief benchmark among them is <emphasis
+    role="italic">tp5o</emphasis>
+   <footnote>
+    <para>
+     <link xlink:href="https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#tp5"
+      >https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#tp5</link>
+    </para>
+   </footnote> which measures the time it takes Firefox to load the tp5 Web page test set which
+   contains a collection of 151 pages originally picked from a list of 500 most popular ones in
+   2011. We also look at <emphasis role="italic">tp5o responsiveness test</emphasis>
+   <footnote>
+    <para>
+     <link
+      xlink:href="https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#Responsiveness"
+      >https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#Responsiveness</link>
+    </para>
+   </footnote> measuring how responsive Firefox is while carrying out a non-trivial workload. The
+   Talos test we have chosen to focus on is called <emphasis role="italic">perf reftest
+    singletons</emphasis>
+   <footnote>
+    <para>
+     <link
+      xlink:href="https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#perf-reftest-singletons"
+      >https://wiki.mozilla.org/TestEngineering/Performance/Talos/Tests#perf-reftest-singletons</link>
+    </para>
+   </footnote>. It is a micro-benchmark that loads simple HTML pages and then measures basic
+   manipulation with their elements, such as adding a row to a table. This benchmark itself is part
+   of the train run in PGO builds, and thus the PGO binaries should be well trained for it. Finally,
+   we have used <emphasis role="italic">Speedometer 2.0</emphasis>
+   <footnote>
+    <para>
+     <link xlink:href="https://browserbench.org/Speedometer2.0/"
+      >https://browserbench.org/Speedometer2.0/</link>
+    </para>
+   </footnote> to cross-check selected results from Talos on AMD Ryzen 7 3700X 8-Core Processor.
+   Speedometer is a rather simple benchmark which simulates user actions for adding, completing, and
+   removing to-do items using DOM APIs in different ways. Speedometer is also part of the profile
+   train run. </para>
+
+  <sect2 xml:id="sec-gcc10-ff_levels_lto_pgo">
+   <title>Effects of <literal>-O3</literal> compared to <literal>-O2</literal> and of LTO and
+    PGO</title>
+
+   <para> Mozilla Firefox is a large application. The code size should therefore definitely play a
+    role when deciding how to compile it. On the other hand, a Web browser is also likely to be a
+    substantial part of a typical desktop workload. Thus gains in performance can easily justify
+    binary size increases. As a consequence, Firefox is typically built with <literal>-O3</literal>.
+     <xref linkend="fig-gcc10-ff-levels_lto_pgo-size" xrefstyle="template:Figure %n"/> depicts the
+    sizes of the Firefox <emphasis role="strong">libxul</emphasis> library, which contains the bulk
+    of the browser, when built with GCC 10 using the Mozilla Treeherder infrastructure with the
+    optimization levels and modes most discussed in this document. Again, you can see that LTO can
+    reduce the code size to an extent that more than offsets the difference between
+     <literal>-O3</literal> and <literal>-O2</literal>. Note that, since a big portion of Firefox is
+    written in Rust and the whole program analysis is limited to the parts written in
+     <literal>C++</literal>, the LTO benefits are smaller than the typical case, in terms of both
+    size and performance. Work on the Rust GCC front-end has started only recently but we hope that
+    we will overcome this limitation. Nevertheless, as demonstrated throughout this case study, LTO
+    combined with PGO is by far the best option, not only in code size comparison but also in any
+    other measurement. </para>
+
+   <figure xml:id="fig-gcc10-ff-levels_lto_pgo-size">
+    <title>Code size (smaller is better) of Firefox binaries built with GCC 10.2 with different
+     options</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> When not employing neither LTO nor PGO, the performance difference between
+     <literal>-O2</literal> and <literal>-O3</literal> is barely measurable on the tp5o benchmark.
+    This is mostly because the Skia rendering library they both use has been compiled with
+     <literal>-O3</literal>. The difference is bigger, but still rather small on other benchmarks,
+    unlike switching on LTO which has noticeable effect even at <literal>-O2</literal>. LTO and
+     <literal>-O3</literal> adds another bit of performance. But the real speed up comes only
+    when PGO is added into the formula. This observation holds for both the data measured using the
+    Talos and Perfherder systems (<xref linkend="fig-gcc10-ff-levels_lto_pgo-perf"
+     xrefstyle="template:figure %n"/>) and speedometer results we obtained manually on an AMD Ryzen
+    7 3700X 8-Core Processor (<xref linkend="fig-gcc10-ff-levels_lto_pgo-speedo"
+     xrefstyle="template:figure %n"/>). This is especially remarkable when you consider that the
+    binary is more than 20% smaller than a simple <literal>-O2</literal> build. Note that such
+    aggressive size shrinking comes at a modest cost which we will discuss in section <xref
+     linkend="sec-gcc10-ff-pgo_notes" xrefstyle="template:section %n"/>. </para>
+
+   <figure xml:id="fig-gcc10-ff-levels_lto_pgo-perf">
+    <title>Runtime performance (bigger is better) of Firefox built with GCC 10.2 with different
+     options, running on Mozilla Talos infrastructure</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-ff-levels_lto_pgo-speedo">
+    <title>Runtime performance (bigger is better) of Firefox built with GCC 10.2 with different
+     options, running Speedometer 2.0 on an AMD Ryzen 7 3700X 8-Core Processor</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-speedo.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-levels_lto_pgo-speedo.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-ff-cmp_to_gcc7">
+   <title>GCC 10.2 compared to GCC 7.5</title>
+
+   <para>
+    <xref linkend="sec-gcc10-spec-cmp_to_gcc7" xrefstyle="template:Section %n"/> demonstrates that
+    GCC 10 produces much faster code when targeting modern CPUs such as AMD EPYC 7502P Processor,
+    most often because it can take advantage of vector instructions of the new hardware. This
+    section aims to show that GCC 10 produces faster code also when emitting instructions for any
+    x86_64 and running on processors that are not as new. We have compared Firefox binaries built
+    with GCC 7.5 and 10.2 using the least and the most powerful methods described in the previous
+    section, <literal>-O2</literal> with the traditional built and <literal>-O3</literal> with both
+    LTO and PGO. Their respective sizes are very similar but the one created with GCC 10 has always
+    performed noticeably better. In the tp5o responsiveness benchmark, the simple
+     <literal>-O2</literal> build was 18% faster. Even when using the full power of
+     <literal>-O3</literal>, PGO and LTO, the binary built with the more modern compiler ran 8%
+    faster (see <xref linkend="fig-gcc10-ff-vs7-perf" xrefstyle="template:figure
+      %n"/>). </para>
+
+   <figure xml:id="fig-gcc10-ff-vs7-perf">
+    <title>Runtime performance (bigger is better) of Firefox built with GCC 7.5 and 10.2, running on
+     Mozilla Talos infrastructure</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vs7-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vs7-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-ff-compared_to_clang">
+   <title>Simple comparisons with Clang 11</title>
+
+   <para> To evaluate how GCC is doing compared to other compilers, we regularly compare the Firefox
+    binaries produced by GCC to those emitted by LLVM/Clang, which is after all currently the
+    preferred compiler by the team at Mozilla. Before we proceed, we must stress that the authors of
+    this paper are not nearly as familiar with LLVM/Clang as they are with GCC, and it must be
+    emphasized that they are not unbiased. On the other hand, our findings in such comparisons guide
+    our own future work and therefore we strive to be accurate. </para>
+
+   <para> Because the notion of compilation levels is somewhat different in both of these compilers,
+    we have focused on evaluating how they build Firefox using <literal>-O3</literal> in the
+    traditional way and when using LTO (in Clang's case its <emphasis role="italic">thin</emphasis>
+    variant) and both PGO and LTO. Possibly the most striking differences are between code sizes of
+    the results (see <xref linkend="fig-gcc10-ff-vsclang-size" xrefstyle="template:figure %n"/>).
+    When using plain <literal>-O3</literal>, GCC produces 5% larger binary than Clang, but with LTO
+    GCC manages to shrink the code size to more than undo this difference, whereas Clang uses the
+    extra cross-module opportunities to grow the code by 6%. The difference is even more pronounced
+    with PGO in addition to LTO, which barely enables Clang to produce a binary that is smaller than
+    using neither, while GCC creates the smallest binary of all, 29% smaller than when using plain
+     <literal>-O3</literal>. Nevertheless, <xref linkend="sec-gcc10-ff-pgo_notes"
+     xrefstyle="template:section %n"/> discusses important caveats regarding the PGO cases. </para>
+
+   <figure xml:id="fig-gcc10-ff-vsclang-size">
+    <title>Code size (smaller is better) of Firefox binaries built with GCC 10.2 and Clang
+     11</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vsclang-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vsclang-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> Runtime comparisons can be found in <xref linkend="fig-gcc10-ff-vsclang-perf"
+     xrefstyle="template:figure %n"/> (measured on Talos) and <xref
+     linkend="fig-gcc10-ff-vsclang-speedo" xrefstyle="template:figure %n"/> (timed on an AMD Ryzen 7
+    3700X 8-Core Processor). In the tp50 benchmark and LTO+PGO configurations, the aggressive
+    optimizing for size means that GCC is slower, albeit measurably. Because the singletons test is
+    part of the train run, GCC does not have this issue when running this benchmark (we go into more
+    details on the train run in <xref linkend="sec-gcc10-ff-pgo_notes"
+     xrefstyle="template:section %n"/>). In the responsiveness test, GCC wins with profile feedback
+    but lags a little without it. Because Mozilla Firefox is a large application that is intended to
+    be built with PGO, we consider the results with profile feedback the most important. Running
+    speedometer on the AMD machine leads to similar results. </para>
+
+   <figure xml:id="fig-gcc10-ff-vsclang-perf">
+    <title>Runtime performance (bigger is better) of Firefox with GCC 10.2 and Clang 11, running on
+     Mozilla Talos infrastructure</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vsclang-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vsclang-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <figure xml:id="fig-gcc10-ff-vsclang-speedo">
+    <title>Runtime performance (bigger is better) of Firefox with GCC 10.2 and Clang 11, running
+     Speedometer 2.0 on an AMD Ryzen 7 3700X 8-Core Processor</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vsclang-speedo.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vsclang-speedo.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+  </sect2>
+
+  <sect2 xml:id="sec-gcc10-ff-pgo_notes">
+   <title>Further examination of PGO performance</title>
+
+   <para> As we stressed at the beginning of this case study, identifying frequently executed (hot)
+    parts of a project poses a big challenge for a compiler which does not have profile feedback at
+    its disposal and this problem can be particularly hard and important at the same time when the
+    compiled project is large. That is why PGO optimized builds of Firefox are so much faster,
+    despite the fact that the train run is inevitably a less than perfect model of the actual use
+    patterns. After all, it exercises less than 3% of the source code as measured by the size of the
+    final binary, it consists of: </para>
+
+   <itemizedlist>
+    <listitem>
+     <para> sunspider (an old JavaScript benchmark), </para>
+    </listitem>
+    <listitem>
+     <para> perf reftest singletons (described above), </para>
+    </listitem>
+    <listitem>
+     <para> speedometer (also described above), </para>
+    </listitem>
+    <listitem>
+     <para> webaudio benchmark, </para>
+    </listitem>
+    <listitem>
+     <para> crypto-otp (JavaScript one time password generator), </para>
+    </listitem>
+    <listitem>
+     <para> blueprint (rendering a specific Firefox UI), and </para>
+    </listitem>
+    <listitem>
+     <para> 3d-thingy (a simple animation). </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> Because the train run coverage is relatively small and does not exercise all important
+    code paths, it is important to use the <literal>-fprofile-partial-training</literal> as
+    described in <xref linkend="sec-gcc10-pgo" xrefstyle="template:section %n"/>. This option was
+    used in the PGO builds described in section <xref linkend="sec-gcc10-ff-compared_to_clang"
+     xrefstyle="template:section %n"/> and yet we had to conclude that GCC was perhaps a bit too
+    aggressive when optimizing for code size and that Clang was faster on the tp5o benchmark as a
+    result. To verify this hypothesis, we have also built Firefox with <literal>-O3</literal>, PGO,
+    LTO, partial training and an extra option <literal>--param
+     hot-bb-count-ws-permille=1000</literal>, which instructs GCC to consider even smaller portion
+    of the project as cold. Afterward, we used this build to prepare a final comparison with Clang,
+    but this time using the reference Clang options that Firefox developers use to build Firefox <footnote>
+     <para> The Firefox team at Mozilla uses Clang with compilation options <literal>-O3 -flto=thin
+       -fexperimental-new-pass-manager -Wl,--gc-sections -Wl,-plugin-opt=-import-instr-limit=10
+       -Wl,-plugin-opt=new-pass-manager -Wl,-plugin-opt=-import-hot-multiplier=30
+       -ffunction-sections -fdata-sections</literal>
+     </para>
+    </footnote> . Like in <xref linkend="sec-gcc10-ff-compared_to_clang"
+     xrefstyle="template:section %n"/> we use Clang <literal>-O3</literal> as the reference point,
+    so that 100% corresponds to the identical values like in the graphs there. </para>
+
+   <figure xml:id="fig-gcc10-ff-vsclang_extra-size">
+    <title>Code size (smaller is better) of Firefox binaries built with GCC 10.2 and Clang 11 using
+     compilation options tailored for Firefox</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vsclang_extra-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vsclang_extra-size.svg" width="90%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> As you can see on <xref linkend="fig-gcc10-ff-vsclang_extra-size"
+     xrefstyle="template:figure %n"/>, the tailored Clang build is smaller than before even though
+    the base optimization level is still <literal>-O3</literal> and both PGO and LTO have been
+    employed. GCC with the special parameter produced a bigger binary than without it, but it is
+    still the smallest out of the three. This difference turns out to be enough for GCC to achieve
+    the best performance on all three considered Talos benchmarks and still lead significantly in
+    the tp5o responsiveness test, as shown on <xref linkend="fig-gcc10-ff-vsclang_extra-perf"
+     xrefstyle="template:figure %n"/>. </para>
+
+   <figure xml:id="fig-gcc10-ff-vsclang_extra-perf">
+    <title>Runtime performance (bigger is better) of Firefox with GCC 10.2 and Clang 11 using
+     compilation options tailored for Firefox, running on Mozilla Talos infrastructure</title>
+    <mediaobject>
+     <imageobject role="fo">
+      <imagedata fileref="gcc10-ff-vsclang_extra-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+     <imageobject role="html">
+      <imagedata fileref="gcc10-ff-vsclang_extra-perf.svg" width="100%" format="SVG"/>
+     </imageobject>
+    </mediaobject>
+   </figure>
+
+   <para> Finally, we want to point out that the profiling overhead itself can cause large,
+    complicated and multithreaded applications to behave very differently from their usual
+    behaviour, which again means that the train run might be a bad representation of actual runs.
+    The bottom line however is that, even when the training workload is imperfect and has relatively
+    small coverage, which is unavoidable in a case of a GUI application with many features, it can
+    still help the compiler to achieve remarkable performance increases. </para>
+  </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-legal-notice">
+  <title>Legal Notice</title>
+
+  <para> Copyright &copy;2006–2021 SUSE LLC and contributors. All rights reserved. </para>
+
+  <para> Permission is granted to copy, distribute and/or modify this document under the terms of
+   the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with the
+   Invariant Section being this copyright notice and license. A copy of the license version 1.2 is
+   included in the section entitled <quote>GNU Free Documentation License</quote>. </para>
+
+  <para> SUSE, the SUSE logo and YaST are registered trademarks of SUSE LLC in the United States and
+   other countries. For SUSE trademarks, see <link xlink:href="http://www.suse.com/company/legal/"
+    >http://www.suse.com/company/legal/</link>. Linux is a registered trademark of Linus Torvalds.
+   All other names or trademarks mentioned in this document may be trademarks or registered
+   trademarks of their respective owners. </para>
+
+  <para> This article is part of a series of documents called <quote>SUSE Best Practices</quote>.
+   The individual documents in the series were contributed voluntarily by SUSE's employees and by
+   third parties. </para>
+
+  <para> The articles are intended only to be one example of how a particular action could be taken.
+   They should not be understood to be the only action and certainly not to be the action
+   recommended by SUSE. Also, SUSE cannot verify either that the actions described in the articles
+   do what they claim to do or that they do not have unintended consequences. </para>
+
+  <para> All information found in this article has been compiled with utmost attention to detail.
+   However, this does not guarantee complete accuracy.
+   <!--Neither SUSE LLC, the authors, nor the translators shall be held liable
+        for possible errors or the consequences thereof. -->
+  </para>
+
+  <para> Therefore, we need to specifically state that neither SUSE LLC, its affiliates, the
+   authors, nor the translators may be held liable for possible errors or the consequences thereof.
+   Below we draw your attention to the license under which the articles are published. </para>
+ </sect1>
+
+ <?pdfpagebreak style="suse2013-sbp" formatter="fop"?>
+ <xi:include href="license-gfdl.xml"/>
+</article>

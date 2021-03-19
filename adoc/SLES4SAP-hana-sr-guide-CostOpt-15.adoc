@@ -19,7 +19,7 @@ include::Var_SLES4SAP-hana-sr-guide-CostOpt-15-param.txt[]
 // TODO PRIO2: Check all command examples + output, if they are still valid
 ////
 TODO PRIO3: Scale-Up and Handshake takeover (scheduled for 'after next' publishing)
-TODO PRIO3: Scale-Up and multi target (scheduled for 'after next' publishing)
+TODO PRIO3: Scale-Up and multi-target (scheduled for 'after next' publishing)
 TODO:
 ////
 
@@ -3995,6 +3995,8 @@ SAP Product Availability Matrix::
 {lauchPadNotes}1888072
 1846872 - "No space left on device" error reported from HANA::
 {lauchPadNotes}1846872
+// TODO PRIO2: 2369981 - Required configuration steps for authentication with HANA System Replication
+// TODO PRIO2: 3007062 -
 
 [[app.hana-sr.example]]
 == Examples
@@ -4063,69 +4065,71 @@ node {sapnode1}
 node {sapnode2}
 
 primitive rsc_SAPHanaTopology_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
-        op monitor interval=10 timeout=300 \
-        op start interval=0 timeout=300 \
-        op stop interval=0 timeout=300 \
-        params SID={sapsid} InstanceNumber={sapino}
+    op monitor interval=10 timeout=300 \
+    op start interval=0 timeout=300 \
+    op stop interval=0 timeout=300 \
+    params SID={sapsid} InstanceNumber={sapino}
 
 primitive rsc_SAPHana_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
-        op monitor interval=61 role=Slave timeout=700 \
-        op start interval=0 timeout=3600 \
-        op stop interval=0 timeout=3600 \
-        op promote interval=0 timeout=3600 \
-        op monitor interval=60 role=Master timeout=700 \
-        params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=false \
-               DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false
+    op monitor interval=61 role=Slave timeout=700 \
+    op start interval=0 timeout=3600 \
+    op stop interval=0 timeout=3600 \
+    op promote interval=0 timeout=3600 \
+    op monitor interval=60 role=Master timeout=700 \
+    params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=false \
+        DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
+        priority=100
 
 primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
-     params InstanceName="{sapnpsid}_HDB{sapnpino}_sap{sapsnpsid}db" \
+    params InstanceName="{sapnpsid}_HDB{sapnpino}_sap{sapsnpsid}db" \
         MONITOR_SERVICES="hdbindexserver|hdbnameserver" \
         START_PROFILE="/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_sap{sapsnpsid}db" \
-     op start interval="0" timeout="600" \
-     op monitor interval="120" timeout="700" \
-     op stop interval="0" timeout="300" \
-     meta priority="100"
+    op start interval="0" timeout="600" \
+    op monitor interval="120" timeout="700" \
+    op stop interval="0" timeout="300" \
+    meta priority="100"
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
-        op monitor interval=10 timeout=20 \
-        params ip="{sapip1srv1}"
+    op monitor interval=10 timeout=20 \
+    params ip="{sapip1srv1}"
 
 primitive stonith-sbd stonith:external/sbd \
-        params pcmk_delay_max=30
+    params pcmk_delay_max=15
 
 ms msl_SAPHana_{sapsid}_HDB{sapino} rsc_SAPHana_{sapsid}_HDB{sapino} \
-        meta clone-max=2 clone-node-max=1 interleave=true
+    meta clone-max=2 clone-node-max=1 interleave=true
 
 clone cln_SAPHanaTopology_{sapsid}_HDB{sapino} rsc_SAPHanaTopology_{sapsid}_HDB{sapino} \
-        meta clone-node-max=1 interleave=true
+    meta clone-node-max=1 interleave=true
 
 location loc_{sapnpsid}_never_on_{sapnode1} rsc_SAP_{sapsid}_HDB{sapino} -inf: {sapnode1}
 
 colocation col_{sapnpsid}_never_with_{sapsid}ip -inf: rsc_SAP_{sapnpsid}_HDB{sapnpino}:Started \
-  rsc_ip_{sapsid}_HDB{sapino}
+    rsc_ip_{sapsid}_HDB{sapino}
 
 order ord_{sapnpsid}stop_before_{sapsid}-promote Mandatory: rsc_SAP_{sapnpsid}_HDB{sapnpino}:stop \
-  msl_SAPHana_{sapsid}_HDB{sapino}:promote
+    msl_SAPHana_{sapsid}_HDB{sapino}:promote
 
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: \
-        rsc_ip_{sapsid}_HDB{sapino}:Started msl_SAPHana_{sapsid}_HDB{sapino}:Master
+    rsc_ip_{sapsid}_HDB{sapino}:Started msl_SAPHana_{sapsid}_HDB{sapino}:Master
 
 order ord_SAPHana_{sapsid}_HDB{sapino} Optional: \
-        cln_SAPHanaTopology_{sapsid}_HDB{sapino} msl_SAPHana_{sapsid}_HDB{sapino}
+    cln_SAPHanaTopology_{sapsid}_HDB{sapino} msl_SAPHana_{sapsid}_HDB{sapino}
 
 property cib-bootstrap-options: \
-        cluster-infrastructure=corosync \
-        stonith-enabled=true \
-        stonith-action=reboot \
-        stonith-timeout=150s
+    cluster-infrastructure=corosync \
+    stonith-enabled=true \
+    stonith-action=reboot \
+    stonith-timeout=150 \
+    priority-fencing-delay=30
 
 rsc_defaults rsc-options: \
-        resource-stickiness=1000 \
-        migration-threshold=3
+    resource-stickiness=1000 \
+    migration-threshold=3
 
 op_defaults op-options \
-        timeout=600 \
-        record-pending=true
+    timeout=600 \
+    record-pending=true
 ----
 
 // TODO PRIO2: 15 SP1: property $id="cib-bootstrap-options" \ ?

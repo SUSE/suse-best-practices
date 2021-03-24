@@ -150,14 +150,14 @@ The following Modules/Products are required on the respective hosts:
 
 * Kubernetes master nodes
 
-** SUSE Linux Enterprise 15 SP1 SP1
-** SUSE Linux Enterprise 15 SP1 SP1 Public Cloud
+** SUSE Linux Enterprise 15 SP1
+** SUSE Linux Enterprise 15 SP1 Public Cloud
 ** SUSE CaaSP 4
 
 * Kubernetes worker nodes
 
-** SUSE Linux Enterprise 15 SP1 SP1
-** SUSE Linux Enterprise 15 SP1 SP1 Public Cloud
+** SUSE Linux Enterprise 15 SP1
+** SUSE Linux Enterprise 15 SP1 Public Cloud
 ** SUSE CaaSP 4
 
 * Load balancer host
@@ -327,6 +327,7 @@ There are three ways to install the SAP Data Hub 2:
 This document will focus on the Maintenance Planner and SL Plugin installation method.
 
 
+[id="prerequisites_caasp_cluster"]
 ==== Prerequisites on the SUSE CaaS Platform 4 cluster
 
 The following steps are done on the jump host if not stated otherwise:
@@ -705,50 +706,57 @@ Create the namespaces on your registry that are needed for SAP Data Hub 2:
 
 An on-premises installation of SAP Data Hub 2 requires SUSE Enterprise Storage 5 or higher.
 If you plan to use SUSE Enterprise Storage not only for your Kubernetes dynamic storage class, 
-but also for your Kubernetes Control plan (virtualised or not), you should reserve enough resources to address the 
+but also for your Kubernetes Control plan (virtualized or not), you should reserve enough resources to address the 
 link:https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/hardware.md.[`etcd` hardware requirements]
 
-The following steps will deploy a minimalistic, virtualized, test-oriented
-instance of SUSE Enterprise Storage 5.5.
-
-In the following example, we will build a four-nodes (1 admin + 3 OSD) Ceph cluster.
+The following steps will deploy a minimalist, virtualized, test-oriented
+instance of SUSE Enterprise Storage 5.5. In our example, we will build a four-nodes (1 Admin + 3 OSD) Ceph cluster.
 
 Before you start:
 
-* Obtain registration codes for SUSE Linux Enterprise Server 12 SP3 and SUSE Enterprise Storage from https://scc.suse.com,
+* Obtain registration codes for SUSE Linux Enterprise Server 15 SP1 and SUSE Enterprise Storage from https://scc.suse.com,
 or have a SMT/RMT properly set up and already mirroring theses products:
-
-** link:https://scc.suse.com[SCC]
-+
-image::scc-sle.png[scc-sle,scaledwidth=95%]
-
-
-** link:https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-smt.html[SMT]
-+
-image::scc-ses.png[scc-ses,scaledwidth=95%]
-
-You should already have set up a DNS zone. In our example, where all Data Hub
-components are in the same DNS zone and the same subnet, it should look like:
 
 ++++
 <?pdfpagebreak?>
 ++++
 
+** link:https://scc.suse.com[SCC]
++
+image::scc-sle.png[scc-sle,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+** link:https://documentation.suse.com/sles/12-SP4/html/SLES-all/book-smt.html[SMT]
++
+image::scc-ses.png[scc-ses,scaledwidth=99%]
+
+
+* You should already have set up a DNS zone. In our example, where all Data Hub
+components are in the same DNS zone and the same subnet, it should look like:
++
 image::dns.png[dns,scaledwidth=95%]
 
-To be as efficient as possible when using interactive shell-scripted infrastructure deployment, 
+* To be as efficient as possible when using interactive shell-scripted infrastructure deployment, 
 we advise to use an advanced terminal client or multiplexer which permits to address multiple shells at once.
-
++
 image::multi-s-virtinstall.png[multi-s-virtinstall,scaledwidth=95%]
 
-Create the virtual machines.
 
-First the Admin node:
+Now you can create the virtual machines.
+
+* Create
+
+** first the Admin Node:
++
 ----
 # sudo virt-install --name ses55-admin --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-admin-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.200/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
 ----
 
-Then the OSD nodes:
+** then the OSD Nodes:
++
 ----
 # sudo virt-install --name ses55-osd0 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd0-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.230/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
 
@@ -757,78 +765,83 @@ Then the OSD nodes:
 # sudo virt-install --name ses55-osd2 --ram 16384 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2.qcow2,size=40 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd0.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd1.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd2.qcow2,size=20 --disk bus=virtio,path=/var/lib/libvirt/VMS/ses55-osd2-osd3.qcow2,size=20 --vcpus 4 --os-type linux --os-variant generic --network bridge=caasp3 --graphics none --console pty,target_type=serial --location '/var/lib/libvirt/ISOS/SLE-12-SP3-Server-DVD-x86_64-GM-DVD1.iso' --extra-args 'console=ttyS0,115200n8 serial autoyast-ses5=http://10.10.10.101/autoyast-ses5 ifcfg=eth0=10.18.10.232/24,10.18.10.1,10.10.10.11,suse-sap.net domain=suse-sap.net Textmode=1'
 ----
 
++
 image::multi-s-smt.png[multi-s-smt.png,scaledwidth=95%]
 
 
-Select the SUSE Enterprise Storage 5 extension:
-
+* Select the SUSE Enterprise Storage 5 extension:
++
 image::multi-s-addon.png[multi-s-addon.png,scaledwidth=95%]
 
-On the hypervisor you should also be able to route or bridge your upcoming SUSE Enterprise Storage 5.5 network segment. 
+* On the hypervisor you should also be able to route or bridge your upcoming SUSE Enterprise Storage 5.5 network segment. 
 Either a traditional bridge using `brctl`, or a `virtual-bridge` will work. 
 In our example, for simplicity, we’re using the same bridge and network address than our CaaSP cluster:
 `--network bridge=caasp3`
 
-In our example below, each node is powered by 16GB of RAM, 4 VCPU, 40 GB for the root disk, 4 x 20GB OSDB disk.
-
+* In our example below, each node is powered by 16GB of RAM, 4 VCPU, 40 GB for the root disk, 4 x 20GB OSDB disk.
++
 image::multi-s-default.png[multi-s-default.png,scaledwidth=95%]
 
-NTP must be configured on each nodes:
-
+* NTP must be configured on each nodes:
++
 image::multi-s-ntp.png[multi-s-ntp.png,scaledwidth=95%]
 
-Deselect "AppArmor" and the unnecessary "X" and "Gnome" Patterns, but select the SUSE Enterprise Storage pattern:
-
+* Deselect "AppArmor" and the unnecessary "X" and "Gnome" Patterns, but select the SUSE Enterprise Storage pattern:
++
 image::multi-s-patterns.png[multi-s-patterns.png,scaledwidth=95%]
 
-De-activate the Firewall on the nodes.
-Start the Installation on all nodes:
+* De-activate the Firewall on the nodes.
 
+* Start the Installation on all nodes:
++
 image::multi-s-install.png[multi-s-install.png,scaledwidth=95%]
 
-When all nodes have rebooted, log in and finish the network/host name and NTP configurations 
+* When all nodes have rebooted, log in and finish the network/host name and NTP configurations 
 so that `hostname -f` returns the FQDN of the nodes and `ntpq -p` returns a stratum less than 16:
-
++
 image::multi-s-hostname-ntp.png[multi-s-hostname-ntp.png,scaledwidth=95%]
 
-Using `ssh-keygen`, then `ssh-copy-id`, spread your SUSE Entreprise Storage admin node `ssh` public key to all other nodes.
+* Using `ssh-keygen` then `ssh-copy-id`, spread your SUSE Enterprise Storage Admin Node `ssh` public key to all other nodes.
 
-Verify that the drive we will allocate for SUSE Entreprise Storage OSDs are clean by wiping them.
+* Verify that the drive we will allocate for SUSE Enterprise Storage OSDs are clean by wiping them.
 Refer to 4.3.12 of the Deployment guide: link:https://documentation.suse.com/ses/5.5/html/ses-all/ceph-install-saltstack.html#ceph-install-stack[Wipe disk]
 
-On all nodes, including the admin node, install `salt-minion`.
-On the admin node only, also install `salt-master` (in our example `ses55-admin.suse-sap.net`) and `deepsea`.
+* On all nodes, including the Admin Node, install `salt-minion`.
 
-Then restart `salt-minion` on all nodes and restart `salt-master` on the admin node:
+* On the Admin Node only, also install `salt-master` (in our example `ses55-admin.suse-sap.net`) and `deepsea`.
 
+* Then, restart `salt-minion` on all nodes and restart `salt-master` on the Admin Node:
++
 image::multi-s-salt-install-restart.png[multi-s-salt-install-restart.png,scaledwidth=95%]
 
-Accept the related pending Salt keys:
-
+* Accept the related pending Salt keys:
++
 image::salt-key.png[salt-key.png,scaledwidth=30%]
 
-Verify that `/srv/pillar/ceph/master_minion.sls` points to your admin node.
-In our example, it contains our `salt-master` FQDN : `master_minion: ses55-admin.suse-sap.net`
+* Verify that `/srv/pillar/ceph/master_minion.sls` points to your Admin Node.
+In our example, it contains our `salt-master` FQDN : 
++
+`master_minion: ses55-admin.suse-sap.net`
 
-Prepare the cluster:
-
+* Prepare the cluster:
++
 ----
 # salt-run state.orch ceph.stage.0
 ----
++
+image::ceph-stage-0.png[ceph-stage-0.png,scaledwidth=90%]
 
-image::ceph-stage-0.png[ceph-stage-0.png,scaledwidth=95%]
-
-Collect information about the nodes:
-
+* Collect information about the nodes:
++
 ----
 # salt-run state.orch ceph.stage.1
 ----
++
+image::ceph-stage-1.png[ceph-stage-1.png,scaledwidth=90%]
 
-image::ceph-stage-1.png[ceph-stage-1.png,scaledwidth=95%]
-
-Adapt the file `/srv/pillar/ceph/proposals/policy.cfg` to your needs.
-In our example, where the only deployed service is OpenAttic, it contains the following :
-
+* Adapt the file `/srv/pillar/ceph/proposals/policy.cfg` to your needs. In our example, 
+where the only deployed service is OpenAttic, it contains the following :
++
 ----
 cluster-ceph/cluster/ses55-osd2.suse-sap.net.sls
 config/stack/default/ceph/cluster.yml
@@ -855,51 +868,53 @@ role-mon/cluster/ses55-osd2.suse-sap.net.sls
 role-openattic/cluster/ses55-admin.suse-sap.net.sls
 ----
 
-Prepare the final state of configuration files set:
-
+* Prepare the final state of configuration files set:
++
 ----
 # salt-run state.orch ceph.stage.2
 ----
++
+image::ceph-stage-2.png[ceph-stage-2.png,scaledwidth=90%]
 
-image::ceph-stage-2.png[ceph-stage-2.png,scaledwidth=95%]
-
-You can now safely deploy your configuration:
-
+* You can now safely deploy your configuration:
++
 ----
 # salt-run state.orch ceph.stage.3
 ----
++
+image::ceph-stage-3.png[ceph-stage-3.png,scaledwidth=90%]
 
-image::ceph-stage-3.png[ceph-stage-3.png,scaledwidth=95%]
-
-When stage 3 has completed successfully, check the cluster's health to ensure that everything is running properly:
-
+* When stage 3 has completed successfully, check the cluster's health to ensure that everything is running properly:
++
 ----
 # ceph -s
 ----
++
+image::ceph-health.png[ceph-health.png,scaledwidth=90%]
 
-image::ceph-health.png[ceph-health.png,scaledwidth=95%]
-
-To get the benefits of the OpenAttic WebUI, you must now initiate the `ceph.stage.4`, which will install the OpenAttic service:
-
+* To get the benefits of the OpenAttic WebUI, you must now initiate the `ceph.stage.4`, which will install the OpenAttic service:
++
 ----
 # salt-run state.orch ceph.stage.4
 ----
++
+image::ceph-stage-4.png[ceph-stage-4.png,scaledwidth=90%]
 
-image::ceph-stage-4.png[ceph-stage-4.png,scaledwidth=95%]
-
-You can now manage your cluster through the WebUI:
-
+* You can now manage your cluster through the WebUI:
++
 image::openattic-dash.png[openattic-dash.png,scaledwidth=95%]
 
-To provide a Data Hub RBD device, you first need to create a related pool:
 
-image::openattic-pool.png[openattic-pool.png,scaledwidth=95%]
+* To provide a Data Hub RBD device, you first need to create a related pool:
 
-Then provide access to this pool through an RBD device:
+image::openattic-pool.png[openattic-pool.png,scaledwidth=90%]
 
-image::openattic-rbd.png[openattic-rbd.png,scaledwidth=95%]
+* Then provide access to this pool through an RBD device:
++
+image::openattic-rbd.png[openattic-rbd.png,scaledwidth=90%]
 
-You can now go to Section 4.1.2 of this document and follow the prerequisites for a SUSE CaaS Platform 3 Cluster.
+
+You can now go to <<prerequisites_caasp_cluster>> and follow the prerequisites for a SUSE CaaS Platform cluster.
 
 // === Troubleshooting
 

@@ -299,11 +299,13 @@ $ salt-key -L
 
 Since RKE deployment needs ssh, a ssh key is needed.
 To generate a new one run:
+
 ----
 $ ssh-keygen -t rsa -b 4096
 ----
 
 The generated key needs to be distributed to all other nodes:
+
 ----
 $ ssh-copy-id -i <path to your sshkey> root@<nodeIP>
 ----
@@ -311,27 +313,32 @@ $ ssh-copy-id -i <path to your sshkey> root@<nodeIP>
 ++++
 <?pdfpagebreak?>
 ++++
+
 ==== Configuration of Kubernetes nodes
 
 Check the status of the firewall and disable it if it isn't allready:
+
 ----
 $ sudo salt '*' cmd.run 'systemctl status firewalld'
 $ sudo salt '*' cmd.run 'systemctl disable firewalld --now'
 ----
 
 Check the status of Kdump and disable it if it isn't allready:
+
 ----
 $ sudo salt '*' cmd.run 'systemctl status kdump'
 $ sudo salt '*' cmd.run 'systemctl disable kdump --now'
 ----
 
 Make sure swap is disabled and disable if it isn't already:
+
 ----
 $ sudo salt '*' cmd.run 'cat /proc/swaps'
 $ sudo salt '*' cmd.run 'swapoff -a'
 ----
 
 Check the NTP time synchronization and enable it if it isn't:
+
 ----
 $ sudo salt '*' cmd.run 'systemctl status chronyd'
 $ sudo salt '*' cmd.run 'systemctl enable chronyd --now'
@@ -339,20 +346,22 @@ $ sudo salt '*' cmd.run 'chronyc sources'
 ----
 
 Make sure the SSH server is running:
+
 ----
 $ sudo salt '*' cmd.run 'systemctl status sshd'
 $ sudo salt '*' cmd.run 'systemctl enable sshd --now'
 ----
 
 Activate needed SUSE modules:
+
 ----
 $ sudo salt '*' cmd.run 'SUSEConnect -p sle-module-containers/15.2/x86_64'
 ----
 
 Install packages required to run SAP Data Intelligence and enable the docker service:
+
 ----
-$ sudo salt '*' cmd.run 'zypper in -y nfs-client nfs-kernel-server xfsprogs ceph-common docker'
-$ sudo salt '*' cmd.run 'systemctl enable docker --now'
+$ sudo salt '*' cmd.run 'zypper in -y nfs-client nfs-kernel-server xfsprogs ceph-common'
 ----
 
 ++++
@@ -370,26 +379,80 @@ For reference see the documentation provided by Rancher.
 
 ==== Download RKE 2 install script
 
-To download the RKE 2 install script :
+To download the RKE 2 install script run the following command:
 
 ----
-$ curl -sfL https://get.rke2.io
+$ curl -sfL https://get.rke2.io --output install.sh
+$ chmod 0700 install.sh
 ----
 
-==== Create the configuration file for the RKE 2 cluster
+//==== Create the configuration file for the RKE 2 cluster
 
-Running the RKE configure option creates the configuration file for the Kubernetes cluster as a .yaml file in an interactive process.
-Make sure to have IP addresses of the dedicated cluster nodes at hand.
+//Running the RKE configure option creates the configuration file for the Kubernetes cluster as a .yaml file in an interactive process.
+//Make sure to have IP addresses of the dedicated cluster nodes at hand.
 
 
-==== Deploy RKE
+==== Deploy RKE 2
 
 Now deploy the Kubernetes cluster:
 
+In a first step the Kubernetes master nodes are deployed.
+Second step is to deploy the worker nodes of the Kubernetes cluster.
+Finally access to the RKE 2 cluster is configured and tested from the management workstation.
+
+===== RKE2 Master Nodes
+
+Copy the downloaded install.sh script to all of your Kubernetes nodes (masters and workers).
+
+----
+$ export RKE2-ROLE
+$ export RKE2-VERSION
+$ ./install.sh
+----
+
+This downloads a tar archive and extracts it to the local machine.
+Create a first configuration file for the RKE2 deployment:
+
+----
+$ sudo mkdir -p /etc/rancher/rke2
+$ sudo cat <<EOF > /etc/rancher/rke2/config.yaml
+disable: rke2-ingress-nginx
+EOF 
+----
+
+With the following the actual deployment is started:
+ 
+----
+$ sudo systemctl enable --now rke2-server.service
+----
+
+On the further master nodes proceed in this way:
+
+----
+$ sudo mkdir -p /etc/rancher/rke2/
+----
+
+Copy the authentication token from the first master node found at
+/var/lib/rancher/server/token
+
+Save this token for later usage.
+
+Create the file /etc/rancher/rke2/config.yaml on the other nodes of the RKE 2 cluster.
+
+----
+$ sudo cat  <<EOF > /etc/rancher/rke2/config.yaml
+server: https://<ip of first master node>:9345
+token: <add token gained from first master node>
+disable: rke2-nginx-ingress
+EOF
+----
+
+Distribute this file to the remaining master and worker nodes.
 
 
+===== RKE 2 Worker Nodes
 
-==== Check the installation
+===== Check the installation
 
 Download a matching kubectl version to the management workstation:
 

@@ -14,9 +14,10 @@ This document will walk you through the deployment of a simple two-node SAP HANA
 This project uses Terraform and Salt to deploy and configure the operating system, SAP software and High Availability (HA) Cluster.  
 If extensive configuration and customization are required, refer to the project documentation at https://github.com/SUSE/ha-sap-terraform-deployments
 
-For simplicity, this guide uses the Cloud Shell to perform the deployment, as it provides easy access to most of the required tooling. 
+For simplicity, this guide uses the Cloud Shell to perform the deployment, 
+as it provides easy access to most of the required tooling. 
 
-It is possible to easily use a local Linux or macOS computer, but some commands may need modification or omission.  
+It is possible to easily use a local Linux or macOS computer, but some of the commands may need modification or omission.  
 
 The architecture for the deployment is similar to the below.
 
@@ -34,12 +35,12 @@ endif::[]
 
 The project will perform the following:
 
-* Deploy Infrastructure - Including VPC, Subnets, IAM roles etc.
-* Deploy Instances -  2 x SAP HANA Instances
-* Configure the Operating system for the SAP Workload
-* Run the SAP HANA Installation
+* Deploy infrastructure - including VPC, subnets, IAM roles etc.
+* Deploy instances -  2 x SAP HANA instances
+* Configure the operating system for the SAP workload
+* Run the SAP HANA installation
 * Configure SAP HANA System Replication (HSR)
-* Configure SUSE High Availability cluster components and resources.
+* Configure SUSE High Availability cluster components and resources
 
 
 == Configuring the Cloud Shell
@@ -83,7 +84,7 @@ endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
 
-Terraform is not currently deployed as part of the AWS Cloud Shell, in this step Terraform is downloaded and installed to the ~/bin directory. Update the command below with the latest version of Terraform as needed.
+Terraform is not currently deployed as part of the AWS Cloud Shell, in this step Terraform is downloaded and installed to the ~/bin directory. Update the command below with the latest version of Terraform as needed. As Terraform is updated on a regular basis, it may be necessary to update after installation, or specific a different version to download.
 
 From the {HOME} directory run:
 
@@ -92,6 +93,7 @@ mkdir  ~/bin
 cd ~/bin
 wget https://releases.hashicorp.com/terraform/0.14.7/terraform_0.14.7_linux_amd64.zip
 unzip terraform_0.14.7_linux_amd64.zip 
+cd ~
 ----
 
 Check Terraform is working by running:
@@ -136,13 +138,13 @@ AZURE
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-For AWS an S3 bucket is used.
+For AWS, an S3 bucket is used.
 
 Using the AWS Console, perform the following actions:
 
 * Create an S3 bucket. (The example shows a bucket called mysapmedia, but a unique name should be used.)
-* Create a directory within the bucket.
-* Upload the SAP media to the directory in the S3 bucket.
+* Create a folder within the bucket.
+* Upload the SAP media to the folder in the S3 bucket.
 
 image::TRD_SLES-SAP-HA-automation-quickstart-cloud-s3-bucket.png[width=470]
 
@@ -167,7 +169,7 @@ ifeval::[ "{cloud}" == "AWS" ]
 
 ----
 cd ~
-git clone --depth 1 --branch 6.0.1 https://github.com/SUSE/ha-sap-terraform-deployments
+git clone --depth 1 --branch 7.0.0 https://github.com/SUSE/ha-sap-terraform-deployments
 ----
 
 endif::[]
@@ -214,7 +216,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 Edit _terraform.tfvars_ and modify as explained below. If you are duplicating the lines before modification, ensure the original is commented out, or the deployment will fail.
 
-Firstly, choose the region and instance types required for the deployment.
+Firstly, choose the region for the deployment.
 
 
 ifeval::[ "{cloud}" == "Azure" ]
@@ -226,9 +228,6 @@ ifeval::[ "{cloud}" == "AWS" ]
 ----
 # Region where to deploy the configuration
 aws_region = "eu-central-1"
-
-# Instance type to use for the hana cluster nodes
-hana_instancetype = "r3.8xlarge"
 ----
 
 endif::[]
@@ -237,7 +236,54 @@ ifeval::[ "{cloud}" == "GCP" ]
 GCP
 endif::[]
 
+This setting provides Terraform the credentials to deploy the infrastructure on the cloud.
 
+
+ifeval::[ "{cloud}" == "Azure" ]
+AZURE
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+
+With this parameter, Terraform will use the AWS credentials file created above. It is the simplest way to provide credentials for the deployment.
+
+----
+aws_credentials = "~/.aws/credentials"
+----
+
+If not used, ensure the following lines are commented out or the deployment will fail.
+
+----
+#aws_access_key_id = my-access-key-id
+#aws_secret_access_key = my-secret-access-key
+----
+
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+GCP
+endif::[]
+
+The following parameters select the version of SUSE Linux Enterprise Server for SAP Applications to deploy, and where to deploy from. 
+
+ifeval::[ "{cloud}" == "Azure" ]
+AZURE
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+
+For simplicity, the 'os_owner' is set to use PAYG instances from the AWS Marketplace. If an existing SUSE subscription needs to be used, this section can be changed to use BYOS images. Refer to the project documentation.
+
+----
+os_image = "suse-sles-sap-15-sp1"
+os_owner = "679593333241"
+----
+
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+GCP
+endif::[]
 
 Next, enter the path for the public and private SSH keys that were generated earlier.
 
@@ -249,19 +295,19 @@ public_key_location = "/path/to/your/public/ssh/key"
 private_key_location = "/path/to/your/private/ssh/key"
 ----
 
-The following parameters select the version of SUSE Linux Enterprise Server for SAP Applications to deploy and where to deploy from. 
+To keep the cluster architecture and deployment simple and to provide additional packages needed to deploy, 
+uncomment and set the following parameters:
 
 ifeval::[ "{cloud}" == "Azure" ]
 AZURE
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-For simplicity, the 'hana_os_owner' is set to the AWS Marketplace.  
-If an existing SUSE Subscription can be used, this can be changed to use BYOS images. Refer to the project documentation.
 
 ----
-hana_os_image = "suse-sles-sap-15-sp2"
-hana_os_owner = "679593333241"
+ha_sap_deployment_repo = "https://download.opensuse.org/repositories/network:ha-clustering:sap-deployments:v7"
+...
+pre_deployment = true
 ----
 
 endif::[]
@@ -270,9 +316,7 @@ ifeval::[ "{cloud}" == "GCP" ]
 GCP
 endif::[]
 
-
-This setting provides Terraform the credentials to deploy the infrastructure on the cloud.
-
+Next, set some options for the HANA instances. The following selects the instance name and host name prefix for the deployment.
 
 ifeval::[ "{cloud}" == "Azure" ]
 AZURE
@@ -281,7 +325,8 @@ endif::[]
 ifeval::[ "{cloud}" == "AWS" ]
 
 ----
-aws_credentials = "~/.aws/credentials"
+hana_instancetype = "r3.8xlarge"
+name = "hana"
 ----
 
 endif::[]
@@ -311,35 +356,25 @@ ifeval::[ "{cloud}" == "GCP" ]
 GCP
 endif::[]
 
+Finally, to ensure a fully automated deployment, it is possible to set passwords within the *terraform.tfvars* file. 
+If the parameters are not set in this file, they must be entered when running the deployment. 
 
-To keep the cluster architecture simple and to provide additional packages needed to deploy, set the following parameters:
-
-----
-# Repository URL used to install HA/SAP deployment packages"
-ha_sap_deployment_repo = https://download.opensuse.org/repositories/network:ha-clustering:sap-deployments:v6
-pre_deployment = true
-----
-
-
-ifeval::[ "{cloud}" == "Azure" ]
-AZURE
-endif::[]
-
-ifeval::[ "{cloud}" == "AWS" ]
-
-Finally, ensure the following lines are *commented out* using the hashtag sign `#`:
+Uncomment and set the following:
 
 ----
-#hana_disk_device = "/dev/xvdd"
-#aws_access_key_id = my-access-key-id
-#aws_secret_access_key = my-secret-access-key
+hana_master_password = "YourPassword1234"
+netweaver_master_password = "SuSE1234"
 ----
 
-endif::[]
+NOTE: All passwords must conform to SAP password policies or the deployment will fail.
 
-ifeval::[ "{cloud}" == "GCP" ]
-GCP
-endif::[]
+
+Optional: If a monitoring instance is required as part of the deployment, find and uncomment the following:
+
+----
+monitoring_enabled = true
+----
+
 
 == Finalizing the Automation configuration
 
@@ -419,8 +454,8 @@ It is highly recommended to create a unique workspace from which to run the depl
 
 ----
 terraform init
-terraform workspace new demo1
-terraform workspace select demo1
+terraform workspace new demo
+terraform workspace select demo
 terraform plan
 terraform apply
 ----
@@ -432,7 +467,7 @@ endif::[]
 ifeval::[ "{cloud}" == "AWS" ]
 
 TIP: The AWS Cloud Shell has a timeout of around 20 minutes and the shell will close if left 
-unattended, resulting in a failed deployment.  It is strongly advised to retain focus on the AWS Cloud Shell Window, perhaps pressing a key during the deployment to ensure the timeout does not occur.
+unattended, resulting in a failed deployment.  It is strongly advised to retain focus on the AWS Cloud Shell window to ensure the timeout does not occur.
 
 endif::[]
 

@@ -1,0 +1,662 @@
+:docinfo:
+
+// = {title}
+= MongoDB with SUSE Rancher - Getting Started
+
+// SUSE Rancher - MongoDB
+// :author: Samip Parikh
+:revnumber: 0.0.1
+:toc2:
+:toc-title: MongoDB with SUSE Rancher - Getting Started
+
+:toclevels: 4
+
+:sles: SUSE Linux Enterprise Server
+
+== Motivation
+Agility is the name of the game in modern application development.  This is driving developers toward more agile, 
+cloud native methodologies that focus on microservices architectures and streamlined workflows.  
+Container technologies, like Kubernetes, embody this agile approach and help enable cloud native transformation.
+
+SUSE Rancher simplifies Kubernetes management, empowering you to take control of your IT landscape and create 
+an agile data platform that accelerates achievement of your goals.  
+Rancher enables you to manage dynamic, robust, multi-cluster Kubernetes environments and supports any 
+CNCF-certified Kubernetes distribution.  With built-in resilience and scalability, unified security and policy management, 
+and a rich catalog of shared tools and services, Rancher helps you accelerate development-to-production and innovate everywhere.
+
+MongoDB is a cloud native database technology that brings all the power of the traditional, 
+relational database and provides a more natural way to work with modern data.  
+MongoDB offers a variety of compelling features that make it a natural partner for a SUSE Rancher agile data platform.  
+These include:
+
+Flexible Data Model:: MongoDB’s dynamic schema is ideal for handling changing requirements and continuous delivery.  
+You can seamlessly roll out new features without having to update existing records — a process that can take weeks for traditional, 
+relational databases.  DevOps teams can quickly model data against an ever-changing environment and roll these changes into production. 
+This results in faster time to market and faster time to value.
+
+Resilience:: MongoDB’s replica sets have built-in redundancy, providing greater resilience and enhancing disaster recovery capabilities.  
+Administrators can even isolate operational workloads from analytical reporting in single database cluster to ensure sufficient 
+resources are allocated to handle demand.
+
+Monitoring and Automation::  Heterogeneous services increase the level of complexity and can stall productivity. 
+Technology that handles monitoring and automation is critical to keeping DevOps teams productive as their environments evolve. 
+MongoDB Ops Manager features visualization, custom dashboards, and automated alerting.  It tracks, reports, processes, 
+and visualizes 100+ key database and systems-health metrics, including operations counters, CPU utilization, replication status, 
+and node status.
+
+Scalability:: MongoDB’s auto-sharding automatically partitions and distributes the database across nodes, serving IT infrastructures 
+that require dynamic, high-performance capabilities.  Distribution can even span different geographic regions.  
+MongoDB is ideally suited to scale-out architectures.
+
+
+With enterprise-grade products, proactive support, and success-focused services and training, SUSE and MongoDB deliver 
+an agile data platform that helps organizations achieve their cloud native goals.
+
+
+== Technical overview
+
+SUSE Rancher is a lightweight Kubernetes installer that supports installation on bare-metal and virtualized servers.  
+Rancher solves a common issue in the Kubernetes community: installation complexity.  With Rancher, Kubernetes installation is simplified, 
+regardless of what operating systems and platforms you are running.
+
+This document reviews considerations for deploying and managing a highly available, MongoDB NoSQL database on a 
+SUSE Rancher Kubernetes cluster.
+
+In practice, the process is as follows:
+
+* Install a Kubernetes cluster through Rancher Kubernetes Engine
+* Install a cloud native storage solution on Kubernetes
+* Deploy https://docs.mongodb.com/kubernetes-operator/master/[MongoDB Enterprise Kubernetes Operator]
+* Configure a storage class and define storage requirements via Operator
+* Test failover by killing or cordoning nodes in your cluster
+
+
+== Value of HA for data
+
+One of the primary benefits of running a Kubernetes environment is flexibility, the ability to easily adapt to varying circumstances.  
+Traditional database deployments exist in fairly static configurations and environments.  The beauty of running a data-oriented service 
+on Kubernetes lies in maintaining stability while enabling adaptability to meet real-world situations.
+
+Imagine a scenario where your e-commerce site is consistently taking 100 orders per day.  Suddenly, a viral marketing event occurs, 
+and your site is pushed to 5000 orders per day for a day.  This increase could easily lead to data overload – or worse, 
+corruption or downtime, which could result to considerable loss of revenue.  Having a way to design for such failure scenarios 
+and maintain resilient operations is a tangible market advantage.
+
+MongoDB can run in a single node configuration and in a clustered configuration using replica sets (not to be confused with 
+Kubernetes Stateful Sets). A replica set is a group of MongoDB instances that maintain the same data. A replica set contains 
+several data-bearing nodes and optionally one arbiter node. Of the data-bearing nodes, one and only one member is deemed the primary node,
+while the other nodes are deemed secondary nodes.  Resiliency of the data is achieved, as illustrated below.
+
+image::rancher-mongo-1.png[scaledwidth="75%", align="center"]
+
+In this configuration, the failover process generally completes within a minute.  
+It may take about 30 seconds for the members of a replica set to declare a primary inaccessible. 
+One of the remaining secondaries will then be enabled as the "new primary".  The election itself may take another 10 to 30 seconds.  
+During this time, the data will be preserved in a virtually seamless way for dependent services.
+
+
+== Setting up a cluster with SUSE Rancher
+
+SUSE Rancher is a tool to install and configure Kubernetes in a choice of environments including bare metal, virtual machines, and IaaS. 
+Rancher is a complete container management platform built on upstream Kubernetes.
+It consists of three major components:
+
+* A certified Kubernetes Distribution – Rancher Kubernetes Engine (RKE)
+* A Kubernetes Management platform (Rancher)
+* Application Catalog and management (Third-party)
+
+Rancher has the capabilities to manage any Kubernetes cluster from a central location, via the
+Rancher server.  As illustrated below, Rancher can manage any Kubernetes flavor and is not restricted to RKE.
+
+image::rancher-mongo-2.png[scaledwidth="75%", align="center"]
+
+For reference, see Rancher deployment guides for specific details on installation.    
+By the end of this step, you should have a cluster with one master and three worker nodes.
+
+image::rancher-mongo-3.png[scaledwidth="75%", align="center"]
+
+
+== Storage considerations
+
+When deploying an application that needs to retain data, you need to create persistent storage. 
+Persistent storage allows you to store application data external from the pod running your application. 
+This storage practice allows you to maintain application data, even if the application’s pod fails.
+
+A variety of storage options exist and can be used to create an HA data solution with Rancher.  
+Some considerations you may need to follow for your storage solution include:
+
+* Volumes as persistent storage for the distributed stateful applications
+
+* Partitioned block storage for Kubernetes volumes with or without a cloud provider
+
+* Replicated block storage across multiple nodes and data centers to increase availability
+
+* Secondary data backup storage (for example, NFS or S3)
+
+* Cross-cluster disaster recovery volumes
+
+* Recurring volume snapshots
+
+* Recurring backups to secondary storage
+
+* Non-disruptive upgrades
+
+
+
+Some common storage solutions to consider are as follows:
+
+https://longhorn.io[Longhorn]:: Distributed block storage system for Kubernetes. Originally developed by Rancher Labs.  
+Currently sandbox project of the Cloud Native Computing Foundation
+
+https://openebs.io[OpenEBS]:: Open source, CNCF Sandbox storage with flexible storage engine options - requires third-party integration
+
+https://ceph.io[Ceph]:: Powerful, open source, general purpose storage in the CNCF Sandbox – requires third-party integration
+
+https://portworx.com[Portworx]:: Proprietary solution with Rancher certified integration - installation steps can be found https://docs.portworx.com/install-with-other/rancher/rancher-2.x[here]
+
+
+
+=== Setting up your storage
+
+Before proceeding, be sure that you understand the Kubernetes concepts of persistent volumes, persistent volume claims, and 
+storage classes.  For more information, refer to 
+https://rancher.com/docs/rancher/v2.x/en/cluster-admin/volumes-and-storage/how-storage-works[How Persistent Storage Works] in the Rancher documentation.
+
+The workflow for setting up existing storage is as follows:
+
+. Ensure you have access to set up your persistent storage. This may be storage in an infrastructure provider, or it could be your own storage.
+
+. Add a persistent volume (PV) that refers to the persistent storage.
+
+. Add a persistent volume claim (PVC) that refers to the PV.
+
+. Mount the PVC as a volume in your workload.
+
+For further details and prerequisites, read the Rancher documentation section 
+https://rancher.com/docs/rancher/v2.x/en/cluster-admin/volumes-and-storage/attaching-existing-storage[Setting Up Existing Storage].
+
+
+The overall workflow for provisioning new storage is as follows:
+
+1. Add a StorageClass and configure it to use your storage provider. The StorageClass could refer to storage in an infrastructure provider, or it could refer to your own storage.
+2. Add a persistent volume claim (PVC) that refers to the storage class.
+3. Mount the PVC as a volume for your workload.
+
+See section https://rancher.com/docs/rancher/v2.x/en/cluster-admin/volumes-and-storage/provisioning-new-storage[Dynamically Provisioning New Storage in Rancher] for details and prerequisites.
+
+
+=== Creating a storage class for MongoDB
+
+When the Kubernetes cluster is running and storage is configured, it is time to deploy a highly available MongoDB database.
+
+MongoDB resources are created in Kubernetes as custom resources. After you create or update a MongoDB Kubernetes resource specification, 
+you direct MongoDB Kubernetes Operator to apply this specification to your Kubernetes environment. 
+Kubernetes Operator creates the defined StatefulSets, services and other Kubernetes resources. 
+After the Operator finishes creating those objects, it updates the Ops Manager deployment configuration to reflect changes.
+
+The following example shows a resource specification for a 
+https://docs.mongodb.com/manual/reference/glossary/#term-replica-set[replica set] configuration:
+
+[source,bash]
+----
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: my-replica-set
+spec:
+  members: 3
+  version: "4.2.2-ent"
+  service: my-service
+  opsManager: # Alias of cloudManager
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  type: ReplicaSet
+  podSpec:
+    cpu: "0.25"
+    memory: "512M"
+    persistence:
+      multiple:
+        data:
+          storage: "10Gi"
+        journal:
+          storage: "1Gi"
+          labelSelector:
+            matchLabels:
+              app: "my-app"
+        logs:
+          storage: "500M"
+          storageClass: standard
+    podAntiAffinityTopologyKey: nodeId
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2
+    podTemplate:
+      metadata:
+        labels:
+          label1: mycustomlabel
+      spec:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - podAffinityTerm:
+                  topologyKey: "mykey"
+                weight: 50
+  security:
+    tls:
+      enabled: true
+    authentication:
+      enabled: true
+      modes: ["X509"]
+      internalCluster: "X509"
+  additionalMongodConfig:
+    net:
+      ssl:
+        mode: preferSSL
+----
+
+Full details can be found https://docs.mongodb.com/kubernetes-operator/master/reference/k8s-operator-specification[here].
+
+
+== Creating a persistent volume
+
+You can now create a persistent volume claim (PVC) based on the storage class. Dynamic provisioning will be created without explicitly 
+provisioning a persistent volume (PV). As part of deployment, the Kubernetes operator creates 
+https://kubernetes.io/docs/concepts/storage/persistent-volumes[persistent volumes] for the Ops Manager StatefulSets. 
+The Kubernetes container uses persistent volumes to maintain the cluster state between restarts.
+
+
+== Deploying MongoDB Kubernetes Operator
+
+Kubernetes needs help creating and managing stateful applications like databases.  The typical lifecycle events of a MongoDB cluster may 
+include provisioning storage and computing power, configuring network connections, setting up users, and more.  
+This is where the MongoDB Enterprise Kubernetes Operator comes in.  It translates the human knowledge of how to create a MongoDB 
+instance into a scalable, repeatable, and standardized methodology.  And it does this by using the built-in Kubernetes API and tools.
+To use the operator, you simply need to provide it with the specifications for your MongoDB cluster.  
+The operator uses this information to direct Kubernetes into performing all the required steps to achieve the end state.
+
+The general commands for deploying the MongoDB Enterprise Operator are:
+
+[source,bash]
+----
+kubectl describe deployments mongodb-enterprise-operator -n <namespace>
+
+
+helm install <chart-name> helm_chart \
+     --values helm_chart/values.yaml \
+----
+
+
+The next step after deploying the operator is to create the database using a `yaml` file, such as:
+
+[source,bash]
+----
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+
+  name: <my-standalone>
+
+spec:
+
+  version: "4.2.2-ent"
+
+  opsManager:
+    configMapRef:
+
+      name: <configMap.metadata.name>
+
+            # Must match metadata.name in ConfigMap file
+
+  credentials: <mycredentials>
+
+  type: Standalone
+  persistent: true
+----
+
+
+Now, you can deploy the database and check the status of the deployment with:
+
+[source,bash]
+----
+kubectl apply -f <standalone-conf>.yaml
+
+kubectl get mdb <resource-name> -o yaml
+----
+
+
+
+At this point, MongoDB has been deployed via the operator. Additional settings can be applied to create 
+https://docs.mongodb.com/kubernetes-operator/stable/tutorial/deploy-replica-set/[replica] sets to further enhance data availability.  
+Also, sharded clusters can be created to enable greater throughput across a distributed system.
+
+Additionally, see specific https://github.com/mongodb/mongodb-enterprise-kubernetes[documentation] and steps for full installation 
+and configuration options.
+
+
+== Deploying MongoDB Ops Manager resource
+
+Kubernetes needs help creating and managing stateful applications like databases.  The typical lifecycle events of a MongoDB cluster may 
+include provisioning, storage and compute. Ops Manager can be deployed via the MongoDB Kubernetes Operator to manage MongoDB resources 
+in a cluster.  The Operator manages the lifecycle of each of these deployments differently.
+The Operator manages Ops Manager deployments using the Ops Manager custom resource. The Operator watches the custom resource’s 
+specification for changes. When the specification changes, the Operator validates the changes and makes the appropriate updates to the 
+resources in the cluster.
+Ops Manager custom resources specification defines the following components: Application Database, Ops Manager application, 
+and Backup Daemon. Summarized instructions to create Ops Manager are below, but full details can be found 
+https://docs.mongodb.com/kubernetes-operator/master/tutorial/deploy-om-container[here].
+
+To begin, run the following command to execute all `kubectl` commands in the namespace you created:
+
+[source,bash]
+----
+kubectl config set-context $(kubectl config current-context) --namespace=<namespace>
+----
+
+Create Ops Manager object as below:
+
+[source,bash]
+----
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: <myopsmanager>
+spec:
+  replicas: 1
+  version: <opsmanagerversion>
+  adminCredentials: <adminusercredentials> # Should match metadata.name
+  externalConnectivity:
+    type: LoadBalancer
+  applicationDatabase:
+    members: 3
+    version: <mongodbversion>
+    persistent: true
+----
+
+
+== Loading and querying the database
+
+When the database has been created, you can populate it with some sample data.
+
+First, find the pod that is running MongoDB:
+
+[source,bash]
+----
+POD=`kubectl get pods -l app=mongo | grep Running | grep 1/1 | awk '{print $1}'`
+----
+
+Then, access the MongoDB shell on that POD instance:
+
+[source,bash]
+----
+$ kubectl exec -it $POD mongo
+MongoDB shell version v4.0.0
+connecting to: mongodb://127.0.0.1:27017
+MongoDB server version: 4.0.0
+Welcome to the MongoDB shell.
+----
+
+Now, using the MongoDB shell, you can populate a collection:
+
+[source,bash]
+----
+db.ships.insert({name:'USS Enterprise-D',operator:'Starfleet',type:'Explorer',class:'Galaxy',crew:750,codes:[10,11,12]})
+db.ships.insert({name:'USS Prometheus',operator:'Starfleet',class:'Prometheus',crew:4,codes:[1,14,17]})
+db.ships.insert({name:'USS Defiant',operator:'Starfleet',class:'Defiant',crew:50,codes:[10,17,19]})
+db.ships.insert({name:'IKS Buruk',operator:' Klingon Empire',class:'Warship',crew:40,codes:[100,110,120]})
+db.ships.insert({name:'IKS Somraw',operator:' Klingon Empire',class:'Raptor',crew:50,codes:[101,111,120]})
+db.ships.insert({name:'Scimitar',operator:'Romulan Star Empire',type:'Warbird',class:'Warbird',crew:25,codes:[201,211,220]})
+db.ships.insert({name:'Narada',operator:'Romulan Star Empire',type:'Warbird',class:'Warbird',crew:65,codes:[251,251,220]})
+----
+
+And you can run some operations on the MongoDB collection.
+
+For example, find one arbitrary document:
+
+[source,bash]
+----
+db.ships.findOne()
+{
+	"_id" : ObjectId("5b5c16221108c314d4c000cd"),
+	"name" : "USS Enterprise-D",
+	"operator" : "Starfleet",
+	"type" : "Explorer",
+	"class" : "Galaxy",
+	"crew" : 750,
+	"codes" : [
+		10,
+		11,
+		12
+	]
+}
+----
+
+
+You can also find ALL documents and apply some basic formatting:
+
+[source,bash]
+----
+db.ships.find().pretty()
+ {
+ 	"_id" : ObjectId("5b5c16221108c314d4c000d1"),
+ 	"name" : "IKS Somraw",
+ 	"operator" : " Klingon Empire",
+ 	"class" : "Raptor",
+ 	"crew" : 50,
+ 	"codes" : [
+ 		101,
+ 		111,
+ 		120
+ 	]
+ }
+ {
+ 	"_id" : ObjectId("5b5c16221108c314d4c000d2"),
+ 	"name" : "Scimitar",
+ 	"operator" : "Romulan Star Empire",
+ 	"type" : "Warbird",
+ 	"class" : "Warbird",
+ 	"crew" : 25,
+ 	"codes" : [
+ 		201,
+ 		211,
+ 		220
+ 	]
+ }
+----
+
+
+And you can get a list of the names of the ships:
+
+[source,bash]
+----
+ db.ships.find({}, {name:true, _id:false})
+ { "name" : "USS Enterprise-D" }
+ { "name" : "USS Prometheus" }
+ { "name" : "USS Defiant" }
+ { "name" : "IKS Buruk" }
+ { "name" : "IKS Somraw" }
+ { "name" : "Scimitar" }
+ { "name" : "Narada" }
+----
+
+
+== Simulating node failure & restoration
+
+Next, simulate a node failure by cordoning off the node on which MongoDB is running:
+
+[source,bash]
+----
+$ NODE=`kubectl get pods -l app=mongo -o wide | grep -v NAME | awk '{print $7}'`
+
+$ kubectl cordon ${NODE} node/ip-172-31-29-132.compute.internal cordoned
+----
+
+The above command disables scheduling on one of the nodes.
+Check this with:
+
+[source,bash]
+----
+$ kubectl get nodes
+NAME                                           STATUS                     ROLES               AGE   VERSION
+ip-172-31-24-121.compute.internal   Ready                      worker              47h   v1.13.4
+ip-172-31-26-49.compute.internal    Ready                      controlplane,etcd   47h   v1.13.4
+ip-172-31-28-65.compute.internal    Ready                      worker              47h   v1.13.4
+ip-172-31-29-132.compute.internal   Ready,SchedulingDisabled   worker              47h   v1.13.4
+----
+
+
+Now, go ahead and delete the MongoDB pod:
+
+[source,bash]
+----
+$ POD=`kubectl get pods -l app=mongo -o wide | grep -v NAME | awk '{print $1}'`
+$ kubectl delete pod ${POD}
+pod "mongo-68cc69bc95-7q96h" deleted
+----
+
+When the pod is deleted, it is relocated to the node with the replicated data, even when that node is in a different zone.  
+Each pod is rescheduled on the exact node where the data is stored.
+
+Verify this:
+
+[source,bash]
+----
+$ kubectl get pods -l app=mongo -o wide
+NAME                     READY     STATUS    RESTARTS   AGE       IP               NODE
+mongo-68cc69bc95-thqbm   1/1       Running   0          19s       192.168.82.119   ip-172-31-24-121.compute.internal
+----
+
+Note that a new pod has been created and scheduled in a different node.
+
+Next, uncordon the node to bring it back to action:
+
+[source,bash]
+----
+$ kubectl uncordon ${NODE}
+node/ip-172-31-29-132.compute.internal uncordoned
+----
+
+
+Finally, verify that the data is still available.
+
+To do so, find the pod name and run the ‘exec’ command, then access the Mongo shell:
+
+[source,bash]
+----
+POD=`kubectl get pods -l app=mongo | grep Running | grep 1/1 | awk '{print $1}'`
+kubectl exec -it $POD mongo
+MongoDB shell version v4.0.0
+connecting to: mongodb://127.0.0.1:27017
+MongoDB server version: 4.0.0
+Welcome to the MongoDB shell.
+----
+
+
+After that, query the collection to verify that the data is intact.
+
+Find one arbitrary document:
+
+[source,bash]
+----
+db.ships.findOne()
+{
+	"_id" : ObjectId("5b5c16221108c314d4c000cd"),
+	"name" : "USS Enterprise-D",
+	"operator" : "Starfleet",
+	"type" : "Explorer",
+	"class" : "Galaxy",
+	"crew" : 750,
+	"codes" : [
+		10,
+		11,
+		12
+	]
+}
+----
+
+
+Now, find all documents and apply formatting:
+
+[source,bash]
+----
+db.ships.find().pretty()
+…..
+{
+	"_id" : ObjectId("5b5c16221108c314d4c000d1"),
+	"name" : "IKS Somraw",
+	"operator" : " Klingon Empire",
+	"class" : "Raptor",
+	"crew" : 50,
+	"codes" : [
+		101,
+		111,
+		120
+	]
+}
+{
+	"_id" : ObjectId("5b5c16221108c314d4c000d2"),
+	"name" : "Scimitar",
+	"operator" : "Romulan Star Empire",
+	"type" : "Warbird",
+	"class" : "Warbird",
+	"crew" : 25,
+	"codes" : [
+		201,
+		211,
+		220
+	]
+}
+----
+
+For further validation, you can run all the same initial steps to compare that data is still available with originally queried values.
+
+
+== Summary
+
+MongoDB with SUSE Rancher makes it possible to easily build, deploy, and manage resilient, scalable data services.
+
+
+== Additional resources
+
+For more information, visit: 
+
+*	https://rancher.com/docs/rancher/v2.x/en/best-practices/[Rancher best practices guide]
+*	https://rancher.com/docs/rancher/v2.x/en/troubleshooting/[Rancher troubleshooting tips]
+*	https://github.com/mongodb/mongodb-kubernetes-operator[MongoDB best practices]
+
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+// include::common_gfdl1.2_i.adoc[]
+
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]
+
+//end

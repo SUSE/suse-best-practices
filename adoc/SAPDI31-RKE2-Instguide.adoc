@@ -452,7 +452,27 @@ Distribute this file to the remaining master and worker nodes.
 
 ===== RKE 2 Worker Nodes
 
+This section describes the deployment of the RKE 2 worker nodes.
+If not already done copy the install script to the worker nodes.
+Create the /etc/rancher/rke2/config.yaml for the worker nodes.
+Set the environment variables to install RKE 2 worker nodes, execute the install script.
+
+----
+$ export 
+$ export
+$ sudo ./install.sh
+$ sudo systemctl enable --now rke2-agent.service
+----
+
+If wanted the install progress can be watched via the systemd journal.
+
+----
+$ sudo journalctl -f -u rke2-agent
+----
+
 ===== Check the installation
+
+
 
 Download a matching kubectl version to the management workstation:
 
@@ -464,6 +484,17 @@ $ chmod a+x kubectl
 $ sudo cp -av kubectl /usr/bin/kubectl
 ----
 
+Get the KUBECONFIG file from the first master node and copy it to the management workstation:
+
+----
+$ scp <first master node>:/etc/rancher/rke2/rke2.yaml <management workstation>:/path/where/kubeconfig/should/be/placed
+----
+
+Replace "127.0.0.1" in rke2.yaml withe IP address of first master node:
+
+----
+$ sed -e -i 's/127.0.0.1/<ip of first master node>/' rke2.yaml
+----
 
 Verify by running:
 
@@ -473,9 +504,12 @@ $ kubectl version
 $ kubectl get nodes
 ----
 
+Your RKE2 cluster should be ready to use now.
+
 ++++
 <?pdfpagebreak?>
 ++++
+
 == Installation of SAP DI 3.1
 
 This section describes the installation of SAP DI 3.1 on RKE 1 powered Kubernetes cluster.
@@ -958,6 +992,32 @@ $ export NAMESPACE=<SAP DI 3 namespace>
 $ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
 ----
 
+* Deploy a nginx-ingress controller
+
+** see: https://kubernetes.github.io/ingress-nginx/deploy/#bare-metal
+
+** Create the nginx-ingress controller as a nodePort service according to ingress nginx documentation
+
+----
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/baremetal/deploy.yaml
+----
+
+** Determine the port the nginx controller is redirecting https to:
+
+----
+$ kubectl -n ingress-nginx get svc ingress-nginx-controller
+----
+Output will look similar to this:
+
+----
+kubectl -n ingress-nginx get svc ingress-nginx-controller
+NAME                       TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller   NodePort   10.43.86.90   <none>        80:31963/TCP,443:31106/TCP   53d
+----
+
+Here the TLS port would be 31106. Note this port down as you will need it to access the SAP DI installation from outside.
+
+
 * Create an ingress to access the SAP DI installation
 
 ----
@@ -994,7 +1054,7 @@ $ kubectl apply -f ingress.yaml
 ----
 
 
-* Now connecting to https://hostname brings up the SAP DI login dialog. 
+* Now connecting to https://hostname:&lt;ingress service port&gt;  brings up the SAP DI login dialog. 
 
 
 === Test of Data Intelligence Installation

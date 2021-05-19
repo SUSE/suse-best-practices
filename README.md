@@ -5,12 +5,9 @@ A documentation series of best practices papers.
 
 ## Branches
 
-.Overview of important branches
-[options="header"]
-|================================================
-| Name             | Purpose
-| `main`           | doc development (latest development version)
-|================================================
+| Name             | Purpose                                       |
+|------------------|-----------------------------------------------|
+| `main`           | doc development (latest development version)  |
 
 **On Feb 20, 2021, we switched to a new default branch.**
 **The default branch is now called `main`.**

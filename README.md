@@ -5,12 +5,9 @@ A documentation series of best practices papers.
 
 ## Branches
 
-.Overview of important branches
-[options="header"]
-|================================================
-| Name             | Purpose
-| `main`           | doc development (latest development version)
-|================================================
+| Name             | Purpose                                       |
+|------------------|-----------------------------------------------|
+| `main`           | doc development (latest development version)  |
 
 **On Feb 20, 2021, we switched to a new default branch.**
 **The default branch is now called `main`.**
@@ -96,7 +93,7 @@ Learn more at https://opensuse.github.io/daps
 |D C-SAP_NW740_SLE15_SetupGuide | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
 | DC-SAP_S4HA10_SetupGuide-SLE12 | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
 | DC-SAP_S4HA10_SetupGuide-SLE15 | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
-| DC-SBP-AMD-EPYC-2-SLES15SP1  ext | ELS | https://documentation.suse.com/sles-15/ |
+| DC-SBP-AMD-EPYC-2-SLES15SP1 | ext | ELS | https://documentation.suse.com/sles-15/ |
 | DC-SBP-AMD-EPYC-SLES12SP3 | ext | ELS | https://documentation.suse.com/sles-12/ |
 | DC-SBP-CloudLS-master | ext | Cloud Computing | https://documentation.suse.com/soc/9/, https://documentation.suse.com/soc/8/ |
 | DC-SBP-DRBD | ext | ELS | https://documentation.suse.com/sles-12/ |

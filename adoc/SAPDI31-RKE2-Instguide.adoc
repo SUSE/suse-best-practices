@@ -1,0 +1,1280 @@
+:docinfo:
+
+= SAP Data Intelligence 3.1 on Rancher Kubernetes Engine 2  
+
+++++
+<?pdfpagebreak?>
+++++
+== Introduction
+
+This guide describes the on premise installation of SAP Data Intelligence 3.1 on top of Rancher Kubernetes Engine (RKE) 2. In a nutshell the installation of SAP DI 3.1 consists of the following steps:
+
+* Install SUSE Linux Enterprise Server 15 SP2
+
+* Install RKE 2 Kubernetes cluster on the dedicated nodes
+
+* Deploy SAP DI 3.1 on RKE 2 Kubernetes cluster
+
+* Post-Installation steps for SAP DI 3.1
+
+* Test the installation of SAP DI 3.1
+ 
+
+++++
+<?pdfpagebreak?>
+++++
+== Pre-requisites
+
+=== Hardware Requirements
+
+This chapter describes the hardware requirements for installing SAP DI 3.1 on RKE 2 on top of SUSE Linux Enterprise Server 15 SP2.
+Only x86_64 architecture is applicable for this use case.
+
+====  Hardware Sizing
+// TODO Ueber Formatierung als normaler Text nachdenken.
+* Minimal hardware requirements for a SAP DI 3 deployment 
+** At least 7 nodes are needed for a minimal Kubernetes cluster
+
+[cols="40,.^10,15,.^10,25",options="header"]
+|===
+|Server Role |Count|RAM|CPU|Disk space
+|Management Workstation|1|16 GiB|4|>100 GiB
+|Master Node|3|16 GiB|4|>120 GiB
+|Worker Node|4|32 GiB|8|>120 GiB
+|===
+
+
+* Minimal hardware requirements for production
+** At least 7 nodes are needed for a production grade Kubernetes cluster
+
+[cols="40,.^10,15,.^10,25",options="header"]
+|===
+|Server Role|Count|RAM|CPU|Disk space
+|Management Workstation|1|16 GiB|4|>100 GiB
+|Master Node|3|16 GiB|4|>120 GiB
+|Worker Node|4|64 GiB|16|>120 GiB
+|===
+
+* see Rancher RKE 2 documentation https://docs.rke2.io/
+
+* For more sizing information see the SAP documentation that can be found here:
+
+** https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
+
+=== Software Requirements
+
+Here we list the software components needed to install SAP DI 3.1 on RKE 2:
+
+* SUSE Linux Enterprise Server 15 SP2
+
+* Rancher RKE 2
+
+* SAP Software Lifecycle Bridge
+
+* SAP Data Intelligence 3.1
+
+* Secure private registry for container images, e.g. see  https://documentation.suse.com/sbp/all/single-html/SBP-Private-Registry/index.html
+
+* Access to a storage solution providing dynamically physical volumes
+
+* If it is planned to use Vora's streaming tables checkpoint store, a S3 bucket like object store is needed 
+
+* If it is planned to enable backup of SAP DI 3.1 during installation access to a S3 compatible object store is needed
+
+++++
+<?pdfpagebreak?>
+++++
+== Preparations
+
+* Get SUSE SLES subscription
+
+* Download installer for SLES 15 SP2
+
+* Download installer for RKE 2
+
+* Check storage requirements
+
+* Create or get access to a private container registry
+
+* Get an SAP S-user to access software and documentation by SAP
+
+* Read relevant SAP documentation:
+** Release Note for SAP DI 3  https://launchpad.support.sap.com/#/notes/2871970
+
+** Release Note for SAP SLCBridge 
+ https://launchpad.support.sap.com/#/notes/2589449
+
+** Installation Guide at help.sap.com  https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US
+
+
+++++
+<?pdfpagebreak?>
+++++
+== Installation of Rancher RKE 2 Cluster
+
+The installation of Rancher Kubernetes Engine 2 cluster is straight forward. After the installation and basic configuration of the operating system the Kubernetes cluster configuration is created on the management host. Finally the Kubernetes cluster will be deployed. The following sections will describe this in more detail.
+
+===  Preparation of Management Host and Kubernetes Cluster Nodes
+
+All servers in this landscape will use SUSE Enterprise Linux 15 SP2 (SLES 15 SP2) for x86_64 architecture.
+
+* See https://documentation.suse.com/sles/15-SP2/
+
+==== Installation of SUSE Linux Enterprise Server 15 SP2
+
+On each server in your environment for SAP Data Intelligence 3.1 install SLES 15 SP2 as operating system.
+This chapter will show all recommended steps when during the installation.
+
+TIP: If you already have all machines and the OS setup, you may skip this chapter and follow the instructions at <<Configuration of Kubernetes nodes>>.
+
+++++
+<?pdfpagebreak?>
+++++
+It's recommended to use a static network configuration. During installation setup the first time to adjust this is when the Registration page is displayed. In the upper right corner is a button "Network Configuration ...".
+
+image::SLES15_SP2_Setup_Registration.png[title=SLES Setup Registration Page, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+When clicked, the Network Settings page is shown. By default the network adapter is configured to use DHCP.
+To change this, click the Button "Edit".
+
+image::SLES15_SP2_Setup_Network_Settings.png[title=SLES Setup Network Settings, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+On the Network Card Setup page, select "Statically Assigned IP Address" and fill out the fields "IP Address", "Subnet Mask" and "Hostname".
+
+image::SLES15_SP2_Setup_Network_Card_Setup.png[title=SLES Setup Network Card, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+Next thing to adjust during the installation are the extensions to be installed.
+The Container Module is needed to operate RKE 2 
+
+image::SLES15_SP2_Setup_Extensions.png[title=SLES Setup Extensions, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+Further, as there's no graphical interface needed, it's recommended to install just a text based server.
+
+image::SLES15_SP2_Setup_SystemRole.png[title=SLES Setup System Role, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+To run Kubernetes the swap partition needs to be disabled.
+To achieve this the partition proposal during installation can be adjusted.
+
+image::SLES15_SP2_Setup_Partitioning_Expanded.png[title=SLES Setup Partitioning, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+When opening the Expert Partitioner, the Swap partition needs to be selected to delete it.
+
+image::SLES15_SP2_Setup_Expert_Partitioner.png[title=SLES Setup Expert Partitioner Swap, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+After deleting the swap partition, there will be some space left that can be used to enlarge the main partition.
+To do so, the resize page can be called.
+
+image::SLES15_SP2_Setup_Expert_Partitioner3.png[title=SLES Setup Expert Partitioner Resize, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+Easiest way to use all the unused space is to select the "Maximum Size" option there.
+
+image::SLES15_SP2_Setup_Resize_Disk.png[title=SLES Setup Resize Disk, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+Next thing to do is to enable the NTP time syncronization.
+This can be done when facing the "Clock and Time Zone" page during installation.
+To enable NTP, the "Other Settings ..." button needs to be clicked.
+
+image::SLES15_SP2_Setup_Clock_and_Time.png[title=SLES Setup Timezone, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+Then the "Synchronize with NTP Server" option needs to be selected.
+A custom NTP server adress can be added if desired.
+Important is to check in the boxes for "Run NTP as daemon" and "Save NTP Configuration" 
+
+image::SLES15_SP2_Setup_NTP.png[title=SLES Setup NTP, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+When facing the "Installation Settings" page, it's recommended to make sure that:
+* The firewall will be disabled
+* The SSH service will be enabled
+* Kdump status is disabled
+
+image::SLES15_SP2_Setup_Summary.png[title=SLES Setup Summary, 480, 640]
+
+++++
+<?pdfpagebreak?>
+++++
+To disable Kdump, its label can be clicked which opens the "Kdump Start-Up" page.
+On that page, make sure "Disable Kdump" is selected.
+
+image::SLES15_SP2_Setup_KDump.png[title=SLES Setup Kdump, 480, 640]
+
+Finish installation and go to the next chapter.
+
+++++
+<?pdfpagebreak?>
+++++
+=== Configuration of the Kubernetes nodes
+
+In this guide the Workstation will be used to orchestrate all other machines via Salt.
+
+==== Installation and configuration of Salt-Minions
+
+First step is to register all systems to the SUSE Customer Center or a SMT/RMT server to obtain updates during installation and afterwards.
+
+When using a SMT/RMT server the address must be specified:
+----
+$ sudo SUSEConnect --url "https://<SMT/RMT-address>"
+----
+
+When registering via SUSE Customer Center, use your subscription and email address:
+----
+$ sudo SUSEConnect -r <SubscriptionCode> -e <EmailAddress>
+----
+
+The basesystem is required by all other modules. For installation run:
+----
+$ sudo SUSEConnect -p sle-module-basesystem/15.2/x86_64
+----
+
+
+Before the Workstation can be used for orchestration, Salt needs to be installed and configured on all Kubernetes nodes:
+
+----
+$ sudo zypper in -y salt-minion
+$ sudo echo "master: <WorkstationIP>" > /etc/salt/minion
+$ sudo systemctl enable salt-minion --now
+----
+
+++++
+<?pdfpagebreak?>
+++++
+=== Configuration of the Management Workstation
+
+The management workstation is used to deploy and maintain the Kubernetes cluster and workloads running on it.
+
+==== Installation and configuration of Salt-Masters
+
+It's recommended to use Salt to orchestrate all Kubernetes nodes.
+This can be skipped but means every node must be configured manually afterwards.
+
+To install Salt run:
+----
+$ sudo zypper in -y salt-master
+$ sudo systemctl enable salt-master --now
+----
+
+Make sure all Kubernetes nodes show up when running:
+----
+$ salt-key -L
+----
+
+Accept and verify all minion keys:
+
+----
+$ salt-key -A -y
+$ salt-key -L
+----
+// FIXME 
+Since RKE deployment needs ssh, a ssh key is needed.
+To generate a new one run:
+
+----
+$ ssh-keygen -t rsa -b 4096
+----
+
+The generated key needs to be distributed to all other nodes:
+
+----
+$ ssh-copy-id -i <path to your sshkey> root@<nodeIP>
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+==== Configuration of Kubernetes nodes
+
+Check the status of the firewall and disable it if it isn't allready:
+
+----
+$ sudo salt '*' cmd.run 'systemctl status firewalld'
+$ sudo salt '*' cmd.run 'systemctl disable firewalld --now'
+----
+
+Check the status of Kdump and disable it if it isn't allready:
+
+----
+$ sudo salt '*' cmd.run 'systemctl status kdump'
+$ sudo salt '*' cmd.run 'systemctl disable kdump --now'
+----
+
+Make sure swap is disabled and disable if it isn't already:
+
+----
+$ sudo salt '*' cmd.run 'cat /proc/swaps'
+$ sudo salt '*' cmd.run 'swapoff -a'
+----
+
+Check the NTP time synchronization and enable it if it isn't:
+
+----
+$ sudo salt '*' cmd.run 'systemctl status chronyd'
+$ sudo salt '*' cmd.run 'systemctl enable chronyd --now'
+$ sudo salt '*' cmd.run 'chronyc sources'
+----
+
+Make sure the SSH server is running:
+
+----
+$ sudo salt '*' cmd.run 'systemctl status sshd'
+$ sudo salt '*' cmd.run 'systemctl enable sshd --now'
+----
+
+Activate needed SUSE modules:
+
+----
+$ sudo salt '*' cmd.run 'SUSEConnect -p sle-module-containers/15.2/x86_64'
+----
+
+Install packages required to run SAP Data Intelligence:
+
+----
+$ sudo salt '*' cmd.run 'zypper in -y nfs-client nfs-kernel-server xfsprogs ceph-common open-iscsi'
+----
+
+Enable open-iscsid:
+
+----
+$ sudo salt '*' cmd.run 'systemctl status iscsid'
+$ sudo salt '*' cmd.run 'systemctl enable iscsid --now'
+----
+
+++++
+<?pdfpagebreak?>
+++++
+=== Install RKE 2
+
+In order to install Rancher RKE 2 on the cluster nodes download the RKE 2 install script and copy it to each of the Kubernetes cluster nodes.
+
+The single steps are described in the following.
+For reference see the documentation provided by Rancher.
+
+* https://docs.rke2.io/install/quickstart/
+
+
+==== Download RKE 2 install script
+
+To download the RKE 2 install script run the following command:
+
+----
+$ curl -sfL https://get.rke2.io --output install.sh
+$ chmod 0700 install.sh
+----
+
+//==== Create the configuration file for the RKE 2 cluster
+
+//Running the RKE configure option creates the configuration file for the Kubernetes cluster as a .yaml file in an interactive process.
+//Make sure to have IP addresses of the dedicated cluster nodes at hand.
+
+
+==== Deploy RKE 2
+
+Now deploy the Kubernetes cluster:
+
+In a first step the Kubernetes master nodes are deployed.
+Second step is to deploy the worker nodes of the Kubernetes cluster.
+Finally access to the RKE 2 cluster is configured and tested from the management workstation.
+
+++++
+<?pdfpagebreak?>
+++++
+===== RKE 2 Master Nodes
+
+Copy the downloaded install.sh script to all of your Kubernetes nodes (masters and workers).
+
+----
+$ export INSTALL_RKE2_TYPE="server"
+$ export INSTALL_RKE2_VERSION=v1.19.8+rke2r1
+$ ./install.sh
+----
+
+This downloads a tar archive and extracts it to the local machine.
+Create a first configuration file for the RKE2 deployment:
+
+----
+$ sudo mkdir -p /etc/rancher/rke2
+$ sudo cat <<EOF > /etc/rancher/rke2/config.yaml
+disable: rke2-ingress-nginx
+EOF 
+----
+
+With the following the actual deployment is started:
+ 
+----
+$ sudo systemctl enable --now rke2-server.service
+----
+
+On the further master nodes proceed in this way:
+
+----
+$ sudo mkdir -p /etc/rancher/rke2/
+----
+
+Copy the authentication token from the first master node found at
+/var/lib/rancher/server/token.
+
+Save this token for later usage.
+
+Create the file /etc/rancher/rke2/config.yaml on the other nodes of the RKE 2 cluster.
+
+----
+$ sudo cat  <<EOF > /etc/rancher/rke2/config.yaml
+server: https://<ip of first master node>:9345
+token: <add token gained from first master node>
+disable: rke2-nginx-ingress
+EOF
+----
+
+Distribute this file to the remaining master and worker nodes.
+
+++++
+<?pdfpagebreak?>
+++++
+===== RKE 2 Worker Nodes
+
+This section describes the deployment of the RKE 2 worker nodes.
+If not already done copy the install script to the worker nodes.
+Create the /etc/rancher/rke2/config.yaml for the worker nodes.
+Set the environment variables to install RKE 2 worker nodes, execute the install script.
+
+----
+$ export INSTALL_RKE2_VERSION=v1.19.8+rke2r1
+$ export INSTALL_RKE2_TYPE="agent"
+$ sudo ./install.sh
+$ sudo systemctl enable --now rke2-agent.service
+----
+
+If wanted the install progress can be watched via the systemd journal.
+
+----
+$ sudo journalctl -f -u rke2-agent
+----
+
+++++
+<?pdfpagebreak?>
+++++
+===== Check the installation
+
+Download a matching kubectl version to the management workstation:
+
+* Example for kubectl version 1.19.8:
+
+----
+$ curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.19.8/bin/linux/amd64/kubectl
+$ chmod a+x kubectl
+$ sudo cp -av kubectl /usr/bin/kubectl
+----
+
+Get the KUBECONFIG file from the first master node and copy it to the management workstation:
+
+----
+$ scp <first master node>:/etc/rancher/rke2/rke2.yaml <management workstation>:/path/where/kubeconfig/should/be/placed
+----
+
+Replace "127.0.0.1" in rke2.yaml withe IP address of first master node:
+
+----
+$ sed -e -i 's/127.0.0.1/<ip of first master node>/' rke2.yaml
+----
+
+Verify by running:
+
+----
+$ export KUBECONFIG=<PATH to your kubeconfig>
+$ kubectl version
+$ kubectl get nodes
+----
+
+Your RKE2 cluster should be ready to use now.
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installation of SAP DI 3.1
+
+This section describes the installation of SAP DI 3.1 on RKE 2 powered Kubernetes cluster.
+
+=== Preparations
+
+These are the steps to fulfill before the deployment of SAP DI 3.1 can start:
+
+* Create a namespace for SAP DI 3.1
+* Create access to secure private registry
+* Create a default storage class
+* Download and install SAP SLCBridge
+* Download the stack.xml file for provisioning the DI 3.1 install
+* Check if nfsd nfsv4 kernel modules are loaded and/or loadable on the Kubernetes nodes
+
+
+==== Create namespace for SAP DI 3.1 in the Kubernetes cluster
+
+Log on your management workstation and create the namespace in the Kubernetes cluster where DI 3.1 will be deployed.
+
+----
+$ kubectl create ns <NAMESPACE for DI 31>
+$ kubectl get ns
+----
+
+==== Create cert file for accessing the secure private regsitry
+
+Create a file named cert that contains the SSL certificate chain for the secure private registry.
+This imports the certificates into SAP DI 3.1. 
+//TODO Uli check completness of commands below
+----
+$ cat CA.pem > cert
+$ kubectl -n <NAMESPACE for DI 31> create secret generic cmcertificates --from-file=cert
+----
+
+++++
+<?pdfpagebreak?>
+++++
+=== Create default storage class
+
+In order to install SAP DI 3.1 a default storage class is needed to provision the installation with physical volumes (PV).
+
+Here is an example for a ceph/rbd based storage class that uses the CSI.
+
+Create the yaml files for the storage class, get in contact with your storage admin to get the information needed:
+
+Create config-map:
+
+----
+$ cat << EOF > csi-config-map.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    [
+      {
+        "clusterID": "<ID of your ceph cluster>",
+        "monitors": [
+          "<IP of Monitor 1>:6789",
+          "<IP of Monitor 2>:6789",
+          "<IP of Monitor 3>:6789"
+        ]
+      }
+    ]
+metadata:
+  name: ceph-csi-config
+EOF
+----
+
+Create a secret to access the storage:
+
+----
+$ cat << EOF > csi-rbd-secret.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-rbd-secret
+  namespace: default
+stringData:
+  userID: admin
+  userKey: AQCR7htglvJzBxAAtPN0YUeSiDzyTeQe0lveDQ==
+EOF
+----
+
+Download:
+
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin-provisioner.yaml
+----
+
+Download:
+
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin.yaml
+----
+
+Create pool on ceph storage where the PVs will be created, insert the poolname and the Ceph cluster id:
+
+----
+$ cat << EOF > csi-rbd-sc.yaml
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+   name: csi-rbd-sc
+provisioner: rbd.csi.ceph.com
+parameters:
+   clusterID: <your ceph cluster id>
+   pool: <your pool>
+   csi.storage.k8s.io/provisioner-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/provisioner-secret-namespace: default
+   csi.storage.k8s.io/node-stage-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/node-stage-secret-namespace: default
+reclaimPolicy: Delete
+mountOptions:
+   - discard
+EOF
+----
+
+++++
+<?pdfpagebreak?>
+++++
+Create config for encryption, this is needed else the deployment of the CSI driver for ceph/rbd will fail.
+
+----
+$ cat << EOF > kms-config.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    {
+      },
+      "vault-tokens-test": {
+          "encryptionKMSType": "vaulttokens",
+          "vaultAddress": "http://vault.default.svc.cluster.local:8200",
+          "vaultBackendPath": "secret/",
+          "vaultTLSServerName": "vault.default.svc.cluster.local",
+          "vaultCAVerify": "false",
+          "tenantConfigName": "ceph-csi-kms-config",
+          "tenantTokenName": "ceph-csi-kms-token",
+          "tenants": {
+              "my-app": {
+                  "vaultAddress": "https://vault.example.com",
+                  "vaultCAVerify": "true"
+              },
+              "an-other-app": {
+                  "tenantTokenName": "storage-encryption-token"
+              }
+          }
+       }
+    }
+metadata:
+  name: ceph-csi-encryption-kms-config
+EOF
+----
+
+++++
+<?pdfpagebreak?>
+++++
+Deploy the ceph/rbd CSI and storage class: 
+
+----
+$ kubectl apply -f csi-config-map.yaml
+$ kubectl apply -f csi-rbd-secret.yaml
+$ kubectl apply -f \ 
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-provisioner-rbac.yaml
+$ kubectl apply -f \
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-nodeplugin-rbac.yaml
+$ kubectl apply -f csi-rbdplugin-provisioner.yaml 
+$ kubectl apply -f csi-rbdplugin.yaml 
+$ kubectl apply -f csi-rbd-sc.yaml 
+$ kubectl apply -f kms-config.yaml
+$ kubectl patch storageclass csi-rbd-sc \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+----
+
+Check your storage class:
+
+----
+$ kubectl get sc
+NAME                   PROVISIONER        RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+csi-rbd-sc (default)   rbd.csi.ceph.com   Delete          Immediate           false                  103m
+----
+
+++++
+<?pdfpagebreak?>
+++++
+=== Longhorn for Physical Volumes 
+
+A possible valid alternative is to deploy Longhorn storage for serving the PVs of SAP DI 3.
+https://longhorn.io
+
+Longhorn uses the CSI for accessing the storage.
+
+==== Pre-requisites
+
+Each node in the Kubernetes cluster where Longhorn is installed must fulfill the following requirements:
+
+* a matching Kubernetes version, this given due to the fact that we are installing SAP DI 3
+* open-iscsi 
+* support for xfs filesystem
+* nfsv4 client must be installed
+* curl, lsblk, blkid, findmnt, grep, awk must be installed
+* Mount propagations must be enabled on Kubernetes cluster
+
+There is a check script provided by longhorn project. This can be installed on the management workstation.
+
+----
+$ curl -sSfL https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/scripts/environment_check.sh | bash
+----
+
+On the Kubernetes worker nodes that shall act as storage nodes add sufficient disk drives.
+Create mountpoints for these disks, create xfs filesystem on top and mount them.
+Longhorn will be configured to use these disks for storing data.
+For disk sizes see SAP Sizing Guide for SAP DI 3
+https://help.sap.com/viewer/835f1e8d0dde4954ba0f451a9d4b5f10/3.1.latest/en-US
+
+Make sure as well that the iscsid is started on the Longhorn nodes:
+
+----
+$ sudo systemctl enable --now iscsid
+----
+
+
+
+==== Installation of Longhorn
+
+The installation of Longhorn is straight forward.
+This guide follows the documentation of Longhorn which can be found here:
+https://longhorn.io/docs/1.1.0/
+
+----
+$ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/deploy/longhorn.yaml
+----
+
+Monitor the deployment progress with the following command:
+
+----
+$ kubectl get pods \
+  --namespace longhorn-system \
+  --watch
+----
+
+==== Configuring Longhorn
+
+The Longhorn storage administration is done via a built-in UI dashboard.
+To access this UI an ingress has to be configured.
+
+===== Create an Ingress with Basic Authentication
+
+Create a basic auth file named "auth":
+
+----
+$ USER=<USERNAME_HERE>; \
+  PASSWORD=<PASSWORD_HERE>; \
+  echo "${USER}:$(openssl passwd -stdin -apr1 <<< ${PASSWORD})" >> auth
+----
+
+Create a secret from the file auth:
+
+----
+$ kubectl -n longhorn-system create secret generic basic-auth --from-file=auth
+----
+
+Create the ingress with basic authentication:
+
+----
+$ cat <<EOF > longhorn-ingress.yaml
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: longhorn-ingress
+  namespace: longhorn-system
+  annotations:
+    # type of authentication
+    nginx.ingress.kubernetes.io/auth-type: basic
+    # prevent the controller from redirecting (308) to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    # name of the secret that contains the user/password definitions
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    # message to display with an appropriate context why the authentication is required
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required '
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: longhorn-frontend
+          servicePort: 80
+EOF
+
+$ kubectl -n longhorn-system apply -f longhorn-ingress.yaml
+----
+
+===== Additional Disk Space for Longhorn
+
+This describes shortly how to add disk space to the Longhorn.
+
+* Prepare the disks
+** create a mount point for the disks
+** create a partition and filesystem on the disk
+** mount the filesystem of the disk to the created mountpoint
+** add entry for this filesystem to the fstab
+** test this setup (e.g. umount filesystem, run mount -a, check if fs is mounted properly: lsblk)
+
+* Configure additional disks using the Longhorn UI 
+
+** Access the UI of Longhorn through the URL configured in the ingress, e.g. http://node:
+** Authenticate with the user and password set in the previos chapter.
+
+image::longhorn_dashboard.png[title="Longhorn UI Overview", 480, 640]
+
+In this overview click on the nodes tab.
+++++
+<?pdfpagebrake?>
+++++
+
+image::longhorn_dash_nodes.png[title="Longhorn UI Nodes" , 480, 640]
+
+Mouse hover the settings icon on the right side.
+++++
+<?pdfpagebrake?>
+++++
+
+image::longhorn_dash_nodes_edit.png[title="Longhorn UI Edit node", 480, 640]
+
+Click Edit Node and Disks.
+
+++++
+<?pdfpagebrake?>
+++++
+
+image::longhorn_dash_add_disk1.png[title=Longhorn UI Add disk, 480, 640]
+
+Click Add Disks button.
+
+++++
+<?pdfpagebrake?>
+++++
+
+image::longhorn_dash_disk2.png[title=Longhorn UI disk save, 480, 640]
+
+Fill in the mount point and mark the as scheduleable.
+
+Click Save button.
+
+Repeat this for other disks on the other nodes.
+
+++++
+<?pdfpagebrake?>
+++++
+
+
+* Check the status in UI of Longhorn
+**  Point the browser to the URL defined in the ingress.
+**  Authenticate with the user and password created above.
+
+The UI displays an overview of the Longhorn storage.
+For more detail see the Longhorn documentation https://longhorn.io/docs/1.1.0/
+
+==== Create a Storage Class on top of Longhorn
+
+The following command creates a storageclass named longhorn for the use of SAP DI 3.1.
+
+----
+$ kubectl create -f https://raw.githubusercontent.com/longhorn/longhorn/v1.1.0/examples/storageclass.yaml
+----
+
+Annotate this storage class as default:
+
+----
+$ kubectl patch storageclass longhorn \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+----
+
+==== Longhorn Documentation
+
+For more details see the Longhorn documentation:
+https://longhorn.io/docs/1.1.0/
+
+++++
+<?pdfpagebrake?>
+++++
+
+=== Download SLCBridge
+
+The SLCBridge can be obtained via the following ways:
+
+* From SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154: Choose download SLCBridge
+
+* See the informations in the release notes of the SLCBridge https://launchpad.support.sap.com/#/notes/2589449
+
+* See https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html
+
+Download the SLCBridge software to the management workstation.
+
+
+=== Install the SLCBridge
+
+Rename the SLCBridge binary to slcb and make it executable. Deploy the SLCBridge to the Kubernetes cluster.
+
+----
+$ mv SLCB01_XX-70003322.EXE slcb
+$ chmod 0700 slcb
+$ export KUBECONFIG=<KUBE_CONFIG>
+$ ./slcb init
+----
+During the interactive install the following information is needed:
+
+* URL of secure private registry
+* Choose expert mode
+* Choose NodePort for the service
+
+Take a note of the service port of the SLCBridge. It is needed for the installation of SAP DI 3.1 or re-configuring DI 3.1, e.g. enabling backup. Just in case the following command will list the service port as well.
+// FIXME add screenshot / command line showing result service port > 30000
+----
+$ kubectl -n sap-slcbridge get svc
+----
+
+=== Create and Download Stack XML for SAP DI installation
+
+Follow the steps in SAP DI 3.1 installation guide:
+Install SAP Data Intelligence with SLCBridge in a Cluster with Internet Access:
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/7e4847e241c340b3a3c50a5db11b46e2.html
+
+==== Create a Stack XML
+
+
+The Stack XML can be created via the SAP Maintenance Planner. This tool can be accessed via https://support.sap.com/en/alm/solution-manager/processes-72/maintenance-planner.html
+Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp published on SAP site and generate a Stack XML file with the container image definitions of the SAP Data Intelligence release that you want to install. Download the Stack XML file to a local directory. Copy the stack.xml to the management workstation.
+
+
+=== Run the Installation of SAP DI
+
+The installation of SAP DI 3.1 is invoked by:
+
+----
+$ export KUBECONFIG=<path to kubeconfig>
+$ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
+----
+
+This starts an interactive process for configuring and deploying SAP DI 3.1.
+
+This table lists some of the parameters possible for SAP DI 3.1 installation:
+
+[cols="3",options="header"]
+|===
+| Parameter| Condition | Recommendation
+| Kubernetes Namespace | Always | set to namespace created beforehand
+| Installation Type | installation or update| either
+| Container Registry| Always | add the uri for the secure private registry
+| Checkpoint Store Configuration| installation | wether to enable Checkpoint Store
+| Checkpoint Store Type |if Checkpoint Store is enabled | use S3 object store from SES
+| Checkpoint Store Validation |if Checkpoint is enabled | Object store access will be verified
+| Container Registry Settings for Pipeline Modeler |optional| used if a second container registry is used
+| StorageClass Configuration |optional, needed if a different StorageClass is used for some components| leave the default
+| Default StorageClass |detected by SAP DI installer| The Kubernetes cluster shall have a storage class annotated as default SC
+| Enable Kaniko Usage |optional if running on Docker| enable
+| Container Image Repository Settings for SAP Data Intelligence Modeler|mandatory|
+| Container Registry for Pipeline Modeler |optional| Needed if a different container registry is used for the pipeline modeler images
+| Loading NFS Modules |optional| Make sure that nfsd and nfsv4 kernel modules are loaded on all worker nodes
+| Additional Installer Parameters |optional|
+|===
+See SAP documenation here for details on input parameters for SAP DI 3.1 installation.
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/abfa9c73f7704de2907ea7ff65e7a20a.html
+
+
+=== Post-Installation Tasks
+
+After the installation workflow has finished successfully, there are some tasks to be done:
+// FIXME Formulierung
+* Obtain or create a SSL certificate for securely accessing the SAP DI installation:
+
+** Create a certificate request using openssl e.g.:
+
+----
+$ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
+----
+
+** Decrypt the key 
+
+----
+$ openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
+----
+
+** Let a CA sign the <hostname>.csr
+You will receive  a <hostname>.crt.
+
+** Create a secret from the certificate and the key in the SAP DI 3 namespace
+
+----
+$ export NAMESPACE=<SAP DI 3 namespace>
+$ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
+----
+
+* Deploy a nginx-ingress controller
+
+** see: https://kubernetes.github.io/ingress-nginx/deploy/#bare-metal
+
+** Create the nginx-ingress controller as a nodePort service according to ingress nginx documentation
+
+----
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/baremetal/deploy.yaml
+----
+
+** Determine the port the nginx controller is redirecting https to:
+
+----
+$ kubectl -n ingress-nginx get svc ingress-nginx-controller
+----
+Output will look similar to this:
+
+----
+kubectl -n ingress-nginx get svc ingress-nginx-controller
+NAME                       TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller   NodePort   10.43.86.90   <none>        80:31963/TCP,443:31106/TCP   53d
+----
+
+Here the TLS port would be 31106. Note this port down as you will need it to access the SAP DI installation from outside.
+
+
+* Create an ingress to access the SAP DI installation
+
+----
+$ cat <<EOF > ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+  name: vsystem
+spec:
+  rules:
+  - host: "<hostname FQDN must match SSL certificate"
+    http:
+      paths:
+      - backend:
+          serviceName: vsystem
+          servicePort: 8797
+        path: /
+  tls:
+  - hosts:
+    - "<hostname FQDN must match SSL certificate>"
+    secretName: vsystem-tls-certs
+EOF
+$ kubectl apply -f ingress.yaml
+----
+
+
+* Now connecting to https://hostname:&lt;ingress service port&gt;  brings up the SAP DI login dialog. 
+
+
+=== Test of Data Intelligence Installation
+
+Finally the SAP DI installation should be verified with some very basic tests:
+
+* Logon to SAP DI's launchpad
+
+* Create example pipeline
+
+* Create ML Scenario
+
+* Test machine learning
+
+* Download vctl
+
+For details see the SAP DI 3 Installation Guide here:
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/1551785f3d7e4d37af7fe99185f7acb6.html
+
+++++
+<?pdfpagebreak?>
+++++
+// == Troubleshooting
+// 
+// Here are listed some errors and their respective solution.
+// 
+// === Error acessing the private registry
+// 
+//FIXME Error message  
+// 
+// If this error is shown in the logs of a pod:
+// 
+// ----
+// error message 
+// Error reading manifest ...
+// ----
+// 
+// This can be amended by the following steps:
+// 
+// Identify the Service Account used by the failing pod:
+// 
+// ----
+// $ kubectl -n $NAMESPACE get  -o jsonpath=$'{.spec.serviceAccountName}\n' pod/<failing pod>
+// ----
+// 
+// Create a secret of type docker registry for the private registry with the appropriate URI, user and password.
+// 
+// ----
+// $ kubectl -n $NAMESPACE create secret docker-registry pull-secret --docker-server="<URI of registry>" --docker-username=<username> --docker-password=<password>
+// ----
+// 
+// Patch the Service Account previously identified to use this secret. 
+// 
+// ----
+// $ kubectl -n $NAMESPACE patch serviceaccount <service account> -p '{"imagePullSecrets": [{"name": "pull-secret"}]}'
+// ----
+// 
+// Restart pod or parent in question, e.g.
+// 
+// ----
+// $ kubectl -n $NAMESPACE delete pod 
+// ----
+
+// ++++
+// <?pdfpagebreak?>
+// ++++
+
+// == Day 2 Operation considerations
+// 
+// * Monitoring
+// ** built-in monitoring in SAP DI
+// 
+// * security
+// ** SAP DI
+// ** RKE
+// ** Operating System
+// 
+// * availability
+// ** HA setup of Kubernetes Cluster
+
+
+== Maintenance Tasks
+
+This section gives some hints what should and could be done to maintain the Kubernetes cluster, operating system and SAP DI.
+
+=== Backup
+
+It is good practice to keep backups of all relevant data to be able to restore the environment in case of failure.
+
+* Regular backups
+
+** RKE 2 see https://rancher.com/docs/rke/latest/en/etcd-snapshots/
+** SAP Data Intelligence 3 can be configured to create regular backups. See  help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/e8d4c33e6cd648b0af9fd674dbf6e76c.html
+
+
+
+=== Upgrade/Update
+
+Keeping the installation of SAP DI, RKE 2 and SUSE Linux Enterprise Server up to date.
+
+==== Updating the Operating System
+
+* In order to be eligible and to obtain updates for SLES 15 SP2, the installations must be registered either to SUSE Customer Center or a SMT/RMT-server or SUSE Manager with a valid subscription.
+
+* The SLES 15 SP2  can be updated using the zypper command line tool
+
+----
+$ sudo zypper ref -s
+$ sudo zypper lu
+$ sudo zypper patch
+----
+
+* other methods for updating SLES 15 SP2 are described in the product documentation. see https://documentation.suse.com/sles
+
+* if an update requires a reboot of the server, make sure that this can be done safely, i.e. block access to SAP DI, drain and cordon the Kubernetes node before rebooting.
+
+----
+$ kubectl edit ingress <put in some dummy port>
+$ kubectl drain <node>
+----
+
+Check status of node
+
+----
+$kubectl get node <node>
+----
+
+The node should be marked as not scheduleable.
+
+On RKE 2 master nodes run:
+
+----
+$ sudo systemctl stop rke2-server
+----
+
+On RKE 2 worker nodes run:
+
+----
+$ sudo systemctl stop rke2-agent
+----
+
+Update SLES 15 SP2
+
+----
+$ ssh node
+$ sudo zypper patch
+----
+
+Reboot the node if necessary or start the appropriate rke2 service:
+
+* On master nodes:
+
+----
+$ sudo systemctl start rke2-server
+----
+
+* On worker nodes:
+
+----
+$ sudo systemctl start rke2-agent
+----
+ 
+Check if the node is back and uncordon it.
+
+----
+$ kubectl get nodes
+$ kubectl uncordon <node>
+----
+
+==== Updating RKE 2
+
+//FIXME
+
+* See SAP DI 3.1 documentation on upgrading Kubernetes https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/1ca2ac1d9c5a4bd98c5aaf57e53a81bf.html
+
+* See Rancher RKE 2 upgrade documentation https://docs.rke2.io/upgrade/basic_upgrade/
+
+* Create a backup of everything. 
+
+* Block access to the SAP DI
+
+* Run the update of RKE 2 according the documentation found here: https://docs.rke2.io/upgrade/basic_upgrade/
+
+
+==== Updating SAP Data Intelligence
+
+Follow SAP's update guide and notes.
+
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/3.1.latest/en-US/b87299d2e8bc436baadfa020abb59892.html
+
+SAP Note for updating SAP DI 3
+
+== Appendix

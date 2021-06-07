@@ -1,0 +1,837 @@
+:docinfo:
+
+// = {title}
+= Installing Fujitsu Enterprise Postgres on SUSE Linux Enterprise Server for IBM Z and LinuxONE - Getting Started
+
+// SLES, FEP, IBM Z and LinuxONE
+// :author: Mike Friesenegger
+:revnumber: 0.0.1
+:toc2:
+:toc-title: Installing Fujitsu Enterprise Postgres on SUSE Linux Enterprise Server for IBM Z and LinuxONE - Getting Started
+
+:toclevels: 4
+
+:sles: SUSE Linux Enterprise Server
+:fep: Fujitsu Enterprise Postgres
+:ibmz: IBM Z and LinuxONE
+
+
+== Introduction
+
+The enterprise database management system (DBMS) is a fundamental tool of the modern business. 
+Enterprises of all sizes rely on their DBMS to collect and manage huge volumes of data securely and reliably, 
+all while responding to hundreds or thousands of simultaneous inquiries.
+
+SUSE Linux Enterprise Server is trusted by enterprises around the world for their mission-critical IT deployments. 
+A multimodal operating system that paves the way for IT transformation in the software-defined era. 
+The modern and modular OS helps simplify multimodal IT, makes traditional IT infrastructure efficient and provides an engaging platform for developers. 
+As a result, organizations can easily deploy and transition business-critical workloads across on-premises and public cloud environments.
+
+Fujitsu has been developing enterprise, mission-critical database systems for over 35 years. 
+Since 2004, Fujitsu has provided development, support, training, and consulting services to businesses worldwide for PostgreSQL, 
+one of the world's most advanced, open source database systems. Fujitsu Enterprise Postgres remains compatible with open source PostgreSQL, 
+while adding enhanced features, such as in-memory columnar indexing, data masking, transparent data encryption, and dedicated audit logging.
+
+IBM Z and LinuxONE systems are an enterprise-class, purpose-built, data serving platform for business-critical Linux workloads that 
+mandate the highest levels of security, scalability, performance, and resilience. The platform supports traditional n-tier Linux applications and databases, 
+and cloud-ready containerized workloads and microservices, delivering a true, secure, hybrid-cloud platform for organizations of all sizes.
+
+
+== High-level overview
+
+This document guides an administrator through the installation of Fujitsu Enterprise Postgres 12 on a SUSE Linux Enterprise Server 12 SP5, 
+leveraging automation to reduce the time required to deploy both SUSE Linux Enterprise Server and Fujitsu Enterprise Postgres.
+It is written using SUSE Linux Enterprise Server on s390x (IBM Z and LinuxONE) as a KVM virtual machine.
+But these steps can be applied to the installation of Fujitsu Enterprise Postgres on SUSE Linux Enterprise Server for any supported architecture 
+(x86_64, ppc64le, and s390x), whether on physical hardware or in a virtual machine.
+
+The end result of following these steps is Fujitsu Enterprise Postgres running on SUSE Linux Enterprise Server with a test database.
+
+
+This document describes the following:
+
+* Benefits of Fujitsu Enterprise Postgres with SUSE Linux Enterprise Server on IBM Z or LinuxONE
+* Prerequisites
+* Creation of the hypervisor host
+* AutoYaST preparation to install the virtual machine
+* Configuration of the virtual machine
+* Installation of Fujitsu Enterprise Postgres
+* Verification by creating a test database with Fujitsu Enterprise Postgres WebAdmin
+
+
+== Benefits of Fujitsu Enterprise Postgres with SUSE Linux Enterprise Server on IBM Z or LinuxONE
+
+Starting with the hardware, IBM Z and LinuxONE systems are ideal platforms for sensitive data and critical applications. 
+Several built-in hardware features help to protect data at rest and in-flight from internal and external threats.
+
+SUSE Linux Enterprise Server for IBM Z and LinuxONE delivers the open source components that surface the hardware capabilities and 
+bring key open source technologies to the platform. For example, Kernel-based Virtual Machine (KVM) is an open source virtualization 
+technology included in SUSE Linux Enterprise Server for IBM Z and LinuxONE. Some of the benefits of KVM are as follows:
+
+* It is a mature, virtualization technology - part of the Linux kernel since 2007.
+* It is available across platforms, enabling the use of the same tooling on x86, S/390, POWER, ARM, and so on.
+* It is kernel-level, yielding performance advantages.
+* It is well-known, allowing you to take advantage of existing skills and familiar tooling, like `virsh`.
+
+
+Combining IBM Z and LinuxONE with SUSE Linux Enterprise Server and Fujitsu Enterprise Postgres delivers a highly secure, 
+agile data platform for mission-critical applications. This enables organizations to create full DevOps pipelines with secure, 
+virtual environments for development, testing, quality assurance, and, of course, production.
+
+
+
+== Prerequisites
+
+The following environment is used for this document (your environment might be different):
+
+* IBM Z KVM host running in an LPAR:
+** Four IBM Integrated Facility for Linux (IFL) processors
+** 12 GB storage (RAM)
+** Two Fibre Channel Protocol (FCP) adapters for multipath
+** Four 25 GB Small Computer System Interface (SCSI) Logical Unit Number (LUN):
+*** One LUN is used for the KVM host operating system
+*** Three LUNs are used to store the databases, transaction logs and database backups
+** One or two Open System Adapters (OSA):
+*** OSA 1 (eth0) is for SSH connections to the KVM host and for VEPA-based devices for VMs
+*** OSA 2 (eth1) is optional, but can be used for VEPA-based devices for VMs
+* A workstation with a Web browser and an SSH client will be needed.
+
+
+== Creation of the hypervisor host
+
+The goal is to install a SUSE Linux Enterprise Server 15 SP2 KVM hypervisor host in an IBM Z LPAR. 
+We choose SUSE Linux Enterprise Server 15 SP2 as a KVM hypervisor because it contains the latest KVM features and has 
+the longest support cycle of the currently supported SUSE Linux Enterprise Server versions.
+
+Use the guidelines for this installation as described in section 
+https://documentation.suse.com/sles/15-SP2/single-html/SLES-deployment/#cha-zseries[Installation on IBM Z and LinuxONE] of the
+SUSE Linux Enterprise Server Deployment Guide.
+
+Also, adhere to the following guidelines when you perform the installation:
+
+* (Optional) Enable multipath to the zFCP SCSI LUNs where SUSE Linux Enterprise Server 15 SP2 is installed.
+* Register the system to scc.suse.com or a local Subscription Management Tool (SMT)/Repository Mirroring Tool (RMT) server.
+* Apply updates during or after the installation.
+* No modules, extensions, or add-on products are needed.
+* Select system role “KVM Virtualization Host”, which installs the required Patterns and Packages (for example, `virt-install`).
+* Install the following additional packages:
+** `iputils`
+** `wget`
+** `less`
+
+
+== AutoYaST preparation to install the virtual machine
+
+The goal of this chapter is to copy a preconfigured `autoyast.xml` file and a prep script that will automate the installation of SUSE Linux Enterprise Server into a VM.
+It is important to review and edit the prep script that will be used to prepare the VM for the SUSE Linux Enterprise Server 12 SP5 installation.
+
+Complete the following steps to install a SUSE Linux Enterprise Server KVM virtual machine:
+
+. Download *SLE-12-SP5-Server-DVD-s390x-GM-DVD1.iso* from suse.com and copy it to `/var/lib/libvirt/images/isos` on the KVM host.
+. Copy the `fep-autoyast.xml` file that is available in Appendix A to `/root/fep-autoyast.xml` on the KVM host.
+. Copy the script `prep-for-fep-vm-install.sh` that is available in Appendix B to `/root/bin` on the KVM host.
+. Run the `chmod +x /root/bin/prep-for-fep-vm-install.sh` command.
+. Edit the `/root/bin/prep-for-fep-vm-install.sh` file and modify the variables to match your environment.
+. Run the `prep-for-fep-vm-install.sh` script.
+
+NOTE:  If this script must be run again, remove the Fujitsu Enterprise Postgres VM runtime definition by
+using the `virsh undefine fep` command.
+
+AutoYaST is used to install the SUSE Linux Enterprise Server KVM VM. Running the `prep-for-fep-install.sh` script
+creates an ISO file that contains the AutoYaST configuration. It also creates the XML files with
+the configuration described below which is used to install and run the KVM VM:
+
+* 4 virtual CPUs
+* 4GB RAM (the minimum requirement is 2GB of RAM)
+* Virtual NIC connected to an OSA device on KVM host
+* One QCOW2 file used for the OS installation
+** `/var/lib/libvirt/images/fep_os.qcow2` (vda)
+* Three physical SCSI LUNs. The multipathed devices below are examples used throughout this chapter:
+** `/dev/mapper/36005076307ffd3b3000000000000013e` used for Fujitsu Enterprise Postgres databases (vdb)
+** `/dev/mapper/36005076307ffd3b3000000000000013f` for Fujitsu Enterprise Postgres transaction logs (vdc)
+** `/dev/mapper/36005076307ffd3b30000000000000140` for Fujitsu Enterprise Postgres DB backups (vdd)
+* The installation media is an ISO on the KVM host:
+** `/var/lib/libvirt/images/isos/SLE-12-SP5-Server-DVD-s390x-GM-DVD1.iso`
+
+
+== Configuration of the virtual machine
+
+The goal of this chapter is to successfully install SUSE Linux Enterprise Server 12 SP5. To accomplish this, 
+the VM is started and the AutoYaST installation begins automatically.
+
+Complete the following steps to install and configure the SUSE Linux Enterprise Server 12 SP5 KVM guest:
+
+. Boot the new virtual server to start the automated installation by running the following command:
++
+----
+ virsh create /root/fep_install.xml --console
+---- 
++
+The automated installation is configured to stop at the "Installation Settings" for a final inspection of the configuration before the installation begins.  
+Press *Alt-I* to begin the installation.
++
+The following options are configured during the automated installation (for more information, review the `fep-autoyast.xml` file):
++
+vda (25 GB)::
+* vda1:
+** Size: 200 MB
+** Directory: /boot/zipl
+** File system: Ext2
+* vda2:
+** Size: 4 GB
+** Directory: swap
+* vda3:
+** Size: Remainder of the disk
+** Directory: /
+** File system: Btrfs
+
+
+vdb (25 GB)::
+* vdb1:
+** Size: Full disk partition
+** Directory: /database
+** File system: xfs
+
+
+vdc (25 GB)::
+* vdc1:
+** Size: Full disk partition
+** Directory: /dbtranslg
+** File system: xfs
+
+
+vdd (25 GB)::
+* vdd1:
+** Size: Full disk partition
+** Directory: /dbbackup
+** File system: xfs
+
+
+eth0:: none
+
+
+Patterns::
+* Help and support documentation
+* Base system
+* Minimal system (appliances)
+* YaST2 configuration packages
+
+
+Packages (required by Fujitsu Enterprise Postgres)::
+* dstat
+* libmemcached
+* openCryptoki
+* python3
+* sysstat
+* java-1_8_0-openjdk
+
+
+Initial root user password:: *password*
+
+
+DB administrator user:: *fsepuser*
+
+DB administrator user password:: *password*
+
+//-
+
+
+
+[start=2]
+. Restart the virtual server by using the following command to complete phase 2 of the automated installation:
++
+----
+ virsh start fep --console
+----
++
+NOTE: You can safely ignore any Postfix warnings or errors that appear in the console.
+
+[start=3]
+. Use YaST to configure the host name, static IP address, and other networking information for the VM.
+
+. Log out and press *Ctrl+]* (Ctrl key plus the right square bracket) to disconnect from the console.
+
+. Use SSH to connect to the system and complete the remaining steps.
+
+. Apply all available SUSE Linux Enterprise Server updates by running the following command:
++
+----
+ zypper patch
+----
++
+This command should be run twice. The first run updates the Zypper stack and the second run applies all available updates.
+
+NOTE: Be sure that SUSE Linux Enterprise Server is registered to the SUSE Customer Center (SCC), a local
+Subscription Management Tool (SMT), or local Repository Mirroring Tool (RMT) server.
+
+
+
+== Installation of Fujitsu Enterprise Postgres
+
+Now that the virtual machine is provisioned, Fujitsu Enterprise Postgres can be installed.
+
+Complete the following steps to install the Fujitsu Enterprise Postgres RPM packages and enable Fujitsu Enterprise Postgres WebAdmin. 
+Refer to the https://www.postgresql.fastware.com/resources-fujitsu-enterprise-postgres-optimised-for-ibm-linuxone[Resources - FUJITSU Enterprise Postgres 12 on IBM LinuxONE™] 
+page for detailed installation and configuration instructions.
+
+. Copy the Fujitsu Enterprise Postgres installation ISO to `/root`.
+
+. Mount the Fujitsu Enterprise Postgres installation ISO to `/mnt`:
++
+----
+  mount /root/fsep12_ae_linux64.iso /mnt
+----  
+
+. Use Zypper to install the Fujitsu Enterprise Postgres server and WebAdmin:
++
+----
+ zypper in /mnt/SERVER/Linux/packages/SUSE12s390x/FJSVfsep-SV-12-1200-0.s390x.rpm \
+ /mnt/WEBADMIN/Linux/packages/SUSE12s390x/FJSVfsep-WAD-12-1200-0.s390x.rpm
+----
++
+NOTE: Ignore the "Signature verification failed" warning because the packages are not signed.
+
+. Change to `/opt/fsepv<x>webadmin/sbin` and execute `WebAdminSetup`:
+
+ cd /opt/fsepv12webadmin/sbin
+ ./WebAdminSetup
+
+. Accept the default port numbers for the:
+  * Web Server (27515)
+  * Internal port number for WebAdmin (27516)
+
+. Answer "yes" for WebAdmin autostart.
+
+
+NOTE: The `systemctl` service name for Fujitsu Enterprise Postgres 12 is `FSEPWAD_120_WA_64.service`.
+
+
+== Verification by creating a test database with Fujitsu Enterprise Postgres WebAdmin
+
+Complete the following steps to create a test database to confirm that Fujitsu Enterprise Postgres has been installed and is running correctly:
+
+. Open a Web browser.
+
+. Go to the host name or IP address and port number of the Fujitsu Enterprise Postgres WebAdmin server: \http://<host name or IP address>:27515.
+
+. Select "Launch WebAdmin".
+
+. Use *fsepuser* to authenticate.
++
+NOTE: The default password is *password*.
+
+. Click the "+" symbol to create a database.
+
+. Use the information below to complete the fields:
+  * Configuration type: stand-alone configuration
+  * Server product type: FUJITSU Enterprise Postgres 12
+  * Location: Local
+  * Instance name: dbtest
+  * Instance port: 27600
+  * Data storage path: /database/dbtest
+  * Backup: Enabled
+  * Backup storage path: /dbbackup/dbtest
+  * Transaction log path: /dbtranslg/dbtest
+  * Encoding: UTF8
+  * WAL file size (MB): <leave blank>
+
+. Click the check mark icon to create the database.
+
+. Click "Close" when the database instance has been created successfully.
+
+. If you see the screen below, you have successfully created your first Fujitsu Enterprise Postgres database.
++
+image::fep-s390x-dbtest-created.png[Successfully created test database,scaledwidth="100%", align="center"]
+
+
+== Summary
+
+This getting started guide has been an introduction to deploying Fujitsu Enterprise Postgres on SUSE Linux Enterprise Server using KVM virtual machines on an IBM Z or LinuxONE system.  
+Automation has been used to simplify the deployment of SUSE Linux Enterprise Server in a KVM virtual machine.
+
+
+== Additional resources
+
+For more information, visit:
+
+* Data serving with Fujitsu Enterprise Postgres 12 on LinuxONE (currently draft IBM Redbooks publication)[https://www.redbooks.ibm.com/redpieces/abstracts/sg248499.html?Open].
+
+* Virtualization Cookbook for IBM Z Volume 5: KVM (An IBM Redbooks publication)[https://www.redbooks.ibm.com/abstracts/sg248463.html?Open].
+
+
+== Appendix A
+
+Example `fep-autoyast.xml` file:
+
+....
+<?xml version="1.0"?>
+<!DOCTYPE profile>
+<profile xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns">
+  <add-on>
+    <add_on_products config:type="list"/>
+  </add-on>
+  <dasd>
+    <devices config:type="list"/>
+    <format_unformatted config:type="boolean">false</format_unformatted>
+  </dasd>
+  <deploy_image>
+    <image_installation config:type="boolean">false</image_installation>
+  </deploy_image>
+  <firewall>
+    <enable_firewall config:type="boolean">false</enable_firewall>
+    <start_firewall config:type="boolean">false</start_firewall>
+  </firewall>
+  <general>
+    <ask-list config:type="list"/>
+    <cio_ignore config:type="boolean">false</cio_ignore>
+    <mode>
+      <confirm config:type="boolean">true</confirm>
+    </mode>
+    <proposals config:type="list"/>
+    <signature-handling>
+      <accept_file_without_checksum config:type="boolean">true</accept_file_without_checksum>
+      <accept_non_trusted_gpg_key config:type="boolean">true</accept_non_trusted_gpg_key>
+      <accept_unknown_gpg_key config:type="boolean">true</accept_unknown_gpg_key>
+      <accept_unsigned_file config:type="boolean">true</accept_unsigned_file>
+      <accept_verification_failed config:type="boolean">false</accept_verification_failed>
+      <import_gpg_key config:type="boolean">true</import_gpg_key>
+    </signature-handling>
+    <storage>
+      <partition_alignment config:type="symbol">align_optimal</partition_alignment>
+      <start_multipath config:type="boolean">false</start_multipath>
+    </storage>
+  </general>
+  <kdump>
+    <add_crash_kernel config:type="boolean">true</add_crash_kernel>
+    <crash_kernel>163M</crash_kernel>
+  </kdump>
+  <language>
+    <language>en_US</language>
+    <languages/>
+  </language>
+  <login_settings/>
+  <networking>
+    <dns>
+      <dhcp_hostname config:type="boolean">false</dhcp_hostname>
+      <write_hostname config:type="boolean">false</write_hostname>
+    </dns>
+    <ipv6 config:type="boolean">false</ipv6>
+    <keep_install_network config:type="boolean">true</keep_install_network>
+    <managed config:type="boolean">false</managed>
+    <interfaces config:type="list">
+      <interface>
+        <bootproto>none</bootproto>
+        <device>eth0</device>
+        <dhclient_set_default_route>yes</dhclient_set_default_route>
+        <name>Ethernet Card 0 (virtio4)</name>
+        <startmode>auto</startmode>
+      </interface>
+  </interfaces>
+  </networking>
+  <nis>
+    <start_autofs config:type="boolean">false</start_autofs>
+    <start_nis config:type="boolean">false</start_nis>
+  </nis>
+  <ntp-client>
+    <start_at_boot config:type="boolean">false</start_at_boot>
+    <start_in_chroot config:type="boolean">false</start_in_chroot>
+    <sync_interval config:type="integer">5</sync_interval>
+    <synchronize_time config:type="boolean">false</synchronize_time>
+  </ntp-client>
+  <partitioning config:type="list">
+    <drive>
+      <device>/dev/vda</device>
+      <disklabel>msdos</disklabel>
+      <enable_snapshots config:type="boolean">true</enable_snapshots>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">ext2</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>acl,user_xattr</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/boot/zipl</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">1</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>auto</size>
+        </partition>
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">swap</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>swap</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">130</partition_id>
+          <partition_nr config:type="integer">2</partition_nr>
+          <resize config:type="boolean">false</resize>
+          <!-- Minimum of 4G of swap required for Oracle 19c installation -->
+          <size>4G</size>
+        </partition>
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">btrfs</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">3</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>max</size>
+        </partition>
+      </partitions>
+      <pesize/>
+      <type config:type="symbol">CT_DISK</type>
+      <use>all</use>
+    </drive>
+    <drive>
+      <device>/dev/vdb</device>
+      <disklabel>msdos</disklabel>
+      <enable_snapshots config:type="boolean">false</enable_snapshots>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">xfs</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/database</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">1</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>max</size>
+        </partition>
+      </partitions>
+      <pesize/>
+      <type config:type="symbol">CT_DISK</type>
+      <use>all</use>
+    </drive>
+    <drive>
+      <device>/dev/vdc</device>
+      <disklabel>msdos</disklabel>
+      <enable_snapshots config:type="boolean">false</enable_snapshots>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">xfs</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/translog</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">1</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>max</size>
+        </partition>
+      </partitions>
+      <pesize/>
+      <type config:type="symbol">CT_DISK</type>
+      <use>all</use>
+    </drive>
+    <drive>
+      <device>/dev/vdc</device>
+      <disklabel>msdos</disklabel>
+      <enable_snapshots config:type="boolean">false</enable_snapshots>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">xfs</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/dbtranslg</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">1</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>max</size>
+        </partition>
+      </partitions>
+      <pesize/>
+      <type config:type="symbol">CT_DISK</type>
+      <use>all</use>
+    </drive>
+    <drive>
+      <device>/dev/vdd</device>
+      <disklabel>msdos</disklabel>
+      <enable_snapshots config:type="boolean">false</enable_snapshots>
+      <initialize config:type="boolean">true</initialize>
+      <partitions config:type="list">
+        <partition>
+          <create config:type="boolean">true</create>
+          <crypt_fs config:type="boolean">false</crypt_fs>
+          <filesystem config:type="symbol">xfs</filesystem>
+          <format config:type="boolean">true</format>
+          <fstopt>defaults</fstopt>
+          <loop_fs config:type="boolean">false</loop_fs>
+          <mount>/dbbackup</mount>
+          <mountby config:type="symbol">uuid</mountby>
+          <partition_id config:type="integer">131</partition_id>
+          <partition_nr config:type="integer">1</partition_nr>
+          <partition_type>primary</partition_type>
+          <resize config:type="boolean">false</resize>
+          <size>max</size>
+        </partition>
+      </partitions>
+      <pesize/>
+      <type config:type="symbol">CT_DISK</type>
+      <use>all</use>
+    </drive>
+  </partitioning>
+  <report>
+    <errors>
+      <log config:type="boolean">true</log>
+      <show config:type="boolean">true</show>
+      <timeout config:type="integer">0</timeout>
+    </errors>
+    <messages>
+      <log config:type="boolean">true</log>
+      <show config:type="boolean">true</show>
+      <timeout config:type="integer">0</timeout>
+    </messages>
+    <warnings>
+      <log config:type="boolean">true</log>
+      <show config:type="boolean">true</show>
+      <timeout config:type="integer">0</timeout>
+    </warnings>
+    <yesno_messages>
+      <log config:type="boolean">true</log>
+      <show config:type="boolean">true</show>
+      <timeout config:type="integer">0</timeout>
+    </yesno_messages>
+  </report>
+  <services-manager>
+    <default_target>multi-user</default_target>
+  </services-manager>
+  <software>
+    <image/>
+    <install_recommended config:type="boolean">true</install_recommended>
+    <instsource/>
+    <packages config:type="list">
+      <package>vlan</package>
+      <package>snapper</package>
+      <package>sles-release</package>
+      <package>openssh</package>
+      <package>lvm2</package>
+      <package>kexec-tools</package>
+      <package>kdump</package>
+      <package>grub2</package>
+      <package>glibc</package>
+      <package>e2fsprogs</package>
+      <package>btrfsprogs</package>
+      <!-- Required by FEP install -->
+      <package>dstat</package>
+      <package>libmemcached</package>
+      <package>openCryptoki</package>
+      <package>python3</package>
+      <package>sysstat</package>
+      <package>java-1_8_0-openjdk</package>
+    </packages>
+    <patterns config:type="list">
+      <pattern>Minimal</pattern>
+      <pattern>base</pattern>
+      <pattern>documentation</pattern>
+      <pattern>yast2</pattern>
+    </patterns>
+  </software>
+  <timezone>
+    <hwclock>UTC</hwclock>
+    <timezone>America/New_York</timezone>
+  </timezone>
+  <users config:type="list">
+    <user>
+      <fullname>root</fullname>
+      <gid>0</gid>
+      <home>/root</home>
+      <password_settings>
+        <expire/>
+        <flag/>
+        <inact/>
+        <max/>
+        <min/>
+        <warn/>
+      </password_settings>
+      <shell>/bin/bash</shell>
+      <uid>0</uid>
+      <user_password>password</user_password>
+      <username>root</username>
+    </user>
+    <user>
+      <fullname>fsepuser</fullname>
+      <password_settings>
+        <expire/>
+        <flag/>
+        <inact/>
+        <max/>
+        <min/>
+        <warn/>
+      </password_settings>
+      <shell>/bin/bash</shell>
+      <user_password>password</user_password>
+      <username>fsepuser</username>
+    </user>
+  </users>
+  <zfcp>
+    <devices config:type="list"/>
+  </zfcp>
+  <scripts>
+    <init-scripts config:type="list">
+      <script>
+        <filename>01-init.sh</filename>
+        <interpreter>shell</interpreter>
+        <source><![CDATA[
+#!/bin/sh
+
+echo "Running Init script - 01-init.sh"
+chown -R fsepuser /database
+chown -R fsepuser /dbtranslg
+chown -R fsepuser /dbbackup
+chown
+]]>
+        </source>
+      </script>
+    </init-scripts>
+  </scripts>
+</profile>
+....
+
+
+== Appendix B
+
+Example `prep-for-fep-vm-install.sh` file:
+
+....
+#!/bin/bash
+
+# KVM Host variables
+AUTOYAST_FILE=/root/fep-autoyast.xml
+ISO_FILE=/var/lib/libvirt/images/isos/SLE-12-SP5-Server-DVD-s390x-GM-DVD1.iso
+INSTALL_DIR=/var/lib/libvirt/images/sles12sp5-install
+
+# FEP VM variables
+VM_OS_QCOW2=/var/lib/libvirt/images/fep_os.qcow2
+VM_OS_QCOW2_SIZE=25G
+VM_FEPDB_SCSI=/dev/mapper/36005076307ffd3b3000000000000013e
+VM_FEPTRANS_SCSI=/dev/mapper/36005076307ffd3b3000000000000013f
+VM_FEPBU_SCSI=/dev/mapper/36005076307ffd3b30000000000000140
+VEPA_NIC=eth1
+VEPA_NIC_DEVNO=0x0810
+
+if test ! -e ${ISO_FILE}; then
+    echo
+    echo "Please copy $(basename ${ISO_FILE}) to $(dirname ${ISO_FILE})."
+    echo "Quitting..."
+    exit 1
+fi
+if test ! -e ${AUTOYAST_FILE}; then
+    echo
+    echo "Please copy $(basename ${AUTOYAST_FILE}) to $(dirname ${AUTOYAST_FILE})."
+    echo "Quitting..."
+    exit 1
+fi
+
+if test -e ${VM_OS_QCOW2} -o -e /var/lib/libvirt/images/sles12sp5-install -o -e /root/fep_install.xml; then
+   echo "Cleaning up a previous FEP VM installation attempt."
+   rm -rf ${VM_OS_QCOW2} /var/lib/libvirt/images/sles12sp5-install /root/fep_install.xml
+   virsh undefine fep >/dev/null 2>&1
+fi
+
+echo "Setting up environment for autoyast installation."
+mkdir -p ${INSTALL_DIR}
+TMP_MNT=$(mktemp -d)
+mount ${ISO_FILE} ${TMP_MNT} > /dev/null 2>&1
+cp ${TMP_MNT}/boot/s390x/linux ${INSTALL_DIR}
+cp ${TMP_MNT}/boot/s390x/initrd ${INSTALL_DIR}
+cp ${AUTOYAST_FILE} ${INSTALL_DIR}/autoyast.xml
+umount ${TMP_MNT}
+rmdir ${TMP_MNT}
+mkisofs -quiet ${INSTALL_DIR}/autoyast.xml > ${INSTALL_DIR}/autoyast.iso
+
+echo "Creating FEP OS qcow2 virtual disk file."
+if type -p qemu-img > /dev/null 2>&1; then
+    qemu-img create -q -f qcow2 ${VM_OS_QCOW2} ${VM_OS_QCOW2_SIZE}
+else
+    echo
+    echo "Unable to find qemu-img."
+    echo "Quitting..."
+    exit 1
+fi
+
+echo "Generating FEP virtual machine xml file for SLES installation."
+for disk in ${VM_OS_QCOW2} ${VM_FEBDB_SCSI} ${VM_FEPTRANS_SCSI}; do
+    if test ! -e ${disk}; then
+        echo
+        echo "${disk} is not defined."
+        echo "Quitting..."
+        exit 1
+    fi
+done
+if test $(lsqeth | grep -c ${VEPA_NIC}) -eq 0; then
+    echo
+    echo "${VEPA_NIC} is not defined."
+    echo "Quitting..."
+    exit 1
+fi
+virt-install --name fep --vcpus 4 --memory 4096 \
+--disk path=${VM_OS_QCOW2},target=vda \
+--disk path=${VM_FEPDB_SCSI},cache=none,io=native,target=vdb \
+--disk path=${VM_FEPTRANS_SCSI},cache=none,io=native,target=vdc \
+--disk path=${VM_FEPBU_SCSI},cache=none,io=native,target=vdd \
+--network type=direct,source=${VEPA_NIC},address.type=ccw,address.cssid=0xfe,address.ssid=0x0,address.devno=${VEPA_NIC_DEVNO} \
+--cdrom ${ISO_FILE} \
+--disk path=${INSTALL_DIR}/autoyast.iso,device=cdrom \
+--boot kernel=${INSTALL_DIR}/linux,initrd=${INSTALL_DIR}/initrd,\
+kernel_args="self_update=0 install=cd:/ autoyast=device://sr1/autoyast.xml" \
+--print-xml 1 > /root/fep_install.xml
+
+echo "Defining FEP virtual machine for runtime administration."
+virsh -q define /root/fep_install.xml
+virt-xml -q fep --remove-device --disk path=${INSTALL_DIR}/autoyast.iso,device=cdrom
+virt-xml -q fep --edit --boot kernel=,initrd=,kernel_args=
+virt-xml -q fep --edit --events on_reboot=restart
+
+exit 0
+....
+
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+// include::common_gfdl1.2_i.adoc[]
+
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]
+
+//end

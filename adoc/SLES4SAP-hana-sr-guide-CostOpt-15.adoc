@@ -1365,11 +1365,12 @@ For more detailed information about setting up a cluster, refer to the sections 
 _Adding the Second Node_ of the {dochaquickstart} for {suselinux} {sleha} {pn15} {psp15} at {haquickstart15}.
 
 Create an initial setup, using the `{slehainit}` command, and follow the
-dialogs. Do this only on the first cluster node.
+dialogs. Do this only on the first cluster node. Answer "no" to "Do you wish to configure a virtual IP address" and 
+"Do you want to configure QDevice".
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~> {slehainit} -u -s <sbddevice>
+{sapnode1}:~> {slehainit} -u -s {sapsbd1} -s {sapsbd2}
 ----
 
 // TODO PRIO2: for disk less SBD: {slehainit} -u -S
@@ -1383,7 +1384,7 @@ This command configures the basic cluster framework including:
 
 * SSH keys
 * csync2 to transfer configuration files
-* SBD (at least one device)
+* SBD (at least one device, in this guide two)
 * corosync (at least one ring)
 * HAWK Web interface
 
@@ -1394,7 +1395,7 @@ IMPORTANT: As requested by `{slehainit}`, change the password of the user haclus
 It is recommended to add a second corosync ring. If you did not start {slehainit}
 with the _-u_ option, you need to change corosync to use UCAST communication.
 To change to UCAST, stop the already running cluster by using `{clusterstop}`.
-After the setup of the corosync configuration and the SBD parameters, start the cluster again.
+After the setup of the corosync configuration and the SBD parameters, start the cluster again (`{clusterstart}`).
 
 ===== Corosync Configuration
 
@@ -1410,25 +1411,23 @@ totem {
 
     interface {
         ringnumber: 0
+
         mcastport:  5405
         ttl:        1
     }
-    #Transport protocol
+
+
     transport:      udpu
 
 }
 nodelist {
         node {
             ring0_addr:     {sapip1node1}
+
             nodeid: 1
-        }
-        node {
-            ring0_addr:     {sapip1node2}
-            nodeid: 2
         }
     }
 ----
-
 
 ===== Adapting the SBD Configuration
 
@@ -1443,13 +1442,14 @@ See the man pages sbd(8) and stonith_sbd(7) for details.
 [cols=",",options="header",]
 |=======================================================================
 |Parameter |Description
-|SBD_WATCHDOG="yes" a|
+|SBD_WATCHDOG_DEV="/dev/watchdog" a|
+// |SBD_WATCHDOG="yes" a|
 Use watchdog. It is mandatory to use a watchdog. SBD does not work
 reliable without watchdog. Refer to the {slsa} manual and SUSE
 TIDs 7016880 for setting up a watchdog.
 
-|SBD_STARTMODE="clean" a|
-Start mode. If set to one, sbd will only start if the node was
+|SBD_STARTMODE="always" a|
+Start mode. If set to "clean", sbd will only start if the node was
 previously shut down cleanly or if the slot is empty.
 
 |SBD_PACEMAKER="yes" a|
@@ -1457,20 +1457,21 @@ Check Pacemaker quorum and node health.
 
 |=======================================================================
 
-In the following example, replace {sapsbd1} and {sapsbd2} by your real SBD
-device names.
-
 [subs="attributes,quotes"]
 ----
-# /etc/sysconfig/sbd
+# egrep -v "(^#|^$)"/etc/sysconfig/sbd
+SBD_PACEMAKER=yes
+SBD_STARTMODE=always
+SBD_DELAY_START=no
+SBD_WATCHDOG_DEV=/dev/watchdog
+SBD_WATCHDOG_TIMEOUT=5
+SBD_TIMEOUT_ACTION=flush,reboot
+SBD_MOVE_TO_ROOT_CGROUP=auto
+SBD_OPTS=
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
-SBD_WATCHDOG_DEV="/dev/watchdog"
-SBD_PACEMAKER="yes"
-SBD_STARTMODE="clean"
-SBD_OPTS=""
 ----
 
-In your specific system, the file might have additional parameters not discussed here.
+On your specific system, the file might have additional parameters not discussed here.
 
 // TODO PRIO2: Add reference to product doc (thematic calculation of timeouts)
 
@@ -1485,23 +1486,35 @@ configured in _/etc/sysconfig/sbd_. You can do so, for example, by calling `cs_s
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # sbd -d {sapsbd1} dump
+{sapnode1}:~ # sbd -d {sapsbd1} -d {sapsbd2} dump
 ==Dumping header on disk {sapsbd1}
 Header version     : 2.1
-UUID               : 0f4ea13e-fab8-4147-b9b2-3cdcfff07f86
+UUID               : 1fdc54e8-e2f0-4f02-9e6a-51acbe5656cf 
 Number of slots    : 255
 Sector size        : 512
-Timeout (watchdog) : 20
+Timeout (watchdog) : 5
 Timeout (allocate) : 2
 Timeout (loop)     : 1
-Timeout (msgwait)  : 40
+Timeout (msgwait)  : 10
 ==Header on disk {sapsbd1} is dumped
+==Dumping header on disk {sapsbd2}
+Header version     : 2.1
+UUID               : 23c423df-575d-4937-a48b-5eb869fe0bb7 
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 5
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 10
+==Header on disk {sapsbd2} is dumped
 ----
 
 // TODO PRIO3: Check if we need to explain the timeout parameters of the sbd device (watchdog, allocate, loop, msgwait)
 
-The timeout values in our example are only start values. They need to be
-tuned to your environment.
+=====
+IMPORTANT: The timeout values in our example are only start values. 
+They *must* be tuned to your environment. Please refer to the 
+TIDs 7011346 and 7023689 for more information.
 
 To check the current SBD entries for the various cluster nodes, you can
 use `sbd list`. If all entries are `clear`, no fencing task is marked in
@@ -1509,7 +1522,8 @@ the SBD device.
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # sbd -d {sapsbd1} list
+{sapnode1}:~ # sbd -d {sapsbd1} -d {sapsbd2} list
+0     {sapnode1}      clear
 0     {sapnode1}      clear
 ----
 
@@ -1517,8 +1531,7 @@ For more information on SBD configuration parameters, read the
 section _Using SBD as Fencing Mechanism_ of the Installation and Setup Quick Start
 for {suselinux} {sleha} {pn15}, and the TIDs 7016880 and 7008216.
 
-Now it is time to restart the cluster at the first node again
-(`{clusterstart}`).
+// Now it is time to restart the cluster on the first node again (`{clusterstart}`).
 
 ==== Cluster Configuration on the Second Node
 
@@ -1531,6 +1544,8 @@ copied over. As a result, the cluster is started on both nodes.
 ----
 # {slehajoin} -c {refHost1}
 ----
+
+Press _RETURN_ to acknowledge the IP address.
 
 ==== Checking the Cluster for the First Time
 
@@ -1561,30 +1576,45 @@ entries are _clear_ , no fencing task is marked in the SBD device.
 
 You can also call `cs_show_sbd_devices` again.
 Next, check if all nodes have joined the cluster.
-To do so, call `crm_mon`. Use the option _"-r"_ to also see the resources that are
+To do so, call `crm_mon`. Use the options _"-r1"_ to also see the resources that are
 configured but stopped.
 
 [subs="attributes,quotes"]
 ----
-# crm_mon -r
+# crm_mon -r1
 ----
 
 The command will show the "empty" cluster and will print something similar
-to the screen output below. The most interesting information for now is
-that there are two nodes in the status "online", and the message
-"partition with quorum".
+to the screen output below. The most interesting pieces of information for now are 
+that there are two nodes in the status "online", the message
+"partition with quorum", and a running SBD resource.
 
 [subs="attributes,quotes"]
+//----
+//Stack: corosync
+//Current DC: {sapnode1} (version 1.1.19+20180928.0d2680780-1.8-1.1.19+20180928.0d2680780) - partition with quorum
+//Last updated: Fri Nov 29 15:41:16 2019
+//Last change: Fri Nov 29 15:40:22 2019 by root via crm_attribute on {sapnode2}
+//2 nodes configured
+//1 resource configured
+//Online: [ {sapnode1} {sapnode2} ]
+//Full list of resources:
+// stonith-sbd    (stonith:external/sbd): Started {sapnode1}
+//----
 ----
-Stack: corosync
-Current DC: {sapnode1} (version 1.1.19+20180928.0d2680780-1.8-1.1.19+20180928.0d2680780) - partition with quorum
-Last updated: Fri Nov 29 15:41:16 2019
-Last change: Fri Nov 29 15:40:22 2019 by root via crm_attribute on {sapnode2}
-2 nodes configured
-1 resource configured
-Online: [ {sapnode1} {sapnode2} ]
-Full list of resources:
- stonith-sbd    (stonith:external/sbd): Started {sapnode1}
+Cluster Summary:
+  * Stack: corosync
+  * Current DC: {sapnode1} (version 2.0.4+20200616.2deceaa3a-3.6.1-2.0.4+20200616.2deceaa3a) - partition with quorum
+  * Last updated: Thu Jun 10 08:32:58 2021
+  * Last change:  Thu Jun 10 08:29:41 2021 by hacluster via crmd on {sapnode01}
+  * 2 nodes configured
+  * 1 resource instance configured
+
+Node List:
+  * Online: [ {sapnode01} {sapnode02}  ]
+
+Full List of Resources:
+  * stonith-sbd	(stonith:external/sbd):	 Started {sapnode01}
 ----
 
 === Configuring Cluster Properties and Resources
@@ -1592,8 +1622,7 @@ Full list of resources:
 This section describes how to configure constraints, resources,
 bootstrap, and STONITH, using the `crm configure` shell command as described
 in section _Configuring and Managing Cluster Resources (Command Line)_ of the
-Administration Guide for SUSE Linux Enterprise High Availability Extension 15.
-//TODO PRIO3: use variable
+Administration Guide for {sleha} {pn15} {psp15} at {haAdminGuide15}#cha-ha-manual-config.
 
 Use the command `crm` to add the objects to the cluster information base (CIB). Copy the following
 examples to a local file, edit the file and then load the configuration
@@ -4017,7 +4046,7 @@ SAP Product Availability Matrix::
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # ha-cluster-init -u
+{sapnode1}:~ # {slehainit} -u
   Generating SSH key
   Configuring csync2
   Generating csync2 shared key (this may take a while)...done

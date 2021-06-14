@@ -676,7 +676,7 @@ _majority maker_.
 
 Optionally, the packages supportutils-plugin-ha-sap and ClusterTools2 can be installed. The first helps collecting data for support requests, the second simplifies common administrative tasks.
 
-For more information, see section _Installation and Basic Setup_ of the {uarr}{suselinux} {sleha} guide.
+For more information, see section _Installation and Basic Setup_ of the {uarr} {sleha} guide.
 
 [[cha.s4s.hana-install]]
 == {stepHANA}
@@ -1362,7 +1362,7 @@ members.
 ==== Initial Cluster Setup Using `{slehainit}`
 
 For more detailed information about setting up a cluster, refer to the sections _Setting Up the First Node_ and
-_Adding the Second Node_ of the {dochaquickstart} for {suselinux} {sleha} {pn15} {psp15} at {haquickstart15}.
+_Adding the Second Node_ of the {dochaquickstart} for {sleha} {pn15} {psp15} at {haquickstart15}.
 
 Create an initial setup, using the `{slehainit}` command, and follow the
 dialogs. Do this only on the first cluster node. Answer "no" to "Do you wish to configure a virtual IP address" and 
@@ -1457,9 +1457,9 @@ Check Pacemaker quorum and node health.
 
 |=======================================================================
 
-[subs="attributes,quotes"]
+[subs="specialchars,attributes,quotes"]
 ----
-# egrep -v "(^#|^$)"/etc/sysconfig/sbd
+# egrep -v "(\^#|^$)"/etc/sysconfig/sbd
 SBD_PACEMAKER=yes
 SBD_STARTMODE=always
 SBD_DELAY_START=no
@@ -1512,7 +1512,7 @@ Timeout (msgwait)  : 10
 // TODO PRIO3: Check if we need to explain the timeout parameters of the sbd device (watchdog, allocate, loop, msgwait)
 
 IMPORTANT: The timeout values in our example are only start values. 
-They *must* be tuned to your environment. Please refer to the 
+It is a requirement that they are tuned to your environment. Please refer to the 
 TIDs 7011346 and 7023689 for more information.
 
 To check the current SBD entries for the various cluster nodes, you can
@@ -1641,22 +1641,36 @@ The first example defines the cluster bootstrap options, the resource
 and operation defaults. The stonith-timeout should be greater than 1.2
 times the SBD msgwait timeout.
 
-// TODO PRIO2: LP asks if that still works
 // TODO PRIO2: Discuss migration-threshold="3"
 
 [subs="attributes,quotes"]
+// ----
+// {sapnode1}:~ # vi crm-bs.txt
+// # enter the following to crm-bs.txt
+// property $id="cib-bootstrap-options" \
+//               stonith-enabled="true" \
+//               stonith-action="reboot" \
+//               stonith-timeout="150s"
+// rsc_defaults $id="rsc-options" \
+//               resource-stickiness="1000" \
+//               migration-threshold="3"
+// op_defaults $id="op-options" \
+//                  timeout="600" 
+//----
 ----
 {sapnode1}:~ # vi crm-bs.txt
 # enter the following to crm-bs.txt
-property $id="cib-bootstrap-options" \
-              stonith-enabled="true" \
-              stonith-action="reboot" \
-              stonith-timeout="150s"
-rsc_defaults $id="rsc-options" \
-              resource-stickiness="1000" \
-              migration-threshold="3"
-op_defaults $id="op-options" \
-                 timeout="600"
+property cib-bootstrap-options: \
+	have-watchdog=true \
+	stonith-enabled=true \
+	stonith-action=reboot \
+	stonith-timeout=150s
+rsc_defaults rsc-options: \
+	resource-stickiness=1000 \
+	migration-threshold=3
+op_defaults op-options: \
+	timeout=600 \
+	record-pending=true
 ----
 
 Now add the configuration to the cluster.
@@ -1667,29 +1681,30 @@ Now add the configuration to the cluster.
 ----
 
 ==== STONITH Device
+// pcmk_delay_max is set automagically nowadays
+//
+// Skip this section if you are using diskless SBD.
+// 
+// The next configuration part defines an SBD disk STONITH resource with an appropriate
+// value for the parameter_pcmk_delay_max_.
+// 
+// [subs="attributes,quotes"]
+// ----
+// # vi crm-sbd.txt
+// # enter the following to crm-sbd.txt
+// primitive stonith-sbd stonith:external/sbd \
+//     params pcmk_delay_max="30"
+// ----
+//
+// Again, add the configuration to the cluster.
+//
+// [subs="attributes,quotes"]
+// ----
+// {sapnode1}:~ # crm configure load update crm-sbd.txt
+// ----
 
-Skip this section if you are using diskless SBD.
-
-The next configuration part defines an SBD disk STONITH resource with an appropriate
-value for the parameter_pcmk_delay_max_.
-
-[subs="attributes,quotes"]
-----
-# vi crm-sbd.txt
-# enter the following to crm-sbd.txt
-primitive stonith-sbd stonith:external/sbd \
-    params pcmk_delay_max="30"
-----
-
-Again, add the configuration to the cluster.
-
-[subs="attributes,quotes"]
-----
-{sapnode1}:~ # crm configure load update crm-sbd.txt
-----
-
-For an advanced SBD setup, refer to the {suselinux} {sleha} product documentation (for example, visit
-https://documentation.suse.com/sle-ha/15-SP2/html/SLE-HA-all/cha-ha-storage-protect.html#pro-ha-storage-protect-fencing).
+For an advanced SBD setup, refer to the {sleha} product documentation (for example, visit
+{haAdminGuide15}#pro-ha-storage-protect-fencing.
 If the preferred node running the primary HANA database always should win in case of
 split-brain, look up the "Predictable Static Delays" configuration example.
 See also <<Example for Deterministic SBD STONITH>>.
@@ -1905,7 +1920,7 @@ cluster component. The reason for that change is that `SAPDatabase` is using the
 {SAP} host agent API. The {SAP} host agent itself needs user secure keys to
 communicate with the cluster. This configuration is too complex and error-prone.
 `SAPInstance` uses the sapstartsrv API to do the work. This should solve the issue.
-The new concept has already been published in a {SUSE} towardsZeroDoentime blog at:
+The new concept has already been published in a {SUSE} towardsZeroDowntime blog at:
 https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
 
 [subs="attributes,quotes"]
@@ -1924,6 +1939,8 @@ primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
 
 Load the resource definition into the cluster
 
+\\ TODO secondary IP resource + constraints
+
 [subs="attributes,quotes"]
 ----
 {sapnode1}:~ # crm configure load update crm-si.txt
@@ -1931,15 +1948,13 @@ Load the resource definition into the cluster
 
 ==== Adding Cluster Rules for Automatic Shutdown of the Non-Replicated {SAPHANA}
 
-// We refer to the cluster nodes as suse01 and suse02 respectively:
-// TODO PRIO2: CostOpt15 - Use variables as placeholders
 In the following example, again {sapnode1} and {sapnode2} are used as the two active cluster nodes.
 
 [subs="attributes,quotes"]
 ----
 # vi crm-con.txt
 # enter the following to crm-con.txt
-location loc_QAS_never_on_suse01 rsc_SAP_QAS_HDB20 -inf: suse01
+location loc_QAS_never_on_{sapnode1} rsc_SAP_QAS_HDB20 -inf: {sapnode1}
 colocation col_QAS_never_with_HA1ip -inf: rsc_SAP_QAS_HDB20:Started \
   rsc_ip_HA1_HDB10
 order ord_QASstop_before_HA1-promote mandatory: rsc_SAP_QAS_HDB20:stop \
@@ -1981,13 +1996,13 @@ colocation col_saphana_ip_{sapsid}_HDB{sapino}_readenabled 2000: \
 == {stepTest}
 
 // TODO PRIO2: Adding second IP Address to the cluster tests
-// TODO PRIO2: Check, if we need to mention the srHook-Attribute in the cluster tests
-// TODO PRIO2: Check, if it makes sense to provide query for cluster attributes to
+// TODO PRIO2: Check if we need to mention the srHook-Attribute in the cluster tests
+// TODO PRIO2: Check if it makes sense to provide query for cluster attributes to
 //             make it nore easy to review srHook and RA attributes (like SOK or SFAIL)
 
 image::SAPHanaSR-ScaleOut-Plan-Phase7.svg[scaledwidth="100%"]
 
-The lists of tests will be further enhanced with a next update of this document.
+The lists of tests will be further enhanced in one of the next updates of this document.
 
 For any cluster setup testing is crucial. Make sure that all test cases derived 
 from your organizations or from customer expectations are fully implemented and successfully passed. 
@@ -1996,7 +2011,8 @@ Otherwise the project is likely to fail in production.
 If not described differently, the test prerequisite is always that both
 nodes are booted, normal members of the cluster and that the HANA RDBMS is running.
 There are no left-over migration constraints or resource failures contained in
-the cluster information base (CIB). The system replication is in sync (_SOK_).
+the cluster information base (CIB). The system replication is in sync (_SOK_) and 
+the cluster is not performing any action, i. e. is in the state _S_IDLE_. 
 
 This can be checked, for example, with the following command sequence:
 
@@ -2044,7 +2060,8 @@ on the exit state of the preceeding tests.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}# HDB stop
+{sapnode1}:~ # su - {sapssid}adm
+{sapssid}adm@{sapnode1}:/usr/sap/{sapsid}/HDB{ino}> HDB stop
 ----
 
 .{testExpect}
@@ -3571,7 +3588,7 @@ down by intention, this could trigger a takeover.
 
 === Maintenance
 
-To receive updates for the operating system or the {suselinux} {sleha},
+To receive updates for the operating system or the {sleha},
 it is recommended to register your systems to either a local {suma}, to {rmtool} ({rmt}), 
 or remotely with {scc}.
 For more information, visit the respective Web pages:

@@ -1368,6 +1368,8 @@ members.
 For more detailed information about setting up a cluster, refer to the sections _Setting Up the First Node_ and
 _Adding the Second Node_ of the {dochaquickstart} for {sleha} {pn15} {psp15} at {haquickstart15}.
 
+This setup uses unicast (UCAST) for corosync communication (_-u_ option). Refer to the {haAdminGuide15} on detailed explanations of the terms unicast/multicast.
+
 Create an initial setup, using the `{slehainit}` command, and follow the
 dialogs. Do this only on the first cluster node. Answer "no" to "Do you wish to configure a virtual IP address" and 
 "Do you want to configure QDevice".
@@ -1393,23 +1395,18 @@ This command configures the basic cluster framework including:
 * SSH keys
 * csync2 to transfer configuration files
 * SBD (at least one device, in this guide two)
-* corosync (two rings, or one ring in exceptional cases)
+* corosync (at least one ring, better two rings)
 * HAWK Web interface
 
 IMPORTANT: As requested by `{slehainit}`, change the password of the user hacluster.
 
-==== Adapting the Corosync and SBD Configuration
+==== Checking and Adapting the Corosync and SBD Configuration
 
-It is recommended to add a second corosync ring. If you did not start {slehainit}
-with the _-u_ option, you need to change corosync to use UCAST communication.
-To change to UCAST, stop the already running cluster by using `{clusterstop}`.
-After the setup of the corosync configuration and the SBD parameters, start the cluster again (`{clusterstart}`).
-
-===== Corosync Configuration
-
-// TODO PRIO2: Remove this section and/or tell the reader to skip if the cluster was already set up with unicast
+===== Checking the Corosync Configuration
 
 Check the following blocks in the file _/etc/corosync/corosync.conf_.
+The important parts are _udpu_ and the correct ring/IP configuration.
+
 See also the example at the end of this document.
 
 [subs="attributes,quotes"]
@@ -1419,21 +1416,40 @@ totem {
 
     interface {
         ringnumber: 0
-
-        mcastport:  5405
-        ttl:        1
+        mcastport: 5405
+        ttl: 1
+    }
+    
+    interface {
+        ringnumber: 1
+        mcastport: 5407
+        ttl: 1
     }
 
+    rrp_mode: passive
+    transport: udpu
 
-    transport:      udpu
+    ...
 
 }
+
+    ...
+
 nodelist {
-        node {
-            ring0_addr:     {sapip1node1}
+    node {
+            ring0_addr: {sapIp1Node1}
+            ring1_addr: {sapIp2Node1}
             nodeid: 1
-        }
     }
+    
+    node {
+            ring0_addr: {sapIp1Node2}
+            ring1_addr: {sapIp2Node2}
+            nodeid: 2
+    }
+}
+
+    ...
 ----
 
 ===== Adapting the SBD Configuration
@@ -4119,8 +4135,7 @@ SAP Product Availability Matrix::
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # {slehainit} -u
-  Generating SSH key
+{sapnode1}:~ # {slehainit} -u -M -s {sapsbd1} -s {sapsbd2}
   Configuring csync2
   Generating csync2 shared key (this may take a while)...done
   csync2 checking files...done
@@ -4134,25 +4149,14 @@ Configure Corosync (unicast):
   Address for ring0 [{sapip1node1}]
   Port for ring0 [5405]
 
-Configure SBD:
-  If you have shared storage, for example a SAN or iSCSI target,
-  you can use it avoid split-brain scenarios by configuring SBD.
-  This requires a 1 MB partition, accessible to all nodes in the
-  cluster.  The device path must be persistent and consistent
-  across all nodes in the cluster, so /dev/disk/by-id/* devices
-  are a good choice.  Note that all data on the partition you
-  specify here will be destroyed.
-
-Do you wish to use SBD (y/n)? y
-  Path to storage device (e.g. /dev/disk/by-id/...), or "none" []{sapsbd1}
-All data on {sapsbd1} will be destroyed!
-Are you sure you wish to use this device (y/n)? y
+Add another heartbeat line (y/n)? y
+  Address for ring1 [{sapip2node1}]
+  Port for ring1 [5407]
   Initializing SBD......done
   Hawk cluster interface is now running. To see cluster status, open:
     https://{sapip1node1}:7630/
-  Log in with username 'hacluster', password 'linux'
-You should change the hacluster password to something more secure!
-  Waiting for cluster........done
+  Log in with username 'hacluster'
+  Waiting for cluster..............done
   Loading initial cluster configuration
 
 Configure Administration IP Address:
@@ -4163,7 +4167,16 @@ Configure Administration IP Address:
   of any specific cluster node.
 
 Do you wish to configure a virtual IP address (y/n)? n
-  Done (log saved to /var/log/ha-cluster-bootstrap.log)
+
+Configure Qdevice/Qnetd:
+  QDevice participates in quorum decisions. With the assistance of
+  a third-party arbitrator Qnetd, it provides votes so that a cluster
+  is able to sustain more node failures than standard quorum rules
+  allow. It is recommended for clusters with an even number of nodes
+  and highly recommended for 2 node clusters.
+
+Do you want to configure QDevice (y/n)? n
+  Done (log saved to /var/log/crmsh/ha-cluster-bootstrap.log)
 ----
 
 === Example Cluster Configuration
@@ -4248,74 +4261,67 @@ op_defaults op-options \
 
 === Example for /etc/corosync/corosync.conf
 
-The following file shows a typical corosync configuration with two rings.
+The following file shows a typical corosync configuration with two rings (after both nodes are added).
 
 [subs="attributes,quotes"]
 ----
 # Read the corosync.conf.5 manual page
 totem {
-        version: 2
-        secauth: on
-        crypto_hash: sha1
-        crypto_cipher: aes256
-        cluster_name: suse-ha
-        clear_node_high_bit: yes
-        token: 5000
-        token_retransmits_before_loss_const: 10
-        join: 60
-        consensus: 6000
-        max_messages: 20
-        interface {
-                ringnumber: 0
-                mcastport: 5405
-                ttl: 1
-        }
+    version: 2
+    secauth: on
+    crypto_hash: sha1
+    crypto_cipher: aes256
+    cluster_name: suse-ha
+    clear_node_high_bit: yes
+    
+    token: 5000
+    token_retransmits_before_loss_const: 10
+    join: 60
+    consensus: 6000
+    max_messages: 20
+    
+    interface {
+        ringnumber: 0
+        mcastport: 5405
+        ttl: 1
+    }
+    
+    interface {
+        ringnumber: 1
+        mcastport: 5407
+        ttl: 1
+    }
 
-        interface {
-                ringnumber: 1
-                mcastport: 5407
-                ttl: 1
-        }
-
-        transport: udpu
+    rrp_mode: passive
+    transport: udpu
 }
 
 logging {
-        fileline: off
-        to_stderr: no
-        to_logfile: no
-        logfile: /var/log/cluster/corosync.log
-        to_syslog: yes
+    fileline: off
+    to_stderr: no
+    to_logfile: no
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: QUORUM
         debug: off
-        timestamp: on
-        logger_subsys {
-                subsys: QUORUM
-                debug: off
-        }
-
+    }
 }
 
 nodelist {
-        node {
-                ring0_addr: {sapIp1Node1}
-                nodeid: 1
-        }
-
-        node {
-                ring1_addr: {sapIp2Node1}
-                nodeid: 1
-        }
-
-        node {
-                ring0_addr: {sapIp1Node2}
-                nodeid: 2
-        }
-
-        node {
-                ring1_addr: {sapIp2Node2}
-                nodeid: 2
-        }
-
+    node {
+            ring0_addr: {sapIp1Node1}
+            ring1_addr: {sapIp2Node1}
+            nodeid: 1
+    }
+    
+    node {
+            ring0_addr: {sapIp1Node2}
+            ring1_addr: {sapIp2Node2}
+            nodeid: 2
+    }
 }
 
 quorum {

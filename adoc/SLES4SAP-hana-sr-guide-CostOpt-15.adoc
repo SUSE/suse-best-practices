@@ -37,7 +37,7 @@ TODO:
 This guide provides detailed information about installing and customizing
 *{sles4sap} for {hana} system replication in the {usecase} scenario*.
 
-.{usecase} scenario described in this best practice
+.{usecase} scenario described in this setup guide
 image::SAPHanaSR-ScaleUP-costOpt2.svg[scaledwidth=100.0%]
 
 For an overview of supported scenarios, see <<Scale-Up Scenarios and Resource Agents>>.
@@ -183,10 +183,10 @@ A _Multi Tier_ system replication has an additional target. In the past this thi
 side must have been connected to the secondary (chain topology). With current {saphana}
 versions, the _multiple target topology_ is allowed by {sap}.
 +
-.{hana} System Replication Scale-Up in the Cluster - performance optimized multi target
+.{hana} System Replication Scale-Up in the Cluster - performance optimized multi-target
 image::SAPHanaSR-ScaleUP-MultiTarget.svg[scaledwidth=100.0%]
 +
-Multi tier and multi target systems are implemented as described in the document
+Multi-tier and multi-target systems are implemented as described in the document
 for the _performance optimized_ scenario named _"{docPerfOpt}"_. Multi tier and multi target systems
 are only supported in the _performance optimized_ scenario and _not with the cost optimized_ scenario.
 They are mentioned here to give an overview of our entire portfolio of solutions.
@@ -249,7 +249,7 @@ NOTE: If you want to achieve a very fast takeover, the performance optimized sce
 
 In addition to the description of the concept in this best practice document, read the corresponding
 {SAP} documentation such as "Using Secondary Servers for Non-Productive systems". The
-section is available for exaample for {HANA} 2.0 SPS05 at https://help.sap.com/viewer/6b94445c94ae495c83a19646e7c3fd56/2.0.05/en-US/5447545b91a04cf8a0d6133a026f2be5.html.
+section is available for example for {HANA} 2.0 SPS05 at https://help.sap.com/viewer/6b94445c94ae495c83a19646e7c3fd56/2.0.05/en-US/5447545b91a04cf8a0d6133a026f2be5.html.
 
 The cluster *only allows a takeover* to the secondary site if the {hana}
 system replication *was in sync* until the point when the service of the primary
@@ -266,9 +266,9 @@ to include such {saphana} hooks to optimize the cluster interface. Using the
 if the {saphana} system replication is broken. In addition to the {saphana} hook status,
 the cluster continues to poll the system replication status on a regular basis.
 
-You can set up the level of automation by setting the parameter `AUTOMATED_REGISTER`.
+You can adjust the level of automation by setting the parameter `AUTOMATED_REGISTER`.
 If automated registration is activated, the cluster will automatically register
-a former failed primary to become the new secondary.
+a former failed primary to become the new secondary. Please refer to the man pages SAPHanaSR(7) and ocf_suse_SAPHana(7) for details on all supported parameters and features.
 
 IMPORTANT: The solution is not designed to manually 'move' the primary or
 secondary instance using HAWK or any other cluster client commands. In
@@ -294,7 +294,7 @@ For the latest documentation updates, see
 https://documentation.suse.com/.
 
 Numerous whitepapers, best practices documents, setup guides, and
-other resources ar available from the SUSE Best Practices Web page under the categories
+other resources are available from the SUSE Best Practices Web page under the categories 
 'SAP Applications on SUSE Linux Enterprise' at {reslibrary}.
 
 SUSE also publishes blog articles about {sap} and high availability.
@@ -334,7 +334,7 @@ the following configurations and parameters:
 * Two-node clusters are standard. Three node clusters are fine if you install
 the resource agents also on that third node. But define in the cluster that {saphana}
 resources must never run on that third node. In this case the third node is an
-additional decision maker in case of cluster separation.
+additional majority maker in case of cluster separation.
 * The cluster must include a valid STONITH method.
 ** Any STONITH mechanism supported for production use by SUSE Linux Enterprise High Availability Extension {prodnr} (like SBD, IPMI) is supported with SAPHanaSR.
 ** This guide is focusing on the SBD fencing method as this is hardware
@@ -364,8 +364,7 @@ product documentation for SUSE Linux Enterprise High Availability Extension abou
 ** As initial configuration for projects, we recommend to switch
 off the automated registration of a failed primary. The setup
 `AUTOMATED_REGISTER="false"` is set as default. In this case, you need to
-register a failed primary after a takeover manually. Use SAP tools like
-{saphana} cockpit or _hdbnsutil_.
+register a failed primary after a takeover manually. For re-registration please use precisely the site names that are already known by the cluster. Use SAP tools like {saphana} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend to set `AUTOMATED_REGISTER="true"`.
 ** The cluster automates one single takeover in case of a failed primary.
 After that happened, the initial state has to be restored by the administrative
@@ -384,6 +383,8 @@ if you are using strong separation of the tenants. As an example, killing the
 complete {hana} instance using _HDB kill_ does not work, because the tenants are
 running with different Linux user UIDs. {refsidadm} is not allowed to terminate the
 processes of the other tenant users.
+** The scenario Multi-SID (MCOS) is not supported together with the cost-optimized scenario. Hence, only one replicating database pair and one non-replicating database in the same cluster as described in this guide are supported for the cost-optimized scenario.
+
 * {sles4sap} versions:
 ** You need at least {SAPHanaSR} version {sapHanaSrMinVers} and at least {sles4sap} {prodnr} {prodsp}.
 //** Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodnr} {prodsp} or newer.
@@ -546,10 +547,13 @@ the parameter sheet and then begin with the installation.
 
 |node 2 ||Cluster node name and IP address.
 
+|Site A ||Site name of the primary replicating SAP HANA database
+
+|Site B ||Site name of the secondary replicating and the non-replicating SAP HANA database
+
 |SID ||SAP System Identifier of the replicated {saphana} database
 
-|Instance Number ||Number of the {hana} database. For
-system replication also Instance Number+1 is blocked.
+|Instance Number ||Number of the {hana} database. For system replication also Instance Number+1 is blocked.
 
 |SID non-replicated ||SAP System Identifier of the non-replicated {saphana} database
 
@@ -557,17 +561,14 @@ system replication also Instance Number+1 is blocked.
 
 |Network mask ||
 
-|vIP primary || Virtual IP address to be assigned to
-the primary {hana} site
+|vIP primary ||Virtual IP address to be assigned to the primary {hana} site
 
 //|vIP secondary || Virtual IP address to be assigned to
 //the read-enabled secondary {hana} site (optional)
 
-|vIP non-replicated || Virtual IP address to be assigned to
-the non-replicated {hana} system (optional)
+|vIP non-replicated ||Virtual IP address to be assigned to the non-replicated {hana} system (optional)
 
-|Storage | |Storage for HDB data and log files is connected “locally”
-(per node; not shared)
+|Storage | |Storage for HDB data and log files is connected “locally” (per node; not shared)
 
 |SBD ||STONITH device (two for production) or diskless SBD
 
@@ -595,7 +596,7 @@ system replication also Instance Number+1 is blocked.
 
 |Instance Number |`{sapnpino}`|Number of the non-replicated {hana} database.
 
-|Network mask |`255.255.255.0` |
+|Network mask |`255.255.255.0` |Network mask for HANA's virtual IP address(es)
 
 |vIP primary |`{sapip1srv1}` |
 
@@ -705,8 +706,8 @@ set up the system replication.
 . Install the {hana} Database as described in the {hana} Server
 Installation Guide.
 
-. Check if the SAP Host Agent is installed on all cluster nodes. If this
-SAP service is not installed, install it now.
+. Check if the SAP Host Agent and the HANA database client are installed on all cluster nodes. If these
+SAP components are not installed, install them now.
 
 . Verify that both databases (of the system replicated pair) are up and all processes of these databases
 are running correctly.
@@ -837,7 +838,7 @@ As Linux user _<sid>adm_ enable the system replication at the
 primary node. You need to define a site name (like {sapsite1}). This
 site name must be unique for all {hana} databases which are connected
 via system replication. This means the secondary must have a different
-site name.
+site name. The site names must not be changed later once the cluster has been activated.
 
 NOTE: Do not use strings like "primary" and "secondary" as site names.
 
@@ -1015,7 +1016,7 @@ local_site_id=1
 
 === Manual Test of {HANA} SR Takeover
 
-Before you integrate your {HANA} system replication into the cluster,
+Before you integrate your {HANA} system replication into the HA cluster,
 it is mandatory to do a manual takeover. Testing without the cluster helps to make sure that
 basic operation (takeover and registration) is working as expected.
 
@@ -1077,7 +1078,7 @@ global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
 === Implementing SAPHanaSR Hook for srConnectionChanged
 
 Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py. Optionally copy it to your preferred
-directory, such as /hana/shared/srHook/. The hook must be available on all {SAPHANA} cluster nodes.
+directory, such as /hana/shared/srHook/. The hook must be available on all {SAPHANA} cluster nodes. Please refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook script.
 
 ////
 [subs="specialchars,attributes"]
@@ -1113,7 +1114,7 @@ ha_dr_saphanasr = info
 
 ==== Configuring System Replication Operation Mode
 
-When your system is connected as an {sapHanaSR} target, you can find an entry in the _global.ini_
+When your system is connected as a SAP HANA SR target, you can find an entry in the _global.ini_
 which defines the operation mode. Up to now there are the following modes available:
 
 * _delta_datashipping_
@@ -1401,7 +1402,7 @@ IMPORTANT: As requested by `{slehainit}`, change the password of the user haclus
 Check the following blocks in the file _/etc/corosync/corosync.conf_.
 The important parts are _udpu_ and the correct ring/IP configuration.
 
-See also the example at the end of this document.
+Please see also the example at the end of this document and refer to the man pages corosync.conf(5), votequorum(5) and corosync_overview(8) for details on parameters and features.
 
 [subs="attributes,quotes"]
 ----
@@ -1468,6 +1469,7 @@ TIDs 7016880 for setting up a watchdog.
 |SBD_STARTMODE="always" a|
 Start mode. If set to "clean", sbd will only start if the node was
 previously shut down cleanly or if the slot is empty.
+// TODO PRIO3: SBD_STARTMODE="clean"
 
 |SBD_PACEMAKER="yes" a|
 Check Pacemaker quorum and node health.
@@ -1638,7 +1640,7 @@ Full List of Resources:
 This section describes how to configure constraints, resources,
 bootstrap, and STONITH, using the `crm configure` shell command as described
 in section _Configuring and Managing Cluster Resources (Command Line)_ of the
-Administration Guide for {sleha} {pn15} {psp15} at {haAdminGuide15}#cha-ha-manual-config.
+Administration Guide for {sleha} {pn15} {psp15} at {haAdminGuide15}#cha-ha-manual-config. The man page crm(8) might be useful, too.
 
 Use the command `crm` to add the objects to the cluster information base (CIB). Copy the following
 examples to a local file, edit the file and then load the configuration
@@ -1756,7 +1758,7 @@ STONITH mechanism. The {sleha} product
 also supports additional fencing mechanism not covered here.
 
 For further information about fencing, read the Administration Guide for SUSE Linux Enterprise High
-Availability Extension at {haAdminGuide15}.
+Availability Extension at {haAdminGuide15}. For public cloud environements please refer to your cloud provider's documentation on supported fencing mechanisms.
 
 ==== SAPHanaTopology
 
@@ -1934,7 +1936,7 @@ cluster component. The reason for that change is that `SAPDatabase` is using the
 {SAP} host agent API. The {SAP} host agent itself needs user secure keys to
 communicate with the cluster. This configuration is too complex and error-prone.
 `SAPInstance` uses the sapstartsrv API to do the work. This should solve the issue.
-The new concept has already been published in a {SUSE} towardsZeroDowntime blog at:
+The new concept has already been published in a {SUSE} #towardsZeroDowntime blog at 
 https://suse.com/c/sap-hana-cost-optimized-an-alternative-route-is-available/
 
 [subs="attributes,quotes"]
@@ -1952,8 +1954,6 @@ primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
 ----
 
 Load the resource definition into the cluster
-
-\\ TODO secondary IP resource + constraints
 
 [subs="attributes,quotes"]
 ----
@@ -2038,7 +2038,7 @@ This can be checked, for example, with the following command sequence:
  # cs_clusterstate -i
 ----
 
-See also the manual pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_clusterstate(8)`,
+See also the man pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_clusterstate(8)`,
 `SAPHanaSR_maintenance_examples(7)`.
 
 ////
@@ -2051,8 +2051,8 @@ See also the manual pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_c
 
 === Test Cases for Semi-Automation
 
-For the following test descriptions, we assume the following parameter values:
-* `PREFER_SITE_TAKEOVER="false"`
+For the following test descriptions we assume these following parameter values:
+* `PREFER_SITE_TAKEOVER="false"` 
 * `AUTOMATED_REGISTER="false".`
 
 NOTE: The following tests are designed to run in a sequence. Each test depends
@@ -3420,6 +3420,7 @@ In your project, avoid:
 nodes to standby and online again or stopping/starting the multi-state resource.
 * creating a cluster without proper time synchronization or unstable
 name resolutions for hosts, users and groups.
+* using site names other than the ones already known by the cluster when manually re-registering a site.
 * adding location rules for the clone, multi-state or IP resource. Only
 location rules mentioned in this setup guide are allowed. For public cloud refer to the cloud specific documentation.
 * using {SAP} tools for attempting start/stop/takeover actions on a database while the cluster is in charge of managing that database.
@@ -3856,6 +3857,7 @@ Mon Jun 21 19:38:50 2021; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:mas
 
 In the following procedure the HANA primary role is moved back to node1. node2
 is registered as the new secondary and the non-replicated HANA is started on node2.
+The site name to be registered is {sapsite1}. Please make sure this is the exact same as before.
 
 .Revert {HANA} Roles back after Failure on {sapnode1}
 ==============================
@@ -4033,7 +4035,7 @@ XFS file system::
  {sccfaq}
 
 {sls} Persistent Memory Guide::
- {persMemoryGuide}
+ {persMemDoc}
 
 {SUSE} partners with {SAP} and IBM on Persistent Memory::
  https://www.suse.com/c/suse-partners-with-intel-and-sap-to-accelerate-it-transformation-with-persistent-memory-in-the-data-center/
@@ -4044,6 +4046,10 @@ Persistent Memory on Power9::
 
 === Manual Pages
 
+corosync::
+ corosync.conf.8
+ corosync_overview.8
+ votequorum.5
 crm::
  crm.8
 crm_simulate::
@@ -4060,6 +4066,7 @@ stonith_sbd::
  stonith_sbd.7
 SAPHanaSR::
  SAPHanaSR.7
+ SAPHanaSR.py.7
 SAPHanaSR-showAttr::
  SAPHanaSR-showAttr.8
 SAPHanaSR-replay-archive::
@@ -4115,7 +4122,9 @@ SAP Product Availability Matrix::
 1846872 - "No space left on device" error reported from HANA::
 {lauchPadNotes}1846872
 2369981 - Required configuration steps for authentication with HANA System Replication::
-{lauchPadNotes}2369981
+{launchPadNotes}2369981
+1552925 - Linux: High Availability Cluster Solutions::
+{launchPadNotes}1552925
 3007062 - FAQ: SAP HANA & Third Party Cluster Solutions::
 {lauchPadNotes}3007062
 
@@ -4196,20 +4205,19 @@ primitive rsc_SAPHana_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
     op monitor interval=60 role=Master timeout=700 \
     params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=false \
         DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
-        priority=100
+    meta priority=100
 
 primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
     params InstanceName="{sapnpsid}_HDB{sapnpino}_sap{sapsnpsid}db" \
         MONITOR_SERVICES="hdbindexserver|hdbnameserver" \
         START_PROFILE="/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_sap{sapsnpsid}db" \
-    op start interval="0" timeout="600" \
-    op monitor interval="120" timeout="700" \
-    op stop interval="0" timeout="300" \
-    meta priority="100"
+    op start interval=0 timeout=600 \
+    op monitor interval=120 timeout=700 \
+    op stop interval=0 timeout=300 
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
     op monitor interval=10 timeout=20 \
-    params ip="{sapip1srv1}"
+    params ip={sapip1srv1}
 
 primitive stonith-sbd stonith:external/sbd \
     params pcmk_delay_max=15

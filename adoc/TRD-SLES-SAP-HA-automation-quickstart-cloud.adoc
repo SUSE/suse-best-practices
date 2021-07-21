@@ -1,4 +1,4 @@
-:docinfo: 
+:docinfo:
 
 // the ifdef's make it possible to only change the DC file for generating the right document
 ifdef::Azure[]
@@ -13,19 +13,24 @@ ifdef::GCP[]
 :cloud: GCP
 endif::[]
 
+// enable it for editor previews
 //:cloud: Azure
 //:cloud: AWS
 //:cloud: GCP
 
 :sles: SUSE Linux Enterprise Server
-:sles4sap: {sles} for SAP Applications
+:sles4sap: {sles} for SAP applications
+:hana_version: SAP HANA 2.0 SPS05
+:hana_archive_version: 51054623
 
 = Using SUSE Automation to Deploy an SAP HANA Cluster on {cloud} Cloud Platform: Getting Started
 
 
 == About the guide
 
-This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE SAP Automation Project and operating on Azure.
+This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE SAP Automation Project and operating on {cloud}.
+
+
 This project uses Terraform and Salt to deploy and configure the operating system ({sles4sap}), SAP software (SAP HANA), and a SUSE Linux Enterprise High Availability (HA) cluster.
 If extensive configuration and customization are required, refer to the project documentation at https://github.com/SUSE/ha-sap-terraform-deployments.
 
@@ -64,7 +69,7 @@ Start an Azure Cloud Shell simply from the top menu within Azure Portal. Its the
 
 After its started the first time you can select between "Bash" and "powershell". Please use "Bash"
 
-The Cloud Shell is a managed service by Microsoft, and comes with the most popular command-line tools and language support you need. 
+The Cloud Shell is a managed service by Microsoft, and comes with the most popular command-line tools and language support you need.
 The Cloud Shell also securely authenticates automatically for instant access to your resources through the Azure CLI or Azure PowerShell cmdlets.
 endif::[]
 
@@ -90,15 +95,15 @@ endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
 
-IMPORTANT: The GCP user specified in the below-mentioned step needs certain GCP Project permissions to ensure the deployment is successful. 
-For simplification, the GCP user used in this guide has the _Project Owner_ IAM role. 
+IMPORTANT: The GCP user specified in the below-mentioned step needs certain GCP Project permissions to ensure the deployment is successful.
+For simplification, the GCP user used in this guide has the _Project Owner_ IAM role.
 
 The following procedures show the minimum steps required to prepare the GCP infrastructure to host the SAP HANA environment:
 
 . Create a new GCP Project to host the SAP HANA environment.
 . Enable the GCP Compute Engine API.
 . Using the newly created GCP project console, start a GCP Cloud Shell.
-. Using the GCP Cloud Shell, create a new GCP Key for the default GCP Service Account. The key will be used by Terraform to access the GCP infrastructure. 
+. Using the GCP Cloud Shell, create a new GCP Key for the default GCP Service Account. The key will be used by Terraform to access the GCP infrastructure.
 +
 TIP: For more details about creating GCP Service Account key, refer to https://cloud.google.com/iam/docs/creating-managing-service-account-keys#iam-service-account-keys-create-gcloud.
 +
@@ -156,19 +161,69 @@ endif::[]
 The SAP HANA Media needs to be made available so it can be accessed during the deployment.
 The SUSE SAP Automation project allows for three methods for presenting the SAP media:
 
-a. SAR file and SAPCAR executable (SAP HANA Database only)
-b. Multipart exe/RAR files
-c. Extracted media
+. SAR file and SAPCAR executable (SAP HANA Database only)
+. Multipart exe/RAR files
+. Extracted media
 
-This guide recommends the simplest method which is the extracted media. With the correct entitlement, SAP HANA media can be downloaded from the SAP Web site at
+The different formats have some benefits and drawbacks:
+
+. The compressed archives (SAR and RAR) provide simple copy to the cloud, but a bit longer install times due to extracting it during the process
+. The uncompressed / extracted media are the fastest install, but there need a huge number of files copied to the cloud share, which also takes a lot of time in forehand as preparation.
+
+// we need to agree on this and unifiy the doc
+We use here in the example the compressed archives for the install (exe/RAR) as its the easiest to download and upload to the cloud share.
+
+With the correct entitlement, SAP HANA media can be downloaded from the SAP Web site at
 https://support.sap.com/en/my-support/software-downloads.html.
 
-This guide uses the most recent SAP HANA media, SAP HANA 2.0 SPS05. The SAP HANA media file name downloaded at the time of creating this guide is `51054623.ZIP`.  
-Follow the SAP instructions to extract the SAP HANA media. For illustration, the final extracted directory name is `51054623`.
+This guide uses the most recent SAP HANA media, {hana_version}. The SAP HANA media file name downloaded at the time of creating this guide is `{hana_archive_version}`.
+Follow the SAP instructions to download the SAP HANA media.
+// this need to be agreed on:
+// For illustration, the final extracted directory name is `{hana_archive_version}`.
+
+It's a good practice to have the SAP Media versioned on cloud share in order to build a library for automatic installs and (re)deploments.
+So think about you SAP media structure.
+
+As a example here how a full SAP Application media tree for a S/4 install would look like
+----
+../s4hana1809
+      ├SWPM_CD
+      │  ├SWPM20SP07_5-80003424.SAR
+      │  └SAPCAR_721-20010450.EXE
+      │
+      ├EXP_CD
+      │  ├S4CORE104_INST_EXPORT_1.zip
+      │  ├S4CORE104_INST_EXPORT_2.zip
+      │  └...
+      ├DBCLIENT_CD
+      │  └IMDB_CLIENT20_005_111-80002082.SAR
+      ├BASKET_CD
+      │   ├SAPHOSTAGENT24_24-20009394.SAR
+      │   ├igshelper_4-10010245.sar
+      │   ├igsexe_1-80001746.sar
+      │   ├SAPEXEDB_400-80000698.SAR
+      │   └SAPEXE_400-80000699.SAR
+      └HANA
+         ├51053061_part1.exe
+         ├51053061_part2.rar
+         ├51053061_part3.rar
+         └51053061_part4.rar
+
+
+ HANA       : contains the HANA Database install
+ BASKET_ CD : contains SAP kernel, patch + more like hostagent.
+ DBCLIENT_CD: contains the package corresponding to DB CLIENT, e.g HANA
+ EXP_CD     : contains the package corresponding to EXPORT files
+ SWPM_CD    : must contain the .exe file corresponding to SAPCAR and the
+              .sar file corresponding to SWPM.
+              The file suffix must be .exe and .sar.
+----
+
+In the further steps we only use as example only a HANA install download.
 
 ifeval::[ "{cloud}" == "Azure" ]
 For Azure, an Azure File Share is used to host the SAP HANA media.
-* Create a storage account 
+* Create a storage account
 * Create a folder within the Storage Account, for example "mysapmedia"
 * Upload the SAP media files to the Storage Account
 
@@ -206,7 +261,7 @@ The SUSE SAP Automation code is published in GitHub.
 The following command will clone the project to the Cloud Shell ready for configuration.
 
 ----
-$ cd ~ 
+$ cd ~
 $ git clone --depth 1 --branch 7.2.0 https://github.com/SUSE/ha-sap-terraform-deployments.git
 ----
 
@@ -420,9 +475,9 @@ storage_account_key = "YOUR_STORAGE_ACCOUNT_KEY"
 
 The "hana_inst_master" need to be set according to your settings of the file share you created before.
 e.g.
-// all three should be better aligned and build on a fixed structure 
+// all three should be better aligned and build on a fixed structure
 ----
-hana_inst_master = "//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/mysapmedia/HANA2/51054623"
+hana_inst_master = "//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/mysapmedia/HANA2/{hana_archive_version}"
 ----
 endif::[]
 
@@ -430,14 +485,14 @@ ifeval::[ "{cloud}" == "AWS" ]
 ----
 hana_inst_master = "s3://mysapmedia/SAPHANA"
 
-hana_archive_file = "51054623.exe"
+hana_archive_file = "{hana_archive_version}.exe"
 ----
 
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
 ----
-hana_inst_master = "mysapmedia/51054623"
+hana_inst_master = "mysapmedia/{hana_archive_version}"
 ----
 endif::[]
 
@@ -565,7 +620,7 @@ module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):
 module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): -------------
 module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total states run:     33
 module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total run time: 1028.670 s
-module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Wed Jun 23 10:14:22 UTC 2021::demo-hana02::[INFO] deployment done 
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Wed Jun 23 10:14:22 UTC 2021::demo-hana02::[INFO] deployment done
 module.hana_node.module.hana_provision.null_resource.provision[1]: Creation complete after 27m24s [id=3463680564647535989]
 
 Apply complete! Resources: 26 added, 0 changed, 0 destroyed.
@@ -615,7 +670,7 @@ $ terraform destroy
 
 ifeval::[ "{cloud}" == "Azure" ]
 This method will ensure all resource, such as instances, volumes, networks, etc are cleaned up.
-You need to delete the following components manually: 
+You need to delete the following components manually:
 * Azure File Store
 endif::[]
 
@@ -625,7 +680,7 @@ endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
 This method will ensure all GCP resources, such as instances, disks, VPCs, and roles are cleaned up.
-You need to delete the following GCP components manually: 
+You need to delete the following GCP components manually:
 
 * GCP Cloud Storage bucket
 * GCP Project

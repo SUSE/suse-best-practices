@@ -16,19 +16,22 @@ endif::[]
 // enable it for editor previews
 //:cloud: Azure
 //:cloud: AWS
-//:cloud: GCP
+:cloud: GCP
 
 :sles: SUSE Linux Enterprise Server
 :sles4sap: {sles} for SAP applications
 :hana_version: SAP HANA 2.0 SPS05
 :hana_archive_version: 51054623
+:gcp_par_count: 13
+:aws_par_count: 10
+:azure_par_count: 13
 
 = Using SUSE Automation to Deploy an SAP HANA Cluster on {cloud} Cloud Platform: Getting Started
 
 
 == About the guide
 
-This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE SAP Automation Project and operating on {cloud}.
+This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE Automation Project for SAP Solutions Project and operating on {cloud}.
 
 
 This project uses Terraform and Salt to deploy and configure the operating system ({sles4sap}), SAP software (SAP HANA), and a SUSE Linux Enterprise High Availability (HA) cluster.
@@ -38,7 +41,7 @@ For simplicity, this guide uses the Cloud Shell to perform the deployment, as it
 
 It is possible to easily use a local Linux or macOS computer, but some commands may need modification or omission.
 
-The architecture for the deployment is similar to the below:
+The architecture for the deployment is similar to the one below:
 
 ifeval::[ "{cloud}" == "Azure" ]
 image::TRD_SLES-SAP-HA-automation-quickstart-cloud-azure-automation-architecture.png[title=Azure Automation Architecture,scaledwidth=99%]
@@ -49,7 +52,7 @@ image::TRD_SLES-SAP-HA-automation-quickstart-cloud-aws-automation-architecture.j
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-image::TRD_SLES-SAP-HA-automation-quickstart-cloud-gcp-automation-architecture.png[title=GCP Automation Architecture,scaledwidth=99%]
+image::TRD_SLES-SAP-HA-automation-quickstart-cloud-gcp-automation-architecture.png[title=SUSE Automation for SAP HANA on Google Cloud Platform Architecture,scaledwidth=99%]
 endif::[]
 
 The project will perform the following actions:
@@ -94,7 +97,6 @@ IMPORTANT: The user specified in this step needs certain AWS permissions to ensu
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-
 IMPORTANT: The GCP user specified in the below-mentioned step needs certain GCP Project permissions to ensure the deployment is successful.
 For simplification, the GCP user used in this guide has the _Project Owner_ IAM role.
 
@@ -105,7 +107,7 @@ The following procedures show the minimum steps required to prepare the GCP infr
 . Using the newly created GCP project console, start a GCP Cloud Shell.
 . Using the GCP Cloud Shell, create a new GCP Key for the default GCP Service Account. The key will be used by Terraform to access the GCP infrastructure.
 +
-TIP: For more details about creating GCP Service Account key, refer to https://cloud.google.com/iam/docs/creating-managing-service-account-keys#iam-service-account-keys-create-gcloud.
+TIP: For more details about creating GCP Service Account key, refer to https://cloud.google.com/iam/docs/creating-managing-service-account-keys#iam-service-account-keys-create-gcloud
 +
 NOTE: For simplification, the default GCP Service Account will be used in this guide.
 endif::[]
@@ -148,6 +150,7 @@ endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
 Terraform is already deployed as part of the GCP Cloud Shell. The following command output shows the Terraform version used at the time of creating this guide:
+
 ----
 $ terraform -v
 Terraform v1.0.0
@@ -158,8 +161,9 @@ endif::[]
 
 == Preparing the SAP HANA media
 
-The SAP HANA Media needs to be made available so it can be accessed during the deployment.
-The SUSE SAP Automation project allows for three methods for presenting the SAP media:
+With the correct entitlement, SAP HANA media can be downloaded from the SAP Web site at https://support.sap.com/en/my-support/software-downloads.html. The SAP Media needs to be made available so it can be accessed during the deployment.
+
+The SUSE Automation for SAP Applications project allows for three methods for presenting the SAP media:
 
 . SAR file and SAPCAR executable (SAP HANA Database only)
 . Multipart exe/RAR files
@@ -167,24 +171,52 @@ The SUSE SAP Automation project allows for three methods for presenting the SAP 
 
 The different formats have some benefits and drawbacks:
 
-. The compressed archives (SAR and RAR) provide simple copy to the cloud, but a bit longer install times due to extracting it during the process
-. The uncompressed / extracted media are the fastest install, but there need a huge number of files copied to the cloud share, which also takes a lot of time in forehand as preparation.
+. The compressed archives (SAR and RAR) provide a simple copy to the cloud but a longer install time due to extracting it during the process
+. The uncompressed/extracted media are the fastest install, but more files are copied to the cloud share, which also takes time in forehand as preparation.
+
 
 // we need to agree on this and unifiy the doc
+ifeval::[ "{cloud}" == "Azure" ]
 We use here in the example the compressed archives for the install (exe/RAR) as its the easiest to download and upload to the cloud share.
-
-With the correct entitlement, SAP HANA media can be downloaded from the SAP Web site at
-https://support.sap.com/en/my-support/software-downloads.html.
 
 This guide uses the most recent SAP HANA media, {hana_version}. The SAP HANA media file name downloaded at the time of creating this guide is `{hana_archive_version}`.
 Follow the SAP instructions to download the SAP HANA media.
 // this need to be agreed on:
 // For illustration, the final extracted directory name is `{hana_archive_version}`.
+endif::[]
 
+ifeval::[ "{cloud}" == "AWS" ]
+We use here in the example the compressed archives for the install (exe/RAR) as its the easiest to download and upload to the cloud share.
+
+This guide uses the most recent SAP HANA media, {hana_version}. The SAP HANA media file name downloaded at the time of creating this guide is `{hana_archive_version}`.
+Follow the SAP instructions to download the SAP HANA media.
+// this need to be agreed on:
+// For illustration, the final extracted directory name is `{hana_archive_version}`.
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+// Add a comment regarding extracting SAP media using `unzip` or SAPCAR
+// Add a note to have the SAP workstation on Google Cloud
+
+In this example, we use the extracted archives for the installation as it is the fastest deployment way.
+
+NOTE: It depends on the used way to download the SAP media. If multiple compressed files are downloads, the official SAP extract tool `SAPCAR` tool must be used to extract the SAP media.
+
+TIP: The extracted SAP Media can contain a lot of extracted files. Depending on your network speed, it can consume time to upload the extracted SAP media files. Google Cloud infrastructure provides a breakneck network speed. Create a Google Cloud compute engine workstation machine to download/upload the SAP media. The other option is to use fast speed internet connection. 
+  
+
+This guide uses the most recent SAP HANA media, {hana_version}. The SAP HANA media file name downloaded at the time of creating this guide is `{hana_archive_version}`.
+Follow the SAP instructions to download the SAP HANA media.
+For illustration, the final extracted directory name is `{hana_archive_version}`.
+endif::[]
+
+ifeval::[ "{cloud}" == "Azure" ]
+[TIP]
+====
 It's a good practice to have the SAP Media versioned on cloud share in order to build a library for automatic installs and (re)deploments.
 So think about you SAP media structure.
 
-As a example here how a full SAP Application media tree for a S/4 install would look like
+As an example, here how a full SAP Application media tree (in a compressed format) for a S/4HANA install would look like:
 ----
 ../s4hana1809
       ├SWPM_CD
@@ -218,6 +250,51 @@ As a example here how a full SAP Application media tree for a S/4 install would 
               .sar file corresponding to SWPM.
               The file suffix must be .exe and .sar.
 ----
+====
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+[TIP]
+====
+It's a good practice to have the SAP Media versioned on cloud share in order to build a library for automatic installs and (re)deploments.
+So think about you SAP media structure.
+
+As an example, here how a full SAP Application media tree (in a compressed format) for a S/4HANA install would look like:
+----
+../s4hana1809
+      ├SWPM_CD
+      │  ├SWPM20SP07_5-80003424.SAR
+      │  └SAPCAR_721-20010450.EXE
+      │
+      ├EXP_CD
+      │  ├S4CORE104_INST_EXPORT_1.zip
+      │  ├S4CORE104_INST_EXPORT_2.zip
+      │  └...
+      ├DBCLIENT_CD
+      │  └IMDB_CLIENT20_005_111-80002082.SAR
+      ├BASKET_CD
+      │   ├SAPHOSTAGENT24_24-20009394.SAR
+      │   ├igshelper_4-10010245.sar
+      │   ├igsexe_1-80001746.sar
+      │   ├SAPEXEDB_400-80000698.SAR
+      │   └SAPEXE_400-80000699.SAR
+      └HANA
+         ├51053061_part1.exe
+         ├51053061_part2.rar
+         ├51053061_part3.rar
+         └51053061_part4.rar
+
+
+ HANA       : contains the HANA Database install
+ BASKET_ CD : contains SAP kernel, patch + more like hostagent.
+ DBCLIENT_CD: contains the package corresponding to DB CLIENT, e.g HANA
+ EXP_CD     : contains the package corresponding to EXPORT files
+ SWPM_CD    : must contain the .exe file corresponding to SAPCAR and the
+              .sar file corresponding to SWPM.
+              The file suffix must be .exe and .sar.
+----
+====
+endif::[]
 
 In the further steps we only use as example only a HANA install download.
 
@@ -258,21 +335,26 @@ endif::[]
 == Downloading and configuring the SUSE Automation code
 
 The SUSE SAP Automation code is published in GitHub.
-The following command will clone the project to the Cloud Shell ready for configuration.
+
+ifeval::[ "{cloud}" == "GCP"]
+The following commands will:
+
+. Create a new GCP Cloud Shell directory to host the SUSE SAP automation code
+. Change directory to the newly created directory
 
 ----
-$ cd ~
+$ mkdir suse-sap-automation
+$ cd suse-sap-automation
+----
+endif::[]
+
+
+The following command will clone the project to the Cloud Shell ready for configuration.
+----
 $ git clone --depth 1 --branch 7.2.0 https://github.com/SUSE/ha-sap-terraform-deployments.git
 ----
 
-ifeval::[ "{cloud}" == "Azure" ]
-endif::[]
-
-ifeval::[ "{cloud}" == "AWS" ]
-endif::[]
-
 ifeval::[ "{cloud}" == "GCP" ]
-
 Next, move the generated GCP Service Account Key to the SUSE SAP Automation GCP directory:
 ----
 $ cd ~
@@ -281,8 +363,9 @@ $ cp <GCP Service Account Key> ha-sap-terraform-deployments/gcp
 endif::[]
 
 
+NOTE: If the following SSH keys already exist, the next step can be skipped.
+
 Then, generate SSH key pairs to allow for accessing the GCP SAP HANA instances:
-NOTE: If SSH keys already exist, the step can be skipped.
 ----
 #optional if ssh-keys already exist
 $ cd ~
@@ -311,11 +394,38 @@ $ cd ~/ha-sap-terraform-deployments/gcp
 ----
 endif::[]
 
-A Terraform template is provided. For a demo environment, this will need around 13 parameters modifying.
+
+A Terraform template is provided. For a demo environment, this will need around
+ifeval::[ "{cloud}" == "Azure" ]
+{azure_par_count} parameters modifying.
+endif::[]
+ifeval::[ "{cloud}" == "AWS" ]
+{aws_par_count} parameters modifying.
+endif::[]
+ifeval::[ "{cloud}" == "GCP" ]
+{gcp_par_count} parameters modifying.
+endif::[]
+
+ifeval::[ "{cloud}" == "Azure" ]
 Copy the Terraform example file to `terraform.tfvars`:
 ----
 $ cp terraform.tfvars.example terraform.tfvars
 ----
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+Copy the Terraform example file to `terraform.tfvars`:
+----
+$ cp terraform.tfvars.example terraform.tfvars
+----
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+Rename the Terraform example file to `terraform.tfvars`:
+----
+$ mv terraform.tfvars.example terraform.tfvars
+----
+endif::[]
 
 Edit the `terraform.tfvars` file and modify it as explained below.
 If you are duplicating the lines before modification, ensure the original is commented out, or the deployment will fail.
@@ -378,7 +488,8 @@ region = "europe-west1"
 endif::[]
 
 The following parameters select the version of {sles4sap} to deploy:
-NOTE: The values shown would also be the defaults be used. All defaults point to PAYG images for an easy start. So you only need to enable or change the variables if you want something different
+
+NOTE: The values shown would also be the defaults be used. All defaults point to PAYG images for an easy start. So you only need to enable or change the variables if you want something different.
 
 ifeval::[ "{cloud}" == "Azure" ]
 ----
@@ -396,14 +507,12 @@ os_owner = "679593333241"
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
- // this is also the default
 ----
 os_image = "suse-sap-cloud/sles-15-sp2-sap"
 ----
 endif::[]
 
-Next, enter the path for the public and private SSH keys that were generated earlier.
-
+Next, enter the path for the public and private SSH keys that were generated earlier. Below is an example using the default created SSH keys:
 ----
 # SSH Public key location to configure access to the remote instances
 public_key  = "~/.ssh/id_rsa.pub"
@@ -441,7 +550,7 @@ bastion_enabled = false
 endif::[]
 
 Next, set which SAP HANA instance machine type should be selected:
-The default is set to some standart types, and you only need to enable and change the variable if you want other sizes
+The default is set to some standard types, and you only need to enable and change the variable if you want other sizes.
 
 ifeval::[ "{cloud}" == "Azure" ]
 ----
@@ -491,6 +600,7 @@ hana_archive_file = "{hana_archive_version}.exe"
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
+[subs="attributes"]
 ----
 hana_inst_master = "mysapmedia/{hana_archive_version}"
 ----

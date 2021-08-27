@@ -11,26 +11,17 @@
 
 :sles: SUSE Linux Enterprise Server
 
-== Motivation
+== Scope
+This document details how to install and configure https://mariadb.org/[MariabDB], https://httpd.apache.org/[Apache], https://www.php.net/[PHP] to setup the https://en.wikipedia.org/wiki/LAMP_(software_bundle)[LAMP] stack on {sles}. To verify our LAMP stack is functional we'll install https://wordpress.com[Wordpress].
 
 // TODO
 
 === Background
 
 // TODO
-Starting with {sles} 12, MySQL has been https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[replaced] with MariaDB. MariaDB's client protocol is "wire" compatible with MySQL's and in most scenarios even the data files are binary compatible. For our purposes MariaDB will work just fine. If you'd like more information visit https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB versus MySQL: Compatibility].
+Starting with {sles} 12, MySQL has been https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[replaced] with MariaDB. MariaDB's client protocol is "wire" compatible with MySQL's protocol and in most scenarios even the data files are binary compatible. For our purposes MariaDB will work just fine. If you'd like more information visit https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB versus MySQL: Compatibility].
 
-=== Audience
-
-// TODO
-
-=== Background
-
-// TODO
-
-image::../images/src/png/wordpress-one-tier.png[]
-
-== Installation
+== Preinstallation
 
 === System requirements
 
@@ -44,41 +35,80 @@ NOTE: These requirements cover a minimal installation, adapt as needed to cover 
 [id="server_registration"]
 === Server registration
 
-Before starting, ensure your {sles} instance is registered by following this knowledge base https://www.suse.com/support/kb/doc/?id=000018564[article].
+Before starting, ensure your {sles} instance is registered by following this knowledge base https://www.suse.com/support/kb/doc/?id=000018564[article] to enable access to repositories.
 
 
-=== MariaDB Setup
-
-. Update zypper packages (optional)
+=== Refresh repositories
+. Prior to starting the installation, let's refresh our repositories and ensure we have the latest packages
 
 +
 [source,bash]
 ----
-sudo zypper update -y
+> sudo zypper update --no-confirm
+
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+...
 ----
 
+== Installation
+
+We'll first start with MariaDB
+
+=== MariaDB Setup
 . Install the MariaDB package
 
 +
 [source,bash]
 ----
-sudo zypper in -y mariadb
+> sudo zypper in --no-confirm mariadb
+
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 9 NEW packages are going to be installed:
+  libJudy1 libmariadb3 libpq5 mariadb mariadb-client mariadb-errormessages psqlODBC python3-mysqlclient unixODBC
+
+The following 2 recommended packages were automatically selected:
+  mariadb psqlODBC
+
+9 new packages to install.
+Overall download size: 23.7 MiB. Already cached: 0 B. After the operation, additional 171.2 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+Retrieving package libmariadb3-3.1.13-3.30.1.x86_64                                                                                             (1/9), 132.3 KiB (354.9 KiB unpacked)
+...
+----
+
+. Enable MariaDB to start on boot (optional)
++
+[source,bash]
+----
+> sudo systemctl enable mariadb
+
+Created symlink /etc/systemd/system/mysql.service → /usr/lib/systemd/system/mariadb.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/mariadb.service → /usr/lib/systemd/system/mariadb.service.
 ----
 
 . Start MariaDB
-
 +
 [source,bash]
 ----
-sudo systemctl start mariadb
+> sudo systemctl start mariadb
 ----
 
-.  Ensure MariaDB is started -> active(running)
-
+. Ensure MariaDB is started -> active(running)
 +
 [source,bash]
 ----
-sudo systemctl status mariadb
+> sudo systemctl status mariadb
 
 ● mariadb.service - MariaDB database server
    Loaded: loaded (/usr/lib/systemd/system/mariadb.service; disabled; vendor preset: disabled)
@@ -94,14 +124,192 @@ sudo systemctl status mariadb
            └─26519 /usr/sbin/mysqld --defaults-file=/etc/my.cnf --user=mysql
 ----
 
-=== Package
-
-To install the SQL Server package non-interactively, run the following command:
-
+. Verify we can connect to MariaDB with the client
++
 [source,bash]
 ----
-sudo zypper install --no-confirm mssql-server
+> mariadb -u root
+
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 3
+Server version: 10.5.11-MariaDB MariaDB package
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> 
+
 ----
+
+. The MariaDB installation comes with a peskey default user that can mask login attempts from localhost. So let's first remove this user.
++
+[source,sql]
+----
+MariaDB [(none)]> DROP USER ''@localhost;
+Query OK, 0 rows affected (0.003 sec)
+----
+
+. Now let's create a database for wordpress and a corresponding user. Replace `password` with your own password.
++
+[source,sql]
+----
+MariaDB [(none)]> CREATE DATABASE IF NOT EXISTS wordpress;
+Query OK, 1 row affected (0.000 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress' IDENTIFIED BY 'password';
+Query OK, 0 rows affected (0.003 sec)
+
+MariaDB [(none)]> exit
+Bye
+----
+
+. And verify we can connect as the wordpress user
+ Now let's create a database for wordpress and a corresponding user. Replace `password` with your own password.
++
+[source,sql]
+----
+mariadb -u wordpress -p wordpress
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 4
+Server version: 10.5.11-MariaDB MariaDB package
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [wordpress]> exit
+Bye
+
+----
+
+
+=== Apache Http Server Setup
+
+Next up is Apache server.
+
+. Install the apache2 package
++
+[source,bash]
+----
+> zypper install --no-confirm apache2
+
+zypper install --no-confirm apache2
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Refreshing service 'Web_and_Scripting_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 2 NEW packages are going to be installed:
+  apache2 apache2-prefork
+
+2 new packages to install.
+Overall download size: 1.6 MiB. Already cached: 0 B. After the operation, additional 4.9 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+Retrieving package apache2-2.4.43-3.22.1.
+...
+
+----
+
+
+=== PHP Setup
+
+Next let's install php.
+
+. We'll need the Web and Scripting Module which is included with your {sles} subscription. Substitute with your specific version and architecture
+
++
+[source,bash]
+----
+> sudo SUSEConnect --product sle-module-web-scripting/{sles_version}/{architecture}
+
+Registering system to SUSE Customer Center
+
+Updating system details on https://scc.suse.com ...
+
+Activating sle-module-web-scripting 15.3 x86_64 ...
+-> Adding service to system ...
+-> Installing release package ...
+
+Successfully registered system
+----
+
+. Now we can install php and the apache php module we'll need later on.
+
++
+[source,bash]
+----
+> sudo zypper in -y php7 php7-mysql apache2-mod_php7 php7-zlib
+
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Refreshing service 'Web_and_Scripting_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 13 NEW packages are going to be installed:
+  apache2-mod_php7 php7 php7-ctype php7-dom php7-iconv php7-json php7-mysql php7-pdo php7-sqlite php7-tokenizer php7-xmlreader php7-xmlwriter php7-zlib
+
+The following 8 recommended packages were automatically selected:
+  php7-ctype php7-dom php7-iconv php7-json php7-sqlite php7-tokenizer php7-xmlreader php7-xmlwriter
+
+The following 3 packages are suggested, but will not be installed:
+  php7-gd php7-gettext php7-mbstring
+
+13 new packages to install.
+Overall download size: 3.7 MiB. Already cached: 0 B. After the operation, additional 20.5 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+...
+
+----
+
+. Check our php install
+
++
+[source,bash]
+----
+> php --version
+
+PHP 7.4.6 (cli) ( NTS )
+Copyright (c) The PHP Group
+Zend Engine v3.4.0, Copyright (c) Zend Technologies
+----
+
+=== Wordpress Setup
+
+Finally we can install wordpress
+
+. First download wordpress 
+
++
+[source,bash]
+----
+> curl -L https://wordpress.org/latest.zip -o /opt/wordpress_latest.zip
+
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 15.7M  100 15.7M    0     0  3209k      0  0:00:05  0:00:05 --:--:-- 3510k
+
+> unzip /opt/wordpress_latest.zip -d /opt
+
+ unzip /opt/wordpress_latest.zip -d /opt/wordpress
+Archive:  /opt/wordpress_latest.zip
+   creating: /opt/wordpress/wordpress/
+  inflating: /opt/wordpress/wordpress/xmlrpc.php  
+  inflating: /opt/wordpress/wordpress/wp-blog-header.php  
+  inflating: /opt/wordpress/wordpress/readme.html  
+
+...
+
+
+----
+
 
 == Configuration
 
@@ -126,7 +334,7 @@ run the following command:
 
 [source,bash]
 ----
-sudo ACCEPT_EULA='Y' MSSQL_SA_PASSWORD=Suselove12 MSSQL_PID='Developer' mssql-conf --noprompt setup
+> sudo ACCEPT_EULA='Y' MSSQL_SA_PASSWORD=Suselove12 MSSQL_PID='Developer' mssql-conf --noprompt setup
 ----
 
 * `ACCEPT_EULA` accepts the SQL Server EULA
@@ -149,7 +357,7 @@ SQL Server listens for connections on port `1433` by default:
 
 [source,bash]
 ----
-sudo zypper install --no-confirm netcat
+> sudo zypper install --no-confirm netcat
 nc -vz localhost 1433
 ----
 
@@ -157,8 +365,8 @@ For further configuration, use `mssql-conf` to set additional parameters. Change
 
 [source,bash]
 ----
-sudo mssql-conf set ${parameter}
-sudo systemctl restart mssql-server
+> sudo mssql-conf set ${parameter}
+> sudo systemctl restart mssql-server
 ----
 
 Available `mssql-conf` options are described in https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf[Configure SQL Server on Linux with the mssql-conf tool].
@@ -194,14 +402,14 @@ Add the repository:
 
 [source,bash]
 ----
-sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/prod.repo
+> sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/prod.repo
 ----
 
 Install the `mssql-tools` package:
 
 [source,bash]
 ----
-sudo ACCEPT_EULA=Y zypper install --no-confirm mssql-tools
+> sudo ACCEPT_EULA=Y zypper install --no-confirm mssql-tools
 ----
 
 [TIP]
@@ -218,7 +426,7 @@ Alternatively, you can symlink `sqlcmd` to `/usr/local/bin/` since it is a binar
 
 [source,bash]
 ----
-sudo ln --symbolic /opt/mssql-tools/bin/sqlcmd /usr/local/bin/sqlcmd
+> sudo ln --symbolic /opt/mssql-tools/bin/sqlcmd /usr/local/bin/sqlcmd
 ----
 
 --
@@ -229,7 +437,7 @@ Available options can be found at https://docs.microsoft.com/en-us/sql/tools/sql
 
 [source,bash]
 ----
-sudo sqlcmd -S localhost -U SA
+> sudo sqlcmd -S localhost -U SA
 ----
 
 [source,sql]
@@ -273,7 +481,7 @@ To control the `mssql-server` service, use `systemctl` to retrieve the `status`,
 +
 [source,bash]
 ----
-sudo systemctl status mssql-server
+> sudo systemctl status mssql-server
 
 ● mssql-server.service - Microsoft SQL Server Database Engine
    Loaded: loaded (/usr/lib/systemd/system/mssql-server.service; enabled; vendor preset: disabled)
@@ -290,28 +498,28 @@ sudo systemctl status mssql-server
 +
 [source,bash]
 ----
-sudo systemctl start mssql-server
+> sudo systemctl start mssql-server
 ----
 
 * Stop `mssql-server`:
 +
 [source,bash]
 ----
-sudo systemctl stop mssql-server
+> sudo systemctl stop mssql-server
 ----
 
 * Restart `mssql-server`:
 +
 [source,bash]
 ----
-sudo systemctl restart mssql-server
+> sudo systemctl restart mssql-server
 ----
 
 * Enable `mssql-server` to start on boot (`mssql-server` is enabled by default on installation):
 +
 [source,bash]
 ----
-sudo systemctl enable mssql-server
+> sudo systemctl enable mssql-server
 
 Created symlink from /etc/systemd/system/multi-user.target.wants/mssql-server.service to /usr/lib/systemd/system/mssql-server.service.
 ----
@@ -320,7 +528,7 @@ Created symlink from /etc/systemd/system/multi-user.target.wants/mssql-server.se
 +
 [source,bash]
 ----
-sudo systemctl disable mssql-server
+> sudo systemctl disable mssql-server
 
 Removed symlink /etc/systemd/system/multi-user.target.wants/mssql-server.service.
 ----

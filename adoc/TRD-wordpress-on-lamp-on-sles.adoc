@@ -55,7 +55,7 @@ Resolving package dependencies...
 ...
 ----
 
-== Installation
+== Install and Configure
 
 We'll first start with MariaDB
 
@@ -142,7 +142,7 @@ MariaDB [(none)]>
 
 ----
 
-. The MariaDB installation comes with a peskey default user that can mask login attempts from localhost. So let's first remove this user.
+. The MariaDB installation comes with a peskey default user that can mask login attempts from other users from localhost. So let's first remove this user.
 +
 [source,sql]
 ----
@@ -215,10 +215,21 @@ Retrieving package apache2-2.4.43-3.22.1.
 
 ----
 
+. Enable the apache2 service so it starts on boot (optional)
++
+[source,bash]
+----
+> systemctl enable apache2
+
+Created symlink /etc/systemd/system/httpd.service → /usr/lib/systemd/system/apache2.service.
+Created symlink /etc/systemd/system/apache.service → /usr/lib/systemd/system/apache2.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/apache2.service → /usr/lib/systemd/system/apache2.service.
+
+----
 
 === PHP Setup
 
-Next let's install php.
+With apache insatlled, let's do php now.
 
 . We'll need the Web and Scripting Module which is included with your {sles} subscription. Substitute with your specific version and architecture
 
@@ -226,6 +237,10 @@ Next let's install php.
 [source,bash]
 ----
 > sudo SUSEConnect --product sle-module-web-scripting/{sles_version}/{architecture}
+
+e.g.
+
+> sudo SUSEConnect --product sle-module-web-scripting/15.3/x86_64
 
 Registering system to SUSE Customer Center
 
@@ -243,7 +258,7 @@ Successfully registered system
 +
 [source,bash]
 ----
-> sudo zypper in -y php7 php7-mysql apache2-mod_php7 php7-zlib
+> sudo zypper in -y php php-mysql php-zlib apache2-mod_php7
 
 Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
 Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
@@ -281,9 +296,24 @@ Copyright (c) The PHP Group
 Zend Engine v3.4.0, Copyright (c) Zend Technologies
 ----
 
+. Enable the apache php module
++
+[source,bash]
+----
+> a2enmod php7
+----
+
+. Associate php files with the application/x-httpd-php content type so php files are rendered on the client.
++
+[source,bash]
+----
+> echo -e "AddType application/x-httpd-php .php\n" >> /etc/apache2/mod_mime-defaults.conf
+----
+
+
 === Wordpress Setup
 
-Finally we can install wordpress
+Final piece in our stack is Wordpress
 
 . First download wordpress 
 
@@ -295,7 +325,12 @@ Finally we can install wordpress
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
 100 15.7M  100 15.7M    0     0  3209k      0  0:00:05  0:00:05 --:--:-- 3510k
+----
 
+. Extract the zip file
++
+[source,bash]
+----
 > unzip /opt/wordpress_latest.zip -d /opt
 
  unzip /opt/wordpress_latest.zip -d /opt/wordpress
@@ -307,317 +342,72 @@ Archive:  /opt/wordpress_latest.zip
 
 ...
 
-
 ----
 
-
-== Configuration
-
-=== Initial configuration
-
-To configure and start SQL Server, `mssql-conf` can be used to accept the EULA, set the SQL Server Edition, and the SA password.
-
-[TIP]
---
-For convenience, you can add the configuration to your `PATH` to avoid typing the full path each time:
-
-[source,bash]
-----
-echo 'export PATH="$PATH:/opt/mssql/bin"' >> ~/.bashrc
-source ~/.bashrc
-----
-
---
-
-Then, to configure and start `msql-server` (`mssql-conf` starts the `msql-server` immediately after configuring),
-run the following command:
-
-[source,bash]
-----
-> sudo ACCEPT_EULA='Y' MSSQL_SA_PASSWORD=Suselove12 MSSQL_PID='Developer' mssql-conf --noprompt setup
-----
-
-* `ACCEPT_EULA` accepts the SQL Server EULA
-* `MSQL_SA_PASSWORD` sets the SA user password. Ensure password requirements as outlined in <<password_requirements>> are followed.
-* `MSQL_PID` sets the SQL Server edition, acceptable values are:
-** Evaluation
-** Developer
-** Express
-** Web
-** Standard
-** Enterprise
-** Product key formatted as +#####-#####-#####-#####-#####+
-* The `noprompt` option configures SQL Server non-interactively
-
-WARNING: It is recommended to change the SA password later with `mssql-conf set-sa-password` 
-or disable the history prior to configuring SQL Server with `set +o history`, and re-enabling it afterward with `set -o history` (Bash).
-
-SQL Server should be started at this point. You can verify this with `netcat`. 
-SQL Server listens for connections on port `1433` by default:
-
-[source,bash]
-----
-> sudo zypper install --no-confirm netcat
-nc -vz localhost 1433
-----
-
-For further configuration, use `mssql-conf` to set additional parameters. Changes will take effect after a restart:
-
-[source,bash]
-----
-> sudo mssql-conf set ${parameter}
-> sudo systemctl restart mssql-server
-----
-
-Available `mssql-conf` options are described in https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf[Configure SQL Server on Linux with the mssql-conf tool].
-
-An alternative way to configure SQL Server is using the `/var/opt/mssql/mssql.conf` file. 
-Settings are stored in the https://en.wikipedia.org/wiki/INI_file[INI] format.
-
-A sample `mssql.conf` file is shown below. Edit the `mssql.conf` file and restart `mssql-server` to apply changes.
-
-[source,ini]
-----
-[EULA]
-accepteula = Y
-
-[filelocation]
-defaultdatadir = /var/opt/mssql/data/
-defaultdumpdir = /var/opt/mssql/data/
-defaultlogdir = /var/opt/mssql/data/
-
-[network]
-tcpport = 1433
-
-[sqlagent]
-enabled = true
-----
-
-== Tools
-
-Now that SQL Server is running, you can query it. The `mssql-tools` package includes `sqlcmd`, which is a shell to query SQL Server. 
-Install it similarly to the `mssql-server` package.
-
-Add the repository:
-
-[source,bash]
-----
-> sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/prod.repo
-----
-
-Install the `mssql-tools` package:
-
-[source,bash]
-----
-> sudo ACCEPT_EULA=Y zypper install --no-confirm mssql-tools
-----
-
-[TIP]
---
-You can add the tools to your `PATH` like you did for `mssql-conf`:
-
-[source,bash]
-----
-echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
-source ~/.bashrc
-----
-
-Alternatively, you can symlink `sqlcmd` to `/usr/local/bin/` since it is a binary:
-
-[source,bash]
-----
-> sudo ln --symbolic /opt/mssql-tools/bin/sqlcmd /usr/local/bin/sqlcmd
-----
-
---
-
-Then start `sqlcmd` and input a query. The `-S` option designates the server. The `-U` option specifies the user. 
-Available options can be found at https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15#syntax[sqlcmd Utility Syntax]. 
-
-
-[source,bash]
-----
-> sudo sqlcmd -S localhost -U SA
-----
-
-[source,sql]
-----
-SELECT name from sys.databases
-GO
-
-name
-master
-tempdb
-model
-msdb
-TestDB
-----
-
-
-`GO` is required here to execute the previous statements.
-
-To exit `sqlcmd`, input `quit`:
-
-
-[source,sql]
-----
-quit
-----
-
-
-The full `sqlcmd` documentation can be found at https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15[sqlcmd Utility].
-
-
-== Administration
-
-=== `systemd`
-
-The `mssql-server` package installs and configures SQL Server as a https://systemd.io/[`systemd`] service. 
-`systemd` provides a framework for managing services, mounts, and system states. 
-You can find more details about `systemd` unit files at https://www.freedesktop.org/software/systemd/man/systemd.unit.html[systemd.unit — Unit configuration]. 
-To control the `mssql-server` service, use `systemctl` to retrieve the `status`, `start`, `stop`, `restart`, `enable`, and `disable` the service.
-
-* Display `mssql-server` status:
+. By default apache2 serves documents from /srv/www/htdocs, so let's move the wordpress contents there
 +
 [source,bash]
 ----
-> sudo systemctl status mssql-server
-
-● mssql-server.service - Microsoft SQL Server Database Engine
-   Loaded: loaded (/usr/lib/systemd/system/mssql-server.service; enabled; vendor preset: disabled)
-   Active: active (running) since Thu 2021-02-25 01:54:18 UTC; 16h ago
-     Docs: https://docs.microsoft.com/en-us/sql/linux
- Main PID: 1341 (sqlservr)
-    Tasks: 166
-   CGroup: /system.slice/mssql-server.service
-           ├─1341 /opt/mssql/bin/sqlservr
-           └─1596 /opt/mssql/bin/sqlservr
+> mv wordpress/* /srv/www/htdocs/
 ----
 
-* Start `mssql-server`:
+. Create a copy of the wp-config php configuration file so we can apply our installation specific settings.
 +
 [source,bash]
 ----
-> sudo systemctl start mssql-server
+> cp /srv/www/htdocs/wp-config-sample.php /src/www/htdocs/wp-config.php
 ----
 
-* Stop `mssql-server`:
+. Now update the configuration with the database setttings. Replace `password` with your password.
 +
 [source,bash]
 ----
-> sudo systemctl stop mssql-server
+> sed -i 's/database_name_here/wordpress/' /srv/www/htdocs/wp-config.php
+> sed -i 's/username_here/wordpress/' /srv/www/htdocs/wp-config.php
+> sed -i 's/password_here/password/' /srv/www/htdocs/wp-config.php
 ----
 
-* Restart `mssql-server`:
+=== Confgure Firewalld
+
+. You may need to open up port 80 on the firewall to allow clients to connect to Apache. If you're not using a firewall or it's disabled, skip this step.
 +
 [source,bash]
 ----
-> sudo systemctl restart mssql-server
+> firewall-cmd --permanent --add-service http
+
+You''re performing an operation over default zone ('external'),
+but your connections/interfaces are in zone 'docker' (see --get-active-zones)
+You most likely need to use --zone=docker option.
+
+success
+
 ----
 
-* Enable `mssql-server` to start on boot (`mssql-server` is enabled by default on installation):
+. Reload the firewall to apply the changes
 +
 [source,bash]
 ----
-> sudo systemctl enable mssql-server
+> firewall-cmd --reload
 
-Created symlink from /etc/systemd/system/multi-user.target.wants/mssql-server.service to /usr/lib/systemd/system/mssql-server.service.
+success
 ----
 
-* Disable `mssql-server` to present starting on boot:
+=== Start it Up
+
+. Everything should be configured now, so we can start up Apache server
 +
 [source,bash]
 ----
-> sudo systemctl disable mssql-server
+> systemctl start apache2
 
-Removed symlink /etc/systemd/system/multi-user.target.wants/mssql-server.service.
 ----
+. Open a browser with your server ip or hostname at http://${hostname}/index.php and you should be presented with the wordpress installation page.
 
-=== Logs
+image::../images/src/png/wordpress-installation-page.png[]
 
-For troubleshooting, the logs and crash dumps are written to `/var/opt/mssql/log` by default. 
-Notable logs are the *errorlogs* (+errorlog*+), *trace logs* (+*.trc+), *sqlagent logs* (+sqlagent*+), 
-and the *extended events logs* (*.xel). Core dumps are written with the `.tar.gz2` extension and SQL dumps with the `.mdmp` extension. 
-To view these resources, you need `root` or the `mssql` user access.
+== 2-Tier Architecture
 
-[source,bash]
-----
-ls /var/opt/mssql/log
-HkEngineEventFile_0_132574672188100000.xel	errorlog	errorlog.4	log_20.trc	sqlagent.2  		system_health_0_132574672201000000.xel
-HkEngineEventFile_0_132574672310500000.xel	errorlog.1	health.log	log_21.trc	sqlagent.3		system_health_0_132574672319150000.xel
-HkEngineEventFile_0_132575629019340000.xel	errorlog.2	log_18.trc	log_22.trc	sqlagent.out		system_health_0_132575629028000000.xel
-HkEngineEventFile_0_132575645400520000.xel	errorlog.3	log_19.trc	sqlagent.1	sqlagentstartup.log	system_health_0_132575645408320000.xel
-----
-
-=== Loading sample data
-
-Microsoft has provided some https://github.com/microsoft/sql-server-samples[sample databases] 
-you can use to seed your `mssql-server` instance with some data. 
-
-Here is an example of loading our SQL server instance with the sample database `WideWorldImporters`.
-
-Download the `WideWorldImporters` database:
-
-[source,bash]
-----
-curl --location https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak \
-    --output /tmp/WideWorldImporters-Full.bak
-----
-
-Restore full backup into `mssql-server` with `sqlcmd` while updating paths for the data, userdata, transaction log, and in-memory data:
-
-[source,sql]
-----
-sqlcmd -S localhost \
-    -U sa \
-    -P Suselove12 \
-    -Q "RESTORE DATABASE WideWorldImporters \
-        FROM DISK ='/tmp/WideWorldImporters-Full.bak' WITH \
-        MOVE 'WWI_Primary' TO '/var/opt/mssql/data/WideWorldImporters.mdf', \
-        MOVE 'WWI_UserData' TO '/var/opt/mssql/data/WideWorldImporters_UserData.ndf', \
-        MOVE 'WWI_Log' TO '/var/opt/mssql/data/WideWorldImporters.ldf', \
-        MOVE 'WWI_InMemory_Data_1' TO '/var/opt/mssql/data/WideWorldImporters_InMemory_Data_1'"
-
-Processed 1464 pages for database 'WideWorldImporters', file 'WWI_Primary' on file 1.
-Processed 53096 pages for database 'WideWorldImporters', file 'WWI_UserData' on file 1.
-Processed 33 pages for database 'WideWorldImporters', file 'WWI_Log' on file 1.
-Processed 3862 pages for database 'WideWorldImporters', file 'WWI_InMemory_Data_1' on file 1.
-Converting database 'WideWorldImporters' from version 852 to the current version 904.
-Database 'WideWorldImporters' running the upgrade step from version 852 to version 853.
-Database 'WideWorldImporters' running the upgrade step from version 853 to version 854.
-...
-Database 'WideWorldImporters' running the upgrade step from version 902 to version 903.
-Database 'WideWorldImporters' running the upgrade step from version 903 to version 904.
-RESTORE DATABASE successfully processed 58455 pages in 37.388 seconds (12.214 MB/sec).
-----
-
-When loaded, project ten table names from the `WideWorldImporters` database to test it out:
-
-[source,sql]
-----
-sqlcmd -S localhost \
-    -U sa \
-    -P Suselove12 \
-    -Q "SELECT TOP(10) table_name FROM \
-        WideWorldImporters.information_schema.tables \
-        WHERE table_type = 'BASE TABLE'"
-
-table_name
---------------------------------------------------------------------------------------------------------------------------------
-
-Colors
-Colors_Archive
-OrderLines
-PackageTypes
-PackageTypes_Archive
-StockGroups
-StockItemStockGroups
-StockGroups_Archive
-StateProvinces
-CustomerTransactions
-
-(10 rows affected)
-----
+You may not want to
 
 == Summary
 

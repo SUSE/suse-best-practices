@@ -16,10 +16,22 @@ This document details how to install and configure https://mariadb.org/[MariabDB
 
 // TODO
 
+=== LAMP Stack
+
+- **L**inux - {sles}
+- **A**pache - HTTP Server
+- **M**ariaDB - 
+- **P**HP - 
+
+This diagram roughly visualizes what the lack 
+
+image::../images/src/png/TRD-wordpress-on-lamp-on-sles_one-tier.png[]
+
 === Background
 
 // TODO
 Starting with {sles} 12, MySQL has been https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[replaced] with MariaDB. MariaDB's client protocol is "wire" compatible with MySQL's protocol and in most scenarios even the data files are binary compatible. For our purposes MariaDB will work just fine. If you'd like more information visit https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB versus MySQL: Compatibility].
+
 
 == Preinstallation
 
@@ -303,7 +315,7 @@ Zend Engine v3.4.0, Copyright (c) Zend Technologies
 > a2enmod php7
 ----
 
-. Associate php files with the application/x-httpd-php content type so php files are rendered on the client.
+. Associate php files with the `application/x-httpd-php` content type so php files are rendered on the client.
 +
 [source,bash]
 ----
@@ -367,7 +379,7 @@ Archive:  /opt/wordpress_latest.zip
 > sed -i 's/password_here/password/' /srv/www/htdocs/wp-config.php
 ----
 
-=== Confgure Firewalld
+=== Configure Firewalld
 
 . You may need to open up port 80 on the firewall to allow clients to connect to Apache. If you're not using a firewall or it's disabled, skip this step.
 +
@@ -401,38 +413,103 @@ success
 > systemctl start apache2
 
 ----
-. Open a browser with your server ip or hostname at http://${hostname}/index.php and you should be presented with the wordpress installation page.
 
-image::../images/src/png/wordpress-installation-page.png[]
+. Open a browser with your server ip or hostname at http://${hostname} and you should be presented with the wordpress installation page.
+
+image::../images/src/png/TRD-wordpress-on-lamp-on-sles_wordpress-installation-page.png[]
 
 == 2-Tier Architecture
 
-You may not want to
+If you'd like create a 2 tier architecture and separate the database server from the application server like so:
 
-== Summary
+image::../images/src/png/TRD-wordpress-on-lamp-on-sles_two-tier.png[]
 
-Businesses around the world look to SUSE to help them simplify and optimize their IT environments, 
-modernize their applications and infrastructure, and accelerate innovation on-premises, in the cloud, and at the edge. 
-With {sles} support for Microsoft SQL Server, businesses can streamline their IT landscape and operations 
-without changing their preferred enterprise database management system.
+Just a few changes are needed. As before ensure both servers are registered.
 
-At this point, you should have a rudimentary understanding of how to install SQL Server on {sles}, 
-install SQL Server tools, query SQL Server and perform basic administration. 
-To stay up to date on the latest SQL Server on Linux features bookmark https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-release-notes-2019?view=sql-server-ver15[Release notes for SQL Server 2019 on Linux].
+=== Database server
+
+Just a few changes are needed. First, repeat the previous steps for <<MariaDB Setup>> on the database server. Then on the same server make the following changes.
+
+. MariaDB binds only to the loopback interface by default, so let's change it to bind to all addreses.
++
+[source,bash]
+----
+> sed -i 's/= 127.0.0.1/= 0.0.0.0/' /etc/my.cnf
+----
+
+. Restart MariaDB so it picks up the changes.
++
+[source,bash]
+----
+> systemctl restart mariadb
+----
+
+. Open up port 3306 (default for MariaDB) so clients can connect (Skip this step if not using firewall).
++
+[source,bash]
+----
+> firewall-cmd --add-port 3306/tcp --permanent
+
+success
+----
+
+=== Application Server
+
+On the application server:
+
+. Verify the Application Server can connect to the Database Server.
++
+[source,bash]
+----
+> nc -vz ${ip of database server} 3306
+
+e.g. 
+>  nc -vz 10.0.0.40 3306
+Connection to 10.0.0.40 3306 port [tcp/mysql] succeeded!
+----
+
+Then repeat the previous steps for the <<Apache Http Server Setup>>, <<PHP Setup>>, <<Wordpress Setup>> as well as the <<Configure Firewalld>> portion.
+
+. One additional step is required to point Wordpress at the database server. Replace `application_server_ip` with the ip address of your MariabDB server.
++
+[source,bash]
+----
+> sed -i "s/'DB_HOST', 'localhost'/'DB_HOST', '${application_server_ip}'/" /srv/www/htdocs/wp-config.php
+
+e.g.
+> sed -i "s/'DB_HOST', 'localhost'/'DB_HOST', '10.0.0.40'/" /srv/www/htdocs/wp-config.php
+----
+
+. Visit port 80 on the Application Server and you should be good to go!
 
 
 == Appendix
 
-[id="password_requirements"]
-=== SQL Server password requirements
+[id="debugging"]
+=== Debugging the Wordpress to MariaDB connection.
+. If you need to the debug why WordPrees cannot connect to MariaDB for some reason, it can insightful to enable WordPress debugging.
 
-SQL Server passwords must be between 8 and 128 (inclusive), cannot contain Unicode control characters `[Ll, Lu, Nd, Cc]` 
-and must contain at least three of the following:
++
+--
+[source,bash]
+----
+> sed -i "s/'WP_DEBUG', false/'WP_DEBUG', true/" /srv/www/htdocs/wp-config.php
+----
 
-* Uppercase letters
-* Lowercase letters
-* Numbers
-* Symbols from the set ``(`~!@#$%^&*_-+=|\\{}[]:;\"'<>,.?)/``
+Then reload the page. This can print things such as client errors to MariaDB. In this case, we used the wrong password.
+
+image::../images/src/png/TRD-wordpress-on-lamp-on-sles_debugging.png[]
+
+For more details on debugging check out https://wordpress.org/support/article/debugging-in-wordpress/[WordPress debugging].
+--
+
+. To revert, just simply to false again.
++
+[source,bash]
+----
+> sed -i "s/'WP_DEBUG', true/'WP_DEBUG', false/" /srv/www/htdocs/wp-config.php
+----
+
 
 === References
 
@@ -440,10 +517,12 @@ and must contain at least three of the following:
 * https://www.ibm.com/cloud/learn/lamp-stack-explained[LAMP Stack explained]
 * https://www.webopedia.com/definitions/lamp/[webopedia LAMP]
 * https://wordpress.org/support/article/how-to-install-wordpress[How to install wordpress]
+* https://wordpress.org/support/article/debugging-in-wordpress/[Wordpress debugging]
 * http://httpd.apache.org/docs/current/install.html[Compiling and Installing Apache]
 * https://mariadb.com/kb/en/installing-mariadb-with-zypper/[Installing MariaDB with zypper]
 * https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[SLES 12 Release Notes]
 * https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB vs MySQL Compatibility]
+* https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-security-firewall.html[SLES 15 - Masquerading and Firewalls]
 
 :leveloffset: 0
 // Standard SUSE Best Practices includes

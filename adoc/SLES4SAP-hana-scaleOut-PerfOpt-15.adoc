@@ -225,23 +225,33 @@ represented by the slave mode.
 image::SAPHanaSR-ScaleOut-Cluster-Resources02.svg[scaledwidth="100%"]
 
 The second resource agent is *SAPHanaTopology*. This RA has been created to make configuring the cluster as simple as possible.
-It runs on all nodes (beside the majority maker)
-of a {sle} High Availability Extension {pn15} cluster. It gathers information about the statuses and
-configurations of the {saphana} system replication. It is designed as a normal
-(stateless) clone resource.
+It runs on all nodes (except the majority maker)
+of a {sle} High Availability Extension {pn15} cluster. It gathers information
+about the statuses and configurations of the {saphana} system replication. It is
+designed as a normal (stateless) clone resource.
 
-{SAPHANA} system replication for scale-out is supported in the following
-scenarios or use cases:
+With the current version of resource agents, {SAPHANA} system replication for
+scale-out is supported in the following scenarios or use cases:
 
-Performance optimized, single container (A > B)::
+Performance optimized, single container (A => B)::
 This scenario and setup is described in this document. In the performance
 optimized scenario an {saphana} RDBMS on site "A" is synchronizing with an
 {saphana} RDBMS on a second site "B". As the {saphana} RDBMS on the second site
 is configured to preload the tables the takeover time is typically very short.
+See also the requirements section below for details.
+
+Performance optimized, multi-tenancy also named MDC (%A => %B)::
+Multi-tenancy is available for all of the supported scenarios and use cases in
+this document. This scenario is supported since {SAPHANA} 1 SPS12, it is the
+default installation type for {SAPHANA} 2.0.
+The setup and configuration from a cluster point of view is the same for
+multi-tenancy and single containers. The one caveat is, that the tenants are
+managed all-together by the Linux cluster. See also the requirements section
+below.
 
 ////
 TO BE ADDED LATER, AFTER WE WILL HOPEFULLY GET A SOLUTION FOR THAT
-Cost optimized (A > B, Q)::
+Cost optimized (A => B, Q)::
 This scenario and setup is described in an other document in the resource
 library ({reslibrary}) for on-premise systems. It can be adopted to Azure too.
 In the cost optimized scenario the second node is also used for a non-productive
@@ -250,21 +260,21 @@ non-productive system must be stopped first. As the productive secondary system
 on this node must be limited in using system resources, the table preload must
 be switched off and a possible takeover needs longer than in the performance
 optimized use case.
-
-Multi Tier (A > B -> C)::
-This scenario and setup is described in an other document in the resource
-library ( {reslibrary} ) for on-premise systems. It can be adopted to Azure
-too.. A Multi Tier system replication has an additional target, which must be
-connected to the secondary (chain topology).
 ////
 
-Performance optimized, multi-tenancy also named MDC (%A > %B)::
-Multi-tenancy is supported for all of the above scenarios and use cases. This scenario
-is supported since {SAPHANA} 1 SPS12. The setup and configuration from a cluster
-point of view is the same for multi-tenancy and single containers. Thus you can use
-the above documents for both types of scenarios.
+Multi-Tier Replication (A => B -> C)::
+A Multi-Tier system replication has an additional target, which must be
+connected to the secondary (chain topology). This is a special case of the
+Multi-Target replication. Because of the mandatory chain toplogy, the RA
+feature AUTOMATED_REGISTER=true is not possible with pure Multi-Tier replication.
+See also the requirements section below.
 
-Multi-tenancy is the default installation type for {SAPHANA} 2.0.
+Multi-Target Replication (A <= B -> C)::
+A Multi-Tier system replication has an additional target, which is connected to
+either the secondary (chain topology) or to the primary (star topology).
+Multi-Target replication is possible since {SAPHANA} 2.0 SPS04.
+See also the requirements section below.
+
 
 === The Concept of the Performance Optimized Scenario
 
@@ -274,8 +284,10 @@ secondary site. Typically the takeover is much faster than the local restart.
 
 A site is noticed as "down" or "on error", if the *LandscapeHostConfiguration
 status* reflects this (return code 1). This happens when worker nodes are going
-down without any {SAPHANA} standby nodes left. Standby nodes are designed to perform a host
-auto-failover for the worker functionality.
+down without any {SAPHANA} standby nodes left. Standby nodes are designed to
+perform a host auto-failover for the worker functionality.
+Please find concept and implementation details in manual page
+SAPHanaSR-ScaelOut(7).
 
 Without any additional intervention the resource agent will wait for the {sap}
 internal HA cluster to repair the situation locally. An additional intervention
@@ -283,12 +295,13 @@ could be a custom python hook using the SAP provider *srServiceStateChanged()*
 available since {SAPHANA} 2.0 SPS01.
 
 To achieve an automation of this resource handling process, use the
-{SAPHANA} resource agents included in the _SAPHanaSR-ScaleOut_ RPM package delivered with
-{sles4sap}.
+{SAPHANA} resource agents included in the _SAPHanaSR-ScaleOut_ RPM package
+delivered with {sles4sap}.
 
 You can configure the level of automation by setting the parameter
 _AUTOMATED_REGISTER_. If automated registration is activated the cluster will
 also automatically register a former failed primary to get the new secondary.
+Please find configuration details in manual page ocf_suse_SAPHanaController(7).
 
 === Important Prerequisites
 

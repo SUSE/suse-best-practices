@@ -1,52 +1,86 @@
+
+// the ifdef's make it possible to only change the DC file for generating the right document
+ifdef::Azure[]
+:cloud: Azure
+:firstname: Peter
+:surname: Schinagl, Sr. Technical Architect, SUSE
+endif::[]
+
+ifdef::AWS[]
+:cloud: AWS
+:firstname: Stephen
+:surname: Mogg, Public Cloud Solutions Architect, SUSE
+endif::[]
+
+ifdef::GCP[]
+:cloud: GCP
+:firstname: Abdelrahman
+:surname: Mohamed, Public Cloud Solutions Architect - Google Alliance, SUSE
+endif::[]
+
+// only enable it for editor previews - do not check it in with this change
+//:cloud: Azure
+//:cloud: AWS
+//:cloud: GCP
+
+
+// enable docinfo
 :docinfo:
 
-// Set variable for Cloud.  This can be "Azure","AWS" or "GCE"
-//:cloud: Azure
-:cloud: AWS
-:sles: SUSE Linux Enterprise Server
-:sles4sap: {sles} for SAP Applications
 
-= Using SUSE Automation to Deploy an SAP HANA Cluster: Getting Started
+:sles: SUSE Linux Enterprise Server
+:sles4sap: {sles} for SAP applications
+:hana_version: SAP HANA 2.0 SPS05
+:hana_archive_version: 51054623
+
+= Using SUSE Automation to Deploy an SAP HANA Cluster on {cloud} Cloud Platform: Getting Started
+
 
 == About the guide
 
-This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE Automation Project.
-This project uses Terraform and Salt to deploy and configure the operating system, SAP software and High Availability (HA) Cluster.
-If extensive configuration and customization are required, refer to the project documentation at https://github.com/SUSE/ha-sap-terraform-deployments
+This document will walk you through the deployment of a simple two-node SAP HANA HA Cluster using the SUSE Automation Project for SAP Solutions Project and operating on {cloud}.
 
-For simplicity, this guide uses the Cloud Shell to perform the deployment,
-as it provides easy access to most of the required tooling.
 
-It is possible to easily use a local Linux or macOS computer, but some of the commands may need modification or omission.
+This project uses Terraform and Salt to deploy and configure the operating system ({sles4sap}), SAP software (SAP HANA), and a SUSE Linux Enterprise High Availability (HA) cluster.
+If extensive configuration and customization are required, refer to the project documentation at https://github.com/SUSE/ha-sap-terraform-deployments.
 
-The architecture for the deployment is similar to the below.
+For simplicity, this guide uses the Cloud Shell to perform the deployment, as it provides easy access to most of the required tooling.
+
+It is possible to easily use a local Linux or macOS computer, but some commands may need modification or omission.
+
+The architecture for the deployment is similar to the one below:
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+image::TRD_SLES-SAP-HA-automation-quickstart-cloud-azure-automation-architecture.png[title=Azure Automation Architecture,scaledwidth=99%]
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-image::TRD_SLES-SAP-HA-automation-quickstart-cloud-aws-automation-architecture.jpg[width=470]
+image::TRD_SLES-SAP-HA-automation-quickstart-cloud-aws-automation-architecture.jpg[title=AWS Automation Architecture,scaledwidth=99%]
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+image::TRD_SLES-SAP-HA-automation-quickstart-cloud-gcp-automation-architecture.png[title=SUSE Automation for SAP HANA on Google Cloud Platform Architecture,scaledwidth=99%]
 endif::[]
 
-The project will perform the following:
+The project will perform the following actions:
 
-* Deploy infrastructure - including VPC, subnets, IAM roles etc.
-* Deploy instances -  2 x SAP HANA instances
-* Configure the operating system for the SAP workload
-* Run the SAP HANA installation
-* Configure SAP HANA System Replication (HSR)
-* Configure SUSE High Availability cluster components and resources
+* Deploying infrastructure - including Virtual Network, subnet, firewall rules etc.
+* Deploying instances - 2x SAP HANA Instances
+* Configuring the operating system for SAP workload
+* Running the SAP HANA installation
+* Configuring SAP HANA System Replication (HSR)
+* Configuring SUSE Linux Enterprise High Availability cluster components and resources
 
 
 == Configuring the Cloud Shell
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+Start an Azure Cloud Shell simply from the top menu within Azure Portal. Its the small icon with the commandline prompt.
+
+After its started the first time you can select between "Bash" and "powershell". Please use "Bash"
+
+The Cloud Shell is a managed service by Microsoft, and comes with the most popular command-line tools and language support you need.
+The Cloud Shell also securely authenticates automatically for instant access to your resources through the Azure CLI or Azure PowerShell cmdlets.
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
@@ -67,19 +101,34 @@ This is described in the documentation linked above.
 The command generates a file in `$HOME/.aws/credentials` which is referenced later.
 
 IMPORTANT: The user specified in this step needs certain AWS permissions to ensure the deployment is successful.
-
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+IMPORTANT: The GCP user specified in the below-mentioned step needs certain GCP Project permissions to ensure the deployment is successful.
+For simplification, the GCP user used in this guide has the _Project Owner_ IAM role.
+
+The following procedures show the minimum steps required to prepare the GCP infrastructure to host the SAP HANA environment:
+
+. Create a new GCP Project to host the SAP HANA environment.
+. Enable the GCP Compute Engine API.
+. Using the newly created GCP project console, start a GCP Cloud Shell.
+. Using the GCP Cloud Shell, create a new GCP Key for the default GCP Service Account. The key will be used by Terraform to access the GCP infrastructure.
++
+TIP: For more details about creating GCP Service Account key, refer to https://cloud.google.com/iam/docs/creating-managing-service-account-keys#iam-service-account-keys-create-gcloud
++
+NOTE: For simplification, the default GCP Service Account will be used in this guide.
 endif::[]
 
 
 == Ensuring Terraform is installed
 
 ifeval::[ "{cloud}" == "Azure" ]
-Terraform is already deployed as part of the Azure Cloud Shell.
-
+Terraform is already deployed as part of the Azure Cloud Shell. The following command output shows the Terraform version used at the time of creating this guide:
+----
+$ terraform -v
+Terraform v1.0.0
+on linux_amd64
+----
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
@@ -107,36 +156,105 @@ terraform --version
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+Terraform is already deployed as part of the GCP Cloud Shell. The following command output shows the Terraform version used at the time of creating this guide:
+
+----
+$ terraform -v
+Terraform v1.0.0
+on linux_amd64
+----
 endif::[]
 
 
-== Preparing the SAP media
+== Preparing the SAP HANA media
 
-The SAP Media needs to be made available so it can be accessed during the deployment.
-The SUSE Automation project allows for three methods for presenting the SAP media:
+With the correct entitlement, SAP HANA media can be downloaded from the SAP Web site at https://support.sap.com/en/my-support/software-downloads.html. The SAP Media needs to be made available so it can be accessed during the deployment.
 
-a. SAR file and SAPCAR executable (SAP HANA Database only)
-b. Multipart exe/RAR files
-c. Extracted media
+The SUSE Automation for SAP Applications project allows for three methods for presenting the SAP media:
 
-This guide recommends the simplest method which is the multipart exe/RAR files.
+. SAR file and SAPCAR executable (SAP HANA Database only)
+. Multipart exe/RAR files
+. Extracted media
 
-With the correct entitlement, SAP media can be downloaded from the SAP Web site at
-https://support.sap.com/en/my-support/software-downloads.html
+The different formats have some benefits and drawbacks:
 
-The versions listed below are for illustration. When downloading the multipart files for SAP HANA, use your required version.
+. The compressed archives (SAR and RAR) provide a simple copy to the cloud but a longer install time due to extracting it during the process
+. The uncompressed/extracted media are the fastest install, but more files are copied to the cloud share, which also takes time in forehand as preparation.
 
+ifeval::[ "{cloud}" != "GCP" ]
+We use here in the example the compressed archives for the install (exe/RAR) as its the easiest to download and upload to the cloud share.
+
+This guide uses the most recent SAP HANA media, {hana_version}. The SAP HANA media file name downloaded at the time of creating this guide is `{hana_archive_version}`.
+Follow the SAP instructions to download the SAP HANA media.
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+// TODO - Add a comment regarding extracting SAP media using `unzip` or SAPCAR
+// TODO - Add a note to have the SAP workstation on Google Cloud
+
+In this example, we use the extracted archives for the installation as it is the fastest deployment way.
+
+NOTE: It depends on the used way to download the SAP media. If multiple compressed files are downloads, the official SAP extract tool `SAPCAR` tool must be used to extract the SAP media.
+
+TIP: The extracted SAP Media can contain a lot of extracted files. Depending on your network speed, it can consume time to upload the extracted SAP media files. Google Cloud infrastructure provides a breakneck network speed. Create a Google Cloud compute engine workstation machine to download/upload the SAP media. The other option is to use fast speed internet connection.
+
+endif::[]
+
+[TIP]
+====
+It's a good practice to have the SAP Media versioned on the cloud share in order to build a library for automatic installs and (re)deployments.
+So think about you SAP media structure.
+
+As an *example*, here how a full SAP Application media tree (in a compressed format) for a S/4HANA version 1809 install would look like:
 ----
-51053381_part1.exe
-51053381_part2.rar
-51053381_part3.rar
-51053381_part4.rar
-----
+<FS>/s4hana1809
+       ├SWPM_CD
+       │  ├SWPM20SP07_5-80003424.SAR
+       │  └SAPCAR_721-20010450.EXE
+       │
+       ├EXP_CD
+       │  ├S4CORE104_INST_EXPORT_1.zip
+       │  ├S4CORE104_INST_EXPORT_2.zip
+       │  └...
+       ├DBCLIENT_CD
+       │  └IMDB_CLIENT20_005_111-80002082.SAR
+       ├BASKET_CD
+       │   ├SAPHOSTAGENT24_24-20009394.SAR
+       │   ├igshelper_4-10010245.sar
+       │   ├igsexe_1-80001746.sar
+       │   ├SAPEXEDB_400-80000698.SAR
+       │   └SAPEXE_400-80000699.SAR
+       └HANA
+          ├51053061_part1.exe
+          ├51053061_part2.rar
+          ├51053061_part3.rar
+          └51053061_part4.rar
 
+
+ HANA       : contains the HANA Database install
+ BASKET_ CD : contains SAP kernel, patch + more like hostagent.
+ DBCLIENT_CD: contains the package corresponding to DB CLIENT, e.g HANA
+ EXP_CD     : contains the package corresponding to EXPORT files
+ SWPM_CD    : must contain the .exe file corresponding to SAPCAR and the
+              .sar file corresponding to SWPM.
+              The file suffix must be .exe and .sar.
+----
+====
+
+
+In the next steps we use a simple HANA install download.
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+For Azure, an Azure File Share is used to host the SAP HANA media.
+
+Using the Azure Portal or the Azure cli perform the following actions:
+
+* Create a storage account
+* Create a folder within the Storage Account, for example "mysapmedia"
+* Upload the SAP media files to the Storage Account
+
+image::TRD_SLES-SAP-HA-automation-quickstart-cloud-Azure-Storage.png[width=470]
+
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
@@ -153,103 +271,97 @@ image::TRD_SLES-SAP-HA-automation-quickstart-cloud-s3-bucket.png[width=470]
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+A GCP Cloud Storage bucket is used to host the SAP HANA extracted media. Using the GCP Console, perform the following actions:
+
+* Create a new GCP bucket. (The example shows a GCP Cloud Storage bucket called `mysapmedia`, but a unique name should be used.)
+* Upload the SAP HANA media extracted directory to the GCP Cloud Storage bucket. The following figure shows the uploaded SAP HANA media extracted directory:
++
+image::trd_sles-sap-ha-automation-quickstart-cloud-gcp-bucket.png[title=SAP HANA GCP Storage Bucket, scaledwidth=99%]
 endif::[]
 
 
 
 == Downloading and configuring the SUSE Automation code
 
-The SUSE Automation code is published in GitHub. The following command will clone the project to the Cloud Shell ready for configuration.
+The SUSE SAP Automation code is published in GitHub.
 
+ifeval::[ "{cloud}" == "GCP"]
+The following commands will:
 
-ifeval::[ "{cloud}" == "Azure" ]
-AZURE
-endif::[]
-
-ifeval::[ "{cloud}" == "AWS" ]
+. Create a new GCP Cloud Shell directory to host the SUSE SAP automation code
+. Change directory to the newly created directory
 
 ----
-cd ~
-git clone --depth 1 --branch 7.0.0 https://github.com/SUSE/ha-sap-terraform-deployments
+$ mkdir suse-sap-automation
+$ cd suse-sap-automation
 ----
-
 endif::[]
+
+
+The following command will clone the project to the Cloud Shell ready for configuration.
+----
+$ git clone --depth 1 --branch 7.2.0 https://github.com/SUSE/ha-sap-terraform-deployments.git
+----
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+Next, move the generated GCP Service Account Key to the SUSE SAP Automation GCP directory:
+----
+$ cd ~
+$ cp <GCP Service Account Key> suse-sap-automation/ha-sap-terraform-deployments/gcp
+----
 endif::[]
 
 
-Next, generate SSH keys to allow for inter-cluster communication between the provisioned nodes.
-If SSH keys already exist, the next step can be skipped.
+NOTE: If the following SSH keys already exist, the next step can be skipped.
 
+Then, generate SSH key pairs to allow for accessing the GCP SAP HANA instances:
 ----
 #optional if ssh-keys already exist
-ssh-keygen -t rsa -N ''
+$ cd ~
+$ ssh-keygen -q -t rsa -N '' -f  ~/.ssh/id_rsa
 ----
 
 === Configuring the deployment options and modifying the Terraform variables
 
-The files that need to be configured are contained in a subdirectory of the project. Use that as the working directory.
+The files that need to be configured are contained in a subdirectory of the project. Use that as the working directory:
 
 ifeval::[ "{cloud}" == "Azure" ]
+----
+cd ~/ha-sap-terraform-deployments/azure
+----
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-
 ----
 cd ~/ha-sap-terraform-deployments/aws
 ----
-
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+----
+$ cd ~/suse-sap-automation/ha-sap-terraform-deployments/gcp
+----
 endif::[]
 
 
-A template is provided.  For a demo environment this will need around 10 parameters modifying.
-Copy the Terraform example file to `terraform.tfvars`.
+A Terraform example template is provided. For a demo environment consisting of a simple HANA cluster, only a handful of parameters will need changing.
 
+Copy the Terraform example file to `terraform.tfvars`:
 ----
-cp terraform.tfvars.example terraform.tfvars
+$ cp terraform.tfvars.example terraform.tfvars
 ----
 
-Edit `terraform.tfvars` and modify as explained below.
+
+Edit the `terraform.tfvars` file and modify it as explained below.
 If you are duplicating the lines before modification, ensure the original is commented out, or the deployment will fail.
 
-Firstly, choose the region for the deployment.
-
-
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
-endif::[]
-
-ifeval::[ "{cloud}" == "AWS" ]
-
-----
-# Region where to deploy the configuration
-aws_region = "eu-central-1"
-----
-
-endif::[]
-
-ifeval::[ "{cloud}" == "GCP" ]
-GCP
-endif::[]
-
-This setting provides Terraform the credentials to deploy the infrastructure on the cloud.
-
-
-ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+// nothing needed for AZURE
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
 
 With this parameter, Terraform will use the AWS credentials file created above. It is the simplest way to provide credentials for the deployment.
-
 ----
 aws_credentials = "~/.aws/credentials"
 ----
@@ -260,139 +372,212 @@ If not used, ensure the following lines are commented out or the deployment will
 #aws_access_key_id = my-access-key-id
 #aws_secret_access_key = my-secret-access-key
 ----
-
 endif::[]
+
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+First, choose the GCP Project ID for the deployment:
+----
+# GCP project id
+project = "<PROJECT ID>"
+----
+
+Then, choose the GCP Service Account Key file path. With the following parameter, Terraform will use the GCP Service Account Key file created above:
+----
+# Credentials file for GCP
+gcp_credentials_file = "<GCP Service Account Key Path and Name>"
+----
 endif::[]
 
-The following parameters select the version of SUSE Linux Enterprise Server for SAP Applications to deploy, and where to deploy from.
 
+Choose the region for the deployment, for example:
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+----
+# Region where to deploy the configuration
+az_region = "westeurope"
+----
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-
-For simplicity, the 'os_owner' is set to use PAYG instances from the AWS Marketplace. If an existing SUSE subscription needs to be used, this section can be changed to use BYOS images. Refer to the project documentation.
-
 ----
-os_image = "suse-sles-sap-15-sp1"
-os_owner = "679593333241"
+# Region where to deploy the configuration
+aws_region = "eu-central-1"
 ----
-
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+----
+# Region where to deploy the configuration
+region = "europe-west1"
+----
 endif::[]
 
-Next, enter the path for the public and private SSH keys that were generated earlier.
+The following parameters select the version of {sles4sap} to deploy:
 
+NOTE: The values shown would also be the defaults be used. All defaults point to PAYG images for an easy start. So you only need to enable or change the variables if you want something different.
+
+ifeval::[ "{cloud}" == "Azure" ]
+// this is also the default
+----
+#os_image = "sles-sap-15-sp2:gen2"
+----
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+ // this is also the default
+For simplicity, the 'os_owner' is set to use PAYG instances from the AWS Marketplace. If an existing SUSE subscription needs to be used, this section can be changed to use BYOS images. Refer to the project documentation.
+----
+#os_image = "suse-sles-sap-15-sp2"
+#os_owner = "679593333241"
+----
+endif::[]
+
+ifeval::[ "{cloud}" == "GCP" ]
+// this is also the default
+----
+#os_image = "suse-sap-cloud/sles-15-sp2-sap"
+----
+endif::[]
+
+Next, enter the path for the public and private SSH keys that were generated earlier. Below is an example using the default created SSH keys:
 ----
 # SSH Public key location to configure access to the remote instances
-public_key_location = "/path/to/your/public/ssh/key"
+public_key  = "~/.ssh/id_rsa.pub"
 
 # Private SSH Key location
-private_key_location = "/path/to/your/private/ssh/key"
+private_key = "~/.ssh/id_rsa"
 ----
 
 To keep the cluster architecture and deployment simple and to provide additional packages needed to deploy, uncomment and set the following parameters:
 
-ifeval::[ "{cloud}" == "Azure" ]
-AZURE
-endif::[]
-
-ifeval::[ "{cloud}" == "AWS" ]
-
 ----
-ha_sap_deployment_repo = "https://download.opensuse.org/repositories/network:ha-clustering:sap-deployments:v7"
-...
+ha_sap_deployment_repo = "https://download.opensuse.org/repositories/network:/ha-clustering:/sap-deployments:/v7/"
+----
+
+Then, enable the `pre_deployment` parameter:
+----
 pre_deployment = true
 ----
 
-endif::[]
-
-ifeval::[ "{cloud}" == "GCP" ]
-GCP
-endif::[]
-
-Next, set some options for the HANA instances. The following selects the instance name and host name prefix for the deployment.
-
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+The Jumphost server (Bastion Host Server) is enabled by default, and provide the public IP adress to the database.
+Otherwise the two HANA servers will get a public ip
+----
+#bastion_enabled = true
+----
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
+endif::[]
 
+ifeval::[ "{cloud}" == "GCP" ]
+// Question to Ab:  Why do you disable the bastion?
+The Jumphost server (Bastion Host Server) is enabled by default, and provide the public IP adress to the database.
+Otherwise the two HANA servers will get a public ip.
+
+Disable the Bastion Host Server creation parameter `bastion_enabled`:
 ----
-hana_instancetype = "r3.8xlarge"
+bastion_enabled = false
+----
+endif::[]
+
+Next, set which SAP HANA instance machine type should be selected:
+The default is set to some standard types, and you only need to enable and change the variable if you want other sizes.
+
+ifeval::[ "{cloud}" == "Azure" ]
+----
+#hana_vm_size = "Standard_E4s_v3"
+----
+endif::[]
+
+ifeval::[ "{cloud}" == "AWS" ]
+----
+#hana_instancetype = "r3.xlarge"
+----
+
+Next set the hostname for the instances, without the domain part
+----
 name = "hana"
 ----
-
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+----
+#machine_type = "n1-highmem-32"
+----
 endif::[]
 
 
-Modify the following to point to SAP media that was uploaded to the storage location.
+Modify the following parameter to point to SAP media that was uploaded to the storage location:
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+----
+storage_account_name = "YOUR_STORAGE_ACCOUNT_NAME"
+storage_account_key = "YOUR_STORAGE_ACCOUNT_KEY"
+----
+
+The "hana_inst_master" need to be set according to your settings of the file share you created before.
+e.g.
+// all three should be better aligned and build on a fixed structure
+----
+hana_inst_master = "//YOUR_STORAGE_ACCOUNT_NAME.file.core.windows.net/mysapmedia"
+
+hana_archive_file = "s4hana1809/HANA/{hana_archive_version}.exe"
+----
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-
 ----
-hana_inst_master = "s3://mysapmedia/SAPHANA"
+hana_inst_master = "s3://mysapmedia/s4hana1809/HANA"
 
-hana_archive_file = "5105338_part1.exe"
+hana_archive_file = "{hana_archive_version}.exe"
 ----
 
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+[subs="attributes"]
+----
+hana_inst_master = "mysapmedia/{hana_archive_version}"
+----
 endif::[]
 
-Finally, to ensure a fully automated deployment, it is possible to set passwords within the `terraform.tfvars` file.
-If the parameters are not set in this file, they must be entered when running the deployment.
-
-Uncomment and set the following:
-
+To create the cluster, we need to set this parameter to true, otherwise only single system is created.
 ----
-hana_master_password = "YourPassword1234"
-netweaver_master_password = "SuSE1234"
+# Enable system replication and HA cluster
+hana_ha_enabled = true
 ----
 
-NOTE: All passwords must conform to SAP password policies or the deployment will fail.
+Finally, to ensure a fully automated deployment, it is possible to set passwords within the `terraform.tfvars` file. Uncomment and set the following parameters to your own value:
+----
+hana_master_password = "SAP_Pass123"
+----
 
+NOTE: If the parameters are not set in the `terraform.tfvars` file, they must be entered when running the deployment.
 
-Optional: If a monitoring instance is required as part of the deployment, find and uncomment the following:
+IMPORTANT: All passwords must conform to SAP password policies or the deployment will fail.
+
+Optional: If a monitoring instance should be as part of the deployment, find and uncomment the following:
 
 ----
 monitoring_enabled = true
 ----
 
 
-== Finalizing the Automation configuration
+== Finalizing the automation configuration
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+Ensure that the subscription used to host the SAP HANA HA cluster meets the infrastructure quota requirements. For more info, refer to https://docs.microsoft.com/en-us/azure/virtual-machines/workloads/sap/get-started
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
-
 === Subscribing to the AWS Marketplace offer
 
 To automatically deploy instances from the AWS Marketplace, ensure to *Subscribe* to the offering.
 
-A link for SUSE Linux Enterprise Server for SAP Applications 15 SP2 can be found at link:https://aws.amazon.com/marketplace/server/procurement?productId=e9701ac9-43ee-4dda-b944-17c6c231c8db[].
+A link for {sles4sap} 15 SP2 can be found at link:https://aws.amazon.com/marketplace/server/procurement?productId=e9701ac9-43ee-4dda-b944-17c6c231c8db[].
 
-If a different version of SUSE Linux Enterprise Server for SAP Applications is required, subscribe to the relevant version on the marketplace.
+If a different version of {sles4sap} is required, subscribe to the relevant version on the marketplace.
 
 
 == Configuring IAM policies
@@ -440,57 +625,158 @@ Create the following policy and attach it to the IAM user running the deployment
     ]
 }
 ----
-
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+Ensure that the GCP Project used to host the SAP HANA HA cluster meets the infrastructure quota requirements set by Google Cloud. For more info, refer to https://cloud.google.com/solutions/sap/docs/sap-hana-planning-guide#quotas
 endif::[]
 
 
 == Deploying the project
 
-When running the deployment, Terraform will create and name resources on AWS based on the 'workspace' in use.
+Terraform will create and name resources when running the deployment based on the "workspace" in use.
 It is highly recommended to create a unique workspace from which to run the deployment.
 
 ----
-terraform init
-terraform workspace new demo
-terraform workspace select demo
-terraform plan
-terraform apply
+$ terraform init
+$ terraform workspace new demo
+$ terraform workspace select demo
+$ terraform plan
+$ terraform apply
 ----
 
+TIP: The Cloud Shell has a timeout of around 20 minutes and the shell will close if left
+unattended, resulting in a failed deployment.  It is strongly advised to retain focus on the Cloud Shell window to ensure the timeout does not occur.
+
+
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+If successful, the output will be the public IP addresses for the cluster nodes.
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
 
-TIP: The AWS Cloud Shell has a timeout of around 20 minutes and the shell will close if left
-unattended, resulting in a failed deployment.  It is strongly advised to retain focus on the AWS Cloud Shell window to ensure the timeout does not occur.
+If successful, the output will be the public IP addresses for the cluster nodes similar to the output below.
+
+----
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):               ----------
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):               method:
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):                   update
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):               url:
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec):                   /tmp/cluster.config
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): 
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Summary for local
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): -------------
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Succeeded: 34 (changed=26)
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Failed:     0
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): -------------
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total states run:     34
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total run time: 1384.111 s
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Thu Aug 26 11:18:58 UTC 2021::hana02::[INFO] deployment done 
+module.hana_node.module.hana_provision.null_resource.provision[1]: Creation complete after 43m28s [id=xxxxxxxxxxxxxx]
+
+Apply complete! Resources: 33 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+cluster_nodes_ip = [
+  "10.0.1.10",
+  "10.0.2.11",
+]
+cluster_nodes_name = [
+  "i-0a553e68e157ed667",
+  "i-00887a206e454b0ab",
+]
+cluster_nodes_public_ip = [
+  "18.192.212.32",
+  "3.66.190.173",
+]
+cluster_nodes_public_name = [
+  "ec2-18-192-212-32.eu-central-1.compute.amazonaws.com",
+  "ec2-3-66-190-173.eu-central-1.compute.amazonaws.com",
+]
+drbd_ip = []
+drbd_name = []
+drbd_public_ip = []
+drbd_public_name = []
+iscsisrv_ip = ""
+iscsisrv_name = ""
+iscsisrv_public_ip = ""
+iscsisrv_public_name = ""
+monitoring_ip = ""
+monitoring_name = ""
+monitoring_public_ip = ""
+monitoring_public_name = ""
+netweaver_ip = []
+netweaver_name = []
+netweaver_public_ip = []
+netweaver_public_name = []
+----
 
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+
+If successful, the output lists the public IP addresses for the cluster nodes. This will look similar to the following considering the different Public IP addresses for each deployment:
+-----
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Summary for local
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): -------------
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Succeeded: 33 (changed=23)
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Failed:     0
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): -------------
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total states run:     33
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Total run time: 1028.670 s
+module.hana_node.module.hana_provision.null_resource.provision[1] (remote-exec): Wed Jun 23 10:14:22 UTC 2021::demo-hana02::[INFO] deployment done
+module.hana_node.module.hana_provision.null_resource.provision[1]: Creation complete after 27m24s [id=3463680564647535989]
+
+Apply complete! Resources: 26 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+bastion_public_ip = ""
+cluster_nodes_ip = [
+  "10.0.0.10",
+  "10.0.0.11",
+]
+cluster_nodes_name = [
+  "demo-hana01",
+  "demo-hana02",
+]
+cluster_nodes_public_ip = tolist([
+  "34.127.16.75",
+  "34.145.94.26",
+])
+cluster_nodes_public_name = []
+drbd_ip = []
+drbd_name = []
+drbd_public_ip = []
+drbd_public_name = []
+iscsisrv_ip = ""
+iscsisrv_name = ""
+iscsisrv_public_ip = ""
+iscsisrv_public_name = []
+monitoring_ip = ""
+monitoring_name = ""
+monitoring_public_ip = ""
+monitoring_public_name = ""
+netweaver_ip = []
+netweaver_name = []
+netweaver_public_ip = []
+netweaver_public_name = []
+-----
 endif::[]
-
-If successful, the output will be the public IP addresses for the cluster nodes.
-
-image::TRD_SLES-SAP-HA-automation-quickstart-cloud-s3-bucket-aws-automation-complete.png[width=470]
-
 
 == Tearing down
 
 When finished with the deployment, or even if the deployment has failed, ensure that Terraform is used to tear down the environment.
 
 ----
-terraform destroy
+$ terraform destroy
 ----
 
 ifeval::[ "{cloud}" == "Azure" ]
-AZURE
+This method will ensure all resource, such as instances, volumes, networks, etc are cleaned up.
+You need to delete the following components manually:
+* Azure File Store
 endif::[]
 
 ifeval::[ "{cloud}" == "AWS" ]
@@ -498,7 +784,11 @@ This method will ensure all AWS resource, such as instances, volumes, VPCs, and 
 endif::[]
 
 ifeval::[ "{cloud}" == "GCP" ]
-GCP
+This method will ensure all GCP resources, such as instances, disks, VPCs, and roles are cleaned up.
+You need to delete the following GCP components manually:
+
+* GCP Cloud Storage bucket
+* GCP Project
 endif::[]
 
 ++++

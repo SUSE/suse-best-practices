@@ -71,12 +71,12 @@
  <sect1 xml:id="sec-virtualization-kubevirt">
   <title>KubeVirt components</title>
 
-  <para> KubeVirt consists of two RPM-based packages, and five container images that provide the
+  <para> KubeVirt consists of two RPM-based packages, and six container images that provide the
    Kubernetes virtual machine management extension. The RPM packages include
     <package>kubevirt-virtctl</package> and <package>kubevirt-manifests</package>. The container
    images include <package>virt-api</package>, <package>virt-controller</package>,
     <package>virt-handler</package>, <package>virt-launcher</package>, and
-    <package>virt-operator</package>. </para>
+    <package>virt-operator</package>, <package>libguestfs-tools</package>. </para>
 
   <para>
    <package>kubevirt-virtctl</package> can be installed on any machine with administrator access to
@@ -112,7 +112,8 @@
    operations like configuring networking and/or storage on the node as per the virtual machine
    specification. <package>virt-launcher</package> is also a node component and has the job of
    running <package>libvirt</package> plus <package>qemu</package> to provide the virtual machine environment. <package>virt-launcher</package>
-   is just a lowly pod resource. </para>
+   is just a lowly pod resource. <package>libguestfs-tools</package> is a component providing a set
+   of utilities for accessing and modifying VM disk images. </para>
 
   <para>
    <package>virt-operator</package> implements the Kubernetes operator pattern. Operators encode the
@@ -130,51 +131,41 @@
    example, on a cluster admin node execute the following: </para>
 
   <screen>&prompt.sudo;zypper install kubevirt-manifests
-&prompt.sudo;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-operator.yaml
-&prompt.sudo;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-cr.yaml</screen>
+&prompt.user;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-operator.yaml
+&prompt.user;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-cr.yaml</screen>
 
-  <para> Before <package>virt-operator</package> can deploy the KubeVirt components it must be given
-   permissions to perform cluster operations such as creating and managing Deployments, DaemonSets,
-   Services, etc. <package>virt-handler</package> requires similar privileges. If deploying KubeVirt
-   to a CaaSP cluster, <package>virt-operator</package> and <package>virt-handler</package> can use
-   the CaaSP privileged Pod Security Policy (PSP) for the required privileges. The CaaSP privileged
-   PSP can be added to the operator's and handler's ClusterRole with the following kubectl's patch
-   command. Adjust the ClusterRole patch as needed for non-CaaSP based Kubernetes clusters. </para>
+  <para> After creating the KubeVirt custom resource, <package>virt-operator</package> will deploy
+   the remaining KubeVirt components. Progress can be monitored by viewing the status of the
+   resources in the <package>kubevirt</package> namespace: </para>
 
-  <screen>&prompt.sudo;kubectl -n kubevirt patch clusterrole/kubevirt-operator --type='json' -p='[{"op": "add", "path": "/rules/-1", "value": {"apiGroups":["policy"],"resourceNames":["suse.caasp.psp.privileged"],"resources":["podsecuritypolicies"],"verbs":["use"]}}]'
-&prompt.sudo;kubectl -n kubevirt patch clusterrole/kubevirt-handler --type='json' -p='[{"op": "add", "path": "/rules/-1", "value": {"apiGroups":["policy"],"resourceNames":["suse.caasp.psp.privileged"],"resources":["podsecuritypolicies"],"verbs":["use"]}}]'
-  </screen>
-
-  <para> After creating the KubeVirt custom resource and giving <package>virt-operator</package>
-   sufficient privileges, it will deploy the remaining KubeVirt components. Progress can be
-   monitored by viewing the status of the resources in the <package>kubevirt</package> namespace: </para>
-
-  <screen>&prompt.sudo;kubectl get all -n kubevirt</screen>
+  <screen>&prompt.user;kubectl get all -n kubevirt</screen>
   <para> The cluster is ready to deploy virtual machines once <package>virt-api</package>,
     <package>virt-controller</package>, and <package>virt-handler</package> are READY with STATUS
    'Running'. </para>
 
-  <para> Prior to deploying virtual machines to the cluster, <package>virt-controller</package> and
-    <package>virt-handler</package> must be given cluster permissions to perform cluster operations
-   necessary for virtual machine management, such as pod creation and configuration, network and
-   storage setup, etc. Without the additional privileges, <package>virt-controller</package> and
-    <package>virt-handler</package> will not have access to these operations and virtual machines
-   will fail to deploy. </para>
+  <para> Alternatively it is possible to wait until KubeVirt custom resource becomes availalble: </para>
 
-  <para> For CaaSP-based Kubernetes clusters, <package>kubevirt-manifests</package> provides
-   ClusterRoles that give <package>virt-controller</package> and <package>virt-handler</package> the
-   required permissions. These ClusterRoles also use the CaaSP privileged PSP and can be installed
-   with the following command: </para>
-
-  <screen>&prompt.sudo;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-psp-caasp.yaml</screen>
+  <screen>&prompt.user;kubectl -n kubevirt wait kv kubevirt --for condition=Available</screen>
 
   <para> Some KubeVirt functionality is disabled by default and must be enabled via feature gates.
    For example live migration and the use of HostDisk for virtual machine disk images are disabled.
-   Enabling KubeVirt feature gates can be done by editing or creating a <filename>kubevirt-config</filename> configmap
-   resource and specifying the list of features to enable. For example, you can enable live migration and
+   Enabling KubeVirt feature gates can be done by altering an existing KubeVirt custom resource and
+   specifying the list of features to enable. For example, you can enable live migration and
    the use of HostDisks: </para>
 
-  <screen>&prompt.sudo;kubectl create configmap kubevirt-config -n kubevirt --from-literal feature-gates=HostDisk,LiveMigration</screen>
+  <screen>&prompt.user;kubectl edit kubevirt kubevirt -n kubevirt
+    ...
+    spec:
+      configuration:
+        developerConfiguration:
+          featureGates:
+            - HostDisk
+            - LiveMigration
+  </screen>
+
+  <note>
+   <para> The names of feature gates are case sensitive. </para>
+  </note>
 
  </sect1>
 
@@ -182,14 +173,10 @@
   <title>Updating the KubeVirt deployment</title>
 
   <para> Updating KubeVirt is similar to the initial installation. The updated operator manifest from
-   the <package>kubevirt-manifests</package> package is applied to the cluster. The updated operator
-   is given additional cluster privileges. And finally, the updated handler is given the additional
-   privileges. </para>
+   the <package>kubevirt-manifests</package> package is applied to the cluster. </para>
 
   <screen>&prompt.sudo;zypper update kubevirt-manifests
-&prompt.sudo;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-operator.yaml
-&prompt.sudo;kubectl -n kubevirt patch clusterrole/kubevirt-operator --type='json' -p='[{"op": "add", "path": "/rules/-1", "value": {"apiGroups":["policy"],"resourceNames":["suse.caasp.psp.privileged"],"resources":["podsecuritypolicies"],"verbs":["use"]}}]'
-&prompt.sudo;kubectl -n kubevirt patch clusterrole/kubevirt-handler --type='json' -p='[{"op": "add", "path": "/rules/-1", "value": {"apiGroups":["policy"],"resourceNames":["suse.caasp.psp.privileged"],"resources":["podsecuritypolicies"],"verbs":["use"]}}]'
+&prompt.user;kubectl apply -f /usr/share/kube-virt/manifests/release/kubevirt-operator.yaml
 </screen>
  </sect1>
 
@@ -211,7 +198,7 @@
    vCPUs, amount of memory, disks, network ports, etc. Below is a simple example of a VMI manifest
    for a virtual machine with one Nehalem CPU, 2G of memory, one disk, and one network interface: </para>
 
-  <screen>apiVersion: kubevirt.io/v1alpha3
+  <screen>apiVersion: kubevirt.io/v1
 kind: VirtualMachineInstance
 metadata:
   labels:
@@ -251,8 +238,8 @@ spec:
   <para> Applying this VMI manifest to the cluster will create a virt-launcher container running
    <package>libvirt</package> and <package>qemu</package>, providing the familiar KVM virtual machine environment. </para>
 
-  <screen>&prompt.sudo;kubectl apply -f sles15sp2vmi.yaml
-  &prompt.sudo;kubectl get vmis</screen>
+  <screen>&prompt.user;kubectl apply -f sles15sp2vmi.yaml
+&prompt.user;kubectl get vmis</screen>
 
   <para> Similar to other Kubernetes resources, VMs and VMIs can be managed with the
     <package>kubectl</package> client tool. Any <package>kubectl</package> operation that works with
@@ -261,52 +248,51 @@ spec:
    Since a VM resource can be in a shutoff state, turning it on requires patching the manifest to
    change the desired state to running. Find an example below: </para>
 
-  <screen>&prompt.sudo;kubectl patch vm sles15sp2 --type merge -p '{"spec":{"running":true}}'</screen>
+  <screen>&prompt.user;kubectl patch vm sles15sp2 --type merge -p '{"spec":{"running":true}}'</screen>
 
   <para> The <package>virtctl</package> tool included in the <package>kubevirt-virtclt</package>
    package provides syntactic sugar on top of <package>kubectl</package> for VM and VMI resources,
    allowing them to be stopped, started, paused, unpaused, and migrated. <package>virtctl</package>
    also provides access to the virtual machine's serial console and graphics server. Find an example below: </para>
 
-  <screen>&prompt.sudo;virtctl start VM
-&prompt.sudo;virtctl console VMI
-&prompt.sudo;virtctl stop VM
-&prompt.sudo;virtctl pause VM|VMI
-&prompt.sudo;virtctl unpause VM|VMI
-&prompt.sudo;virtctl vnc VMI
-&prompt.sudo;virtctl migrate VM</screen>
+  <screen>&prompt.user;virtctl start VM
+&prompt.user;virtctl console VMI
+&prompt.user;virtctl stop VM
+&prompt.user;virtctl pause VM|VMI
+&prompt.user;virtctl unpause VM|VMI
+&prompt.user;virtctl vnc VMI
+&prompt.user;virtctl migrate VM</screen>
  </sect1>
 
  <sect1 xml:id="sec-virtualization-kubevirt-debug">
   <title>Debugging</title>
 
-  <para> KubeVirt is a technology preview and needs more deployment experience and testing before it
-   becomes fully supported. If issues are encountered the following debug resources are available to
-   help identify the problem. </para>
+  <para> If issues are encountered the following debug resources are available to help identify the
+   problem. </para>
 
   <para> The status of all KubeVirt resources can be examined with the <command>kubectl
     get</command> command: </para>
 
-  <screen>&prompt.sudo;kubectl get all -n kubevirt</screen>
+  <screen>&prompt.user;kubectl get all -n kubevirt</screen>
 
   <para> Resources with failed status can be further queried by examining their definition and
   expanded status information. </para>
   
-  <screen>&prompt.sudo;kubectl describe deployment virt-operator
-&prompt.sudo;kubectl get deployment virt-operator -o yaml -n kubevirt
-&prompt.sudo;kubectl describe pod virt-handler-xbjkg -n kubevirt
-&prompt.sudo;kubectl get pod virt-handler-xbjkg -o yaml -n kubevirt</screen>
+  <screen>&prompt.user;kubectl describe deployment virt-operator
+&prompt.user;kubectl get deployment virt-operator -o yaml -n kubevirt
+&prompt.user;kubectl describe pod virt-handler-xbjkg -n kubevirt
+&prompt.user;kubectl get pod virt-handler-xbjkg -o yaml -n kubevirt</screen>
 
   <para> Logs from the problematic KubeVirt pod can contain a wealth of information since <package>stderr</package> and
    service logging from within the pod is generally available via the Kubernetes log service: </para>
 
-  <screen>&prompt.sudo;kubectl logs virt-operator-558c57bc4-mg68w -n kubevirt
-  &prompt.sudo;kubectl logs virt-handler-xbjkg -n kubevirt</screen>
+  <screen>&prompt.user;kubectl logs virt-operator-558c57bc4-mg68w -n kubevirt
+  &prompt.user;kubectl logs virt-handler-xbjkg -n kubevirt</screen>
 
   <para> If the underlying pod is running but there are problems with the service running in it, a
    shell can be accessed to inspect the pod environment and poke at its service: </para>
 
-  <screen>&prompt.sudo;kubectl -n kubevirt exec -it virt-handler-xbjkg -- /bin/bash</screen>
+  <screen>&prompt.user;kubectl -n kubevirt exec -it virt-handler-xbjkg -- /bin/bash</screen>
 
  </sect1>
 

@@ -180,6 +180,62 @@
 </screen>
  </sect1>
 
+ <sect1 xml:id="sec-virtualization-kubevirt-deleting">
+  <title>Deleting KubeVirt from a cluster</title>
+
+  <para> KubeVirt can be deleted from a cluster by deleting the custom resource and operator: </para>
+
+  <screen>&prompt.user;kubectl delete -n kubevirt kubevirt kubevirt # or alternatively: kubectl delete -f /usr/share/kube-virt/manifests/release/kubevirt-cr.yaml
+&prompt.user;kubectl delete -f /usr/share/kube-virt/manifests/release/kubevirt-operator.yaml</screen>
+
+  <note>
+   <para> It is important to delete the custom resource first otherwise it will get stuck in the
+    <package>Terminating</package> state. To fix that the resource finalizer needs to be manually
+    deleted: </para>
+
+   <screen>&prompt.user;kubectl -n kubevirt patch kv kubevirt --type=json -p '[{ "op": "remove", "path": "/metadata/finalizers" }]'</screen>
+  </note>
+
+  <para> After deleting the recources from Kubernetes cluster the installed KubeVirt RPMs can be
+   removed from the system: </para>
+
+  <screen>&prompt.sudo;zypper rm kubevirt-manifests kubevirt-virtctl</screen>
+ </sect1>
+
+ <sect1 xml:id="sec-virtualization-kubevirt-cdi">
+  <title>Containerized Data Importer</title>
+
+  <para> Containerized Data Importer (CDI) is an add-on for Kubernetes focused on persistent
+   storage management. It is primarily used for building and importing Virtual Machine Disks
+   for KubeVirt. </para>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-cdi-installation">
+   <title>Installing CDI</title>
+
+   <para> CDI can be installed on a Kubernetes cluster in a way similar to KubeVirt by installing
+    the RPMs and applying the operator and custom resource manifests using kubectl: </para>
+
+   <screen>&prompt.sudo;$ sudo zypper in containerized-data-importer-manifests
+&prompt.user;kubectl apply -f /usr/share/cdi/manifests/release/cdi-operator.yaml
+&prompt.user;kubectl apply -f /usr/share/cdi/manifests/release/cdi-cr.yaml</screen>
+  </sect2>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-cdi-updating-deleting">
+   <title>Updating and deleting CDI:</title>
+
+   <para> To update CDI: </para>
+
+   <screen>&prompt.sudo;zypper update containerized-data-importer-manifests
+&prompt.user;kubectl apply -f /usr/share/cdi/manifests/release/cdi-operator.yaml</screen>
+
+   <para> To delete CDI: </para>
+
+   <screen>&prompt.user;kubectl delete -f /usr/share/cdi/manifests/release/cdi-cr.yaml
+&prompt.user;kubectl delete -f /usr/share/cdi/manifests/release/cdi-operator.yaml
+&prompt.sudo;zypper rm containerized-data-importer-manifests</screen>
+  </sect2>
+ </sect1>
+
  <sect1 xml:id="sec-virtualization-kubevirt-running-vm">
   <title>Running virtual machines</title>
 
@@ -262,6 +318,277 @@ spec:
 &prompt.user;virtctl unpause VM|VMI
 &prompt.user;virtctl vnc VMI
 &prompt.user;virtctl migrate VM</screen>
+ </sect1>
+
+ <sect1 xml:id="sec-virtualization-kubevirt-live-migration">
+  <title>Live migration</title>
+
+  <para> KubeVirt supports live migration of VMs. Though this functionality must first be activated
+   by adding <package>LiveMigration</package> to the list of feature gates in the KubeVirt custom
+   resource.</para>
+
+  <screen>&prompt.user;kubectl edit kubevirt kubevirt -n kubevirt</screen>
+  <screen>
+spec:
+  configuration:
+    developerConfiguration:
+      featureGates:
+        - LiveMigration</screen>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-live-migration-prerequisites">
+   <title>Prerequisites</title>
+
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> All the Persistent Volume Claims (PVCs) used by a VM must have `ReadWriteMany` (RWX)
+      access mode. </para>
+    </listitem>
+    <listitem>
+     <para> VM pod network binding must be of type <package>masquerade</package>: </para>
+     <screen>
+spec:
+  domain:
+    devices:
+      interfaces:
+        - name: green
+          masquerade: {}</screen>
+    </listitem>
+   </itemizedlist>
+
+   <para> Whether live migration is possible or not can be checked via the <package>VMI.status.conditions</package>
+    field of a running VM spec: </para>
+
+   <screen>&prompt.user;kubectl describe vmi sles15sp2</screen>
+   <screen>
+Status:
+  Conditions:
+    Status: True
+    Type: LiveMigratable
+  Migration Method: BlockMigration</screen>
+   </sect2>
+
+   <sect2 xml:id="sec-virtualization-kubevirt-live-migration-init">
+    <title>Initiate live migration</title>
+
+    <para> Live migration of a VMI can be initiated by applying the following yaml file: </para>
+
+    <screen>
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstanceMigration
+metadata:
+  name: migration-job
+spec:
+  vmiName: sles15sp2</screen>
+    <screen>&prompt.user;kubectl apply -f migration-job.yaml</screen>
+
+    <para> Alternatively it is possible to migrate a VM using <package>virtctl</package> tool: </para>
+
+    <screen>&prompt.user;virtctl migrate VM</screen>
+   </sect2>
+
+   <sect2 xml:id="sec-virtualization-kubevirt-live-migration-cancel">
+    <title>Cancel live migration</title>
+
+    <para> Live migration can be canceled by deleting the existing migration object: </para>
+
+    <screen>&prompt.user;kubectl delete VirtualMachineInstanceMigration migration-job</screen>
+   </sect2>
+ </sect1>
+
+ <sect1 xml:id="sec-virtualization-kubevirt-hotplug-volumes">
+  <title>Hotplug volumes</title>
+
+  <para> KubeVirt allows hotplugging additional storage into a running VM. Both block and
+   filesystem volume types are supported. Hotplug volumes feature can be activated via the
+   <package>HotplugVolumes</package> feature gate: </para>
+
+  <screen>&prompt.user;kubectl edit kubevirt kubevirt -n kubevirt</screen>
+  <screen>
+spec:
+  configuration:
+    developerConfiguration:
+      featureGates:
+        - HotplugVolumes</screen>
+
+  <para> Assuming that <package>hp-volume</package> is an existing DataVolume or PVC,
+   <package>virtctl</package> can be used to operate with the volume on a runnig VM: </para>
+
+  <screen>&prompt.user;virtctl addvolume sles15sp2 --volume-name=hp-volume
+&prompt.user;virtctl removevolume sles15sp2 --volume-name=hp-volume</screen>
+ </sect1>
+
+ <sect1 xml:id="sec-virtualization-kubevirt-vmdp">
+  <title>Running Windows VMs with VMDP ISO</title>
+
+  <para> The VMDP ISO is provided in the form of a container image which can be consumed by
+   KubeVirt. In order to run a Windows VM with VMDP ISO attached the corresponding
+   <package>containerDisk</package> needs to be added to the VM definition: </para>
+
+  <screen>
+spec:
+  domain:
+    devices:
+      disks:
+        - name: vmdp
+          cdrom:
+            bus: sata
+volumes:
+  - containerDisk:
+      image: registry.suse.com/suse/vmdp/vmdp:latest
+    name: vmdp</screen>
+
+  <note>
+   <para> The sequence in which the disks are defined affects the boot order. It is possible to
+    specify the <package>bootOrder</package> explicitly or otherwise sort the disk items as
+    needed. </para>
+  </note>
+ </sect1>
+
+ <sect1 xml:id="sec-virtualization-kubevirt-supported-features">
+  <title>Supported features</title>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> Guest Agent Information </para>
+    </listitem>
+    <listitem>
+     <para> Live migration </para>
+    </listitem>
+    <listitem>
+     <para> Hotplug volumes </para>
+    </listitem>
+    <listitem>
+     <para> VMI Dedicated CPU resource </para>
+    </listitem>
+   </itemizedlist>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-supported-hardware">
+   <title>VMI Virtual Hardware</title>
+
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> machine type </para>
+    </listitem>
+    <listitem>
+     <para> BIOS/UEFI/SMBIOS </para>
+    </listitem>
+    <listitem>
+     <para> cpu </para>
+    </listitem>
+    <listitem>
+     <para> clock </para>
+    </listitem>
+    <listitem>
+     <para> RNG </para>
+    </listitem>
+    <listitem>
+     <para> CPU/Memory limits and requirements </para>
+    </listitem>
+    <listitem>
+     <para> tablet input </para>
+    </listitem>
+    <listitem>
+     <para> hugepage </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-supported-storage">
+   <title>VMI Disks and Volumes</title>
+
+   <para> Disk types: </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> lun </para>
+    </listitem>
+    <listitem>
+    <para> disk </para>
+    </listitem>
+    <listitem>
+     <para> cdrom </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> Volume sources: </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> cloudInitNoCloud </para>
+    </listitem>
+    <listitem>
+     <para> cloudInitConfigDrive </para>
+    </listitem>
+    <listitem>
+     <para> persistentVolumeClaim </para>
+    </listitem>
+    <listitem>
+     <para> dataVolume </para>
+    </listitem>
+    <listitem>
+     <para> ephemeral </para>
+    </listitem>
+    <listitem>
+     <para> containerDisk </para>
+    </listitem>
+    <listitem>
+     <para> emptyDisk </para>
+    </listitem>
+    <listitem>
+     <para> hostDisk </para>
+    </listitem>
+    <listitem>
+     <para> configMap </para>
+    </listitem>
+    <listitem>
+     <para> secret </para>
+    </listitem>
+    <listitem>
+     <para> serviceAccount </para>
+    </listitem>
+    <listitem>
+     <para> downwardMetrics </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> High performance features: </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> IO threads </para>
+    </listitem>
+    <listitem>
+     <para> Virtio Block Multi-Queue </para>
+    </listitem>
+    <listitem>
+     <para> Disk cache </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
+  <sect2 xml:id="sec-virtualization-kubevirt-supported-networks">
+   <title>VMI Interfaces and Networks</title>
+
+   <para> Network (backend) types: </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> pod </para>
+    </listitem>
+    <listitem>
+     <para> multus </para>
+    </listitem>
+   </itemizedlist>
+
+   <para> Interface (frontend) types: </para>
+   <itemizedlist mark="bullet" spacing="normal">
+    <listitem>
+     <para> bridge </para>
+    </listitem>
+    <listitem>
+     <para> masquerade </para>
+    </listitem>
+    <listitem>
+     <para> macvtap </para>
+    </listitem>
+   </itemizedlist>
+  </sect2>
+
  </sect1>
 
  <sect1 xml:id="sec-virtualization-kubevirt-debug">

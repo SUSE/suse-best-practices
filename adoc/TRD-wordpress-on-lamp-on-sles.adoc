@@ -1,0 +1,707 @@
+:docinfo:
+
+// = {title}
+= WordPress on LAMP on SUSE Linux Enterprise Server
+// SUSE Linux Enterprise Server 12, SUSE Linux Enterprise Server 15
+// :author: James Yang
+:revnumber: 0.0.1
+:toc2:
+:toc-title: WordPress on LAMP on SLES
+:toclevels: 4
+
+:sles: SUSE Linux Enterprise Server
+
+== Scope
+The https://en.wikipedia.org/wiki/LAMP_(software_bundle)[LAMP] stack while simple is *ubiquitous* - it's popularity in demos/tutorials all over the net to introduce a new concept or explain a complex one is like no other. This guide details how to install and configure https://mariadb.org/[MariaDB], https://httpd.apache.org/[Apache], https://www.php.net/[PHP] on https://www.suse.com/products/server/[{sles}] to compose the https://en.wikipedia.org/wiki/LAMP_(software_bundle)[LAMP] stack. To demonstrate our LAMP stack is functional we'll install and configure https://wordpress.com[WordPress] to utilize the stack. The audience is expected to have a basic familiarity of Linux and be comfortable using the command line interface. The result is not intended for production scenarios but rather for *workshops* or *demos*.
+
+=== The LAMP Stack
+
+- **L**inux - {sles} Operating System
+- **A**pache - HTTP Server
+- **M**ariaDB - Relational Database
+- **P**HP - Programming Language
+
+This diagram roughly visualizes what the stack looks like once completed.
+
+image::TRD-wordpress-on-lamp-on-sles_one-tier.png[align="center"]
+
+=== MariaDB and MySQL
+
+Starting with {sles} 12, MySQL has been https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[replaced] with MariaDB. MariaDB's client protocol is "wire" compatible with MySQL's protocol and in most scenarios even the data files are binary compatible. For our purposes MariaDB will work just fine (and still spells LAMP!). If you'd like more information visit https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB versus MySQL: Compatibility].
+
+
+== Preinstallation / Prerequisites
+
+=== System requirements
+
+* CPU with 1 core
+* AMD64/Intel 64 architecture
+* 2 GB disk space
+* 2 GB RAM
+* an https://documentation.suse.com/sles/15-SP3/single-html/SLES-installation/#article-installation[installation] of {sles}
+
+NOTE: These requirements cover a minimal installation, adapt as needed to cover your use case.
+
+[id="server_registration"]
+=== Server registration
+
+Before starting, ensure your {sles} instance is registered by following this https://www.suse.com/support/kb/doc/?id=000018564[knowledge base article] to enable access to repositories. If you are using one of our "pay-as-you-go" aka "on-demand" images on one of the public cloud providers, you may omit this step.
+
+
+=== Refresh repositories
+. Prior to starting the installation, let's refresh our repositories to ensure we have the latest packages to install.
+
+[source,bash]
+sudo zypper update --no-confirm
+
+[source,bash]
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+...
+
+== Install and Configure
+
+=== MariaDB Setup
+We'll first start with the MariaDB installation, verifying successful installation, starting up MariaDB, then creating a database and associated user for Wordpress to use. MariaDB will store all the data in our WordPress application.
+
+
+. Install the MariaDB package. The `--no-confirm` option bypasses the user confirmation to install.
+
++
+[source,bash]
+sudo zypper install --no-confirm mariadb
++
+
++
+[source,bash]
+----
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 9 NEW packages are going to be installed:
+  libJudy1 libmariadb3 libpq5 mariadb mariadb-client mariadb-errormessages psqlODBC python3-mysqlclient unixODBC
+
+The following 2 recommended packages were automatically selected:
+  mariadb psqlODBC
+
+9 new packages to install.
+Overall download size: 23.7 MiB. Already cached: 0 B. After the operation, additional 171.2 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+Retrieving package libmariadb3-3.1.13-3.30.1.x86_64                                                                                             (1/9), 132.3 KiB (354.9 KiB unpacked)
+...
+----
++
+
+. Enable MariaDB to start automatically on boot (optional).
+
++
+[source,bash]
+sudo systemctl enable mariadb
++
+
++
+[source,bash]
+Created symlink /etc/systemd/system/mysql.service → /usr/lib/systemd/system/mariadb.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/mariadb.service → /usr/lib/systemd/system/mariadb.service.
++
+
+. Start MariaDB.
++
+[source,bash]
+sudo systemctl start mariadb
++
+
+. Check to see that MariaDB actually started. The `Active` output field should read `active(running)`.
+
++
+[source,bash]
+----
+sudo systemctl status mariadb
+----
+
++
+[source,bash]
+----
+● mariadb.service - MariaDB database server
+   Loaded: loaded (/usr/lib/systemd/system/mariadb.service; disabled; vendor preset: disabled)
+   Active: active (running) since Fri 2021-07-02 01:55:22 UTC; 7s ago
+     Docs: man:mysqld(8)
+           https://mariadb.com/kb/en/library/systemd/
+  Process: 26513 ExecStartPre=/usr/lib/mysql/mysql-systemd-helper upgrade (code=exited, status=0/SUCCESS)
+  Process: 26447 ExecStartPre=/usr/lib/mysql/mysql-systemd-helper install (code=exited, status=0/SUCCESS)
+ Main PID: 26519 (mysqld)
+   Status: "Taking your SQL requests now..."
+    Tasks: 30
+   CGroup: /system.slice/mariadb.service
+           └─26519 /usr/sbin/mysqld --defaults-file=/etc/my.cnf --user=mysql
+----
++
+
+. Verify we can connect to MariaDB with the `mariadb` client. The `-u` flag selects the user to login as. Here we are using the `root` user since no other users exist yet (except the default user discussed <<default-user,below>>). The `MariaDB [(none)]>` prompt indicates you are now in the https://mariadb.com/kb/en/mysql-command-line-client/[MariaDB shell] with no default database, hence "none". 
+
++
+[source,bash]
+----
+mariadb -u root
+----
++
+
++
+[source,bash]
+----
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 3
+Server version: 10.5.11-MariaDB MariaDB package
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]> 
+----
++
+
+. [[default-user]] The MariaDB installation comes with a pesky default user that can mask login attempts from other users from localhost. While still in the MariaDB shell, let's remove this user.
+
++
+[source,sql]
+----
+DROP USER ''@localhost;
+----
++
+
+e.g.
++
+[source,sql]
+----
+MariaDB [(none)]> DROP USER ''@localhost;
+Query OK, 0 rows affected (0.003 sec)
+----
++
+
+. Now let's create a database for Wordpress and a corresponding user. Replace `password` with your own password. Exit the MariaDB shell once completed.
+
++
+[source,sql]
+----
+CREATE DATABASE IF NOT EXISTS wordpress;
+GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress' IDENTIFIED BY 'password';
+exit;
+----
++
+
+e.g.
++
+[source,sql]
+----
+MariaDB [(none)]> CREATE DATABASE IF NOT EXISTS wordpress;
+Query OK, 1 row affected (0.000 sec)
+
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress' IDENTIFIED BY 'password';
+Query OK, 0 rows affected (0.003 sec)
+
+MariaDB [(none)]> exit
+Bye
+----
+
+. Verify we can connect as the wordpress user. Replace `password` with your own password.
+
++
+[source,sql]
+mariadb -u wordpress -p wordpress
++
+
++
+[source,sql]
+----
+Enter password: 
+Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 4
+Server version: 10.5.11-MariaDB MariaDB package
+
+Copyright (c) 2000, 2018, Oracle, MariaDB Corporation Ab and others.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [wordpress]>
+----
++
+
+. We've completed the MariaDB section. Exit the MariaDB shell.
+
++
+[source,sql]
+exit
++
+
+e.g.
++
+[source,sql]
+----
+MariaDB [wordpress]> exit
+Bye
+----
++
+
+
+=== Apache Http Server Setup
+
+Next up is Apache server. Apache server is used to host and serve the Wordpress content. In this section, we will install Apache server and configure it to start on boot.
+
+. Install the apache2 package.
++
+[source,bash]
+----
+zypper install --no-confirm apache2
+----
+
++
+[source,bash]
+----
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Refreshing service 'Web_and_Scripting_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 2 NEW packages are going to be installed:
+  apache2 apache2-prefork
+
+2 new packages to install.
+Overall download size: 1.6 MiB. Already cached: 0 B. After the operation, additional 4.9 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+Retrieving package apache2-2.4.43-3.22.1.
+...
+----
++
+
+. Enable the apache2 service to starts on boot (optional).
++
+[source,bash]
+----
+systemctl enable apache2
+----
++
+
++
+[source,bash]
+----
+Created symlink /etc/systemd/system/httpd.service → /usr/lib/systemd/system/apache2.service.
+Created symlink /etc/systemd/system/apache.service → /usr/lib/systemd/system/apache2.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/apache2.service → /usr/lib/systemd/system/apache2.service.
+----
++
+
+
+=== PHP Setup
+
+With Apache installed, let's continue with php. Wordpress is written in php as the main scripting language which in conjunction with the Apache php module enables rendering  html pages for browsers to display. The section details how to enable the https://documentation.suse.com/sles/15-SP2/html/SLES-all/art-modules.html#sec-modules-what-modules[_Web and Scripting Module_], install php, install Apache php module, then finally configure Apache to handle php files.
+
+. First, we'll need the _Web and Scripting Module_ which is included with your {sles} subscription. The _Web and Scripting Module_ contains common tools such as php, python, node.js for hosting web applications. `SUSEConnect` will allows us to enable this module. The `--product` option configures the module to enable. Substitute with your specific {sles} version, `\{sles_version}` and System Architecture, `\{architecture}`.
+
++
+[source,bash]
+----
+> sudo SUSEConnect --product sle-module-web-scripting/{sles_version}/{architecture}
+----
++
+
+e.g.
++
+[source,bash]
+----
+sudo SUSEConnect --product sle-module-web-scripting/15.3/x86_64
+----
++
+
++
+[source,bash]
+----
+Registering system to SUSE Customer Center
+
+Updating system details on https://scc.suse.com ...
+
+Activating sle-module-web-scripting 15.3 x86_64 ...
+-> Adding service to system ...
+-> Installing release package ...
+
+Successfully registered system
+----
++
+
+. Now we can install php and the Apache php module we'll need later on.
+
++
+[source,bash]
+----
+sudo zypper install -y php php-mysql php-zlib apache2-mod_php7
+----
++
+
++
+[source,bash]
+----
+Refreshing service 'Basesystem_Module_15_SP3_x86_64'.
+Refreshing service 'SUSE_Linux_Enterprise_Server_15_SP3_x86_64'.
+Refreshing service 'Server_Applications_Module_15_SP3_x86_64'.
+Refreshing service 'Web_and_Scripting_Module_15_SP3_x86_64'.
+Loading repository data...
+Reading installed packages...
+Resolving package dependencies...
+
+The following 13 NEW packages are going to be installed:
+  apache2-mod_php7 php7 php7-ctype php7-dom php7-iconv php7-json php7-mysql php7-pdo php7-sqlite php7-tokenizer php7-xmlreader php7-xmlwriter php7-zlib
+
+The following 8 recommended packages were automatically selected:
+  php7-ctype php7-dom php7-iconv php7-json php7-sqlite php7-tokenizer php7-xmlreader php7-xmlwriter
+
+The following 3 packages are suggested, but will not be installed:
+  php7-gd php7-gettext php7-mbstring
+
+13 new packages to install.
+Overall download size: 3.7 MiB. Already cached: 0 B. After the operation, additional 20.5 MiB will be used.
+Continue? [y/n/v/...? shows all options] (y): y
+...
+
+----
++
+
+. Test our php install.
+
++
+[source,bash]
+----
+php --version
+----
+
++
+[source,bash]
+----
+PHP 7.4.6 (cli) ( NTS )
+Copyright (c) The PHP Group
+Zend Engine v3.4.0, Copyright (c) Zend Technologies
+----
++
+
+. Enable the apache php module with `a2enmod`.
++
+[source,bash]
+----
+a2enmod php7
+----
+
+. Associate php files with the `application/x-httpd-php` content type so php files are rendered on the client.
++
+[source,bash]
+----
+echo -e "AddType application/x-httpd-php .php\n" >> /etc/apache2/mod_mime-defaults.conf
+----
+
+
+=== WordPress Setup
+
+Final component in our stack is WordPress. Here we will download, insatll and configure WordPress to connect to MariaDB.
+
+. First download Wordpress.
+
++
+[source,bash]
+----
+curl -L https://wordpress.org/latest.zip -o /opt/wordpress_latest.zip
+----
++
+
++
+[source,bash]
+----
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 15.7M  100 15.7M    0     0  3209k      0  0:00:05  0:00:05 --:--:-- 3510k
+----
++
+
+. Extract the zip file.
++
+[source,bash]
+----
+unzip /opt/wordpress_latest.zip -d /opt
+----
++
+
++
+[source,bash]
+----
+Archive:  /opt/wordpress_latest.zip
+   creating: /opt/wordpress/wordpress/
+  inflating: /opt/wordpress/wordpress/xmlrpc.php  
+  inflating: /opt/wordpress/wordpress/wp-blog-header.php  
+  inflating: /opt/wordpress/wordpress/readme.html  
+...
+----
++
+
+. By default Apache serves documents from `/srv/www/htdocs`, so let's move the WordPress contents there.
++
+[source,bash]
+----
+mv wordpress/* /srv/www/htdocs/
+----
+
+. Create a copy of the `wp-config` php configuration file so we can apply our installation specific settings.
++
+[source,bash]
+----
+cp /srv/www/htdocs/wp-config-sample.php /src/www/htdocs/wp-config.php
+----
+
+. Now update the configuration with the database setttings. Replace `password` with your password.
++
+[source,bash]
+----
+sed -i 's/database_name_here/wordpress/' /srv/www/htdocs/wp-config.php
+sed -i 's/username_here/wordpress/' /srv/www/htdocs/wp-config.php
+sed -i 's/password_here/password/' /srv/www/htdocs/wp-config.php
+----
+
+=== Configure Firewalld
+You may need to open up port 80 on the firewall to allow clients to connect to Apache. If you're not using a firewall or it's disabled, skip this section.
+
+. To check if https://firewalld.org/[firewalld] (firewall service) is running use systemctl.
+
++
+[source,bash]
+----
+systemcl status firewalld
+----
++
+
+If it's not found, proceed to the next section.
++
+[source,bash]
+----
+Unit firewalld.service could not be found.
+----
++
+
+Otherwise if it's running as shown below, continue this section to open port 80.
++
+[source,bash]
+----
+● firewalld.service - firewalld - dynamic firewall daemon
+     Loaded: loaded (/usr/lib/systemd/system/firewalld.service; enabled; vendor preset: disabled)
+     Active: active (running) since Fri 2021-10-29 19:10:33 PDT; 28min ago
+       Docs: man:firewalld(1)
+   Main PID: 858 (firewalld)
+      Tasks: 2
+     CGroup: /system.slice/firewalld.service
+             └─858 /usr/bin/python3 /usr/sbin/firewalld --nofork --nopid
+
+Oct 29 19:10:31 localhost systemd[1]: Starting firewalld - dynamic firewall daemon...
+Oct 29 19:10:33 localhost systemd[1]: Started firewalld - dynamic firewall daemon.
+----
++
+
+. Add the http service to the firewall permanently.
++
+[source,bash]
+----
+firewall-cmd --permanent --add-service http
+----
++
+
++
+[source,bash]
+----
+You''re performing an operation over default zone ('external'),
+but your connections/interfaces are in zone 'docker' (see --get-active-zones)
+You most likely need to use --zone=docker option.
+
+success
+----
++
+
+. Reload the firewall to apply the changes.
+
++
+[source,bash]
+----
+firewall-cmd --reload
+----
++
+
+[source,bash]
++
+----
+success
+----
++
+
+
+=== Start it Up!
+
+. Everything should be configured now, so we can start up Apache server.
++
+[source,bash]
+----
+systemctl start apache2
+----
+
+. Open a browser with your server ip or hostname at http://`hostname` and you should be presented with the WordPress installation page. Congrats!
+
+image::TRD-wordpress-on-lamp-on-sles_wordpress-installation-page.png[align="center"]
+
+== 2-Tier Architecture
+
+If you'd like create a 2 tier architecture and separate the database server from the application server like so:
+
+image::TRD-wordpress-on-lamp-on-sles_two-tier.png[align="center"]
+
+Just a few additional steps are needed. As before, ensure both servers are <<server_registration,registered>> before starting.
+
+=== Database server
+
+On the database server make the following changes:
+
+. Repeat the previous steps for <<MariaDB Setup>>.
+
+. MariaDB binds only to the loopback interface by default, so let's change it to bind to all addreses.
++
+[source,bash]
+----
+sed -i 's/= 127.0.0.1/= 0.0.0.0/' /etc/my.cnf
+----
+
+. Restart MariaDB so it picks up the changes.
++
+[source,bash]
+----
+systemctl restart mariadb
+----
+
+. Open up port 3306 (default for MariaDB) so clients can connect. Skip this step if not using firewall.
+
++
+[source,bash]
+----
+firewall-cmd --add-port 3306/tcp --permanent
+----
++
+
++
+[source,bash]
+----
+success
+----
++
+
+
+=== Application Server
+
+On the application server:
+
+. Verify the Application Server has connectivity to MariaDB on the Database Server.
++
+[source,bash]
+----
+nc -vz ${ip of database server} 3306
+----
++
+
+e.g. 
++
+[source,bash]
+----
+>  nc -vz 10.0.0.40 3306
+Connection to 10.0.0.40 3306 port [tcp/mysql] succeeded!
+----
++
+
+. Then repeat the previous steps for the <<Apache Http Server Setup>>, <<PHP Setup>>, <<WordPress Setup>> sections as well as the <<Configure Firewalld>> portion.
+
+. One additional step is required to point WordPress at the database server. Replace `application_server_ip` with the ip address of your MariaDB server.
+
++
+[source,bash]
+----
+sed -i "s/'DB_HOST', 'localhost'/'DB_HOST', '${application_server_ip}'/" /srv/www/htdocs/wp-config.php
+----
++
+
+e.g.
++
+[source,bash]
+----
+> sed -i "s/'DB_HOST', 'localhost'/'DB_HOST', '10.0.0.40'/" /srv/www/htdocs/wp-config.php
+----
+
+. Visit http://`application_server_ip` with a browser and you should be good to go!
+
+
+== Appendix
+
+[id="debugging"]
+=== Debugging WordPress
+. If you need to the debug why the WordPress page won't load or encounter an error, it can insightful to enable WordPress debugging.
+
++
+--
+[source,bash]
+----
+sed -i "s/'WP_DEBUG', false/'WP_DEBUG', true/" /srv/www/htdocs/wp-config.php
+----
+
+Then reload the page. This will enable printing of php errors and warnings on the page. In this example, we used the wrong password and MariaDB returned an error to the php client.
+
+image::TRD-wordpress-on-lamp-on-sles_debugging.png[align="center"]
+
+For more details on further WordPress debugging see https://wordpress.org/support/article/debugging-in-wordpress/[WordPress debugging].
+--
+
+. To revert, just simply set to false again.
++
+[source,bash]
+----
+sed -i "s/'WP_DEBUG', true/'WP_DEBUG', false/" /srv/www/htdocs/wp-config.php
+----
+
+
+=== References
+
+* https://en.wikipedia.org/wiki/LAMP_%28software_bundle%29[LAMP (software bundle)]
+* https://www.ibm.com/cloud/learn/lamp-stack-explained[LAMP Stack explained]
+* https://www.webopedia.com/definitions/lamp/[webopedia LAMP]
+* https://wordpress.org/support/article/how-to-install-wordpress[How to install wordpress]
+* https://wordpress.org/support/article/debugging-in-wordpress/[WordPress debugging]
+* https://mariadb.com/kb/en/mysql-command-line-client[MariaDB shell]
+* http://httpd.apache.org/docs/current/install.html[Compiling and Installing Apache]
+* https://mariadb.com/kb/en/installing-mariadb-with-zypper/[Installing MariaDB with zypper]
+* https://www.suse.com/releasenotes/x86_64/SUSE-SLES/12/#fate-316482[SLES 12 Release Notes]
+* https://mariadb.com/kb/en/mariadb-vs-mysql-compatibility/[MariaDB vs MySQL Compatibility]
+* https://documentation.suse.com/sles/15-SP1/html/SLES-all/cha-security-firewall.html[SLES 15 - Masquerading and Firewalls]
+* https://documentation.suse.com/sles/15-SP2/html/SLES-all/art-modules.html#sec-modules-what-modules[Modules for the SUSE Linux Enterprise Product Family]
+* https://firewalld.org/[firewalld]
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+// include::common_gfdl1.2_i.adoc[]
+
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

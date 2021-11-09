@@ -254,34 +254,75 @@ In addition, it is also useful to install the "`lstopo`" tool which is part of t
 [[_sec_configure_networking_on_hypervisor]]
 === Configure Networking on Hypervisor
 
-To achieve maximum performance required for productive SAP HANA workloads the PCI address of the respective network port(s) must be assigned directly into the KVM Guest VM to ensure that the Guest VM has enough network device channels to accommodate the network traffic.
-Ideally the VM Guest should be able to access the same number of network device channels as the host, this can be checked and compared between host and guest VM with ``ethtool -l device``, for example:
+To achieve maximum performance required for productive SAP HANA workloads one of the host networking devices must be assigned directly to the KVM Guest VM.
+A Network Interface Card (NIC) including support for the technology that goes under the name of Single Root I/O Virtualization (SR-IOV) is required.
+In fact, this guarantees that the overhead in which we would have incurred if using IO Virtualization, is avoided.
+
+In order to check whether such technology is available, assuming that "`17:00.0`" is the address of the NIC on the PCI bus (as visible in the output of the "`lspci`" tool), the following command can be issued:
 
 ----
-# ethtool -l eth1
-Channel parameters for eth1:
-Pre-set maximums:
-RX:             0
-TX:             0
-Other:          1
-Combined:       63
-Current hardware settings:
-RX:             0
-TX:             0
-Other:          1
-Combined:       63
+lspci -vs 17:00.0
+17:00.0 Ethernet controller: Intel Corporation Ethernet Controller X710 for 10GbE SFP+ (rev 01)
+        Subsystem: Intel Corporation Ethernet Converged Network Adapter X710-2
+        Flags: bus master, fast devsel, latency 0, IRQ 247, NUMA node 0
+        Memory at 9c000000 (64-bit, prefetchable) [size=8M]
+        Memory at 9d008000 (64-bit, prefetchable) [size=32K]
+        Expansion ROM at 9d680000 [disabled] [size=512K]
+        Capabilities: [40] Power Management version 3
+        Capabilities: [50] MSI: Enable- Count=1/1 Maskable+ 64bit+
+        Capabilities: [70] MSI-X: Enable+ Count=129 Masked-
+        Capabilities: [a0] Express Endpoint, MSI 00
+        Capabilities: [e0] Vital Product Data
+        Capabilities: [100] Advanced Error Reporting
+        Capabilities: [140] Device Serial Number d8-ef-c3-ff-ff-fe-fd-3c
+        Capabilities: [150] Alternative Routing-ID Interpretation (ARI)
+        Capabilities: [160] Single Root I/O Virtualization (SR-IOV)
+        Capabilities: [1a0] Transaction Processing Hints
+        Capabilities: [1b0] Access Control Services
+        Capabilities: [1d0] #19
+        Kernel driver in use: i40e
+        Kernel modules: i40e
 ----
+
+The output should contain a line similar to this one: "`Single Root I/O Virtualization (SR-IOV)`".
+If such line is not present, it might be the case that SR-IOV needs to be explicitly enabled in the BIOS.
 
 [[_sec_assign_network_port_at_pci_nic_level]]
-==== Assign Network Port at PCI NIC Level
+==== Assign a Virtual Function (VF) to a Guest VM
 
-The required network port(s) should be assigned to the Guest VM as described in section "`14.10.2 Adding a PCI Device with virsh`" in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 12 SP2(https://documentation.suse.com/sles/12-SP2/)
+After checking that the NIC is SR-IOV capable, the host and the Guest VM should be configured to use one of the available Virtual Functions (VFs) as (one of) the Guest VM's network device(s).
+More information about SR-IOV as a technology and on how to properly configure everything that is necessary for it to work well in the general case, can be found in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 SP2 (https://documentation.suse.com/sles/15-SP2/single-html/SLES-virtualization).
+Specifically, in the section: "Adding SR-IOV Devices" (https://documentation.suse.com/sles/15-SP2/single-html/SLES-virtualization/#sec-libvirt-config-io).
 
-.Persist detach of PCI NIC port
-Before starting the VM, the PCI NIC port must be detached from the Hypervisor OS, otherwise the VM will not start.
-The PCI NIC detach can be automated at boot time by creating a service file (after-local.service) pointing to /etc/init.d/after.local which contains the commands to detach the NIC.
+.Enabling PCI Passthrough for the Host Kernel
 
-Create the systemd unit file /etc/systemd/system/after.local.
+Make sure that the host kernel boot command line contains these two parameters: "`intel_iommu=on iommu=pt`".
+
+This is done by editing [path]_/etc/defalt/grub_, appending "`intel_iommu=on iommu=pt`" to the string that is assigned to the variable "`GRUB_CMDLINE_LINUX_DEFAULT`" and then running "`update-bootloader`" (more detailed information later in the document).
+
+.Loading and Configuring SR-IOV Host Drivers
+
+Before starting the VM, SR-IOV must be enabled on the desired NIC and the VFs must be created.
+
+Always make sure that the properly SR-IOV capable driver is loaded. For instance, for an "`Intel Corporation Ethernet Controller X710`" NIC, the driver resides in the "`i40e`" kernel module.
+It can be loaded with the "`modprobe`" command, but chances are high that it is loaded by default already.
+
+If the SR-IOV capable module is not in use by default and it also fails to load with "`modprobe`", this might mean that another driver, potentially one that is not SR-IOV capable, is the one that is currently loaded.
+In which case, it should be removed with the "`rmmod`" command.
+
+Once the proper module is loaded, creating at least one VF happens with the following command (which creates 4 of them):
+
+----
+echo 4 > /sys/bus/pci/devices/0000\:17\:00.0/sriov_numvfs
+----
+
+Or, assuming that the designated NIC corresponds to the symbolic name of "`eth10`":
+
+----
+echo 4 > /sys/class/net/eth10/device/sriov_numvfs
+----
+
+The procedure can be automated, in such a way that it happens automatically at boot time, by creating the following systemd unit file [path]_/etc/systemd/system/after.local_:
 
 ----
 [Unit]
@@ -297,14 +338,14 @@ RemainAfterExit=true
 WantedBy=multi-user.target
 ----
 
-Then create the script /etc/init.d/after.local which will detach the PCI device (where "`pci_xxxx_xx_xx_0`" must be replaced with the correct PCI address).
+And then creating the script [path]_/etc/init.d/after.local_:
 
 ----
 #! /bin/sh
 #
 # Copyright (c) 2010 SuSE LINUX Products GmbH, Germany.  All rights reserved.
 # ...
-virsh nodedev-detach pci_xxxx_xx_xx_0
+echo 4 > /sys/class/net/eth10/device/sriov_numvfs
 ----
 
 [[_sec_storage_hypervisor]]

@@ -429,7 +429,10 @@ cpupower -c all info
 ----
 
 //TODO: Do we actually want this in the guide (i.e., advising limiting C-states to C1)? I think we do, but I am not 100% sure
-For even reduced latency and improved consistency of the performance of the system, the CPUs should not be allowed to go into too aggressive power saving mode (known as C-states).
+Modern processors also attempt to save power when they are idle, by switching to a lower power state.
+Unfortunately this incurs latency when switching in and out of these states.
+
+In order to avoid that, and achieve better and more consistent the performance, the CPUs should not be allowed to go into too aggressive power saving mode (known as C-states).
 It therefore is recommended that only C0 and C1 are used.
 
 This can be enforced by adding the following parameters to the kernel boot command line: "`intel_idle.max_cstate=1`".
@@ -464,23 +467,15 @@ To edit the boot options for the Linux kernel to the following:
 +
 
 ----
-numa_balancing=disable   kvm_intel.ple_gap=0  transparent_hugepage=never  elevator=deadline  intel_idle.max_cstate=1  processor.max_cstate=1 default_hugepagesz=1GB hugepagesz=1GB hugepages=number of hugepages
+mitigations=auto kvm.nx_huge_pages=off numa_balancing=disable kvm_intel.ple_gap=0 transparent_hugepage=never intel_idle.max_cstate=1 default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> intel_iommu=on iommu=pt intremap=no_x2apic_optout
 ----
 +
 
-.Calculating Value
-[NOTE]
-====
-The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx.
-7% for the Hypervisor OS.
-For example 2TiB RAM (2048GiB) minus 7% are approx.
-1900 hugepages
-====
 . Run the following command:
 +
 
 ----
-grub2-mkconfig -o /boot/grub2/grub.cfg
+update-bootloader
 ----
 . Reboot the system:
 +
@@ -493,6 +488,15 @@ reboot
 [[_sec_technical_explanation_of_the_above_described_configuration_settings]]
 ==== Technical Explanation of the Above Described Configuration Settings
 
+*Hardware Vulnerabilities Mitigations (mitigations=auto kvm.nx_huge_pages=off)*
+
+Recently, a class of side channel attacks exploiting the branch prediction and the speculative execution capabilities of modern CPUs appeared.
+On an affected CPU, these problems cannot be fixed, but their effect and their actual exploitability can be mitigated in software.
+However, this has a sometimes non-negligible impact on the performance.
+
+For achieving the best possible security, the software mitigations for these vulnerabilities are being enabled ("`mitigations=auto`") with the only exception of the one that deals with "Machine Check Error Avoidance on Page Size Change (CVE-2018-12207, also known as "iTLB Multiht).
+//TODO: We probably want a more generic and little bit more detailed section about mitigations?
+
 *Automatic NUMA Balancing (numa_balancing=disable)*
 
 Automatic NUMA balancing can result in increased system latency and should therefore be disabled.
@@ -500,38 +504,45 @@ Automatic NUMA balancing can result in increased system latency and should there
 *KVM PLE-GAP (kvm_intel.ple_gap=0)*
 
 Pause Loop Exit (PLE) is a feature whereby a spinning guest CPU releases the physical CPU until a lock is free.
-This is useful in cases where multiple virtual CPUs are using the same physical CPU but causes unnecessary delays when a guest is not overcommitted.
+This is useful in cases where multiple virtual CPUs are using the same physical CPU but causes unnecessary delays when the system is not overcommitted.
 
 *Transparent Hugepages (transparent_hugepage=never)*
 
 Because 1G pages are used for the virtual machine, then there is no additional benefit from having THP enabled.
 Disabling it will avoid khugepaged interfering with the virtual machine while it scans for pages to promote to hugepages.
 
-*I/O Scheduler (elevator=deadline)*
+*Processor C-states (intel_idle.max_cstate=1)*
 
-The deadline I/O scheduler should be used for all disks/LUNs mapped into the KVM guest.
+Optimal performance is achieved by limiting the processor to states C0 (normal running state) and C1 (first lower power state).
 
-*Processor C-states (intel_idle.max_cstate=1
-            processor.max_cstate=1)*
-
-The processor will attempt to save power when idle by switching to a lower power state.
-Unfortunately this incurs latency when switching in and out of these states.
-Optimal performance is achieved by limiting the processor to states C0 (normal running state) and C1 (first lower power state). Note that while there is an exit latency associated with C1 states, it is offset on hyperthread-enabled platforms by the fact sibling cores can borrow resources from sibling cores if they are in the C1 state and some CPUs can boost the CPU frequency higher if siblings are in the C1 state.
+Note that while there is an exit latency associated with C1 states, it is offset on hyperthread-enabled platforms by the fact sibling cores can borrow resources from sibling cores if they are in the C1 state and some CPUs can boost the CPU frequency higher if siblings are in the C1 state.
 
 *Hugepages (default_hugepagesz=1GB
-            hugepagesz=1GB hugepages=number of hugepages)*
+            hugepagesz=<1GB hugepages=number of hugepages>)*
 
 The use of 1GiB hugepages is to reduce overhead and contention when the guest is updating its page tables.
 This requires allocation of 1GiB hugepages on the host.
 The number of pages to allocate depends on the memory size of the guest.
-1GiB pages are not pageable by the OS, so they always remain in RAM and therefore the "`locked`" definition in libvirt XML files is not required.
-It also important to ensure the order of the hugepage options, specifically the "`number
-            of hugepages`" option must come after the 1GiB hugepage size definitions.
 
-The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx.
-7% for the Hypervisor OS.
-For example 2TiB RAM (2048GiB) minus 7% are approx.
-1900 hugepages.
+1GiB pages are not pageable by the OS, so they always remain in RAM and therefore the "`locked`" definition in libvirt XML files is not required.
+
+It also important to ensure the order of the hugepage options, specifically the "`<number of hugepages>`" option must come after the 1GiB hugepage size definitions.
+
+.Calculating Value
+[NOTE]
+====
+The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx. 7% for the Hypervisor OS.
+For example 2TiB RAM (2048GiB) minus 7% are approx. 1900 hugepages
+====
+
+*PCI Passthrough (intel_iommu=on iommu=pt)*
+
+For being able to directly assing host devices (like storage controllers and NIC Virtual Functions), with PCI Passthrough and SR-IOV, the IOMMU must be enabled. On top of that, "`iommu=pt`" makes sure that we setup the devices for the best performance (i.e., passthrough mode)
+
+*Interrupt Remapping (intremap=no_x2apic_optout)*
+
+Interrupt remapping interrupts from devices to be intercepted, validated and routed to a specific CPU (e.g., one where a virtual CPU of the Guest VM that has the device assigned is running).
+This parameter makes sure that such feature is always enabled.
 
 [[_sec_guest_vm_xml_configuration]]
 == Guest VM XML Configuration

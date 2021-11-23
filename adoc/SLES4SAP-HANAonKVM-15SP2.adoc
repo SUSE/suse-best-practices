@@ -394,7 +394,7 @@ Nevertheless storage on the Hypervisor should:
 [[_sec_vhostmd]]
 ==== vhostmd
 The hypervisor needs to have the vhostmd package installed and the corresponding vhostmd service enabled and started (see also: https://confluence.suse.com/display/SAP/HANAonKVM+vhostmd ).
-//TODO: Add a proper, external, link
+//TODO: Add a proper, external, 	link
 
 [[_sec_tuned]]
 ==== Generic Host Tuning with tuned
@@ -592,196 +592,75 @@ Refer to section 9 "`Guest Installation`" of the SUSE Virtualization Guide (http
 [[_sec_global_vcpu_configuration]]
 === Global vCPU Configuration
 
-Ensure that the following XML elements are configured:
+The virtual CPU configuration of the VM Guest should reflect the host CPU configuration as close as possible.
+There cannot be any overcommitting of memory or CPU resources.
 
-* domain XML supports "`xmlns:qemu`" to use qemu commands directly
-* architecture and machine type are set to match the qemu version installed on the Hypervisor
-** for example "`2.6`" for qemu 2.6 on {sles4sap} {slesProdVersion}
-* cpu mode is set to "`host-passthrough`"
-* the defined qemu CPU command lines necessary for SAP HANA support are used
-
-The following XML example demonstrates how to configure this:
-
-----
-domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'
-...
-    os
-       type arch='x86_64' machine='pc-i440fx-2.6'hvm/type
-    ...
-    /os
-    ...
-    cpu mode='host-passthrough'
-    ...
-    /cpu
-    ...
-    qemu:commandline
-      qemu:arg value='-cpu'/
-      qemu:arg value='host,migratable=off,+invtsc,l3-cache=on'/
-    /qemu:commandline
-/domain
-----
-
-.Explanation of the critical "`l3-cache`" option:
-If a KVM guest has multiple vNUMA nodes it is critical that any L3 CPU cache present on the host be mirrored in the KVM guest.
-When vCPUs share an L3 cache the Linux kernel scheduler can use an optimized mechanism for enqueuing tasks on vCPUs.
-Without L3 cache information the guest kernel will always use a more expensive mechanism that involves Inter-Processor Interrupts (IPIs).
-
-.Explanation of the "`host,migratable-off,+invtsc`" options:
-For best performance, SAP HANA requires the invtsc CPU feature in the KVM guest.
-However, KVM will remove any non-migratable CPU features from the virtual CPU presented to the KVM guest.
-This behavior can be overridden by passing the 'migratable=off' and '+invtsc' values to the '-cpu' option.
+The CPU model should be set to "`host-passthrough`", and any "`check`" should be disabled.
+In addition the "`rdtscp`", "`invtsc`" and "`x2apic`" features are required.
 
 [[_sec_vcpu_and_vnuma_topology]]
-=== vCPU and vNUMA Topology
+=== vCPU and vNUMA Topology & Pinning
 
-To achieve maximum performance and be supported for use with SAP HANA the KVM guest`'s NUMA topology should exactly mirror the host`'s NUMA topology and not overcommit memory or CPU resources.
-This requires pinning virtual CPUs to unique physical CPUs (no virtual CPUs should share the same hyperthread/ physical CPU) and configuring virtual NUMA node relationships for those virtual CPUs.
+It is important to map the host topology into the Guest VM, as described below.
+In fact, this this allows HANA to spread its own workload threads across many virtual CPUs and NUMA nodes.
 
-.Physical CPU Core
-[NOTE]
-====
-One physical CPU core (that is 2 hyperthreads) per NUMA node should be left unused by KVM guests so that IOThreads can be pinned there.
-====
+For instance, for a 4-socket system, with 28 cores per socket and hyperthreading enabled, the virtual CPU configuration will also have 4 sockets, 28 cores, 2 threads.
 
-.Hypervisor Topology
-[NOTE]
-====
-In many use cases it is advisable to map the Hyperthreading topology into the Guest VM as described below since this allows SAP HANA to spread workload threads across many vCPUs.
-However there maybe workloads which perform better without hyperthreading.
-In this case only the first physical hyperthread from each core should be mapped into the VM.
-In the simplified example below that would mean only mapping host processor 0-15 into the VM.
-====
+Always make sure that, in the Guest VM config file:
 
-It is important to note that KVM/QEMU uses a static hyperthread sibling CPU APIC ID assignment for virtual CPUs irrespective of the actual physical CPU APIC ID values on the host.
-For example, assuming that the first hyperthread sibling pair is CPU 0 and CPU 16 on the Hypervisor host, you will need to pin that sibling pair to vCPU 0 and vCPU 1.
-
-Below is a table of a hypothetical configuration for a "`4-socket NUMA topology
-          with 4 cores per socket and hyperthreading`" server to help understand the above logic.
-In real world SAP HANA scenarios CPUs will typically have 18+ CPU cores, and will therefore have far more CPUs for the Guest compared to iothreads.
+* The "`cpu`" "`mode`" attribute is set to "`host-passthrough`".
+* The "`cpu`" "`topology`" attribute describes the vCPU NUMA topology of the Guest, as discussed above.
+* The attributes of the "`numa`" elements describe which vCPU number ranges belong to which NUMA cell. Care should be taken since these number ranges are not the same as on the host. Additionally:
+** The "`cell`" elements describe how much RAM should be distributed per NUMA node. In this 4-node example enter 25% (or 1/4) of the entire Guest VM Memory.
+Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> Memory section of this paper for further details.
+** Each NUMA cell of the Guest VM has 56 vCPUs
+** The distances between the cells are exactly the same as in the physical hardware (as per the output of "`numactl --hardware`").
 
 ----
-VM Guest          Physical Server    Physical Server   Physical Server
-vCPU #            Numa node #        "core id"         processor #
-emulator          0                  0                   0
-emulator          0                  0                   16
-0                 0                  1                   1
-1                 0                  1                   17
-2                 0                  2                   2
-3                 0                  2                   18
-4                 0                  3                   3
-5                 0                  3                   19
-emulpin 1         1                  0                   4
-emulpin 4         1                  0                   20
-6                 1                  1                   5
-7                 1                  1                   21
-8                 1                  2                   6
-9                 1                  2                   22
-10                1                  3                   7
-11                1                  3                   23
-iohtread 2        2                  0                   8
-iothread 5        2                  0                   24
-12                2                  1                   9
-13                2                  1                   25
-14                2                  2                   10
-15                2                  2                   26
-16                2                  3                   11
-17                2                  3                   27
-iothread 3        3                  0                   12
-iothread 6        3                  0                   28
-18                3                  1                   13
-19                3                  1                   29
-20                3                  2                   14
-21                3                  2                   30
-22                3                  3                   15
-23                3                  3                   31
-----
-
-The following commands can be used to determine the CPU details on the Hypervisor host (see Appendix for an <<_sec_lscpu_extended_example>> and an <<_sec_example_lstopo>>):
-
-----
-lscpu --extended=CPU,SOCKET,CORE
-
-lstopo-no-graphics
-----
-
-Using the above information the CPU and memory pinning section of the Guest VM XML can be created.
-Below is an example based on the hypothetical example above.
-
-Make sure to take note of the following configuration points:
-
-* The "`vcpu placement`" element lists the total number of vCPUs in the Guest.
-* The "`iothreads`" element lists the total number of iothreads (6 in this example).
-** iothreads should be pinned to the Sockets where the respective storage is physically attached. This mapping can be found by looking for the "`Block(Disk)`" entries in output from "`lstopo-no-graphics`", see Appendix <<_sec_example_lstopo>>.
-* The "`cputune`" element contains the attributes describing the mappings of vCPU, emulator and iothreads to physical CPUs.
-* The "`numatune`" element contains the attributes to describe distribution of RAM across the virtual NUMA nodes (CPU sockets).
-** The "`mode`" attribute should be set to "`strict`".
-** The appropriate number of nodes should be entered in the "`nodeset`" and "`memnode`" attributes. In this example there are 4 sockets, therefore nodeset=0-3 and cellid 0 to 3.
-* The "`cpu`" element lists:
-** "`mode`" attribute which should be set to "`host-passthrough`" for SAP HANA.
-** "`topology`" attributes to describe the vCPU NUMA topology of the Guest. In this example, 4 sockets, each with 3 cores (see the cpu pinning table) and 2 hyperthreads per core. Set "`threads=1`" if hyperthreading is not to be used.
-** The attributes of the "`numa`" elements to describes which vCPU number ranges belong to which NUMA node/socket. Care should be taken since these number ranges are not the same as on the Hypervisor host.
-** In addition, the attributes of the "numa" elements also describe how much RAM should be distributed per NUMA node. In this 4-node example enter 25% (or 1/4) of the entire Guest VM Memory. Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> Memory section of this paper for further details.
-
-
-----
-vcpu placement='static'24/vcpu
-iothreads6/iothreads
-  cputune
-    vcpupin vcpu='0' cpuset='1'/
-    vcpupin vcpu='1' cpuset='17'/
-    vcpupin vcpu='2' cpuset='2'/
-    vcpupin vcpu='3' cpuset='18'/
-    vcpupin vcpu='4' cpuset='3'/
-    vcpupin vcpu='5' cpuset='19'/
-
-    vcpupin vcpu='6' cpuset='5'/
-    vcpupin vcpu='7' cpuset='21'/
-    vcpupin vcpu='8' cpuset='6'/
-    vcpupin vcpu='9' cpuset='22'/
-    vcpupin vcpu='10' cpuset='7'/
-    vcpupin vcpu='11' cpuset='23'/
-
-    vcpupin vcpu='12' cpuset='9'/
-    vcpupin vcpu='13' cpuset='25'/
-    vcpupin vcpu='14' cpuset='10'/
-    vcpupin vcpu='15' cpuset='26'/
-    vcpupin vcpu='16' cpuset='11'/
-    vcpupin vcpu='17' cpuset='27'/
-
-    vcpupin vcpu='18' cpuset='13'/
-    vcpupin vcpu='19' cpuset='29'/
-    vcpupin vcpu='20' cpuset='14'/
-    vcpupin vcpu='21' cpuset='30'/
-    vcpupin vcpu='22' cpuset='15'/
-    vcpupin vcpu='23' cpuset='31'/
-
-    emulatorpin cpuset='0,16'/
-
-    iothreadpin iothread='1' cpuset='4'/
-    iothreadpin iothread='2' cpuset='8'/
-    iothreadpin iothread='3' cpuset='12'/
-    iothreadpin iothread='4' cpuset='20'/
-    iothreadpin iothread='5' cpuset='24'/
-    iothreadpin iothread='6' cpuset='28'/
-  /cputune
-
-  numatune
-    memory mode='strict' nodeset='0-3'/
-    memnode cellid='0' mode='strict' nodeset='0'/
-    memnode cellid='1' mode='strict' nodeset='1'/
-    memnode cellid='2' mode='strict' nodeset='2'/
-    memnode cellid='3' mode='strict' nodeset='3'/
-  /numatune
-
-  cpu mode='host-passthrough'
-    topology sockets='4' cores='3' threads='2'/
-    numa
-      cell id='0' cpus='0-5' memory='Memory per NUMA node' unit='KiB'/
-      cell id='1' cpus='6-11' memory='Memory per NUMA node' unit='KiB'/
-      cell id='2' cpus='12-17' memory='Memory per NUMA node' unit='KiB'/
-      cell id='3' cpus='18-23' memory='Memory per NUMA node' unit='KiB'/
-    /numa
-  /cpu
+<domain type='kvm'>
+  <!-- ... -->
+  <cpu mode='host-passthrough' check='none'>
+    <topology sockets='4' cores='28' threads='2'/>
+    <feature policy='require' name='rdtscp'/>
+    <feature policy='require' name='invtsc'/>
+    <feature policy='require' name='x2apic'/>
+    <numa>
+      <cell id='0' cpus='0-55' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='10'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='1' cpus='56-111' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='10'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='2' cpus='112-167' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='10'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='3' cpus='168-223' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='10'/>
+        </distances>
+      </cell>
+    </numa>
+  </cpu>
+  <!-- ... -->
+</domain>
 ----
 
 .Memory Unit
@@ -789,6 +668,75 @@ iothreads6/iothreads
 ====
 The memory unit can be set to GiB to ease the memory computations.
 ====
+
+It is also necessary to pin virtual CPUs to physical CPUs, in order to limit the overhead caused by virtual CPUs being moved around physical CPUs by the host scheduler.
+Similarly, the memory for each NUMA cell of the Guest VM must be allocated only on the corresponding host NUMA node.
+
+Note that KVM/QEMU uses a static hyperthread sibling CPU APIC ID assignment for virtual CPUs, irrespective of the actual physical CPU APIC ID values on the host.
+For example, assuming that the first hyperthread sibling pair is CPU 0 and CPU 112 on the host, you will need to pin that sibling pair to vCPU 0 and vCPU 1.
+
+It is recommended to pin both the various sibling pairs of vCPUs to (the corresponding) sibling pairs of host CPUs.
+For instance, vCPU 0 should be pinned to pCPU 0 and 112, and the same applies to vCPU 1.
+In fact, as far as both the vCPUs always run on the same physical core, the host scheduler is allowed to execute them on either thread, for example in case only one is free while the other is busy executing host or hypervisor activities.
+
+Using the above information the CPU and memory pinning section of the Guest VM XML can be created.
+Below is an example based on the hypothetical example above.
+
+Make sure to take note of the following configuration points:
+
+* The "`vcpu placement`" element lists the total number of vCPUs in the Guest.
+* The "`cputune`" element contains the attributes describing the mappings of vCPUs to physical CPUs.
+* The "`numatune`" element contains the attributes to describe distribution of RAM across the virtual NUMA nodes (CPU sockets).
+** The "`mode`" attribute should be set to "`strict`".
+** The appropriate number of nodes should be entered in the "`nodeset`" and "`memnode`" attributes. In this example there are 4 sockets, therefore "`nodeset=0-3`" and cellid 0 to 3.
+
+----
+<domain type='kvm'>
+  <vcpu placement='static'>224</vcpu>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='0,112'/>
+    <vcpupin vcpu='1' cpuset='0,112'/>
+    <vcpupin vcpu='2' cpuset='1,113'/>
+    <vcpupin vcpu='3' cpuset='1,113'/>
+    <vcpupin vcpu='4' cpuset='2,114'/>
+    <vcpupin vcpu='5' cpuset='2,114'/>
+    <vcpupin vcpu='6' cpuset='3,115'/>
+    <vcpupin vcpu='7' cpuset='3,115'/>
+    <vcpupin vcpu='8' cpuset='4,116'/>
+    <vcpupin vcpu='9' cpuset='4,116'/>
+    <vcpupin vcpu='10' cpuset='5,117'/>
+    <vcpupin vcpu='11' cpuset='5,117'/>
+    <!-- output abbreviated -->
+    <vcpupin vcpu='218' cpuset='109,221'/>
+    <vcpupin vcpu='219' cpuset='109,221'/>
+    <vcpupin vcpu='220' cpuset='110,222'/>
+    <vcpupin vcpu='221' cpuset='110,222'/>
+    <vcpupin vcpu='222' cpuset='111,223'/>
+    <vcpupin vcpu='223' cpuset='111,223'/>
+  </cputune>
+  <numatune>
+    <memory mode='strict' nodeset='0-3'/>
+    <memnode cellid='0' mode='strict' nodeset='0'/>
+    <memnode cellid='1' mode='strict' nodeset='1'/>
+    <memnode cellid='2' mode='strict' nodeset='2'/>
+    <memnode cellid='3' mode='strict' nodeset='3'/>
+  </numatune>
+  <!-- ... -->
+</domain>
+----
+
+The following commands can be used to determine the CPU details on the Hypervisor host:
+
+----
+lscpu --extended=CPU,SOCKET,CORE
+
+lstopo-no-graphics
+----
+
+//TODO: will such Appendix still be there?
+//(see Appendix for an <<_sec_lscpu_extended_example>> and an <<_sec_example_lstopo>>):
+
+It is not necessary to isolate the Guest VM's "`iothreads`", nor to statically reserve any host CPU to either them or any other kind of host activity.
 
 [[_sec_storage]]
 === Storage
@@ -805,30 +753,7 @@ The Guest VM XML configuration must be based on the underlying storage configura
 
 * Follow the storage layout recommendations from the appropriate hardware vendors.
 * Only use the KVM virtio "`threads`" driver
-* Distribute block devices evenly across all available iothreads (see <<_sec_iothreads>>)
-** Avoid placing devices for SAP HANA data and log on the same iothreads.
-** Pin iothreads to the CPU sockets where the storage is attached, see section <<_sec_vcpu_and_vnuma_topology>> for details.
 * Set the following virtio attributes: name='qemu' type='raw' cache='none' io='threads'.
-* Use persistent device names in the Guest VM XML configuration (see example in <<_sec_iothreads>>).
-
-
-[[_sec_iothreads]]
-==== IOThreads
-
-As described in section <<_sec_vcpu_and_vnuma_topology>>, iothreads should be pinned to a set of physical CPUs which are not presented to the Guest VM OS.
-
-Below is an example (device names and bus addresses are configuration dependent) of how to add the iothread options to a virtio device.
-Note that the iothread numbers should be distributed across the respective virtio devices.
-
-----
- disk type='block' device='disk'
-    driver name='qemu' type='raw' cache='none' io='threads' iothread='1'/
-    source dev='/dev/disk/by-id/source device path'/
-    target dev='vda' bus='virtio'/
- /disk
-----
-
-For further details refer to section 12 "`Managing Storage`" in the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-storage.html)
 
 [[_sec_memory_backing]]
 === Memory Backing

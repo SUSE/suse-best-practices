@@ -838,24 +838,55 @@ The Guest VM XML configuration must be based on the underlying storage configura
 * Only use the KVM virtio "`threads`" driver
 * Set the following virtio attributes: name='qemu' type='raw' cache='none' io='threads'.
 
+
 [[_sec_guest_operating_system]]
 == Guest Operating System
 
 [[_sec_install_sles_for_sap_inside_the_guest_vm]]
 === Install SUSE Linux Enterprise Server for SAP Applications Inside the Guest VM
 
-Refer to the SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 12
-          SP2`" (https://documentation.suse.com/sles-sap/12-SP2/).
+Refer to the https://documentation.suse.com/sles-sap/15-SP2/[SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 15].
+          
 
 [[_sec_guest_operating_system_configuration_for_sap_hana]]
 === Guest Operating System Configuration for SAP HANA
 
 Install and configure {sles4sap} {slesProdVersion} and SAP HANA as described in: 
 
-* SAP Note 1944799 "`SAP HANA Guidelines for SLES Operating System Installation`" ({launchPadNotes}1944799)
-* SAP Note 2205917 "`SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12`" ({launchPadNotes}2205917)
+* {launchPadNotes}1944799[SAP Note 1944799 - "`SAP HANA Guidelines for SLES Operating System Installation`"]
+* {launchPadNotes}2205917[SAP Note 2684254 - "`SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15`"]
 
-*irqbalance*
+[[_sec_customizing_linux_cmdline_guest]]
+==== Customizing the Linux Kernel Parameters of the Guest
+
+Just like the hypervisor host, the VM also needs special kernel parameters to be set. 
+To edit the boot options for the Linux kernel to the following:
+
+. Edit [path]_/etc/defaults/grub_ and add the following boot options to the line "`GRUB_CMDLINE_LINUX_DEFAULT`".
++
+
+----
+mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout
+----
++
+
+A detailed explanation of these parameters has been given in <<_sec_technical_explanation_of_the_above_described_configuration_settings>>.
+
+[[_sec_enabling_host_monitoring_guest]]
+==== Enabling Host Monitoring
+
+The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor. This enables SAP HANA can collect data about the hypervisor. 
+{launchPadNotes}1522993[SAP Note 1522993 - "`Linux: SAP on SUSE KVM - Kernel-based Virtual Machine`"] describes how to set up the virtual devices for `vhostmd` and how to configure it.
+When using a virtual disk for `vhostmd`, the virtual disk device must be world-readable, which is ensured with the boot time configuration below.
+
+
+[[_sec_configuring_guest_at_boot_time]]
+==== Configuring the Guest at Boot Time
+
+The folling settings have to be configured at boot time of the VM. 
+In order to persist these configurations it is recommended to put the commands provided below into a script which is executed as part of the boot process.
+
+===== Disable `irqbalance` 
 
 The irqbalance service should be disabled because it can cause latency issues when the /proc/irq/* files are read.
 To disable irqbalance run the following command:
@@ -865,7 +896,109 @@ systemctl disable irqbalance.service
 systemctl stop irqbalance.service
 ----
 
-//TODO add text for Implementing Host monitoring as per SAP Note 1522993 - Linux: SAP on SUSE KVM - Kernel-based Virtual Machine
+===== Activate and configure `sapconf` or `saptune`
+
+The following parameters need to set in `sapconf` version 5.
+
+----
+GOVERNOR=performance
+PERF_BIAS=performance
+MIN_PERF_PCT=100
+FORCE_LATENCY=5 
+----
+
+If you use `sapconf` version 4 or `saptune`, please configure it accordingly.
+When using `sapconf` version 4, start the `tuned` service and activate the TuneD profile `sapconf`. 
+When using `sapconf` version 5, stop and disable the `tuned` service and instead enable and start the `sapconf` service.
+
+
+===== Activate and configure `haltpoll`
+
+
+
+----
+POLL_NS=800000
+GROW_START=200000
+modprobe cpuidle-haltpoll
+echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
+echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
+----
+
+===== Set the clock source
+
+The clock source has to be set to `tsc`.
+
+----
+echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+----
+
+===== Disable Kernel Same Page Merging
+
+Kernel Same Page Merging (KSM) needs to be disabled, just like on the hypervisor (see <<_sec_no_ksm>>).
+
+----
+echo 2 >/sys/kernel/mm/ksm/run
+----
+
+===== Automatic configuration at boot time
+The following script is provided as an example for a script implementing above recommendations, to be executed at boot time of the VM.
+
+
+.Script
+----
+#!/usr/bin/env bash
+#
+# Configure KVM Guest for SAP HANA
+#
+ 
+POLL_NS=800000
+GROW_START=200000
+ 
+# disable irqbalance 
+systemctl disable --now irqbalance
+ 
+# Check sapconf version installed, runs setup accordingly
+MAJOR_VER=$(rpm -qa | awk -F "-" '/sapconf/ {split($2,maj,"."); print maj[1]}')
+case ${MAJOR_VER} in
+    4)
+      echo "SAPCONF V4 detected."
+      systemctl enable --now tuned
+      tuned-adm profile sapconf
+      ;;
+    5)
+      echo "SAPCONF V5 detected."
+      systemctl disable --now tuned
+      systemctl enable --now sapconf
+      ;;
+    *)
+      echo "ERROR: Unsupported SAPCONF ver. (${MAJOR_VER}) detected. Exiting."
+      exit 1
+      ;;
+esac
+ 
+modprobe cpuidle-haltpoll
+echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
+echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
+ 
+# Set clocksource to tsc
+echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+ 
+# disable Kernel Samepage Merging
+echo 2 >/sys/kernel/mm/ksm/run
+# 2: disable it, but make sure you also purify everything with fire!
+ 
+# fix access to vhostmd device, so that SIDadm can read it
+# see function setup_vhostmd_guest_device() in qacss-schwifty-common
+ 
+# the vhostmd device has exactly 256 blocks, try to catch that from /proc/partitions
+VHOSTMD_DEVICE=$(grep "   256 " /proc/partitions | awk '{print $4}' )
+if [ -n "$VHOSTMD_DEVICE" ]; then
+  chmod o+r /dev/"$VHOSTMD_DEVICE"
+else
+  echo "Missing vhostmd device, please check you XML file."
+fi
+----
+
 
 
 [[_sec_guest_operating_system_storage_configuration_for_sap_hana_volumes]]
@@ -873,7 +1006,8 @@ systemctl stop irqbalance.service
 
 * Follow the storage layout recommendations from the appropriate hardware vendors.
 * Only use LVM (Logical Volume Manager) inside the VM for SAP HANA. Nested LVM is not to be used.
-* Do not configure Multipathing in the guest, but instead on the Hypervisor (see section <<_sec_storage_hypervisor>>).
+
+
 
 
 [[_sec_administration]]

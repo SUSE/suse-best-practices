@@ -132,7 +132,7 @@ Check the following SAP Notes for the latest details of supported SAP HANA on KV
 [[_sec_resources_hypervisor]]
 ==== Resources for Hypervisor
 
-It is recommended to reserve a minimum of about 7% of the hosts's main memory for the Hypervisor.
+It is recommended to reserve a minimum of about 8% of the hosts's main memory for the Hypervisor.
 
 The hypervisor will consume CPU capacity, approximately 5% to 10% of the SAPS capacity, depending on the workload characteristics:
 
@@ -145,6 +145,12 @@ It is however *not* required to dedicate CPUs to the hypervisor.
 ==== Memory Sizing
 
 Since SAP HANA runs inside the VM, it is the RAM size of the VM which has to satisfy the memory requirements from the SAP HANA Memory sizing.
+
+Of course, the memory used by the VM must be smaller than the physical memory of the machine.
+It is recommended to reserve at least 8% of the total memory reported by "`/proc/meminfo`" (in the "`MemTotal`" field) for the hypervisor.
+This leaves ~ 92% to the VM.
+
+See section <<_sec_memory_backing>> for more details.
 
 [[_sec_cpu_sizing]]
 ==== CPU Sizing
@@ -303,7 +309,7 @@ The output should contain a line similar to this one: "`Single Root I/O Virtuali
 If such line is not present, it might be the case that SR-IOV needs to be explicitly enabled in the BIOS.
 
 [[_sec_assign_network_port_at_pci_nic_level]]
-==== Assign a Virtual Function (VF) to a Guest VM
+==== Prepare a Virtual Function (VF) for a Guest VM
 
 After checking that the NIC is SR-IOV capable, the host and the Guest VM should be configured to use one of the available Virtual Functions (VFs) as (one of) the Guest VM's network device(s).
 More information about SR-IOV as a technology and on how to properly configure everything that is necessary for it to work well in the general case, can be found in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 SP2 (https://documentation.suse.com/sles/15-SP2/single-html/SLES-virtualization).
@@ -369,21 +375,29 @@ echo 4 > /sys/class/net/eth10/device/sriov_numvfs
 As with compute resources, the storage used for running SAP HANA must also be SAP certified.
 Therefore only the storage from SAP HANA Appliances or SAP HANA Certified Enterprise Storage (https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/enterprise-storage.html) is supported.
 In all cases the SAP HANA storage configuration recommendations from the respective hardware vendor and the SAP HANA Storage Requirements for TDI (https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html) should be followed.
-The SUSE Best Practices for SAP HANA on KVM - {sles4sap} {slesProdVersion} has been designed and tested to map the block devices for SAP HANA on the Hypervisor directly into the VM.
-Therefore any LVM (Logical Volume Manager) configuration should be made inside the Guest VM only.
-Multipathing by contrast should be only configured on the Hypervisor.
 
-Ultimately the storage for SAP HANA must be able to fulfill the SAP HANA HWCCT requirements from within the VM.
-For details on HWCCT and the required storage KPI`'s refer to SAP Note 1943937 "`Hardware Configuration Check Tool - Central
-          Note`" (https://launchpad.support.sap.com/notes/1943937) and SAP Note 2501817 - HWCCT 1.0 (≥220) (https://launchpad.support.sap.com/notes/2501817).
+As described for Networking, in order to reach the adequate level of performance, the storage drives for actual SAP HANA data are attached to the Guest VM via directly assigning the SAN HBA controller to it.
 
-Most of the configuration steps to configure the storage are at the Guest VM XML level, see section <<_sec_storage>>.
-Nevertheless storage on the Hypervisor should:
+First of all, find the SAN HBA that must be used, e.g., using the "`lspci`" command:
 
-* Follow the storage layout recommendations from the appropriate hardware vendor.
-* Not use LVM (Logical Volume Manager) on the Hypervisor level for SAP HANA volumes since nested LVM is not supported.
-* Configure Multipathing on the Hypervisor only, not inside the Guest VM.
+----
+lspci | grep -i "Fibre Channel"
+85:00.0 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe Adapter (rev 01)
+85:00.1 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe Adapter (rev 01)
+ad:00.0 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe Adapter (rev 01)
+ad:00.1 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe Adapter (rev 01)
+----
 
+Of course, before starting the VM, the devices need to be detached from the host, e.g.:
+
+----
+virsh nodedev-detach pci_0000_85_00_0
+virsh nodedev-detach pci_0000_85_00_1
+----
+
+This can be made happen automatically at boot time, following the same steps described in <<_sec_assign_network_port_at_pci_nic_level>> as, despite that section being about network adapters, the procedure is the same for any PCI device).
+
+The remaining storage configuration details, such as how to add the disks and the HBA controllers to the Guest VM configuration file, as well as what to do with them from inside the Guest VM itself, are available in <<_sec_storage>>.
 
 [[_sec_hypervisor_operating_system_configuration]]
 === Hypervisor Operating System Configuration
@@ -558,8 +572,8 @@ It also important to ensure the order of the hugepage options, specifically the 
 .Calculating Value
 [NOTE]
 ====
-The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx. 7% for the Hypervisor OS.
-For example 2TiB RAM (2048GiB) minus 7% are approx. 1900 hugepages
+The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx. 8% for the Hypervisor OS.
+For example 3TiB RAM (3072GiB) minus 8% are approx. 2770 hugepages
 ====
 
 *PCI Passthrough (intel_iommu=on iommu=pt)*
@@ -594,6 +608,52 @@ There cannot be any overcommitting of memory or CPU resources.
 
 The CPU model should be set to "`host-passthrough`", and any "`check`" should be disabled.
 In addition the "`rdtscp`", "`invtsc`" and "`x2apic`" features are required.
+
+[[_sec_memory_backing]]
+=== Memory Backing
+
+Huge pages, sized 1GiB (i.e., 1048576 KiB) must be used for all the Guest VM memory.
+This guarantees optimal performance for the Guest VM.
+
+It is necessary that each NUMA cell of the Guest VM have a whole number of huge pages assigned to them (i.e., no fractions of huge pages).
+All the NUMA cells should also have the same number of huge pages assigned to them (i.e., the Gues VM memory configuration must be balanced).
+
+Therefore the number of huge pages needs to be dividable by the number of NUMA cells.
+
+For instance, if the host has 3169956100 KiB (i.e., 3 TiB) of memory and we want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pag>
+
+* (3169956100 * (91.75/100)) / 1048576 / 4 = 693
+
+Which means that, in total, there will have to be the following number of huge pages
+
+* 693 * 4 = 2772
+
+Such number must be passed to the host kernel command line parameter on boot (i.e., "`hugepages=2772`", see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
+
+Of course, both the total amount of memory the Guest VM should use, and the fact that such memory must come from 1 GiB huge pages has to be specified in the Guest VM configuration file.
+
+It must also be ensured that the "`memory`" and the "`currentMemory`" element have the same value, in order to disable memory ballooning, which, if enabled, would cause unacceptable latency:
+
+----
+<domain type='kvm'>
+  <!-- ... -->
+  <memory unit='KiB'>2906652672</memory>
+  <currentMemory unit='KiB'>2906652672</currentMemory>
+  <memoryBacking>
+    <hugepages>
+      <page size='1048576' unit='KiB'/>
+    </hugepages>
+    <nosharepages/>
+  </memoryBacking>
+  <!-- ... -->
+</domain>
+----
+
+.Memory Unit
+[NOTE]
+====
+The memory unit can be set to GiB to ease the memory computations.
+====
 
 [[_sec_vcpu_and_vnuma_topology]]
 === vCPU and vNUMA Topology & Pinning
@@ -659,12 +719,6 @@ Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> Memory section 
   <!-- ... -->
 </domain>
 ----
-
-.Memory Unit
-[NOTE]
-====
-The memory unit can be set to GiB to ease the memory computations.
-====
 
 It is also necessary to pin virtual CPUs to physical CPUs, in order to limit the overhead caused by virtual CPUs being moved around physical CPUs by the host scheduler.
 Similarly, the memory for each NUMA cell of the Guest VM must be allocated only on the corresponding host NUMA node.
@@ -753,28 +807,6 @@ lstopo-no-graphics
 
 It is not necessary to isolate the Guest VM's "`iothreads`", nor to statically reserve any host CPU to either them or any other kind of host activity.
 
-[[_sec_memory_backing]]
-=== Memory Backing
-
-Configure the memory size of the Guest VM in KiB and in multiples of 1GiB (because of the use of 1GiB hugepages). The max VM size is determined by the total number of 1GiB hugepages defined on the Hypervisor OS as described in section 4.3.
-
-----
- memory unit='KiB'enter memory size in KiB here/memory
- currentMemory unit='KiB'enter memory size in KiB here/currentMemory
-----
-
-It is important to use 1 gigabyte hugepages for the guest VM memory backing to achieve optimal performance of the KVM guest.
-In addition, Kernel Same Page Merging (KSM) should be disabled.
-
-----
- memoryBacking
-   hugepages
-      page size='1048576' unit='KiB'/
-   /hugepages
-   nosharepages/
- /memoryBacking
-----
-
 [[_sec_vhostmd_guest]]
 === vhostmd Device
 
@@ -821,19 +853,72 @@ The host /dev/random file should be passed through to QEMU as a source of entrop
 [[_sec_storage]]
 === Storage
 
+Since storage controller passthrough is used (see <<_sec_storage_hypervisor>>), any LVM (Logical Volume Manager) and Multipathing configuration should, if wanted, be made inside the Guest VM, always following the storage layout recommendations from the appropriate hardware vendor.
+
+Ultimately the storage for SAP HANA must be able to fulfill the SAP HANA HWCCT requirements from within the VM.
+For details on HWCCT and the required storage KPI`'s refer to SAP Note 1943937 "`Hardware Configuration Check Tool - Central Note`" (https://launchpad.support.sap.com/notes/1943937) and SAP Note 2501817 - HWCCT 1.0 (≥220) (https://launchpad.support.sap.com/notes/2501817).
+
+Network Attached Storage has not been tested with SAP HANA on KVM.
+If there is a requirement for this, please contact mailto:saphana@suse.com[].
+
 [[_sec_storage_configuration_for_operating_system_volumes]]
 ==== Storage Configuration for Operating System Volumes
 
 The performance of storage where the Operating System is installed is not critical for the performance of SAP HANA, and therefore any KVM supported storage may be used to deploy the Operating system itself.
 
+For instance:
+
+----
+<domain type='kvm'>
+  <!-- ... -->
+  <devices>
+    <!-- ... -->
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw' cache='none' io='native'/>
+      <source dev='/dev/disk/by-id/wwn-0x600000e00d29000000293db000520000'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <!-- ... -->
+  </devices>
+  <!-- ... -->
+</domain>
+----
+
+Of course, the "`dev`" attribute of the "`source`" element should contain the appropriate path.
+
 [[_sec_storage_configuration_for_sap_hana_volumes]]
 ==== Storage Configuration for SAP HANA Volumes
 
-The Guest VM XML configuration must be based on the underlying storage configuration on the Hypervisor, see section <<_sec_storage_hypervisor>> for details and adhere the following recommendations:
+The Guest VM XML configuration must be based on the underlying storage configuration on the Hypervisor (see section <<_sec_storage_hypervisor>>)
 
-* Follow the storage layout recommendations from the appropriate hardware vendors.
-* Only use the KVM virtio "`threads`" driver
-* Set the following virtio attributes: name='qemu' type='raw' cache='none' io='threads'.
+Since the storage for HANA ("`/data`", "`/log/`" and "`/shared`" volumes) is performance critical, it is recommended to take advantage of an SAN HBA that is passed through to the Guest VM.
+
+
+Note that it is not possible to only use one function of the adapter, and both must always be attached to the Guest VM.
+An example Guest VM configuration with storage passthrough configured would look like this (adjust the domain, bus, slot and function attributes of the "`address`" elements to match the adapter you chose):
+
+----
+<domain type='kvm'>
+  <!-- ... -->
+  <devices>
+    <!-- ... -->
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x85' slot='0x00' function='0x0'/>
+      </source>
+    </hostdev>
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x85' slot='0x00' function='0x1'/>
+      </source>
+    </hostdev>
+    <!-- ... -->
+  </devices>
+  <!-- ... -->
+</domain>
+----
+
+More details about how to directly assign PCI devices to a Guest VM are described in https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-config-virsh.html#sec-libvirt-config-pci-virsh )
 
 
 [[_sec_guest_operating_system]]

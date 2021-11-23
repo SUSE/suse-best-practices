@@ -57,7 +57,7 @@ libvirt:: A management interface for KVM.
 qemu:: The virtual machine emulator, also seen a process on the Hypervisor running the VM.
 SI units:: Some commands and configurations use the decimal prefix (for example GB), while other use the binary prefix (for example GiB). In this document we use the binary prefix where possible.
 
-For a general overview of the technical components of the KVM architecture, refer to https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-kvm-intro.html
+For a general overview of the technical components of the KVM architecture, refer to https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-kvm-intro.html[Section "`Introduction to KVM Virtualization`"] of the Virtualization Guide.
 
 [[_sec_sap_hana_virtualization_scenarios]]
 === SAP HANA Virtualization Scenarios
@@ -811,8 +811,8 @@ It is not necessary to isolate the Guest VM's "`iothreads`", nor to statically r
 === vhostmd Device
 
 The vhostmd device is passed to the VM so that the "`vm-dump-metrics command`" can retrieve metrics about the hypervisor provided by vhostmd.
-You can use either a vbd disk or a virtio-serial device (preferred) to set this up (see https://confluence.suse.com/display/SAP/HANAonKVM+vhostmd for details).
-//TODO: Add a proper, external, link
+You can use either a vbd disk or a virtio-serial device (preferred) to set this up (see {launchPadNotes}1522993[SAP Note 1522993 - "`Linux: SAP on SUSE KVM - Kernel-based Virtual Machine`"] for details).
+
 
 [[_sec_clocks_timers]]
 === Clocks and Timers
@@ -920,24 +920,55 @@ An example Guest VM configuration with storage passthrough configured would look
 
 More details about how to directly assign PCI devices to a Guest VM are described in https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-config-virsh.html#sec-libvirt-config-pci-virsh )
 
+
 [[_sec_guest_operating_system]]
 == Guest Operating System
 
 [[_sec_install_sles_for_sap_inside_the_guest_vm]]
 === Install SUSE Linux Enterprise Server for SAP Applications Inside the Guest VM
 
-Refer to the SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 12
-          SP2`" (https://documentation.suse.com/sles-sap/12-SP2/).
+Refer to the https://documentation.suse.com/sles-sap/15-SP2/[SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 15].
+          
 
 [[_sec_guest_operating_system_configuration_for_sap_hana]]
 === Guest Operating System Configuration for SAP HANA
 
 Install and configure {sles4sap} {slesProdVersion} and SAP HANA as described in: 
 
-* SAP Note 1944799 "`SAP HANA Guidelines for SLES Operating System Installation`" ({launchPadNotes}1944799)
-* SAP Note 2205917 "`SAP HANA DB: Recommended OS settings for SLES 12 / SLES for SAP Applications 12`" ({launchPadNotes}2205917)
+* {launchPadNotes}1944799[SAP Note 1944799 - "`SAP HANA Guidelines for SLES Operating System Installation`"]
+* {launchPadNotes}2205917[SAP Note 2684254 - "`SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15`"]
 
-*irqbalance*
+[[_sec_customizing_linux_cmdline_guest]]
+==== Customizing the Linux Kernel Parameters of the Guest
+
+Just like the hypervisor host, the VM also needs special kernel parameters to be set. 
+To edit the boot options for the Linux kernel to the following:
+
+. Edit [path]_/etc/defaults/grub_ and add the following boot options to the line "`GRUB_CMDLINE_LINUX_DEFAULT`".
++
+
+----
+mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout
+----
++
+
+A detailed explanation of these parameters has been given in <<_sec_technical_explanation_of_the_above_described_configuration_settings>>.
+
+[[_sec_enabling_host_monitoring_guest]]
+==== Enabling Host Monitoring
+
+The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor. This enables SAP HANA can collect data about the hypervisor. 
+{launchPadNotes}1522993[SAP Note 1522993 - "`Linux: SAP on SUSE KVM - Kernel-based Virtual Machine`"] describes how to set up the virtual devices for `vhostmd` and how to configure it.
+When using a virtual disk for `vhostmd`, the virtual disk device must be world-readable, which is ensured with the boot time configuration below.
+
+
+[[_sec_configuring_guest_at_boot_time]]
+==== Configuring the Guest at Boot Time
+
+The folling settings have to be configured at boot time of the VM. 
+In order to persist these configurations it is recommended to put the commands provided below into a script which is executed as part of the boot process.
+
+===== Disable `irqbalance` 
 
 The irqbalance service should be disabled because it can cause latency issues when the /proc/irq/* files are read.
 To disable irqbalance run the following command:
@@ -947,7 +978,109 @@ systemctl disable irqbalance.service
 systemctl stop irqbalance.service
 ----
 
-//TODO add text for Implementing Host monitoring as per SAP Note 1522993 - Linux: SAP on SUSE KVM - Kernel-based Virtual Machine
+===== Activate and configure `sapconf` or `saptune`
+
+The following parameters need to set in `sapconf` version 5.
+
+----
+GOVERNOR=performance
+PERF_BIAS=performance
+MIN_PERF_PCT=100
+FORCE_LATENCY=5 
+----
+
+If you use `sapconf` version 4 or `saptune`, please configure it accordingly.
+When using `sapconf` version 4, start the `tuned` service and activate the TuneD profile `sapconf`. 
+When using `sapconf` version 5, stop and disable the `tuned` service and instead enable and start the `sapconf` service.
+
+
+===== Activate and configure `haltpoll`
+
+
+
+----
+POLL_NS=800000
+GROW_START=200000
+modprobe cpuidle-haltpoll
+echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
+echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
+----
+
+===== Set the clock source
+
+The clock source has to be set to `tsc`.
+
+----
+echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+----
+
+===== Disable Kernel Same Page Merging
+
+Kernel Same Page Merging (KSM) needs to be disabled, just like on the hypervisor (see <<_sec_no_ksm>>).
+
+----
+echo 2 >/sys/kernel/mm/ksm/run
+----
+
+===== Automatic configuration at boot time
+The following script is provided as an example for a script implementing above recommendations, to be executed at boot time of the VM.
+
+
+.Script
+----
+#!/usr/bin/env bash
+#
+# Configure KVM Guest for SAP HANA
+#
+ 
+POLL_NS=800000
+GROW_START=200000
+ 
+# disable irqbalance 
+systemctl disable --now irqbalance
+ 
+# Check sapconf version installed, runs setup accordingly
+MAJOR_VER=$(rpm -qa | awk -F "-" '/sapconf/ {split($2,maj,"."); print maj[1]}')
+case ${MAJOR_VER} in
+    4)
+      echo "SAPCONF V4 detected."
+      systemctl enable --now tuned
+      tuned-adm profile sapconf
+      ;;
+    5)
+      echo "SAPCONF V5 detected."
+      systemctl disable --now tuned
+      systemctl enable --now sapconf
+      ;;
+    *)
+      echo "ERROR: Unsupported SAPCONF ver. (${MAJOR_VER}) detected. Exiting."
+      exit 1
+      ;;
+esac
+ 
+modprobe cpuidle-haltpoll
+echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
+echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
+ 
+# Set clocksource to tsc
+echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+ 
+# disable Kernel Samepage Merging
+echo 2 >/sys/kernel/mm/ksm/run
+# 2: disable it, but make sure you also purify everything with fire!
+ 
+# fix access to vhostmd device, so that SIDadm can read it
+# see function setup_vhostmd_guest_device() in qacss-schwifty-common
+ 
+# the vhostmd device has exactly 256 blocks, try to catch that from /proc/partitions
+VHOSTMD_DEVICE=$(grep "   256 " /proc/partitions | awk '{print $4}' )
+if [ -n "$VHOSTMD_DEVICE" ]; then
+  chmod o+r /dev/"$VHOSTMD_DEVICE"
+else
+  echo "Missing vhostmd device, please check you XML file."
+fi
+----
+
 
 
 [[_sec_guest_operating_system_storage_configuration_for_sap_hana_volumes]]
@@ -955,7 +1088,8 @@ systemctl stop irqbalance.service
 
 * Follow the storage layout recommendations from the appropriate hardware vendors.
 * Only use LVM (Logical Volume Manager) inside the VM for SAP HANA. Nested LVM is not to be used.
-* Do not configure Multipathing in the guest, but instead on the Hypervisor (see section <<_sec_storage_hypervisor>>).
+
+
 
 
 [[_sec_administration]]
@@ -963,8 +1097,8 @@ systemctl stop irqbalance.service
 
 For a full explanation of administration commands, refer to official SUSE Virtualization documentation such as:
 
-* Section 10 "`Basic VM Guest Management`" and others in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 12 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-managing.html)
-* SUSE Virtualization Best Practices for SUSE Linux Enterprise Server 12 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/article-vt-best-practices.html)
+* Section 10 "`Basic VM Guest Management`" and others in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-managing.html)
+* SUSE Virtualization Best Practices for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/article-vt-best-practices.html)
 
 
 [[_sec_useful_commands_on_the_hypervisor]]
@@ -979,7 +1113,7 @@ cat /proc/cmdline
 Checking hugepage status (This command can also be used to monitor the progress of hugepage allocation during VM start)
 
 ----
-cat /proc/meminfo |grep Huge
+cat /proc/meminfo | grep Huge
 ----
 
 List all VM Guest domains configured on Hypervisor
@@ -988,7 +1122,7 @@ List all VM Guest domains configured on Hypervisor
 virsh list --all
 ----
 
-Start a VM (Note: VM start times can take some minutes on larger RAM systems, check progress with "` /proc/meminfo | grep Huge `"
+Start a VM (Note: VM start times can take some minutes on larger RAM systems, check progress with `/proc/meminfo | grep Huge`
 
 ----
 virsh start VM/Guest Domain name
@@ -1030,455 +1164,12 @@ lscpu
 [[_sec_examples]]
 == Examples
 
-[[_sec_example_lscpu_from_a_lenovo_x3850_x6]]
-=== Example "`lscpu`" from a Lenovo x3850 x6
 
-//TODO consider removing, not sure if this is relevant. add some text and cross refer from main section
-
-
-----
-# lscpu
-Architecture:          x86_64
-CPU op-mode(s):        32-bit, 64-bit
-Byte Order:            Little Endian
-CPU(s):                144
-On-line CPU(s) list:   0-143
-Thread(s) per core:    2
-Core(s) per socket:    18
-Socket(s):             4
-NUMA node(s):          4
-Vendor ID:             GenuineIntel
-CPU family:            6
-Model:                 63
-Model name:            Intel(R) Xeon(R) CPU E7-8880 v3 @ 2.30GHz
-Stepping:              4
-CPU MHz:               2700.000
-CPU max MHz:           3100.0000
-CPU min MHz:           1200.0000
-BogoMIPS:              4589.07
-Virtualization:        VT-x
-L1d cache:             32K
-L1i cache:             32K
-L2 cache:              256K
-L3 cache:              46080K
-NUMA node0 CPU(s):     0-17,72-89
-NUMA node1 CPU(s):     18-35,90-107
-NUMA node2 CPU(s):     36-53,108-125
-NUMA node3 CPU(s):     54-71,126-143
-Flags:                 fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf eagerfpu mce_recovery pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid dca sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm ida arat epb pln pts dtherm tpr_shadow vnmi flexpriority ept vpid fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm cqm xsaveopt cqm_llc cqm_occup_llc
-----
-
-[[_sec_lscpu_extended_example]]
-=== Example "`lscpu --extended=CPU,SOCKET,CORE`" from a Lenovo x3850 x6
-
-----
-#  lscpu --extended=CPU,SOCKET,CORE
-CPU SOCKET CORE
-0   0      0
-1   0      1
-2   0      2
-3   0      3
-4   0      4
-5   0      5
-6   0      6
-7   0      7
-8   0      8
-9   0      9
-10  0      10
-11  0      11
-12  0      12
-13  0      13
-14  0      14
-15  0      15
-16  0      16
-17  0      17
-18  1      18
-19  1      19
-20  1      20
-21  1      21
-22  1      22
-23  1      23
-24  1      24
-25  1      25
-26  1      26
-27  1      27
-28  1      28
-29  1      29
-30  1      30
-31  1      31
-32  1      32
-33  1      33
-34  1      34
-35  1      35
-36  2      36
-37  2      37
-38  2      38
-39  2      39
-40  2      40
-41  2      41
-42  2      42
-43  2      43
-44  2      44
-45  2      45
-46  2      46
-47  2      47
-48  2      48
-49  2      49
-50  2      50
-51  2      51
-52  2      52
-53  2      53
-54  3      54
-55  3      55
-56  3      56
-57  3      57
-58  3      58
-59  3      59
-60  3      60
-61  3      61
-62  3      62
-63  3      63
-64  3      64
-65  3      65
-66  3      66
-67  3      67
-68  3      68
-69  3      69
-70  3      70
-71  3      71
-72  0      0
-73  0      1
-74  0      2
-75  0      3
-76  0      4
-77  0      5
-78  0      6
-79  0      7
-80  0      8
-81  0      9
-82  0      10
-83  0      11
-84  0      12
-85  0      13
-86  0      14
-87  0      15
-88  0      16
-89  0      17
-90  1      18
-91  1      19
-92  1      20
-93  1      21
-94  1      22
-95  1      23
-96  1      24
-97  1      25
-98  1      26
-99  1      27
-100 1      28
-101 1      29
-102 1      30
-103 1      31
-104 1      32
-105 1      33
-106 1      34
-107 1      35
-108 2      36
-109 2      37
-110 2      38
-111 2      39
-112 2      40
-113 2      41
-114 2      42
-115 2      43
-116 2      44
-117 2      45
-118 2      46
-119 2      47
-120 2      48
-121 2      49
-122 2      50
-123 2      51
-124 2      52
-125 2      53
-126 3      54
-127 3      55
-128 3      56
-129 3      57
-130 3      58
-131 3      59
-132 3      60
-133 3      61
-134 3      62
-135 3      63
-136 3      64
-137 3      65
-138 3      66
-139 3      67
-140 3      68
-141 3      69
-142 3      70
-143 3      71
-----
-
-[[_sec_example_lstopo]]
-=== Example "`lstopo-no-graphics`" from a Lenovo x3850 x6
-
-----
-# lstopo-no-graphics
-Machine (504GB total)
-  NUMANode L#0 (P#0 126GB)
-    Package L#0 + L3 L#0 (45MB)
-      L2 L#0 (256KB) + L1d L#0 (32KB) + L1i L#0 (32KB) + Core L#0
-        PU L#0 (P#0)
-        PU L#1 (P#72)
-      L2 L#1 (256KB) + L1d L#1 (32KB) + L1i L#1 (32KB) + Core L#1
-        PU L#2 (P#1)
-        PU L#3 (P#73)
-      L2 L#2 (256KB) + L1d L#2 (32KB) + L1i L#2 (32KB) + Core L#2
-        PU L#4 (P#2)
-        PU L#5 (P#74)
-      L2 L#3 (256KB) + L1d L#3 (32KB) + L1i L#3 (32KB) + Core L#3
-        PU L#6 (P#3)
-        PU L#7 (P#75)
-      L2 L#4 (256KB) + L1d L#4 (32KB) + L1i L#4 (32KB) + Core L#4
-        PU L#8 (P#4)
-        PU L#9 (P#76)
-      L2 L#5 (256KB) + L1d L#5 (32KB) + L1i L#5 (32KB) + Core L#5
-        PU L#10 (P#5)
-        PU L#11 (P#77)
-      L2 L#6 (256KB) + L1d L#6 (32KB) + L1i L#6 (32KB) + Core L#6
-        PU L#12 (P#6)
-        PU L#13 (P#78)
-      L2 L#7 (256KB) + L1d L#7 (32KB) + L1i L#7 (32KB) + Core L#7
-        PU L#14 (P#7)
-        PU L#15 (P#79)
-      L2 L#8 (256KB) + L1d L#8 (32KB) + L1i L#8 (32KB) + Core L#8
-        PU L#16 (P#8)
-        PU L#17 (P#80)
-      L2 L#9 (256KB) + L1d L#9 (32KB) + L1i L#9 (32KB) + Core L#9
-        PU L#18 (P#9)
-        PU L#19 (P#81)
-      L2 L#10 (256KB) + L1d L#10 (32KB) + L1i L#10 (32KB) + Core L#10
-        PU L#20 (P#10)
-        PU L#21 (P#82)
-      L2 L#11 (256KB) + L1d L#11 (32KB) + L1i L#11 (32KB) + Core L#11
-        PU L#22 (P#11)
-        PU L#23 (P#83)
-      L2 L#12 (256KB) + L1d L#12 (32KB) + L1i L#12 (32KB) + Core L#12
-        PU L#24 (P#12)
-        PU L#25 (P#84)
-      L2 L#13 (256KB) + L1d L#13 (32KB) + L1i L#13 (32KB) + Core L#13
-        PU L#26 (P#13)
-        PU L#27 (P#85)
-      L2 L#14 (256KB) + L1d L#14 (32KB) + L1i L#14 (32KB) + Core L#14
-        PU L#28 (P#14)
-        PU L#29 (P#86)
-      L2 L#15 (256KB) + L1d L#15 (32KB) + L1i L#15 (32KB) + Core L#15
-        PU L#30 (P#15)
-        PU L#31 (P#87)
-      L2 L#16 (256KB) + L1d L#16 (32KB) + L1i L#16 (32KB) + Core L#16
-        PU L#32 (P#16)
-        PU L#33 (P#88)
-      L2 L#17 (256KB) + L1d L#17 (32KB) + L1i L#17 (32KB) + Core L#17
-        PU L#34 (P#17)
-        PU L#35 (P#89)
-    HostBridge L#0
-      PCIBridge
-        PCI 8086:1521
-          Net L#0 "eth0"
-        PCI 8086:1521
-          Net L#1 "eth1"
-        PCI 8086:1521
-          Net L#2 "eth2"
-        PCI 8086:1521
-          Net L#3 "eth3"
-  NUMANode L#1 (P#1 126GB)
-    Package L#1 + L3 L#1 (45MB)
-      L2 L#18 (256KB) + L1d L#18 (32KB) + L1i L#18 (32KB) + Core L#18
-        PU L#36 (P#18)
-        PU L#37 (P#90)
-      L2 L#19 (256KB) + L1d L#19 (32KB) + L1i L#19 (32KB) + Core L#19
-        PU L#38 (P#19)
-        PU L#39 (P#91)
-      L2 L#20 (256KB) + L1d L#20 (32KB) + L1i L#20 (32KB) + Core L#20
-        PU L#40 (P#20)
-        PU L#41 (P#92)
-      L2 L#21 (256KB) + L1d L#21 (32KB) + L1i L#21 (32KB) + Core L#21
-        PU L#42 (P#21)
-        PU L#43 (P#93)
-      L2 L#22 (256KB) + L1d L#22 (32KB) + L1i L#22 (32KB) + Core L#22
-        PU L#44 (P#22)
-        PU L#45 (P#94)
-      L2 L#23 (256KB) + L1d L#23 (32KB) + L1i L#23 (32KB) + Core L#23
-        PU L#46 (P#23)
-        PU L#47 (P#95)
-      L2 L#24 (256KB) + L1d L#24 (32KB) + L1i L#24 (32KB) + Core L#24
-        PU L#48 (P#24)
-        PU L#49 (P#96)
-      L2 L#25 (256KB) + L1d L#25 (32KB) + L1i L#25 (32KB) + Core L#25
-        PU L#50 (P#25)
-        PU L#51 (P#97)
-      L2 L#26 (256KB) + L1d L#26 (32KB) + L1i L#26 (32KB) + Core L#26
-        PU L#52 (P#26)
-        PU L#53 (P#98)
-      L2 L#27 (256KB) + L1d L#27 (32KB) + L1i L#27 (32KB) + Core L#27
-        PU L#54 (P#27)
-        PU L#55 (P#99)
-      L2 L#28 (256KB) + L1d L#28 (32KB) + L1i L#28 (32KB) + Core L#28
-        PU L#56 (P#28)
-        PU L#57 (P#100)
-      L2 L#29 (256KB) + L1d L#29 (32KB) + L1i L#29 (32KB) + Core L#29
-        PU L#58 (P#29)
-        PU L#59 (P#101)
-      L2 L#30 (256KB) + L1d L#30 (32KB) + L1i L#30 (32KB) + Core L#30
-        PU L#60 (P#30)
-        PU L#61 (P#102)
-      L2 L#31 (256KB) + L1d L#31 (32KB) + L1i L#31 (32KB) + Core L#31
-        PU L#62 (P#31)
-        PU L#63 (P#103)
-      L2 L#32 (256KB) + L1d L#32 (32KB) + L1i L#32 (32KB) + Core L#32
-        PU L#64 (P#32)
-        PU L#65 (P#104)
-      L2 L#33 (256KB) + L1d L#33 (32KB) + L1i L#33 (32KB) + Core L#33
-        PU L#66 (P#33)
-        PU L#67 (P#105)
-      L2 L#34 (256KB) + L1d L#34 (32KB) + L1i L#34 (32KB) + Core L#34
-        PU L#68 (P#34)
-        PU L#69 (P#106)
-      L2 L#35 (256KB) + L1d L#35 (32KB) + L1i L#35 (32KB) + Core L#35
-        PU L#70 (P#35)
-        PU L#71 (P#107)
-    HostBridge L#7
-    PCIBridge
-      PCI 1000:005d
-        Block(Disk) L#4 "sda"
-        Block(Disk) L#5 "sdb"
-        Block(Disk) L#6 "sdc"
-        Block(Disk) L#7 "sdd"
-        Block(Disk) L#8 "sde"
-    NUMANode L#2 (P#2 126GB) + Package L#2 + L3 L#2 (45MB)
-    L2 L#36 (256KB) + L1d L#36 (32KB) + L1i L#36 (32KB) + Core L#36
-      PU L#72 (P#36)
-      PU L#73 (P#108)
-    L2 L#37 (256KB) + L1d L#37 (32KB) + L1i L#37 (32KB) + Core L#37
-      PU L#74 (P#37)
-      PU L#75 (P#109)
-    L2 L#38 (256KB) + L1d L#38 (32KB) + L1i L#38 (32KB) + Core L#38
-      PU L#76 (P#38)
-      PU L#77 (P#110)
-    L2 L#39 (256KB) + L1d L#39 (32KB) + L1i L#39 (32KB) + Core L#39
-      PU L#78 (P#39)
-      PU L#79 (P#111)
-    L2 L#40 (256KB) + L1d L#40 (32KB) + L1i L#40 (32KB) + Core L#40
-      PU L#80 (P#40)
-      PU L#81 (P#112)
-    L2 L#41 (256KB) + L1d L#41 (32KB) + L1i L#41 (32KB) + Core L#41
-      PU L#82 (P#41)
-      PU L#83 (P#113)
-    L2 L#42 (256KB) + L1d L#42 (32KB) + L1i L#42 (32KB) + Core L#42
-      PU L#84 (P#42)
-      PU L#85 (P#114)
-    L2 L#43 (256KB) + L1d L#43 (32KB) + L1i L#43 (32KB) + Core L#43
-      PU L#86 (P#43)
-      PU L#87 (P#115)
-    L2 L#44 (256KB) + L1d L#44 (32KB) + L1i L#44 (32KB) + Core L#44
-      PU L#88 (P#44)
-      PU L#89 (P#116)
-    L2 L#45 (256KB) + L1d L#45 (32KB) + L1i L#45 (32KB) + Core L#45
-      PU L#90 (P#45)
-      PU L#91 (P#117)
-    L2 L#46 (256KB) + L1d L#46 (32KB) + L1i L#46 (32KB) + Core L#46
-      PU L#92 (P#46)
-      PU L#93 (P#118)
-    L2 L#47 (256KB) + L1d L#47 (32KB) + L1i L#47 (32KB) + Core L#47
-      PU L#94 (P#47)
-      PU L#95 (P#119)
-    L2 L#48 (256KB) + L1d L#48 (32KB) + L1i L#48 (32KB) + Core L#48
-      PU L#96 (P#48)
-      PU L#97 (P#120)
-    L2 L#49 (256KB) + L1d L#49 (32KB) + L1i L#49 (32KB) + Core L#49
-      PU L#98 (P#49)
-      PU L#99 (P#121)
-    L2 L#50 (256KB) + L1d L#50 (32KB) + L1i L#50 (32KB) + Core L#50
-      PU L#100 (P#50)
-      PU L#101 (P#122)
-    L2 L#51 (256KB) + L1d L#51 (32KB) + L1i L#51 (32KB) + Core L#51
-      PU L#102 (P#51)
-      PU L#103 (P#123)
-    L2 L#52 (256KB) + L1d L#52 (32KB) + L1i L#52 (32KB) + Core L#52
-      PU L#104 (P#52)
-      PU L#105 (P#124)
-    L2 L#53 (256KB) + L1d L#53 (32KB) + L1i L#53 (32KB) + Core L#53
-      PU L#106 (P#53)
-      PU L#107 (P#125)
-    PCIBridge
-      PCI 1000:005d
-        Block(Disk) L#9 "sdf"
-        Block(Disk) L#10 "sdg"
-        Block(Disk) L#11 "sdh"
-        Block(Disk) L#12 "sdi"
-    NUMANode L#3 (P#3 126GB) + Package L#3 + L3 L#3 (45MB)
-      L2 L#54 (256KB) + L1d L#54 (32KB) + L1i L#54 (32KB) + Core L#54
-        PU L#108 (P#54)
-        PU L#109 (P#126)
-      L2 L#55 (256KB) + L1d L#55 (32KB) + L1i L#55 (32KB) + Core L#55
-        PU L#110 (P#55)
-        PU L#111 (P#127)
-      L2 L#56 (256KB) + L1d L#56 (32KB) + L1i L#56 (32KB) + Core L#56
-        PU L#112 (P#56)
-        PU L#113 (P#128)
-      L2 L#57 (256KB) + L1d L#57 (32KB) + L1i L#57 (32KB) + Core L#57
-        PU L#114 (P#57)
-        PU L#115 (P#129)
-      L2 L#58 (256KB) + L1d L#58 (32KB) + L1i L#58 (32KB) + Core L#58
-        PU L#116 (P#58)
-        PU L#117 (P#130)
-      L2 L#59 (256KB) + L1d L#59 (32KB) + L1i L#59 (32KB) + Core L#59
-        PU L#118 (P#59)
-        PU L#119 (P#131)
-      L2 L#60 (256KB) + L1d L#60 (32KB) + L1i L#60 (32KB) + Core L#60
-        PU L#120 (P#60)
-        PU L#121 (P#132)
-      L2 L#61 (256KB) + L1d L#61 (32KB) + L1i L#61 (32KB) + Core L#61
-        PU L#122 (P#61)
-        PU L#123 (P#133)
-      L2 L#62 (256KB) + L1d L#62 (32KB) + L1i L#62 (32KB) + Core L#62
-        PU L#124 (P#62)
-        PU L#125 (P#134)
-      L2 L#63 (256KB) + L1d L#63 (32KB) + L1i L#63 (32KB) + Core L#63
-        PU L#126 (P#63)
-        PU L#127 (P#135)
-      L2 L#64 (256KB) + L1d L#64 (32KB) + L1i L#64 (32KB) + Core L#64
-        PU L#128 (P#64)
-        PU L#129 (P#136)
-      L2 L#65 (256KB) + L1d L#65 (32KB) + L1i L#65 (32KB) + Core L#65
-        PU L#130 (P#65)
-        PU L#131 (P#137)
-      L2 L#66 (256KB) + L1d L#66 (32KB) + L1i L#66 (32KB) + Core L#66
-        PU L#132 (P#66)
-        PU L#133 (P#138)
-      L2 L#67 (256KB) + L1d L#67 (32KB) + L1i L#67 (32KB) + Core L#67
-        PU L#134 (P#67)
-        PU L#135 (P#139)
-      L2 L#68 (256KB) + L1d L#68 (32KB) + L1i L#68 (32KB) + Core L#68
-        PU L#136 (P#68)
-        PU L#137 (P#140)
-      L2 L#69 (256KB) + L1d L#69 (32KB) + L1i L#69 (32KB) + Core L#69
-        PU L#138 (P#69)
-        PU L#139 (P#141)
-      L2 L#70 (256KB) + L1d L#70 (32KB) + L1i L#70 (32KB) + Core L#70
-        PU L#140 (P#70)
-        PU L#141 (P#142)
-      L2 L#71 (256KB) + L1d L#71 (32KB) + L1i L#71 (32KB) + Core L#71
-        PU L#142 (P#71)
-        PU L#143 (P#143)
-----
-
-[[_sec_example_guest_vm_xml_based_on_the_example_lenovo_x3850_x6_above]]
-=== Example Guest VM XML Based on the Example Lenovo x3850 x6 Above
+[[_sec_example_guest_vm_xml]]
+=== Example Guest VM XML 
 
 .XML Configuration Example
-[WARNING]
+[CAUTION]
 ====
 The XML file below is only an *example* showing the key configurations based on the about command outputs to assist in understanding how to configure the XML.
 The actual XML configuration must be based on your respective hardware configuration and VM requirements.
@@ -1487,21 +1178,23 @@ The actual XML configuration must be based on your respective hardware configura
 Points of interest in this example (refer to the detailed sections of SUSE Best Practices for SAP HANA on KVM - {sles4sap} {slesProdVersion} for a full explanation):
 
 * Memory
-** The Hypervisor has 512GiB RAM, of which 488GiB has been allocated as 1GB Hugepages and therefore 488GiB is the max VM size in this case
-** 488GiB = 511705088KiB
+** The Hypervisor has 3TiB RAM (or 3072GiB), of which 2772GiB has been allocated as 1GB Hugepages and therefore 2772GiB is the max VM size in this case
+** 2772GiB = 2906652672KiB
 ** In the "`numa`" section memory is split evenly over the 4 NUMA nodes (CPU sockets)
 * CPU Pinning
 ** Note the alternating CPU pinning on the Hypervisor, see <<_sec_vcpu_and_vnuma_topology>> section for details
-** Note the topology difference between the Guest VM (4x17 CPU cores) the Hypervisor (4x18 CPU cores)
-** Referring to the <<_sec_example_lstopo>> output we know that the disks are attached via CPU sockets 1 and 2, therefore the iothreads are pinned (see vcpupin) to logical CPUs on those sockets
-* Storage/IO
-** Storage is configured with virtio and the block devices for SAP HANA are spread evenly across the iothreads
-** Source devices use persistent multipath addresses
-** Type is set to raw, and cache=none
+** Note the topology of the Guest VM mirrors the one of the Hypervisor (4x28 CPU cores)
+* Network I/O
+** Virtual functions of the physical network interface card have been added as PCI devices
+* Storage I/O
+** A single SAN HBA is passed through to the VM as `hostdev` device (one for each function/port)
 ** See <<_sec_storage>> section for details
 * "` rng model='virtio' `", for details see section <<_sec_virtio_rng>>
 * qemu:commandline elements to describe CPU attributes, for details see section <<_sec_global_vcpu_configuration>>
 
+
+The following VM definition is for a VM configured to consume a 4-socket server with 3TiB of main memory, . a taken from our actual validation machine.
+Please note that this file is abridged for clarity (denoted by a "`[...]`" mark). 
 
 ----
 # cat /etc/libvirt/qemu/SUSEKVM.xml
@@ -1512,247 +1205,295 @@ OVERWRITTEN AND LOST. Changes to this xml configuration should be made using:
 or other application using the libvirt API.
 --
 
-domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'
-  nameSUSEKVM/name
-  uuid39112135-9cee-4a5e-b36b-eba8757d666e/uuid
-  memory unit='KiB'511705088/memory
-  currentMemory unit='KiB'511705088/currentMemory
-  memoryBacking
-    hugepages/
-      page size='1048576' unit='KiB'/
-    nosharepages/
-  /memoryBacking
-  vcpu placement='static'136/vcpu
-  iothreads5/iothreads
-  cputune
-    vcpupin vcpu='0' cpuset='1'/
-    vcpupin vcpu='1' cpuset='73'/
-    vcpupin vcpu='2' cpuset='2'/
-    vcpupin vcpu='3' cpuset='74'/
-    vcpupin vcpu='4' cpuset='3'/
-    vcpupin vcpu='5' cpuset='75'/
-    vcpupin vcpu='6' cpuset='4'/
-    vcpupin vcpu='7' cpuset='76'/
-    vcpupin vcpu='8' cpuset='5'/
-    vcpupin vcpu='9' cpuset='77'/
-    vcpupin vcpu='10' cpuset='6'/
-    vcpupin vcpu='11' cpuset='78'/
-    vcpupin vcpu='12' cpuset='7'/
-    vcpupin vcpu='13' cpuset='79'/
-    vcpupin vcpu='14' cpuset='8'/
-    vcpupin vcpu='15' cpuset='80'/
-    vcpupin vcpu='16' cpuset='9'/
-    vcpupin vcpu='17' cpuset='81'/
-    vcpupin vcpu='18' cpuset='10'/
-    vcpupin vcpu='19' cpuset='82'/
-    vcpupin vcpu='20' cpuset='11'/
-    vcpupin vcpu='21' cpuset='83'/
-    vcpupin vcpu='22' cpuset='12'/
-    vcpupin vcpu='23' cpuset='84'/
-    vcpupin vcpu='24' cpuset='13'/
-    vcpupin vcpu='25' cpuset='85'/
-    vcpupin vcpu='26' cpuset='14'/
-    vcpupin vcpu='27' cpuset='86'/
-    vcpupin vcpu='28' cpuset='15'/
-    vcpupin vcpu='29' cpuset='87'/
-    vcpupin vcpu='30' cpuset='16'/
-    vcpupin vcpu='31' cpuset='88'/
-    vcpupin vcpu='32' cpuset='17'/
-    vcpupin vcpu='33' cpuset='89'/
-    vcpupin vcpu='34' cpuset='19'/
-    vcpupin vcpu='35' cpuset='91'/
-    vcpupin vcpu='36' cpuset='20'/
-    vcpupin vcpu='37' cpuset='92'/
-    vcpupin vcpu='38' cpuset='21'/
-    vcpupin vcpu='39' cpuset='93'/
-    vcpupin vcpu='40' cpuset='22'/
-    vcpupin vcpu='41' cpuset='94'/
-    vcpupin vcpu='42' cpuset='23'/
-    vcpupin vcpu='43' cpuset='95'/
-    vcpupin vcpu='44' cpuset='24'/
-    vcpupin vcpu='45' cpuset='96'/
-    vcpupin vcpu='46' cpuset='25'/
-    vcpupin vcpu='47' cpuset='97'/
-    vcpupin vcpu='48' cpuset='26'/
-    vcpupin vcpu='49' cpuset='98'/
-    vcpupin vcpu='50' cpuset='27'/
-    vcpupin vcpu='51' cpuset='99'/
-    vcpupin vcpu='52' cpuset='28'/
-    vcpupin vcpu='53' cpuset='100'/
-    vcpupin vcpu='54' cpuset='29'/
-    vcpupin vcpu='55' cpuset='101'/
-    vcpupin vcpu='56' cpuset='30'/
-    vcpupin vcpu='57' cpuset='102'/
-    vcpupin vcpu='58' cpuset='31'/
-    vcpupin vcpu='59' cpuset='103'/
-    vcpupin vcpu='60' cpuset='32'/
-    vcpupin vcpu='61' cpuset='104'/
-    vcpupin vcpu='62' cpuset='33'/
-    vcpupin vcpu='63' cpuset='105'/
-    vcpupin vcpu='64' cpuset='34'/
-    vcpupin vcpu='65' cpuset='106'/
-    vcpupin vcpu='66' cpuset='35'/
-    vcpupin vcpu='67' cpuset='107'/
-    vcpupin vcpu='68' cpuset='37'/
-    vcpupin vcpu='69' cpuset='109'/
-    vcpupin vcpu='70' cpuset='38'/
-    vcpupin vcpu='71' cpuset='110'/
-    vcpupin vcpu='72' cpuset='39'/
-    vcpupin vcpu='73' cpuset='111'/
-    vcpupin vcpu='74' cpuset='40'/
-    vcpupin vcpu='75' cpuset='112'/
-    vcpupin vcpu='76' cpuset='41'/
-    vcpupin vcpu='77' cpuset='113'/
-    vcpupin vcpu='78' cpuset='42'/
-    vcpupin vcpu='79' cpuset='114'/
-    vcpupin vcpu='80' cpuset='43'/
-    vcpupin vcpu='81' cpuset='115'/
-    vcpupin vcpu='82' cpuset='44'/
-    vcpupin vcpu='83' cpuset='116'/
-    vcpupin vcpu='84' cpuset='45'/
-    vcpupin vcpu='85' cpuset='117'/
-    vcpupin vcpu='86' cpuset='46'/
-    vcpupin vcpu='87' cpuset='118'/
-    vcpupin vcpu='88' cpuset='47'/
-    vcpupin vcpu='89' cpuset='119'/
-    vcpupin vcpu='90' cpuset='48'/
-    vcpupin vcpu='91' cpuset='120'/
-    vcpupin vcpu='92' cpuset='49'/
-    vcpupin vcpu='93' cpuset='121'/
-    vcpupin vcpu='94' cpuset='50'/
-    vcpupin vcpu='95' cpuset='122'/
-    vcpupin vcpu='96' cpuset='51'/
-    vcpupin vcpu='97' cpuset='123'/
-    vcpupin vcpu='98' cpuset='52'/
-    vcpupin vcpu='99' cpuset='124'/
-    vcpupin vcpu='100' cpuset='53'/
-    vcpupin vcpu='101' cpuset='125'/
-    vcpupin vcpu='102' cpuset='55'/
-    vcpupin vcpu='103' cpuset='127'/
-    vcpupin vcpu='104' cpuset='56'/
-    vcpupin vcpu='105' cpuset='128'/
-    vcpupin vcpu='106' cpuset='57'/
-    vcpupin vcpu='107' cpuset='129'/
-    vcpupin vcpu='108' cpuset='58'/
-    vcpupin vcpu='109' cpuset='130'/
-    vcpupin vcpu='110' cpuset='59'/
-    vcpupin vcpu='111' cpuset='131'/
-    vcpupin vcpu='112' cpuset='60'/
-    vcpupin vcpu='113' cpuset='132'/
-    vcpupin vcpu='114' cpuset='61'/
-    vcpupin vcpu='115' cpuset='133'/
-    vcpupin vcpu='116' cpuset='62'/
-    vcpupin vcpu='117' cpuset='134'/
-    vcpupin vcpu='118' cpuset='63'/
-    vcpupin vcpu='119' cpuset='135'/
-    vcpupin vcpu='120' cpuset='64'/
-    vcpupin vcpu='121' cpuset='136'/
-    vcpupin vcpu='122' cpuset='65'/
-    vcpupin vcpu='123' cpuset='137'/
-    vcpupin vcpu='124' cpuset='66'/
-    vcpupin vcpu='125' cpuset='138'/
-    vcpupin vcpu='126' cpuset='67'/
-    vcpupin vcpu='127' cpuset='139'/
-    vcpupin vcpu='128' cpuset='68'/
-    vcpupin vcpu='129' cpuset='140'/
-    vcpupin vcpu='130' cpuset='69'/
-    vcpupin vcpu='131' cpuset='141'/
-    vcpupin vcpu='132' cpuset='70'/
-    vcpupin vcpu='133' cpuset='142'/
-    vcpupin vcpu='134' cpuset='71'/
-    vcpupin vcpu='135' cpuset='143'/
-    emulatorpin cpuset='0,54'/
-    iothreadpin iothread='1' cpuset='72'/
-    iothreadpin iothread='2' cpuset='18'/
-    iothreadpin iothread='3' cpuset='36'/
-    iothreadpin iothread='4' cpuset='90'/
-    iothreadpin iothread='5' cpuset='108'/
-  /cputune
-  numatune
-    memory mode='strict' nodeset='0-3'/
-    memnode cellid='0' mode='strict' nodeset='0'/
-    memnode cellid='1' mode='strict' nodeset='1'/
-    memnode cellid='2' mode='strict' nodeset='2'/
-    memnode cellid='3' mode='strict' nodeset='3'/
-  /numatune
-  os
-    type arch='x86_64' machine='pc-i440fx-2.6'hvm/type
-    boot dev='hd'/
-  /os
-  features
-    acpi/
-    apic/
-    vmport state='off'/
-  /features
-  cpu mode='host-passthrough'
-    topology sockets='4' cores='17' threads='2'/
-    numa
-      cell id='0' cpus='0-33' memory='127926272' unit='KiB'/
-      cell id='1' cpus='34-66' memory='127926272' unit='KiB'/
-      cell id='2' cpus='67-101' memory='127926272' unit='KiB'/
-      cell id='3' cpus='102-135' memory='127926272' unit='KiB'/
-    /numa
-  /cpu
-  clock offset='utc'
-    timer name='rtc' tickpolicy='catchup'/
-    timer name='pit' tickpolicy='delay'/
-    timer name='hpet' present='no'/
-  /clock
-  on_poweroffdestroy/on_poweroff
-  on_rebootrestart/on_reboot
-  on_crashrestart/on_crash
-  pm
-    suspend-to-mem enabled='no'/
-    suspend-to-disk enabled='no'/
-  /pm
-  devices
-    emulator/usr/bin/qemu-kvm/emulator
-...
-    disk type='block' device='disk'
-      driver name='qemu' type='raw' cache='none' io='threads' iothread='1'/
-      source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx...'/
-      target dev='vda' bus='virtio'/
-    /disk
-    disk type='block' device='disk'
-      driver name='qemu' type='raw' cache='none' io='threads' iothread='2'/
-      source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-cd5e'/
-      target dev='vdf' bus='virtio'/
-    /disk
-    disk type='block' device='disk'
-      driver name='qemu' type='raw' cache='none' io='threads' iothread='3'/
-      source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-cd89'/
-      target dev='vdg' bus='virtio'/
-    /disk
-    disk type='block' device='disk'
-      driver name='qemu' type='raw' cache='none' io='threads' iothread='4'/
-      source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-c9bb'/
-      target dev='vdh' bus='virtio'/
-    /disk
-    disk type='block' device='disk'
-      driver name='qemu' type='raw' cache='none' io='threads' iothread='5'/
-      source dev='/dev/disk/by-id/dm-uuid-mpath-xxxxx-c9e5'/
-      target dev='vdi' bus='virtio'/
-    /disk
-
-    hostdev mode='subsystem' type='pci' managed='yes'
-      source
-        address domain='0x0003' bus='0x03' slot='0x00' function='0x0'/
-      /source
-    /hostdev
-...
-    memballoon model='virtio'
-      address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/
-    /memballoon
-...
-    rng model='virtio'
-      backend model='random'/dev/random/backend
-    /rng
-  /devices
-  qemu:commandline
-    qemu:arg value='-cpu'/
-    qemu:arg value='host,migratable=off,+invtsc,l3-cache=on'/
-  /qemu:commandline
-/domain
+<domain type='kvm'>
+  <name>kvmvm11</name>
+  <uuid>f529e0b0-93cc-4e83-87dc-65cb9922336d</uuid>
+  <description>kvmvm11</description>
+  <metadata>
+    <libosinfo:libosinfo xmlns:libosinfo="http://libosinfo.org/xmlns/libvirt/domain/1.0">
+      <libosinfo:os id="http://suse.com/sle/15.2"/>
+    </libosinfo:libosinfo>
+  </metadata>
+  <memory unit='KiB'>2906652672</memory>
+  <currentMemory unit='KiB'>2906652672</currentMemory>
+  <memoryBacking>
+    <hugepages>
+      <page size='1048576' unit='KiB'/>
+    </hugepages>
+    <nosharepages/>
+  </memoryBacking>
+  <vcpu placement='static'>224</vcpu>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='0,112'/>
+    <vcpupin vcpu='1' cpuset='0,112'/>
+    <vcpupin vcpu='2' cpuset='1,113'/>
+    <vcpupin vcpu='3' cpuset='1,113'/>
+    <vcpupin vcpu='4' cpuset='2,114'/>
+    <vcpupin vcpu='5' cpuset='2,114'/>
+    <vcpupin vcpu='6' cpuset='3,115'/>
+    <vcpupin vcpu='7' cpuset='3,115'/>
+    <vcpupin vcpu='8' cpuset='4,116'/>
+    <vcpupin vcpu='9' cpuset='4,116'/>
+    <vcpupin vcpu='10' cpuset='5,117'/>
+    <vcpupin vcpu='11' cpuset='5,117'/>
+[...]
+    <vcpupin vcpu='214' cpuset='107,219'/>
+    <vcpupin vcpu='215' cpuset='107,219'/>
+    <vcpupin vcpu='216' cpuset='108,220'/>
+    <vcpupin vcpu='217' cpuset='108,220'/>
+    <vcpupin vcpu='218' cpuset='109,221'/>
+    <vcpupin vcpu='219' cpuset='109,221'/>
+    <vcpupin vcpu='220' cpuset='110,222'/>
+    <vcpupin vcpu='221' cpuset='110,222'/>
+    <vcpupin vcpu='222' cpuset='111,223'/>
+    <vcpupin vcpu='223' cpuset='111,223'/>
+  </cputune>
+  <numatune>
+    <memory mode='strict' nodeset='0-3'/>
+    <memnode cellid='0' mode='strict' nodeset='0'/>
+    <memnode cellid='1' mode='strict' nodeset='1'/>
+    <memnode cellid='2' mode='strict' nodeset='2'/>
+    <memnode cellid='3' mode='strict' nodeset='3'/>
+  </numatune>
+  <resource>
+    <partition>/machine</partition>
+  </resource>
+  <os>
+    <type arch='x86_64' machine='pc-q35-4.2'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/qemu/ovmf-x86_64-smm-ms-code.bin</loader>
+    <nvram>/var/lib/libvirt/qemu/nvram/kvmvm12_VARS.fd</nvram>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+    <kvm>
+      <hint-dedicated state='on'/>
+    </kvm>
+    <vmport state='off'/>
+  </features>
+  <cpu mode='host-passthrough' check='none'>
+    <topology sockets='4' cores='28' threads='2'/>
+    <feature policy='require' name='rdtscp'/>
+    <feature policy='require' name='invtsc'/>
+    <feature policy='require' name='x2apic'/>
+    <numa>
+      <cell id='0' cpus='0-55' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='10'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='1' cpus='56-111' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='10'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='2' cpus='112-167' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='10'/>
+          <sibling id='3' value='21'/>
+        </distances>
+      </cell>
+      <cell id='3' cpus='168-223' memory='726663168' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='21'/>
+          <sibling id='2' value='21'/>
+          <sibling id='3' value='10'/>
+        </distances>
+      </cell>
+    </numa>
+  </cpu>
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw' cache='none' io='native'/>
+      <source dev='/dev/disk/by-id/wwn-0x600000e00d29000000293db000520000'/>
+      <target dev='vda' bus='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='/dev/shm/vhostmd0'/>
+      <target dev='vdx' bus='virtio'/>
+      <readonly/>
+      <address type='pci' domain='0x0000' bus='0x0b' slot='0x00' function='0x0'/>
+    </disk>
+    <controller type='usb' index='0' model='qemu-xhci' ports='15'>
+      <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
+    </controller>
+    <controller type='sata' index='0'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    </controller>
+    <controller type='pci' index='0' model='pcie-root'/>
+    <controller type='pci' index='1' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='1' port='0x10'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x0' multifunction='on'/>
+    </controller>
+    <controller type='pci' index='2' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='2' port='0x11'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x1'/>
+    </controller>
+    <controller type='pci' index='3' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='3' port='0x12'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x2'/>
+    </controller>
+    <controller type='pci' index='4' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='4' port='0x13'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x3'/>
+    </controller>
+    <controller type='pci' index='5' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='5' port='0x14'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x4'/>
+    </controller>
+    <controller type='pci' index='6' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='6' port='0x15'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x5'/>
+    </controller>
+    <controller type='pci' index='7' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='7' port='0x16'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x6'/>
+    </controller>
+    <controller type='pci' index='8' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='8' port='0x17'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x7'/>
+    </controller>
+    <controller type='pci' index='9' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='9' port='0x18'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0' multifunction='on'/>
+    </controller>
+    <controller type='pci' index='10' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='10' port='0x19'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x1'/>
+    </controller>
+    <controller type='pci' index='11' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='11' port='0x1a'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x2'/>
+    </controller>
+    <controller type='pci' index='12' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='12' port='0x1b'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x3'/>
+    </controller>
+    <controller type='pci' index='13' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='13' port='0x1c'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x4'/>
+    </controller>
+    <controller type='pci' index='14' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='14' port='0x1d'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x5'/>
+    </controller>
+    <controller type='virtio-serial' index='0'>
+      <address type='pci' domain='0x0000' bus='0x03' slot='0x00' function='0x0'/>
+    </controller>
+    <interface type='direct'>
+      <mac address='0c:fd:37:92:dc:99'/>
+      <source dev='eth11' mode='vepa'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
+    </interface>
+    <interface type='hostdev' managed='yes'>
+      <mac address='52:54:00:7f:12:fb'/>
+      <driver name='vfio'/>
+      <source>
+        <address type='pci' domain='0x0000' bus='0x17' slot='0x02' function='0x0'/>
+      </source>
+      <address type='pci' domain='0x0000' bus='0x0c' slot='0x00' function='0x0'/>
+    </interface>
+    <serial type='pty'>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+      <address type='virtio-serial' controller='0' bus='0' port='1'/>
+    </channel>
+    <channel type='spicevmc'>
+      <target type='virtio' name='com.redhat.spice.0'/>
+      <address type='virtio-serial' controller='0' bus='0' port='2'/>
+    </channel>
+    <input type='tablet' bus='usb'>
+      <address type='usb' bus='0' port='1'/>
+    </input>
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+    <graphics type='spice' autoport='yes'>
+      <listen type='address'/>
+      <image compression='off'/>
+    </graphics>
+    <sound model='ich9'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1b' function='0x0'/>
+    </sound>
+    <video>
+      <model type='qxl' ram='65536' vram='65536' vgamem='16384' heads='1' primary='yes'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x0'/>
+    </video>
+    <!-- SAN 2-port HBA passthrough configuration -->
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x85' slot='0x00' function='0x0'/>
+      </source>
+      <address type='pci' domain='0x0000' bus='0x0d' slot='0x00' function='0x0'/>
+    </hostdev>
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x85' slot='0x00' function='0x1'/>
+      </source>
+      <address type='pci' domain='0x0000' bus='0x0e' slot='0x00' function='0x0'/>
+    </hostdev>
+    <redirdev bus='usb' type='spicevmc'>
+      <address type='usb' bus='0' port='2'/>
+    </redirdev>
+    <redirdev bus='usb' type='spicevmc'>
+      <address type='usb' bus='0' port='3'/>
+    </redirdev>
+    <memballoon model='virtio'>
+      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
+    </memballoon>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
+    </rng>
+  </devices>
+</domain>
 ----
 
 [[_sec_additional_information]]
@@ -1761,8 +1502,13 @@ domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'
 [[_sec_resources]]
 === Resources
 
-* SUSE Best Practices (https://documentation.suse.com/sbp/all/)
-* SUSE Virtualization Guide for SUSE Linux Enterprise Server 12 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/book-virt.html)
+* https://documentation.suse.com/sbp/all/[SUSE Best Practices]
+* https://documentation.suse.com/sles/15-SP2/html/SLES-all/book-virt.html[SUSE Virtualization Guide for SUSE Linux Enterprise Server 15]
+* {launchpadnotes}3120786[SAP Note 3120786 - SAP HANA on SUSE KVM Virtualization with SLES 15 SP2]
+* {launchPadNotes}2284516[SAP Note 2284516 - "SAP HANA virtualized on SUSE Linux Enterprise Hypervisors"]
+* {launchPadNotes}1944799[SAP Note 1944799 - "`SAP HANA Guidelines for SLES Operating System Installation`"]
+* {launchPadNotes}2205917[SAP Note 2684254 - "`SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP`"] 
+* {launchPadNotes}1522993[SAP Note 1522993 - "`Linux: SAP on SUSE KVM - Kernel-based Virtual Machine`"]
 
 
 [[_sec_feedback]]
@@ -1786,84 +1532,18 @@ Make sure to include the document title, the product version and the publication
 [[_sec_version_history]]
 === Version History
 
-[cols="1,1,1,1", options="header"]
+[cols="1,1,2,3", options="header"]
 |===
-| Version
-| Publication Date
-| Author
-| Comment
+| Version | Publication Date | Author(s) | Comment
 
+| 0.5 | Nov 2021 | Dario Faggioli, Gereon Vey | Initial draft
 
-|
-
-0.1
-|
-
-Oct 2017
-|
-
-Lee Martin
-|
-
-Initial version
-
-|
-
-0.2
-|
-
-Dec 2017
-|
-
-Lee Martin
-|
-
-Pilot Customers
-
-|
-
-0.3
-|
-
-Jan 2018
-|
-
-Lee Martin
-|
-
-Add storage section
-
-|
-
-0.4
-|
-
-Feb 2018
-|
-
-Lee Martin
-|
-
-Add sizing section
-
-|
-
-1.0
-|
-
-Feb 2018
-|
-
-Lee Martin
-|
-
-SAP GA Release for Haswell Single-VM
 |===
 
 [[_sec_legal_notice]]
 == Legal Notice
 
-Copyright 2006–2020 SUSE LLC and contributors.
+Copyright 2006–2021 SUSE LLC and contributors.
 All rights reserved. 
 
 Permission is granted to copy, distribute and/or modify this document under the terms of the GNU Free Documentation License, Version 1.2 or (at your option) version 1.3; with the Invariant Section being this copyright notice and license.

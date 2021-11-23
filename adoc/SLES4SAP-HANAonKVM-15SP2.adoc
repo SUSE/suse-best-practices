@@ -132,7 +132,7 @@ Check the following SAP Notes for the latest details of supported SAP HANA on KV
 [[_sec_resources_hypervisor]]
 ==== Resources for Hypervisor
 
-It is recommended to reserve a minimum of about 7% of the hosts's main memory for the Hypervisor.
+It is recommended to reserve a minimum of about 8% of the hosts's main memory for the Hypervisor.
 
 The hypervisor will consume CPU capacity, approximately 5% to 10% of the SAPS capacity, depending on the workload characteristics:
 
@@ -145,6 +145,12 @@ It is however *not* required to dedicate CPUs to the hypervisor.
 ==== Memory Sizing
 
 Since SAP HANA runs inside the VM, it is the RAM size of the VM which has to satisfy the memory requirements from the SAP HANA Memory sizing.
+
+Of course, the memory used by the VM must be smaller than the physical memory of the machine.
+It is recommended to reserve at least 8% of the total memory reported by "`/proc/meminfo`" (in the "`MemTotal`" field) for the hypervisor.
+This leaves ~ 92% to the VM.
+
+See section <<_sec_memory_backing>> for more details.
 
 [[_sec_cpu_sizing]]
 ==== CPU Sizing
@@ -561,8 +567,8 @@ It also important to ensure the order of the hugepage options, specifically the 
 .Calculating Value
 [NOTE]
 ====
-The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx. 7% for the Hypervisor OS.
-For example 2TiB RAM (2048GiB) minus 7% are approx. 1900 hugepages
+The value for "`number of hugepages`" should be calculated by taking the number GiB`'s of RAM minus approx. 8% for the Hypervisor OS.
+For example 3TiB RAM (3072GiB) minus 8% are approx. 2770 hugepages
 ====
 
 *PCI Passthrough (intel_iommu=on iommu=pt)*
@@ -597,6 +603,52 @@ There cannot be any overcommitting of memory or CPU resources.
 
 The CPU model should be set to "`host-passthrough`", and any "`check`" should be disabled.
 In addition the "`rdtscp`", "`invtsc`" and "`x2apic`" features are required.
+
+[[_sec_memory_backing]]
+=== Memory Backing
+
+Huge pages, sized 1GiB (i.e., 1048576 KiB) must be used for all the Guest VM memory.
+This guarantees optimal performance for the Guest VM.
+
+It is necessary that each NUMA cell of the Guest VM have a whole number of huge pages assigned to them (i.e., no fractions of huge pages).
+All the NUMA cells should also have the same number of huge pages assigned to them (i.e., the Gues VM memory configuration must be balanced).
+
+Therefore the number of huge pages needs to be dividable by the number of NUMA cells.
+
+For instance, if the host has 3169956100 KiB (i.e., 3 TiB) of memory and we want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pag>
+
+* (3169956100 * (91.75/100)) / 1048576 / 4 = 693
+
+Which means that, in total, there will have to be the following number of huge pages
+
+* 693 * 4 = 2772
+
+Such number must be passed to the host kernel command line parameter on boot (i.e., "`hugepages=2772`", see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
+
+Of course, both the total amount of memory the Guest VM should use, and the fact that such memory must come from 1 GiB huge pages has to be specified in the Guest VM configuration file.
+
+It must also be ensured that the "`memory`" and the "`currentMemory`" element have the same value, in order to disable memory ballooning, which, if enabled, would cause unacceptable latency:
+
+----
+<domain type='kvm'>
+  <!-- ... -->
+  <memory unit='KiB'>2906652672</memory>
+  <currentMemory unit='KiB'>2906652672</currentMemory>
+  <memoryBacking>
+    <hugepages>
+      <page size='1048576' unit='KiB'/>
+    </hugepages>
+    <nosharepages/>
+  </memoryBacking>
+  <!-- ... -->
+</domain>
+----
+
+.Memory Unit
+[NOTE]
+====
+The memory unit can be set to GiB to ease the memory computations.
+====
 
 [[_sec_vcpu_and_vnuma_topology]]
 === vCPU and vNUMA Topology & Pinning
@@ -662,12 +714,6 @@ Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> Memory section 
   <!-- ... -->
 </domain>
 ----
-
-.Memory Unit
-[NOTE]
-====
-The memory unit can be set to GiB to ease the memory computations.
-====
 
 It is also necessary to pin virtual CPUs to physical CPUs, in order to limit the overhead caused by virtual CPUs being moved around physical CPUs by the host scheduler.
 Similarly, the memory for each NUMA cell of the Guest VM must be allocated only on the corresponding host NUMA node.
@@ -755,28 +801,6 @@ lstopo-no-graphics
 //(see Appendix for an <<_sec_lscpu_extended_example>> and an <<_sec_example_lstopo>>):
 
 It is not necessary to isolate the Guest VM's "`iothreads`", nor to statically reserve any host CPU to either them or any other kind of host activity.
-
-[[_sec_memory_backing]]
-=== Memory Backing
-
-Configure the memory size of the Guest VM in KiB and in multiples of 1GiB (because of the use of 1GiB hugepages). The max VM size is determined by the total number of 1GiB hugepages defined on the Hypervisor OS as described in section 4.3.
-
-----
- memory unit='KiB'enter memory size in KiB here/memory
- currentMemory unit='KiB'enter memory size in KiB here/currentMemory
-----
-
-It is important to use 1 gigabyte hugepages for the guest VM memory backing to achieve optimal performance of the KVM guest.
-In addition, Kernel Same Page Merging (KSM) should be disabled.
-
-----
- memoryBacking
-   hugepages
-      page size='1048576' unit='KiB'/
-   /hugepages
-   nosharepages/
- /memoryBacking
-----
 
 [[_sec_vhostmd_guest]]
 === vhostmd Device

@@ -376,9 +376,11 @@ As with compute resources, the storage used for running SAP HANA must also be SA
 Therefore only the storage from SAP HANA Appliances or SAP HANA Certified Enterprise Storage (https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/enterprise-storage.html) is supported.
 In all cases the SAP HANA storage configuration recommendations from the respective hardware vendor and the SAP HANA Storage Requirements for TDI (https://www.sap.com/documents/2015/03/74cdb554-5a7c-0010-82c7-eda71af511fa.html) should be followed.
 
-As described for Networking, in order to reach the adequate level of performance, the storage drives for actual SAP HANA data are attached to the Guest VM via directly assigning the SAN HBA controller to it.
+As described in <<_sec_configure_networking_on_hypervisor>>, in order to reach the adequate level of performance, the storage drives for actual SAP HANA data are attached to the Guest VM via directly assigning the SAN HBA controller to it.
+One difference, though, is that there is no counterpart of SR-IOV commonly available for sorage controllers.
+Therefore, a full SAN HBA controller must be dedicated and directly assigned to the Guest VM.
 
-First of all, find the SAN HBA that must be used, e.g., using the "`lspci`" command:
+In order to figure out which SAN HBA should be used check the available ones, e.g., with the "`lspci`" command:
 
 ----
 lspci | grep -i "Fibre Channel"
@@ -388,14 +390,7 @@ ad:00.0 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe 
 ad:00.1 Fibre Channel: QLogic Corp. ISP2722-based 16/32Gb Fibre Channel to PCIe Adapter (rev 01)
 ----
 
-Of course, before starting the VM, the devices need to be detached from the host, e.g.:
-
-----
-virsh nodedev-detach pci_0000_85_00_0
-virsh nodedev-detach pci_0000_85_00_1
-----
-
-This can be made happen automatically at boot time, following the same steps described in <<_sec_assign_network_port_at_pci_nic_level>> as, despite that section being about network adapters, the procedure is the same for any PCI device).
+Of course, the HBAs that are assigned to the Guest VM must not be in use on the host.
 
 The remaining storage configuration details, such as how to add the disks and the HBA controllers to the Guest VM configuration file, as well as what to do with them from inside the Guest VM itself, are available in <<_sec_storage>>.
 
@@ -405,7 +400,7 @@ The remaining storage configuration details, such as how to add the disks and th
 [[_sec_vhostmd]]
 ==== vhostmd
 The hypervisor needs to have the vhostmd package installed and the corresponding vhostmd service enabled and started (see also: https://confluence.suse.com/display/SAP/HANAonKVM+vhostmd ).
-//TODO: Add a proper, external, 	link
+//TODO: Add a proper, external, link
 
 [[_sec_tuned]]
 ==== Generic Host Tuning with tuned
@@ -459,7 +454,6 @@ Additionally the performance bias setting should also be set to 0 (performance).
 cpupower -c all info
 ----
 
-//TODO: Do we actually want this in the guide (i.e., advising limiting C-states to C1)? I think we do, but I am not 100% sure
 Modern processors also attempt to save power when they are idle, by switching to a lower power state.
 Unfortunately this incurs latency when switching in and out of these states.
 
@@ -536,6 +530,7 @@ On an affected CPU, these problems cannot be fixed, but their effect and their a
 However, this has a sometimes non-negligible impact on the performance.
 
 For achieving the best possible security, the software mitigations for these vulnerabilities are being enabled ("`mitigations=auto`") with the only exception of the one that deals with "Machine Check Error Avoidance on Page Size Change (CVE-2018-12207, also known as "iTLB Multiht).
+
 //TODO: We probably want a more generic and little bit more detailed section about mitigations?
 
 *Automatic NUMA Balancing (numa_balancing=disable)*
@@ -801,9 +796,6 @@ lscpu --extended=CPU,SOCKET,CORE
 
 lstopo-no-graphics
 ----
-
-//TODO: will such Appendix still be there?
-//(see Appendix for an <<_sec_lscpu_extended_example>> and an <<_sec_example_lstopo>>):
 
 It is not necessary to isolate the Guest VM's "`iothreads`", nor to statically reserve any host CPU to either them or any other kind of host activity.
 

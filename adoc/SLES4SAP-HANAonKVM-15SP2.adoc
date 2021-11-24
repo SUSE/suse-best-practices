@@ -1038,7 +1038,7 @@ systemctl stop irqbalance.service
 
 ===== Activate and configure `sapconf` or `saptune`
 
-The following parameters need to set in `sapconf` version 5.
+The following parameters need to set in `sapconf` version 5. Edit the file `/etc/sysconfig/sapconf` to reflect the settings below, and then restart the `sapconf` service.
 
 ----
 GOVERNOR=performance
@@ -1047,9 +1047,20 @@ MIN_PERF_PCT=100
 FORCE_LATENCY=5 
 ----
 
-If you use `sapconf` version 4 or `saptune`, please configure it accordingly.
-When using `sapconf` version 4, start the `tuned` service and activate the TuneD profile `sapconf`. 
-When using `sapconf` version 5, stop and disable the `tuned` service and instead enable and start the `sapconf` service.
+NOTE: When using `sapconf` version 5, stop and disable the `tuned` service and instead enable and start the `sapconf` service.
+
+If you use `saptune`, please configure it accordingly:
+
+* Apply the `HANA` solution: `saptune solution apply HANA`
+* Create the file `/etc/saptune/override/2684254` with the following content.
+----
+[cpu]
+force_latency=5
+----
+* Re-apply the recommendations for SAP Note 2684254: `saptune note apply 2684254``
+
+Detailed documentation on `saptune` is available in chapter https://documentation.suse.com/sles-sap/15-SP2/html/SLES-SAP-guide/cha-tune.html[Tuning systems with `saptune`] of the {sles4sap} Guide.
+
 
 
 [[_sec_cpuidle_haltpoll]]
@@ -1084,7 +1095,6 @@ echo 2 >/sys/kernel/mm/ksm/run
 ===== Automatic configuration at boot time
 The following script is provided as an example for a script implementing above recommendations, to be executed at boot time of the VM.
 
-
 .Script
 ----
 #!/usr/bin/env bash
@@ -1097,25 +1107,6 @@ GROW_START=200000
  
 # disable irqbalance 
 systemctl disable --now irqbalance
- 
-# Check sapconf version installed, runs setup accordingly
-MAJOR_VER=$(rpm -qa | awk -F "-" '/sapconf/ {split($2,maj,"."); print maj[1]}')
-case ${MAJOR_VER} in
-    4)
-      echo "SAPCONF V4 detected."
-      systemctl enable --now tuned
-      tuned-adm profile sapconf
-      ;;
-    5)
-      echo "SAPCONF V5 detected."
-      systemctl disable --now tuned
-      systemctl enable --now sapconf
-      ;;
-    *)
-      echo "ERROR: Unsupported SAPCONF ver. (${MAJOR_VER}) detected. Exiting."
-      exit 1
-      ;;
-esac
  
 modprobe cpuidle-haltpoll
 echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
@@ -1140,7 +1131,7 @@ else
 fi
 ----
 
-
+Both `sapconf` and `saptune` apply their settings at boot time automatically and don't need to be included in the script above.
 
 [[_sec_guest_operating_system_storage_configuration_for_sap_hana_volumes]]
 === Guest Operating System Storage Configuration for SAP HANA Volumes

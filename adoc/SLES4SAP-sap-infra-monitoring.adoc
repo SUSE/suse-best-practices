@@ -1,0 +1,734 @@
+// Title, authors, abstract and disclaimer are in the -docinfo.xml file
+// build PDF with:
+// docker run --rm -it --volume ${PWD}:/usr/src/app --workdir /usr/src/app susedoc/ci:latest /bin/bash -c "daps -d DC-WP-intel-monitoring pdf --draft"
+
+// enable docinfo
+:docinfo:
+
+:reg: &#174;
+:tm: &#8482;
+
+:sles: SUSE Linux Enterprise Server
+:sles4sap: {sles} for SAP Applications
+
+
+= Hardware Monitoring for SAP Systems
+
+
+[[sec-introduction]]
+== Introduction
+
+Many customers deploy SAP systems such as SAP S/4HANA for their global operations, to support mission-critical business functions, so the need for maximized system availability becomes crucial. 
+Accordingly, IT departments are faced with very demanding SLAs, many companies now require 24x7 reliability for their SAP systems.
+
+The base for every SAP system is a solid infrastructure supporting it. 
+
+Operating System:: {sles4sap} is the leading Linux platform for SAP HANA, SAP NetWeaver and SAP S/4HANA solutions. 
+It helps reduce downtime with the flexibility to configure and deploy a choice of multiple HA/DR scenarios for SAP HANA and NetWeaver-based applications.
+System data monitoring enables proactive problem avoidance.
+
+Hardware:: Most modern hardware platforms running SAP systems rely on Intel's system architecture. The combination of SUSE Linux Enterprise Server on the latest generation Intel Xeon Scalable processors and Intel Optane DC persistent memory help deliver fast, innovative, and secure IT services and to provide resilient enterprise S/4HANA platforms.
+
+The Intel platform allows to monitor deep into the hardware, to gain insights in what the system is doing on a hardware level. Monitoring on a hardware level can help reduce downtime for SAP systems in several ways:
+
+Failure prediction:: Identifying any hardware failure in advance allows customers to react early and in an scheduled manner, reducing the risk of errors that usually occur on operations executed during system outages. 
+
+Failure remidiation:: Having hardware metrics at hand when looking for the root cause of an issue, can help speed up the analysis and therefore reduce the time until the system(s) return to an operational state.
+It can also reduce the reaction time, providing more precise information about problems, especially for big customers that usually have operations outsourced to many different service providers and does not control the environment directly.
+
+This paper describes a hardware monitoring solution for SAP systems, that allows to use hardware metrics provided by the Intel hardware platform to be analyzed in an SAP context.
+
+
+[[sec-overview]]
+== Hardware Monitoring for SAP Systems Overview
+
+The solution presented in this document consists of several open source tools, that are combined in order to be able to collect logs and metrics from server systems, store them in a queriable database, and present them in a visual and easy to consume way.
+In the following sections we will give an overview of the components and how they work together.
+
+
+=== Components
+
+The monitoring solution proposed in this document consists of several components. 
+
+.Hardware Monitoring Components
+image::sap-infra-monitoring-hwmonitoring_components.png[Hardware Monitoring Components,scaledwidth=100%]
+
+These coponents can be categorized by their use: 
+
+Data Sources:: Components that facilitate the collection of monitoring data, providing measurements or collected data in a way that the data storage components can pick them up.
+Data Storage:: Components that store the data coming from the data sources, and provide a mechanism to query the data.
+Data Visualization:: Components that allow a visual representation of the data stored in the data storage components, in order to make the (possibly aggregated) data easy to understand and analyze.
+
+The following sections describe these components.
+
+
+==== Data sources
+
+The data source components collect data from OS or hardware interfaces, and provide them to the data storage layer.
+
+
+===== Processor Counter Monitor (PCM)
+
+https://github.com/opcm/pcm[Processor Counter Monitor (PCM)] is an application programming interface (API) and a set of tools based on the API to monitor performance and energy metrics of Intel{reg} Core{tm}, Xeon{reg}, Atom{tm} and Xeon Phi{tm} processors. 
+PCM works on Linux, Windows, Mac OS X, FreeBSD and DragonFlyBSD operating systems.
+
+
+===== collectd - System information collection daemon
+https://collectd.org/[Collectd] is a small daemon which collects system information periodically and provides mechanisms to store and monitor the values in a variety of ways.
+
+
+===== Prometheus Node exporter 
+The https://github.com/prometheus/node_exporter[Prometheus Node Exporter] is a Prometheus exporter for hardware and OS metrics exposed by *NIX kernels, written in Go with pluggable metric collectors.
+
+
+===== Prometheus IPMI Exporter
+The https://github.com/prometheus-community/ipmi_exporter[Prometheus IPMI Exporter] supports both the regular /metrics endpoint for Prometheus, exposing metrics from the host that the exporter is running on, 
+as well as an /ipmi endpoint that supports IPMI over RMCP.
+One exporter instance running on one host can be used to monitor a large number of IPMI interfaces by passing the target parameter to a scrape.
+
+////
+CPU, Memory, Temperature, Disk
+////
+
+
+===== Promtail
+
+https://grafana.com/docs/loki/latest/clients/promtail/[Promtail] is the a Loki agent responsible for shipping the contents of local logs to a Loki instance. 
+It is usually deployed to every machine that needed to be monitored.
+
+
+==== Data Collection
+
+On the data collection layer, we use two tools, covering different kinds of data: metrics and logs.
+
+
+===== Prometheus
+https://prometheus.io[Prometheus] is an open-source systems monitoring and alerting toolkit. 
+It is storing time series data like metrics locally and runs rules over this data to aggregate and record new time series from existing data. Prometheus it also able to generate alerts.
+The project has a very active developer and user community. 
+It is now a standalone open source project and maintained independently of any company. 
+This makes it very attractive for us as open source company an fits into our culture. 
+To emphasize this, and to clarify the project's governance structure, Prometheus joined the Cloud Native Computing Foundation 5 years ago (2016).
+Prometheus works well for recording any purely numeric time series.
+
+Prometheus is designed for reliability, to be the system you go to during an outage to allow you to quickly analyze situations. 
+Each Prometheus server is standalone, not depending on network storage or other remote services. 
+You can rely on it when other parts of your infrastructure are broken, and you do not need to setup extensive infrastructure to use it.
+
+
+===== Loki
+
+https://grafana.com/oss/loki/[Loki] is a log aggregation system, inspired by Prometheus and designed to be a very cost effective and easy to operate.
+Unlike other logging systems, Loki is built around the idea of only indexing a set of metadata (labels) for logs and leaving the original log message unindexed. 
+Log data itself is then compressed and stored in chunks in object stores, e.g. locally on the filesystem. 
+A small index and highly compressed chunks simplify the operation and significantly lower the cost of Loki.
+
+
+==== Data Visualization
+
+With the wealth of data collected in the previous steps, tooling is needed to make the data accessible. 
+Through aggregation and visualization data becomes meaningful and consumable information. 
+
+
+===== Grafana
+
+https://grafana.com/oss/grafana/[Grafana] is an open source visualization and analytics platform.
+Grafana's plug-in architecture allows interaction with a variety of data sources without creating data copies.
+Its graphical browser-based user interface visualizes the data through highly customizable views, providing an interactive diagnostic workspace.  
+
+Grafana can display metrics data from Prometheus and log data from Loki side-by-side, correlating events from log files with metrics. 
+This can provide helpful insights when trying to identify the cause for an issue.
+Also Grafana can trigger alerts based on metrics or log entries, and thus help identify potential issues early. 
+
+
+
+////
+===============================================================================================
+////
+
+== Implementing Hardware Monitoring for SAP Systems
+
+The following sections show how to set up a monitoring solution based on the tools that have been discussed introduced in the solution overview.
+
+
+=== Node Exporter
+
+The prometheus-node_exporter can be installed directly from the SUSE repository. 
+It is part of {sles} and all derived products.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+zypper -n in golang-github-prometheus-node_exporter
+----
+
+Start and enable the node_exporter for automatic start at system boot.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+systemctl enable --now prometheus-node_exporter
+----
+
+[TIP]
+====
+To check if the exporter is running, you can use the following commands:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+systemctl status prometheus-node_exporter
+ss -tulpan |grep exporter
+----
+====
+
+Configure the node_exporter depending on your needs. Arguments to be passed to node_exporter can be provided in the configuration file `/etc/sysconfig/prometheus-node_exporter`, e.g. to modify which metrics the node_exporter will collect and expose.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+.Arguments provided in /etc/sysconfig/prometheus-node_exporter
+----
+...
+ARGS="--collector.systemd --no-collector.mdadm --collector.ksmd --no-collector.rapl --collector.meminfo_numa --no-collector.zfs --no-collector.udp_queues --no-collector.softnet --no-collector.sockstat --no-collector.nfsd --no-collector.netdev --no-collector.infiniband --no-collector.arp"
+...
+----
+By default, the node_exporter is listening for incoming connections on port 9100.
+
+
+=== Collectd
+
+The collectd packages can be installed from SUSE repositories as well. In this case we have used a newer version from the OpenSUSE repository.
+
+Create a file `/etc/zypp/repos.d/server_monitoring.repo` and add the following content to it:
+[subs="attributes,specialchars,verbatim,quotes"]
+.Content for /etc/zypp/repos.d/server_monitoring.repo
+----
+[server_monitoring]
+name=Server Monitoring Software (SLE_15_SP3)
+type=rpm-md
+baseurl=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/repodata/repomd.xml.key
+enabled=1
+----
+
+Afterwards refresh the repository metadata and install `collectd` and its plugins.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+zypper ref
+zypper in collectd collectd-plugins-all
+----
+
+Now the `collectd` must be adapted to collect the information we want and export it as we would like to have them.
+E.g. looking for network latency, we use the ping plugin and expose the data in a Prometheus format.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+.Configuration of collectd in /etc/collectd.conf (excerpts)
+----
+...
+LoadPlugin ping
+...
+<Plugin ping>
+        Host "10.162.63.254"
+        Interval 1.0
+        Timeout 0.9
+        TTL 255
+#       SourceAddress "1.2.3.4"
+#       AddressFamily "any"
+        Device "eth0"
+        MaxMissed -1
+</Plugin>
+...
+LoadPlugin write_prometheus
+...
+<Plugin write_prometheus>
+        Port "9103"
+</Plugin>
+...
+----
+
+Uncomment the `LoadPlugin` line and check the `<Plugin ping>` section in the file as well.
+
+Modify the systemd unit that collectd is able to work as expected. First we create a copy from the system-provided service file.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+cp /usr/lib/systemd/system/collectd.service /etc/systemd/system/collectd.service
+----
+
+Second, we adapt this local copy.
+Add the required `CapabilityBoundingSet` parameters in our local copy `/etc/systemd/system/collectd.service`.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+...
+# Here's a (incomplete) list of the plugins known capability requirements:
+#   ping            CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+...
+----
+
+Activate the changes and start the collectd.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+systemctl daemon-reload
+systemctl enable --now collectd
+----
+
+All collectd metrics are accessible at port 9103.
+
+With a small check you can see if the metrics are scrapable.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+curl localhost:9103/metrics
+----
+
+// The offical project on github: https://github.com/collectd/collectd/
+
+
+=== PCM 
+
+Processor Counter Monitor (PCM) can be installed from its GitHub project.
+Clone the git repository and build the tool using the following commands.
+// TODO: Do we need build tools installed for building PCM? make, GCC etc.? Do we want to mention those?
+[subs="attributes,specialchars,verbatim,quotes"]
+.Installing PCM from source
+----
+git clone https://github.com/opcm/pcm.git
+cd pcm
+make pcm-sensor-server.x
+----
+
+To start PCM on the observed host, first start a new `screen` session, and then start PCM.footnote:[Starting PCM should really be done by creating a systemd unit.]  
+// TODO: replace use of screen by a systemd unit for PCM
+[subs="attributes,specialchars,verbatim,quotes"]
+.Starting PCM
+----
+screen -S pcm
+./pcm-sensor-server.x -d
+----
+
+The PCM sensor server binary `pcm-sensor-server.x` has been started in a screen session which can be detached (type `Ctrl+a d`).
+This lets the PCM sensor server continue running in the background.
+
+The PCM metrics can be queried from port 9738.
+
+
+=== Prometheus IPMI Exporter
+
+The IPMI exporter can be used to scrape information like temperature, power supply information and fan information.
+
+Create a directory, download and extract the IPMI exporter.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+mkdir ipmi_exporter
+cd ipmi_exporter
+curl -OL https://github.com/prometheus-community/ipmi_exporter/releases/download/v1.4.0/ipmi_exporter-1.4.0.linux-amd64.tar.gz
+tar xzvf ipmi_exporter-1.4.0.linux-amd64.tar.gz
+----
+
+NOTE: We have been using the version 1.4.0 of the IPMI exporter. For a different release, the URL used in the `curl` command above has to be adapted. 
+      Current releases can be found at the https://github.com/prometheus-community/ipmi_exporter[IPMI Exporter GitHub repository]. 
+
+
+Some additional packages are required and need to be installed.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+zypper in freeipmi monitoring-plugins-ipmi-sensor1 libipmimonitoring6 monitoring-plugins-ipmi-sensor1
+----
+
+To start the IPMI exporter on the observed host, first start a new `screen` session, and then start the exporter.footnote:[Starting the IPMI exporter should really be done by creating a systemd unit.]  
+// TODO: replace use of screen by a systemd unit for the IPMI exporter
+[subs="attributes,specialchars,verbatim,quotes"]
+.Starting PCM
+----
+screen -S ipmi
+cd ipmi_exporter-1.4.0.linux-amd64
+./ipmi_exporter
+----
+The IPMI exporter binary `ipmi_exporter` has been started in a screen session which can be detached (type `Ctrl+a d`).
+This lets the exporter continue running in the background.
+
+The metrics of the ipmi_exporter are accessible port 9290.
+
+=== Prometheus
+The Prometheus RPM packages can be found on PackageHub resopsitory.  
+This repository has to be activated via SUSEConnect command first.
+----
+SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Prometheus can then easily be installed using the `zypper` command.
+----
+zypper in golang-github-prometheus-prometheus
+----
+
+Edit the Prometheus configuration file `/etc/prometheus/prometheus.yml` to include the scrape job configurations you want to add.
+
+[source]
+.Job definition for Node Exporter 
+----
+  - job_name: node-export
+    static_configs:
+      - targets: 
+        - monint1:9100
+----
+
+
+[source]
+.Job definition for Collectd
+----
+  - job_name: intel-collectd 
+    static_configs:
+      - targets:
+        - monint2:9103
+        - monint1:9103
+----
+
+[source]
+.Job definition for PCM
+----
+  - job_name: intel-pcm
+    scrape_interval: 2s
+    static_configs:
+      - targets:
+        - monint1:9738
+----
+
+
+[source]
+.Prometheus IPMI Exporter
+----
+  - job_name: ipmi
+    scrape_interval: 1m
+    scrape_timeout: 30s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+        - monint1:9290
+        - monint2:9104
+----
+
+Finally start and enable the Prometheus service:
+----
+systemctl enable --now prometheus.service 
+----
+
+=== Loki
+The Loki RPM packages can be found on PackageHub resopsitory.  
+The repo has to be activated via SUSEConnect command first, unless you have activated it in the previous steps already.
+----
+SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Loki can then be installed via zypper command.
+----
+zypper in loki
+----
+
+Edit the Loki configuration file `/etc/loki/loki.yaml` and change the following lines.
+[source]
+----
+chunk_store_config:
+  max_look_back_period: 240h 
+
+table_manager:
+  retention_deletes_enabled: true 
+  retention_period: 240h 
+----
+
+Start and enable Loki service:
+----
+systemctl enable --now loki.service 
+----
+
+
+
+==== Promtail (Loki agent)
+The Promtail RPM packages can be found on PackageHub resopsitory.  
+The repo has to be activated via SUSEConnect command first, unless you have activated it in the previous steps already.
+----
+SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Promtail can then be installed via zypper command.
+----
+zypper in promtail
+----
+
+Edit the Promtail configuration file `/etc/loki/promtail.yaml` to include the scrape configurations you want to add.
+
+.To include the systemd-journal, add the following: 
+[source]
+----
+  - job_name: journal 
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        target_label: 'unit'
+----
+
+IMPORTANT: If you are using systemd-journal, don't forget to add the `loki` user to the `systemd-journal` group: `usermod -G systemd-journal -a loki`
+
+.To include the HANA alert trace files, add the following: 
+[source]
+----
+  - job_name: HANA 
+    static_configs:
+    - targets:
+        - localhost
+      labels:
+        job: hana-trace
+        host: monint1
+        __path__: /usr/sap/IN1/HDB11/monint1/trace/*_alert_monint1.trc
+----
+
+IMPORTANT: If you are using SAP logs like the HANA traces, don't forget to add the `loki` user to the `sapsys` group: `usermod -G sapsys -a loki`
+
+
+Start and enable Promtail service:
+----
+systemctl enable --now promtail.service 
+----
+
+
+
+=== Grafana
+
+The Grafana RPM packages can be found on PackageHub resopsitory.  
+The repo has to be activated via SUSEConnect command first, unless you have activated it in the previous steps already.
+----
+SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Grafana can then be installed via zypper command.
+----
+zypper in grafana
+----
+
+
+Start and enable the Grafana server service:
+----
+systemctl enable --now grafana-server.service 
+----
+
+
+Now connect from a browser to your Grafana instance and login:
+
+image::sap-infra-monitoring-grafana-login.png[Grafana Login page,scaledwidth=80%,title="Grafana welcome page"]
+
+==== Grafana Data Sources
+After login the datasource must be added. On the right hand there is a wheel where a new datasource can be added.
+
+image::sap-infra-monitoring-grafana-datasource-add.png[Grafana add a new data source,scaledwidth=80%,title="Adding a new Grafana datasource"]
+
+Add a data source for the Prometheus service.
+
+.Prometheus example
+image::sap-infra-monitoring-grafana-data-prometheus.png[Prometheus data source,scaledwidth=80%,title="Grafana datasource for Prometheus DB"]
+
+Also add a data source for Loki.
+
+.Loki example
+image::sap-infra-monitoring-grafana-data-loki.png[Loki data source,scaledwidth=80%,title="Grafana datasource for LOKI DB"]
+
+Now Grafana can access both the metrics stored in Prometheus, and the log data collected by Loki, in order to visualize them.
+
+==== Grafana Dashboards
+
+Dashboards are how Grafana presents information to the user. 
+Prepared dashboards can be downloaded from https://grafana.com/dashboards, or imported using the Grafana ID. 
+
+.Grafana dashboard import
+image::sap-infra-monitoring-grafana-dashboards.png[Dashboard overview,scaledwidth=80%,title="Grafana dashboard import option"]
+
+The dashboards can created from scratch as well. Information from all datasources can be merge into one dashboard.
+
+image::sap-infra-monitoring-grafana-dashboard-new.png[Dashboard create a new dashboard,scaledwidth=80%,title="Build your own dashboard"]
+
+=== Putting it all together
+The picture below shows a dashboard displaying detailed information about to SAP HANA cluster, orchestrated by pacemaker.
+
+.Dashboard example for SAP HANA
+image::sap-infra-monitoring-grafana-hana-cluster.png[SUSE HANA cluster dashboard example,scaledwidth=80%,title="SUSE cluster exporter dashboard"]
+
+
+
+////
+===============================================================================================
+////
+
+== Practical Use Cases
+
+The following sections describe some practical use cases of the tooling we set up in the previous chapter.
+
+=== CPU 
+I/O performance is very importand on SAP systems. By looking for the `iowait` metric in command-line tools like `top` or `sar`, you can only see a single 
+value without any relation. The picture below is showing such a value in a certain timeframe.
+
+image::sap-infra-monitoring-iowait_values.png[iowait over a certain time,scaledwidth=70%,title="iowait over certain timeframe"] 
+
+A iowait of 2% might not show any problem at first glance. But if you look at iowait as part of the whole CPU load the picture is completely 
+different to what we saw before. The reason is that the total CPU load in our example is only a little higher then iowait.
+
+image::sap-infra-monitoring-iowait_procent_of_total.png[iowait in Percent of the total CPU load, scaledwidth=70%,title="iowait in Percent of total CPU load"]
+
+In our example, we now see a iowait value of about 90% of the total CPU load. 
+
+To get the percent of iowait of the total CPU load we use the following formula:
+----
+100 / (1-CPU_IDLE) * CPU_IOWAIT
+----
+
+
+The metrics used are:
+
+* `node_cpu_seconds_total{mode="idle"}` 
+* `node_cpu_seconds_total{mode="iowait"}`
+
+ 
+Conclusion:: A high iowait in relation to the overall CPU load is indicating a low throughput. As a result the IO performance mind be very bad.
+An alert could be triggert bei setting a proper threshold if the iowait is going through a certain value.
+
+
+=== Memory 
+
+Memory performance in modern servers is not only influenced by its speed, but mainly by the way it is accessed. 
+The Non-Uniform Memory Access (NUMA) architecture used in modern systems is a way of building very large multi-processor systems so that every CPU (i.e. a group of CPU cores) has a certain amount of memory attached to it directly. Multiple CPUs (multiple groups of processors cores) are then connected together using special bus systems (e.g. UPI) to provide processor data coherency. 
+Memory that is so called "local" to a CPU or can be accessed with maximum performance and minimal latency. If a process running on a CPU core needs to access memory that is attached to another CPU, it can do so but at the price of added latency, because it needs to go through the bus system connecting the CPUs.
+
+
+==== Non-Uniform Memory Access (NUMA) example:
+
+There are two exporters at hand which can help to provide the metrics data. The node_exporter has an option `--collector.meminfo_numa` which must be enabled in the configuration file `/etc/sysconfig/prometheus-node_exporter`. In the example below the collectd plugin `numa` was used.
+
+We are focusing on two metrics:
+
+* numa_hit: A process wanted to allocate memory attached to a certain NUMA node (mostly the one it is running on), and succeeded.
+* numa_miss: A process wanted to allocate memory attached to a certain NUMA node, but ended up with memory attached to a different NUMA node.
+
+////
+numa_foreign  A process wanted to allocate on this node, but ended up with memory from another one.
+local_node    A process ran on this node and got memory from it.
+other_node    A process ran on this node and got memory from another node.
+interleave_hit  Interleaving wanted to allocate from this node and succeeded.
+numa_hit: Number of pages allocated from the node the process wanted.
+numa_miss: Number of pages allocated from this node, but the process preferred another node.
+numa_foreign: Number of pages allocated another node, but the process preferred this node.
+local_node: Number of pages allocated from this node while the process was running locally.
+other_node: Number of pages allocated from this node while the process was running remotely (on another node).
+interleave_hit: Number of pages allocated successfully with the interleave strategy
+////
+
+image::sap-infra-monitoring-grafana-numa.png[NUMA ratio NUMA nodes,scaledwidth=100%,title="NUMA miss ratio for both NUMA nodes"]
+
+The metric used is `collectd_numa_vmpage_action_total`
+
+Conclusion:: If a process attempts to get a page from its local node, but this node is out of free pages, then the 
+numa_miss of that node will be incremented (indicating that the node is out of memory) and another node 
+will accomodate the process's request. But in order to know which nodes are "lending memory" to the 
+out-of-memory node, you need to look at numa_foreign. Having a high value for numa_foreign for a 
+particular node indicates that this node's memory is under-utilized so the node is frequently accommodating 
+memory allocation requests that failed on other nodes. 
+A high amout of numa_miss would indicate a performance degredation for memory based applications like SAP HANA.
+
+==== Memory Module observation
+
+Today more and more application data are hold in the main memory e.g. _Dynamic random access memory_ (DRAM) or _Persistent memory_ PMEM. 
+The observation of this component became quite important. 
+Due to the fact that system with a high a mount of main memory e.g. multiple terrabytes are populated with a corresponding number of modules. 
+The example below represents a memory hardware failuer which was not effecting the system by a downtime, but a maintenance windows should now be scheduled to replace faulty modules.
+
+image::sap-infra-monitoring-grafana-memory2.png[Memory errors,scaledwidth=100%,title="Memory module failure"]
+
+The example shows a reduction of available space at the same time as the hardware count is increasing.
+ 
+The metric used here is `node_memory_HardwareCorrupted_bytes`
+
+Memory errors (correctable)  also correlate with the CPU performance as it is shown in the example below.  
+For each of the captured memory failure event a increase of the CPU I/O is shown.
+
+image::sap-infra-monitoring-grafana-memory_failure.png[Memory failure metrix,scaledwidth=70%,align="center",title="Memory failure"]
+
+Conclusion:: The risk that one of the modules became faulty increases with the total amount of modules per system. 
+The oberservation of memory correctable errors and uncorrectable errors is essential. Features like Intel RAS can 
+help to avoid application downtimes if the failure could be handled by the hardware. 
+
+=== Network 
+Beside the fact that the network work must be available and the throughput must be fit, the network latency is very important too. 
+For cluster setups and applications which are working in a sync mode like SAP HANA with HANA systemreplication the network latency becomes very important.
+The collectd plugin ping can help here to observe the network latency over time. 
+The Grafana dashboard below visualize the network latency over the past one hour. 
+
+image::sap-infra-monitoring-grafana-latency.png[collectd ping,scaledwidth=100%,title="collectd latency check"] 
+
+The red line is a threshold which can be used to trigger an alert.
+
+The metrics used here are `collectd_ping` and `collectd_ping_ping_droprate`
+
+Conclusion:: A high value or peak over a long period (multiple timestamps) would indicate network response time issues at least to the ping destination. 
+An increasing amount of the ping_droprate would point to some issues with the ping destination in regards to respond of the ping request.
+
+=== Storage 
+
+////
+==== Storage performance
+
+//da nehmen wir was wir haben / I/O und disk full
+#stress test
+https://linuxreviews.org/HOWTO_Test_Disk_I/O_Performance#fio_-_The_.22flexible_I.2FO_tester.22
+fio --randrepeat=1 --ioengine=libaio --direct=1 --gtod_reduce=1 --name=test --filename=random_read_write.fio --bs=4k --iodepth=64 --size=250M --readwrite=randrw --rwmixread=80
+
+it enables you to monitor the Read and Write operations of logical disk on your system and set thresholds. You get alerted if below-mentioned metrics reach the levels preset by you:
+  Writes/sec – write operations rate.
+  Reads/sec – read operations rate.
+  Busy time – the % of the elapsed time when your particular disk drive was busy in servicing write or read requests.
+  Queue length – the number of requests on the disk that are in the queue.
+
+
+Conclusion:: can even early detect the potential causes of storage subsystem failures and can reduce the risk of unexpected downtime.
+////
+
+==== Storage Capacity 
+Monitoring disk space utilization of server is the critical and important for maximizing application availability. 
+Detecting and monitoring growth - unexpected or expected - of the data on disk will help preventing disk-full situations, and therefore application unavailability. 
+
+image::sap-infra-monitoring-grafana-storage-disk.png[growing filesystem,scaledwidth=100%,title="disk free capacity is droping"]
+
+The example above represents a continiously growing filesystem. 
+
+The metrics which was used:: `node_filesystem_free_bytes` and `node_filesystem_size_bytes`
+
+After a disk full situation many side effects are shown:
+
+* System load is going high
+* Disk IOps dropping down
+
+image::sap-infra-monitoring-grafana-storage-full.png[filesystem full,scaledwidth=100%,title="side effects after disk full"]
+
+
+Conclusion:: Predictive alerting could avoid a situation where the filesystem run out of space and the system became unavailable. 
+Setting up a simple alerting is a great way to help ensure that you don’t run into any surprises.
+
+
+== Summary
+
+With SAP systems such as SAP S/4HANA to supporting mission-critical business functions, the need for maximized system availability become crucial.
+The solution described in this document provides the tooling necessary to enable detection and potentially prevention of causes for downtime of those systems.
+We have also provided some practical use cases highligthing how this tooling can be used to detect and prevent some common issues that are otherwise hard to detect.
+
+
+////
+[[sec-appendix]]
+== Appendix
+
+=== Useful Metrics
+////
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal Notice
+include::common_sbp_legal_notice.adoc[]
+
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

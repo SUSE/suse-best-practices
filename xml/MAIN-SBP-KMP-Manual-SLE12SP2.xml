@@ -769,9 +769,9 @@
                     xlink:href="https://drivers.suse.com/doc/Usage/Package_Signing_Key.html#package-signing-key"
                     >https://drivers.suse.com/doc/Usage/Package_Signing_Key.html#package-signing-key</link>.
                 Partners who build and/or provide their own packages are
-                encouraged to sign them with their own keys. </para>
+                encouraged to sign them with their company keys. </para>
 
-            <para>Developers should sign packages for testing purposes
+            <para>For testing purposes, developers can sign packages
                 using their own personal and/or test keys. RPM uses GnuPG
                 (gpg) for signing. To sign packages, a private/public key
                 pair must be installed on the GNU Privacy Guard (GPG)
@@ -890,40 +890,73 @@ openssl req -new -x509 -newkey rsa:2048 -sha256 -keyout key.asc -out cert.der \
             <sect3 xml:id="sec-sign-modules-during-packaging">
                 <title>Signing modules during packaging</title>
 
-                <para>Previous versions of this document provided
-                    information and example spec files to use for signing
-                    modules during packaging. Because of changes made to
-                    the signing facilities in the kernel, the examples only
-                    applied when building modules for SUSE Linux Enterprise
-                    Server versions from SUSE Linux Enterprise Server 11
-                    SP3 to SUSE Linux Enterprise Server 12 SP1.</para>
-
-                <para>For SUSE Linux Enterprise Server 12 SP2 and later
-                    versions, it is possible to sign modules during
-                    packaging, but different steps are required and are
-                    beyond the scope of this document. Furthermore, since
-                    most organizations maintain their private keys in
-                    secured environments separate from their build
-                    environments, this document encourages developers to
-                    adopt the practice of signing their external modules
-                    after packaging by using the SUSE Linux Enterprise
-                    Server <command>modsign-repackage</command> command.
-                    This command unpacks a KMP, signs any included modules,
-                    and repackages the KMP. The following section describes
-                    how to use <command>modsign-repackage</command>.</para>
-
-                <para>Developers who are building KMPs for SUSE Linux
-                    Enterprise Server 12 SP1 and earlier versions and who
-                    want to sign their modules during packaging are
-                    referred to the previous version of this document <link
-                        xlink:href="https://documentation.suse.com/sbp/all/html/SBP-KMP-Manual/index.html"
-                        >SUSE SolidDriver Documentation: Kernel Module
-                        Packages Manual for Code 11</link>. Developers who
-                    are building KMPs for SUSE Linux Enterprise Server 12
-                    SP2 and later versions and who want to sign their
-                    modules during packaging are referred to the <emphasis
-                        role="strong">module-signing.rst</emphasis>
-                    document in the kernel-source package. </para>
+                <para>Signing modules as part of the packaging process
+                    requires making several changes to the KMP spec file.
+                    The spec file template in Appendix A.1 includes these
+                    changes, which are:</para>
+                <orderedlist>
+                    <listitem>
+                        <para>List the certificate file as a <emphasis
+                                role="strong">%Source</emphasis> file. The
+                            top-level directory of the build structure
+                            (where the spec file is located) should include
+                            both a private key file and a certificate file.
+                            The spec file should list the certificate as a
+                                <emphasis>%Source</emphasis> file. The spec
+                            file should not list the key file (since the
+                            private key should not be included in the
+                            source KMP).</para>
+                        <note>
+                            <title>Naming</title>
+                            <para>To be recognized by the kernel Makefile,
+                                the key file must be named
+                                    <quote>signing_key.priv</quote> and the
+                                certificate file must be named
+                                    <quote>signing_key.x509</quote>. The
+                                example above describes how to use the
+                                    <command>openssl req</command> command
+                                to create a <filename>key.asc</filename>
+                                key file and a
+                                    <filename>cert.der</filename>
+                                certificate file; to use these files at
+                                packaging-time, they should be renamed to
+                                    <quote>signing_key.priv</quote> and
+                                    <quote>signing_key.x509</quote>.</para>
+                        </note>
+                    </listitem>
+                    <listitem>
+                        <para>Invoke the <emphasis
+                                role="strong">%kernel_module_package</emphasis>
+                            macro with the <option>-c
+                                %_sourcedir/signing_key.x509</option>
+                            option to generate a
+                                <package>&lt;name>-ueficert</package>
+                            package which installs the certificate and
+                            calls the <command>mokutil</command> utility to
+                            enroll the public key. The actual module
+                            signing is handled in the <emphasis
+                                role="strong">%install</emphasis> section
+                            of the spec file.</para>
+                    </listitem>
+                    <listitem>
+                        <para>Add <emphasis
+                                role="strong">%install</emphasis> section
+                            code to invoke the kernel-sign-file file to
+			    sign the modules.</para>
+                    </listitem>
+                </orderedlist>
+                <note>
+                    <title>Own Keys and Certificates</title>
+                    <para>The Appendix A.1 sample spec file is designed to be
+                        used by developers and packagers who provide their
+			own keys and certificates and their own build
+			environments.  Developers/packagers who use the
+			Open Build Service should modify their spec file
+			as described in the pesign-obs-integration package
+                        <link
+				xlink:href="https://github.com/openSUSE/pesign-obs-integration/blob/master/README"
+				>README</link>.</para>
+                </note>
 
             </sect3>
 
@@ -1118,12 +1151,9 @@ modinfo ./lib/modules/4.4.73-5-default/updates/hello.ko | grep signature
             Kernel Module Package</title>
 
         <para>The following sample is described in the section <xref
-                linkend="sec-kernel-module-packages"/>. Unlike in the
-            previous version of this document <link
-                xlink:href="https://documentation.suse.com/sbp/all/html/SBP-KMP-Manual/index.html"
-                >Kernel Module Packages Manual for Code 11</link>, this
-            spec file will not sign the modules included in the
-            package.</para>
+                linkend="sec-kernel-module-packages"/>.  For a sample
+            spec file that signs modules during packaging, see Appendix
+            A.1.</para>
 
         <para>
             <emphasis role="strong">suse-hello.spec</emphasis>
@@ -1133,15 +1163,15 @@ modinfo ./lib/modules/4.4.73-5-default/updates/hello.ko | grep signature
         <screen>
 # norootforbuild
 
-Name:			suse-hello
+Name:		suse-hello
 Version:		1.0
 Release:		0
 Summary:		Sample Kernel Module Package
 License:		GPL-2.0
-Group:		    System/Kernel
+Group:		System/Kernel
 Source0:		%{name}-%{version}.tar.bz2
 BuildRequires:	%kernel_module_package_buildreqs
-BuildRoot:		%{_tmppath}/%{name}-%{version}-build
+BuildRoot:	%{_tmppath}/%{name}-%{version}-build
 
 %kernel_module_package
 
@@ -1166,7 +1196,7 @@ done
 export INSTALL_MOD_PATH=$RPM_BUILD_ROOT
 export INSTALL_MOD_DIR=updates
 for flavor in %flavors_to_build; do
-       make -C %{kernel_source $flavor} modules_install M=$PWD/obj/$flavor     
+       make -C %{kernel_source $flavor} modules_install M=$PWD/obj/$flavor
 done
 </screen>
 
@@ -1237,7 +1267,67 @@ module_init(init_hello);
 module_exit(exit_hello);</screen>
 
     </sect1>
+    <sect1 xml:id="sec-appendix-a1">
+        <title>Appendix A.1: Sample Spec File for signing modules
+            during packaging</title>
+        <para>The following spec file can be used to sign modules
+              during packaging as described in Section 8.2.2 above.</para>
+        <para>
+            <emphasis role="strong">suse-hello.spec</emphasis>
+        </para>
 
+        <screen>
+# norootforbuild
+
+Name:		suse-hello
+Version:		1.0
+Release:		0
+Summary:		Sample Kernel Module Package
+License:		GPL-2.0
+Group:		System/Kernel
+Source0:		%{name}-%{version}.tar.bz2
+# Required to sign modules:  Include certificate named “signing_key.x509”
+# Build structure should also include a private key named “signing_key.priv”
+# Private key should not be listed as a source file
+Source1:        signing_key.x509
+BuildRequires:	%kernel_module_package_buildreqs
+BuildRoot:	%{_tmppath}/%{name}-%{version}-build
+
+# Required to sign modules:  The -c option tells the macro to generate a
+# suse-hello-ueficert subpackage that enrolls the certificate
+%kernel_module_package -c %_sourcedir/signing_key.x509
+
+%description
+This package contains the hello.ko module.
+
+%prep
+%setup
+# Required to sign modules:  Copy the signing key to the build area
+cp %_sourcedir/signing_key.* .
+set -- *
+mkdir source
+mv "$@" source/
+mkdir obj
+
+%build
+for flavor in %flavors_to_build; do
+       rm -rf obj/$flavor
+       cp -r source obj/$flavor
+       make -C %{kernel_source $flavor} modules M=$PWD/obj/$flavor
+done
+
+%install
+export INSTALL_MOD_PATH=$RPM_BUILD_ROOT
+export INSTALL_MOD_DIR=updates
+for flavor in %flavors_to_build; do
+       make -C %{kernel_source $flavor} modules_install M=$PWD/obj/$flavor
+       # Required to sign modules:  Invoke kernel-sign-file to sign each module
+       for x in $(find $INSTALL_MOD_PATH/lib/modules/*-$flavor/ -name '*.ko'); do
+               /usr/lib/rpm/pesign/kernel-sign-file -i pkcs7 sha256 $PWD/obj/$flavor/signing_key.priv $PWD/obj/$flavor/signing_key.x509 $x
+       done
+done
+</screen>
+    </sect1>
 
     <?pdfpagebreak?>
     <sect1 xml:id="sec-appendix-b">
@@ -1246,6 +1336,15 @@ module_exit(exit_hello);</screen>
         <sect2 xml:id="sec-doc-updates">
             <title>Documentation updates: Changes from the previous version
                 of the document</title>
+
+                    <para><emphasis role="bold">February 12, 2022 - andavis@suse.com</emphasis></para>
+                        <itemizedlist>
+                            <listitem>
+                               <para>Added information and sample spec file (Appendix
+                                A.1) for signing modules during packaging.</para>
+                            </listitem>
+                        </itemizedlist>
+
                     <para><emphasis role="bold">October 12, 2021 - sbahling@suse.com</emphasis></para>
                         <itemizedlist>
                             <listitem>

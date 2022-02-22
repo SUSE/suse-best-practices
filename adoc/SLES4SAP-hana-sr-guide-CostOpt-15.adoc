@@ -334,6 +334,7 @@ resources must never run on that third node. In this case the third node is an a
 device. For details on disk-based SBD, read the product documentation for SUSE Linux Enterprise High Availability Extension and the manual pages
 sbd(8) and stonith_sbd(7).
 ** For diskless SBD, you need at least three cluster nodes. The diskless SBD mechanism has the benefit that you do not need a shared drive for fencing.
+** Priority fencing is an optional improvement for two nodes, but does not work for three nodes. 
 
 * Both nodes are in the same network segment (layer 2). Similar methods provided by cloud environments such as overlay IP addresses and load balancer functionality
 are also fine. Follow the cloud specific guides to set up your {sles4sap} cluster.
@@ -1782,7 +1783,7 @@ registered immediately. After this registration to the new primary, all
 data will be overwritten by the system replication.
 |=======================================================================
 
-Additional information about all parameters can be found with the following command:
+Additional information about all parameters of the SAPHana RA can be found with the following command:
 
 `man ocf_suse_SAPHana`
 
@@ -1797,7 +1798,8 @@ primitive rsc_SAPHana_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
         op monitor interval="60" role="Master" timeout="700" \
         op monitor interval="61" role="Slave" timeout="700" \
         params SID="{sapsid}" InstanceNumber="{sapino}" PREFER_SITE_TAKEOVER="false" \
-        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false"
+        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false" \
+	meta priority="100"
 ms msl_SAPHana_{sapsid}_HDB{sapino} rsc_SAPHana_{sapsid}_HDB{sapino} \
         meta clone-max="2" clone-node-max="1" interleave="true"
 ----
@@ -1813,6 +1815,10 @@ The most important parameters here are again SID and InstanceNumber.
 Beside these parameters, typical tuneables are the timeout values for the operations (start,
 promote, monitors, stop). The parameter _AUTOMATED_REGISTER_
 can be used to adapt the level of system replication automation.
+The general resource meta attribute _priority_ can be used together with the optional
+priority fencing to make an HANA primary node surviving in case of split-brain.
+Please see the {sleHA} product documentation for details
+({haAdminGuide15}/#pro-ha-storage-protect-fencing).
 
 ==== Adding a virtual IP address for the primary site
 
@@ -1883,8 +1889,7 @@ primitive rsc_SAP_{sapnpsid}_HDB{sapnpino} ocf:heartbeat:SAPInstance \
         START_PROFILE="/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_{sapnode2}" \
   op start interval="0" timeout="600" \
   op monitor interval="120" timeout="700" \
-  op stop interval="0" timeout="300" \
-  meta priority="100"
+  op stop interval="0" timeout="300"
 ----
 
 Load the resource definition into the cluster:
@@ -4125,8 +4130,9 @@ Do you want to configure QDevice (y/n)? n
 
 The following example shows a complete crm configuration for a two-node cluster
 ({sapnode1}, {sapnode2}) and a replicated {hana} database with SID {sapsid}
-and instance number {sapino}. The stand-alone database has SID QAS and instance number 20.The virtual IP address in the example is
-{sapip1srv1}
+and instance number {sapino}. Priority fencing prefers the HANA primary in case of split-brain.
+The stand-alone database has SID QAS and instance number 20.
+The virtual IP address in the example is {sapip1srv1}.
 
 [subs="attributes,quotes"]
 ----
@@ -4431,3 +4437,6 @@ include::common_gfdl1.2_i.adoc[]
 // REVISION 1.4 2020/05
 //   - re-fork CostOpt from newest PerfOpt guide (also docbookxml to adoc format)
 //   - Change from SAPDatabase to SAPInstance
+// REVISION 1.4.1 2022/02
+//   - more priority fencing
+//

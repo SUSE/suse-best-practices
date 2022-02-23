@@ -9,8 +9,8 @@
 = SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster - Setup Guide
 // == SAP S/4 HANA 1809 High Availability Cluster
 
-// Fabian Herschel Bernd Schubert
-// 2019/06/19
+// Fabian Herschel, Bernd Schubert, Lars Pinne
+// 2022/02/23
 
 
 // :Revision: 1.2
@@ -30,6 +30,8 @@ TODO PRIOx: example
 ////
 
 == About This Guide
+
+The following sections focus on background information and the purpose of the document at hand.
 
 === Introduction
 
@@ -56,12 +58,11 @@ The here described HA setup is based on cluster-controlled filesystems for the
 SAP central services working directories.
 This setup with cluster-controlled filesystem resources has been used in former
 HA certifications. It still is supported.
-// TODO PRIO2: ?? will remain supported for the lifetime of {sles4sap} {slesProdVersion}.
 For deploying new HA clusters we recommend using the so called simple-mount setup,
 described in
 "SAP S/4 HANA - Enqueue Replication 2 High Availability Cluster With Simple Mount - Setup Guide"
-(https://documentation.suse.com/sbp/all/html/SAP_S4HA10_SetupGuide_SimpleMount-SLE15).
-// TODO PRIO1: verify simple-mount URL
+(https://documentation.suse.com/sbp/sap/html/SAP_S4HA10_SetupGuide_SimpleMount-SLE15).
+// DONE PRIO1: fixed simple-mount URL
 
 
 [id="sec.resource"]
@@ -134,13 +135,13 @@ server instances. An additional fourth node is used as NFS server.
 
 The goals for the setup include:
 
-- Integration of the cluster with the {SAP} start framework _sapstartsrv_ to
-  ensure that maintenance procedures do not break the cluster stability.
-- Rolling Kernel Switch (RKS) awareness.
-- Standard {sap} installation to improve support processes.
+- Integration of the cluster with the native systemd based {SAP} start framework
+  _sapstartsrv_ to ensure that maintenance procedures do not break the cluster stability
+- Rolling Kernel Switch (RKS) awareness
+- Standard {sap} installation to improve support processes
 - Support of automated HA maintenance mode for SAP resources by implementing support of
-  SAP HACheckMaintenanceMode and HASetMaintenanceMode.
-- Support of more than two cluster nodes for ASCS and ERS instances allowed.
+  SAP HACheckMaintenanceMode and HASetMaintenanceMode
+- Support of more than two cluster nodes for ASCS and ERS instances allowed
 
 The updated certification {sapcert} redefines some of the test procedures
 and describes new expectations how the cluster should behave in special
@@ -155,12 +156,16 @@ for the cluster fencing mechanism STONITH.
 
 === Differences to Previous Cluster Architectures
 
-- The described new concept differs from the old stack that used a multi-state architecture.
+- The described concept differs from the old stack that used a multi-state architecture.
   With the new certification there is a switch to a simpler model with primitives.
   This means: on one machine there is the ASCS instance with its own resources and on
   the other machine there is the ERS instance with its own resources.
 - For {s4Hana} the new concept implies that, after a resource failure, the ASCS does not need to be started at the ERS
   side. The new enqueue architecture is also named ENSA2.
+- Use of native systemd integration for {sap} hostagent and instance´s sapstartsrv.
+  Please refer to {sap} documentation for the neccessary  product version, see also SAP note 3139184.
+  SUSE systemd version 234 at least is needed. For details please refer to the {sles4sap} product documentation.
+  SUSE resource agents are needed at least sapstartsrv-resource-agents 0.9.1 and resource-agents 4.x from November 2021.
 
 === Three Systems or More for ASCS, ERS, Database and Additional SAP Instances
 
@@ -649,38 +654,53 @@ On _{my2nd2}_, do the following:
 # sapcontrol -nr {myErsIno} -function StopService
 ----
 
-==== Maintaining _sapservices_
+==== Disabling systemd services of the ASCS and the ERS {sap} instance
 
-Ensure _/usr/sap/sapservices_ holds both entries (ASCS and ERS) on both cluster
-nodes. This allows the *{sapstartsrv}* clients to start the service as follows:
-
-As user _{mySapAdm}_, type the following command:
-
-[subs="attributes"]
-----
-# sapcontrol -nr {myErsIno} -function StartService {mySid}
-----
-The _/usr/sap/sapservices_ file looks as follows - typically one line per instance is displayed:
-
-[subs="attributes"]
-----
-#!/bin/sh
-LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstAscs}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/{myInstAscs}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs} -D -u {mySapAdm}
-LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstErs}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/{myInstErs}/exe/sapstartsrv pf=/usr/sap/{mySid}/{myInstErs}/profile/{mySid}_{myInstErs}_{myVipNErs} -D -u {mySapAdm}
-----
-
-If entries are missing you can register them using sapstartsrv with options *pf=*<profile-of-the-sap-instance> and *-reg*.
+This is mandatory for giving control over the instance to the HA cluster.
+See also manual pages ocf_suse_SAPStartSrv(7) and SAPStartSrv_basic_Cluster(7).
 
 [subs="specialchars,attributes"]
 ----
-# LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
-# /usr/sap/hostctrl/exe/sapstartsrv \
- pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs> \
- -reg
-# /usr/sap/hostctrl/exe/sapstartsrv \
- pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameAscs> \
- -reg
+# systemctl disable SAP{mySid}_{myAscsIno}.service
+# systemctl stop SAP{mySid}_{myAscsIno}.service
+# systemctl disable SAP{mySid}_{myErsIno}.service
+# systemctl stop SAP{mySid}_{myErsIno}.service
 ----
+NOTE: Stopping this instance services will stop the SAP instance as well.
+Starting the instance services will not start the SAP instances.
+
+- Check the {sap} systemd integration:
+
+[subs="specialchars,attributes"]
+----
+# systemctl list-unit-files | grep SAP
+SAP{mySid}_{myErsIno}.service disabled
+SAP{mySid}_{myErsIno}.service disabled
+----
+The instance services are indeed disabled, as required.
+
+[subs="specialchars,attributes"]
+----
+# systemctl list-unit-files | grep sap
+saphostagent.service enabled
+sapinit.service generated
+saprouter.service disabled
+saptune.service enabled
+----
+The mandatory `saphostagent` service is enabled. This is the installation default.
+Some more {sap} related services might be enabled, e.g. the recommended `saptune`.
+
+[subs="specialchars,attributes"]
+----
+# cat /usr/sap/sapservices
+systemctl --no-ask-password start SAP{mySid}_{myAscsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}
+systemctl --no-ask-password start SAP{mySid}_{myErsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}
+----
+The _sapservices_ file is still there fo compatibility. It shows native systemd commands, one per
+line for each registered instance.
+You will find a SystemV style example in the appendix.
+// TODO PRIO3: link to example
+
 
 ==== Integrating the Cluster Framework Using _{s4sClConnector3}_
 
@@ -1872,37 +1892,51 @@ In the next step the following information are required:
 # usermod -a -G haclient {mySapAdm}
 ----
 
-- Create the file _/usr/sap/sapservices_  or copy it from one of your existing cluster nodes.
-+
-NOTE: This must be done for each instance. Call sapstartsrv with parameters *pf=*<profile-of-the-sap-instance> and *-reg*.
-+
-The following commands register the ASCS and the ERS {sap} instance:
+- Register the ASCS and the ERS {sap} instance:
 +
 [subs="specialchars,attributes"]
 ----
-##  create them with sapstartsrv
 # LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
-# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs> -reg
-# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameAscs> -reg
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs
+> -reg
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameA
+scs> -reg
 ----
-
-- Alternatively copy the file
 +
+NOTE: This must be done for each instance. Call sapstartsrv with parameters *pf=*<profile-of-the-sap-instance> 
+and *-reg*.
++
+
+- Disable systemd services of the ASCS and the ERS {sap} instance:
++ 
 [subs="specialchars,attributes"]
 ----
-# scp -p {my2nd1}:/usr/sap/sapservices /usr/sap/
+# systemctl disable SAP{mySid}_{myAscsIno}.service
+# systemctl disable SAP{mySid}_{myErsIno}.service
 ----
-
-- Finally check the file
 +
+NOTE: This is mandatory for giving control over the instance to the HA cluster.
++
+
+- Check the {sap} systemd integration:
++ 
 [subs="specialchars,attributes"]
 ----
+# systemctl list-unit-files | grep sap
+saphostagent.service enabled
+sapinit.service generated
+saprouter.service disabled
+saptune.service enabled
+# systemctl list-unit-files | grep SAP
+SAP{mySid}_{myErsIno}.service disabled
+SAP{mySid}_{myErsIno}.service disabled
 # cat /usr/sap/sapservices
-#!/bin/sh
-LD_LIBRARY_PATH=/usr/sap/{mySid}/ASCS{myAscsIno}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/ASCS{myAscsIno}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_ASCS{myAscsIno}_sap{mySidLc}as -D -u {mySidLc}adm
-LD_LIBRARY_PATH=/usr/sap/{mySid}/ERS{myErsIno}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/ERS{myErsIno}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_ERS{myErsIno}_sap{mySidLc}er -D -u {mySidLc}adm
+systemctl --no-ask-password start SAP{mySid}_{myAscsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}
+systemctl --no-ask-password start SAP{mySid}_{myErsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}
 ----
 ==========
+
+==== Adding the new node to the cluster
 
 .Add the New Node to the Cluster
 ==========
@@ -1999,8 +2033,8 @@ include::SAPNotes_s4_1809.adoc[]
 === CRM Configuration
 
 Find below the complete crm configuration for {sap} system {mySid}. This example
-is for the two node cluster. In multi node cluster you will find additional node entries
-like *node 3: {my3nd3}*.
+is for the two node cluster, but without priority fencing.
+In multi node cluster you will find additional node entries like *node 3: {my3nd3}*.
 
 [subs="attributes"]
 ----
@@ -2199,6 +2233,16 @@ quorum {
 	}
 ----
 
+=== /usr/sap/sapservices without native systemd integration
+
+[subs="specialchars,attributes,quotes"]
+----
+#!/bin/sh
+LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstAscs}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/{myInstAscs}/exe/sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs} -D -u {mySapAdm}
+LD_LIBRARY_PATH=/usr/sap/{mySid}/{myInstErs}/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH; /usr/sap/{mySid}/{myInstErs}/exe/sapstartsrv pf=/usr/sap/{mySid}/{myInstErs}/profile/{mySid}_{myInstErs}_{myVipNErs} -D -u {mySapAdm}
+----
+
+
 // Standard SUSE Best Practices includes
 == Legal Notice
 include::common_sbp_legal_notice.adoc[]
@@ -2220,3 +2264,5 @@ include::common_gfdl1.2_i.adoc[]
 //   - Format corrections
 // REVISION 1.2 2021/12
 //   - pointer to simple-mount guide
+// REVISION 1.2 2021/02
+//	- SAP native systemd support 

@@ -78,7 +78,15 @@ the enqueue service. An optimal effect of the enqueue replication mechanism can
 be achieved when combining the application level redundancy with a high
 availability cluster solution as provided by {sles4sap}. The described
 concept has proven its maturity over several years of productive operations for
-customers of different sizes and branches.
+customers of different sizes and industries.
+
+The here described HA setup is based on cluster-controlled filesystems for the
+SAP central services working directories.
+This setup with cluster-controlled filesystem resources has been used in former
+HA certifications. It still is supported.
+For deploying new HA clusters we recommend using the so called simple-mount setup,
+described in SUSE TID "Use of Filesystem resource for ASCS/ERS HA setup not possible"
+(https://www.suse.com/support/kb/doc/?id=000019944).
 
 
 === Additional Documentation and Resources
@@ -1547,7 +1555,7 @@ include::SAPNotes_ha740.adoc[]
 === CRM Configuration
 
 Find below the complete crm configuration for {sap} system {mySid}.
-\\ TODO PRIO2: priority fencing with below priorities?
+// TODO PRIO2: priority fencing with below priorities?
 
 [subs="attributes"]
 ----
@@ -1622,6 +1630,72 @@ rsc_defaults rsc-options: \
 op_defaults op-options: \
 	timeout=600 \
 	record-pending=true
+----
+
+=== Corosync Configuration of the Two Node Cluster
+
+Find below a corosync configuration example for one corosync ring. Ideally two rings would be used.
+
+[subs="specialchars,attributes"]
+----
+# Read the corosync.conf.5 manual page
+totem {
+    version: 2
+    secauth: on
+    crypto_hash: sha1
+    crypto_cipher: aes256
+    cluster_name: hacluster
+    clear_node_high_bit: yes
+    token: 5000
+    token_retransmits_before_loss_const: 10
+    join: 60
+    consensus: 6000
+    max_messages: 20
+    interface {
+        ringnumber: 0
+        mcastport: 5405
+        ttl: 1
+    }
+
+    transport: udpu
+}
+
+logging {
+    fileline: off
+    to_stderr: no
+    to_logfile: no
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: QUORUM
+        debug: off
+    }
+
+}
+
+nodelist {
+    node {
+        ring0_addr: {myIP2nd1}
+        nodeid: 1
+    }
+
+    node {
+        ring0_addr: {myIP2nd2}
+        nodeid: 2
+    }
+
+}
+
+quorum {
+
+    # Enable and configure quorum subsystem (default: off)
+    # see also corosync.conf.5 and votequorum.5
+    provider: corosync_votequorum
+    expected_votes: 2
+    two_node: 1
+}
 ----
 
 === /usr/sap/sapservices without native systemd integration

@@ -23,13 +23,11 @@ include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15-param.txt[]
 // TODO PRIO1: Should we add a 3 nodes cluster variant with disk less fencing?
 // TODO PRIO1: Add information for active/active (read-enabled) to the document
 // TODO PRIO1: Check all command examples + output, if they are still valid
-////
-TODO PRIO2: Scale-Up multi sid aka MCOS for the performance optimized scenario
-TODO PRIO1: Scale-Up with read-enabled (scheduled for 'next' publishing)
-TODO PRIO3: Scale-Up and Handshake takeover (scheduled for 'after next' publishing)
-TODO PRIO3: Scale-Up and multi target (scheduled for 'after next' publishing)
-TODO:
-////
+// TODO PRIO2: Scale-Up multi sid aka MCOS for the performance optimized scenario
+// TODO PRIO1: Scale-Up with read-enabled (scheduled for 'next' publishing)
+// TODO PRIO3: Scale-Up and Handshake takeover (scheduled for 'after next' publishing)
+// TODO PRIO3: Scale-Up and multi target (scheduled for 'after next' publishing)
+
 
 === Introduction
 
@@ -253,14 +251,14 @@ the Technical Information Document (TID) for this setup guide
 will be updated, maintained and published at a higher frequency:
 
 - SAP HANA SR Performance Optimized Scenario - Setup Guide - Errata
-(https://www.suse.com/support/kb/doc/?id=7023882)
+{tidNotes}7023882
 
 - Showing SOK Status in Cluster Monitoring Tools Workaround
-(https://www.suse.com/support/kb/doc/?id=7023526 -
+({tidNotes}7023526 -
 see also the blog article https://www.suse.com/c/lets-flip-the-flags-is-my-sap-hana-database-in-sync-or-not/)
 
 In addition to this guide, check the SUSE SAP Best Practice Guide Errata for other solutions
-(https://www.suse.com/support/kb/doc/?id=7023713).
+({tidNotes}7023713).
 
 // Standard SUSE includes
 === Feedback
@@ -285,30 +283,29 @@ independent.
 ** If you use disk-based SBD as the fencing mechanism, you need one or more shared
 drives. For productive environments, we recommend more than one SBD
 device. For details on disk-based SBD, read the product documentation for
-SUSE Linux Enterprise High Availability Extension and the manual pages
-sbd.8 and stonith_sbd.8.
+{sleha} and the manual pages sbd(8) and stonith_sbd(8).
 ** For disk-less SBD you need at least three cluster nodes. The disk-less SBD mechanism
 has the benefit that you do not need a shared drive for fencing.
 * Both nodes are in the same network segment (layer 2). Similar methods provided
 by cloud environments such as overlay IP addresses and load balancer functionality
 are also fine. Follow the cloud specific guides to set up your {sles4sap} cluster.
-* Technical users and groups, such as _<sid>adm_ are defined
+* Technical users and groups, such as _{refsidadm}_ are defined
 locally in the Linux system.
 * Name resolution of the cluster nodes and the virtual IP address must
 be done locally on all cluster nodes.
 * Time synchronization between the cluster nodes like NTP.
-* Both {hana} instances (primary and secondary) have the same SAP Identifier (SID) and instance
-number.
+* Both {hana} instances (primary and secondary) have the same SAP Identifier
+(SID) and instance number.
 * If the cluster nodes are installed in different data centers or data
-center areas, the environment must match the requirements of the SUSE Linux Enterprise High Availability Extension
+center areas, the environment must match the requirements of the {sleha}
 cluster product. Of particular concern are the network latency and
 recommended maximum distance between the nodes. Review our
-product documentation for SUSE Linux Enterprise High Availability Extension about those recommendations.
+product documentation for {sleha} about those recommendations.
 * Automated registration of a failed primary after takeover.
 ** As a good starting configuration for projects, we recommend to switch
 off the automated registration of a failed primary. The setup
 `AUTOMATED_REGISTER="false"` is the default. In this case, you need to
-register a failed primary after a takeover manually. Use SAP tools like
+register a failed primary after a takeover manually. Use {sap} tools like
 {saphana} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend `AUTOMATED_REGISTER="true"`.
 * Automated start of {hana} instances during system boot must be
@@ -316,63 +313,99 @@ switched off.
 * Multi-tenancy (MDC) databases are supported.
 ** Multi-tenancy databases could be used in combination with any other
 setup (performance based, cost optimized and multi-tier).
-** In MDC configurations the SAP HANA RDBMS is treated as a single
+** In MDC configurations the {sap} HANA RDBMS is treated as a single
 system including all database containers. Therefore cluster takeover
 decisions are based on the complete RDBMS status independent of the
 status of individual database containers.
-** For {hana} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop
-tenants during production and you want the cluster to be able to take over.
-Older {hana} versions are marking the system replication as failed if
-you stop a tenant.
+////
+// TODO PRIO1: remove HANA 1.0?
+// ** For {hana} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop
+// tenants during production and you want the cluster to be able to take over.
+// Older {hana} versions are marking the system replication as failed if
+// you stop a tenant.
+////
 ** Tests on Multi-tenancy databases could force a different test procedure
 if you are using strong separation of the tenants. As an example, killing the
-complete {hana} instance using _HDB kill_ does not work, because the tenants are
-running with different Linux user UIDs. {refsidadm} is not allowed to terminate the
-processes of the other tenant users.
+complete {hana} instance using _HDB kill_ does not work, because the tenants
+are running with different Linux user UIDs. _{refsidadm}_ is not allowed to terminate
+the processes of the other tenant users.
+** Only one system replication between the two {sap} HANA database in the Linux cluster.
+Maximum one system replication to an HANA database outside the Linux cluster.
+** The replication mode is either sync or syncmem for the controlled replication.
+Replication mode async is not supported. The operation modes delta_datashipping,
+logreplay and logreplay_readaccess are supported.
+** Besides {sap} HANA you need SAP hostagent installed and started on your system.
+For SystemV style, the sapinit script needs to be active. For systemd style, the
+services saphostagent and SAP<SID>_<INO> can stay enabled. The systemd enabled
+saphostagent and instance´s sapstartsrv is supported from SAPHanaSR 0.155 onwards.
+Please refer to the OS documentation for the systemd version. Please refer to {sap}
+documentation for the {sap} HANA version. Combining systemd style hostagent with
+SystemV style instance is allowed. However, all nodes in one Linux cluster have to
+use the same style.
+** The RA's monitoring operations have to be active.
+** Using HA/DR provider hook for srConnectionChanged() by enabling SAPHanaSR.py is
+strongly  recommended. This might become mandatory in furture versions.
+** For scale-up, the current resource agent supports SAP HANA in system replication
+beginning with HANA version 1.0 SPS 7 patch level 70, recommended is SPS 11. With
+HANA 2.0 SPS04 and later multi-target system replication is possible as well. Even
+in HANA multi-target environments, the current resource agent manages only two sites.
+Thus only two HANA sites are part of the Linux cluster.
+** Colocation constraints between the SAPHanaController or SAPHana RA and other
+resources are allowed only if they do not affect the RA's scoring. The location
+scoring finally depends on system replication status an must not be over-ruled by
+additional constraints. Thus it is not allowed to define rules forcing a SAPHanaController
+or SAPHana master to follow another resource.
+** The Linux cluster needs to be up and running to allow HA/DR provider events being
+written into CIB attributes. The current HANA SR status might differ from CIB srHook
+attribute after cluster maintenance.
+** Once an HANA system replication site is known to the Linux cluster, that exact
+site name has to be used whenever the site is registered manually.
+** Reliable access to the /hana/shared/ filesystem is crucial for HANA and the
+Linux cluster.
+** HANA feature Secondary Time Travel is not supported.
+** In MDC configurations the HANA database is treated as a single system including
+all database containers. Therefore, cluster takeover decisions are based on the
+complete status independent of the status of individual containers.
+** If a third HANA site is connected by system replication, that HANA is not
+controlled by another Linux cluster. If that third site should work as part of a
+fall-back HA cluster in DR case, that HA cluster needs to be in standby.
+** RA and srHook runtime almost completely depends on call-outs to controlled
+resources, OS and Linux cluster. The infrastructure needs to allow these call-outs
+to return in time.
+** The {sap} HANA Fast Restart feature on RAM-tmfps as well as HANA on persistent
+memory can be used, as long as they are transparent to Linux HA.
 
+// TODO PRIO1: align with man pages SAPHanaSR(7) and SAPHanaSr.py(7) 
+// TODO PRIO1: versions for multi-target
+// TODO PRIO1: versions for systemd 
+// TODO PRIO1: remove HANA 1.0?
+////
 You need at least {SAPHanaSR} version {sapHanaSrMinVers} and in best {sles4sap} {prodnr}
 {prodsp} or newer. {hana} 1.0 is supported since SPS09 (095) for all mentioned setups.
 {hana} 2.0 is supported with all known SPS versions.
+////
+
+For the HA/DR provider hook script SAPHanaSR.py, the following requirements apply:
+** {sap} HANA 2.0 SPS04 or later provides the HA/DR provider hook method
+srConnectionChanegd() with multi-target aware parameters. {sap} HANA 1.0 does not
+provide them. The multi-target aware  parameters  are  needed for the SAPHanaSR
+scale-up package.
+** The user _{refsidadm}_ needs execution permission as user root for the command crm_attribute.
+** The hook provider needs to be added to the HANA global configuration, in memory
+and on disk (in persistence).
+** If the hook provider should be pre-compiled, the particular Python version
+that comes with {sap} HANA has to be used.
+
+See also  manual pages SAPHanaSR(7) and SAPHanaSR.py(7) for more details and requirements.
 
 IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
 and will not work properly.
 
-////
-// TODO: TO BE DELETED
-This setup guide focuses on the performance optimized setup. No other
-{hana} system (like QAS or TST) on the replicating node which needs to
-be stopped during takeover is considered in this scenario.
-
-* Cost optimized setups with a non-productive {hana} (like QAS or TST)
-on the secondary node are supported. SUSE has published a setup guide
-for cost optimized scenarios too ({uarr} {hana} SR Cost Optimized
-Scenario). We already have a SCN article for this kind of setups:
-http://scn.sap.com/docs/DOC-65899. You need to configure the {hana}
-database resources at the secondary side to run them side by side (see
-SAP documentation for cost optimized setups).
-* Multi-tier setups (A => B -> C) are supported. You need to disable
-automated re-registration (AUTOMATED_REGISTER=”false”), because SAP
-currently does not allow two targets to be connected to one primary
-({uarr} {hana} SR Multi Tier Scenario).
-* Multi-tenancy (MDC) databases are supported.
-** Multi-tenancy databases could be used in combination with any other
-setup (performance based, cost optimized and multi-tier).
-** In MDC configurations the SAP HANA RDBMS is treated as a single
-system including all database containers. Therefore cluster takeover
-decisions are based on the complete RDBMS status independent of the
-status of individual containers.
-** You need {hana} version >= SPS10 rev3 or SPS11+ if you need to stop
-tenants during production and like the cluster to be able to takeover.
-Older {hana} versions are marking the system replication as failed if
-you stop a tenant.
-////
-
 If you need to implement a different scenario, we strongly recommend to
-define a PoC with SUSE. This PoC will focus on testing the existing
+define a PoC with {suse}. This PoC will focus on testing the existing
 solution in your scenario. Most of the above mentioned limitations are because
 careful testing is needed.
 
-Besides {hana}, you need SAP Host Agent to be installed on your system.
 
 [[cha.hana-sr.scope]]
 == Scope of This Documentation
@@ -590,8 +623,6 @@ Follow the instructions below on each node if you have installed the systems bas
 The pattern _High Availability_ summarizes all tools recommended to be installed on *all* nodes, including the
 _majority maker_.
 
-// DONE PRIO1: To install HA *and* SAPHanaSR now, because we need it during the setup of SAP HANA
-
 // To do so, for example, use zypper:
 
 .Installing additional software for the HA cluster
@@ -611,9 +642,6 @@ _majority maker_.
 ----
 
 ====
-
-// DONE  PRIO2: install supportutils-plugin-ha-sap, see https://github.com/SUSE/suse-best-practices/issues/122#issuecomment-753994628
-// DONE PRIO2: install ClusterTools2
 
 Optionally the packages supportutils-plugin-ha-sap and ClusterTools2 can be installed. The first helps collecting data for support requests, the second simplifies common administrative tasks.
 
@@ -651,7 +679,7 @@ SAP service is not installed, install it now.
 . Verify that both databases are up and all processes of these databases
 are running correctly.
 
-As Linux user _<sid>adm_ use the command line tool _HDB_ to get an
+As Linux user _{refsidadm}_ use the command line tool _HDB_ to get an
 overview of running HANA processes. The output of `HDB` `info` should
 be similar to the output shown below:
 
@@ -698,7 +726,7 @@ backup infrastructure.
 
 .Simple backup for the system database and all tenants with one single backup call
 =========================
-As user {refsidadm} enter the following command:
+As user _{refsidadm}_ enter the following command:
 
 ----
 hdbsql -u SYSTEM -d SYSTEMDB \
@@ -714,7 +742,7 @@ You get the following command output (or similar):
 
 .Simple backup for a single container (non MDC) database
 =========================
-Enter the following command as user {refsidadm}:
+Enter the following command as user _{refsidadm}_:
 
 [subs="specialchars,attributes"]
 ----
@@ -728,7 +756,7 @@ replication configuration.
 
 === Enable Primary Node
 
-As Linux user _<sid>adm_ enable the system replication at the
+As Linux user _{refsidadm}_ enable the system replication at the
 primary node. You need to define a site name (like {sapsite1}). This
 site name must be unique for all {hana} databases which are connected
 via system replication. This means the secondary must have a different
@@ -778,7 +806,7 @@ before the instance can be registered for the system replication. You
 can use your preferred method to stop the instance (like `HDB` or
 `sapcontrol`). After the database instance has been stopped
 successfully, you can register the instance using `hdbnsutil`. Again,
-use Linux user _<sid>adm_:
+use Linux user _{refsidadm}_: 
 
 .Stop the Secondary
 ==========
@@ -855,7 +883,7 @@ done.
 
 
 To view the replication state of the whole {hana} cluster use the
-following command as _<sid>adm_ user on the primary node.
+following command as _{refsidadm}_ user on the primary node.
 
 .Checking System Replication Status Details
 ==========
@@ -911,8 +939,6 @@ Bring the systems back to the original state:
 
 image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
 
-// DONE: Feedback ps: explain better, when the python hook is needed.
-
 This step is mandatory to inform the cluster immediately if the secondary gets out of sync.
 The hook is called by {SAPHANA} using the HA/DR provider interface in point-of-time when the secondary gets out of
 sync. This is typically the case when the first commit pending is released. The hook is
@@ -922,7 +948,7 @@ called by {SAPHANA} again when the system replication is back.
 
 . Implement the python hook SAPHanaSR
 . Configure system replication operation mode
-. Allow {refsidadm} to access the cluster
+. Allow _{refsidadm}_ to access the cluster
 . Start {saphana}
 . Test the hook integration
 
@@ -937,15 +963,6 @@ global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
 
 Use the hook from the SAPHanaSR package (available since version 0.153). Optionally copy it to your preferred
 directory like /hana/share/myHooks. The hook must be available on all SAP HANA cluster nodes.
-
-////
-[subs="specialchars,attributes"]
-----
-{mySite1FirstNode}~ # mkdir -p /hana/shared/myHooks
-{mySite1FirstNode}~ # cp /usr/share/SAPHanaSR-ScaleOut/SAPHanaSR.py /hana/shared/myHooks
-{mySite1FirstNode}~ # chown -R {refsidadm}:sapsys /hana/shared/myHooks
-----
-////
 
 .Stop {hana}
 ===================================
@@ -1003,10 +1020,10 @@ operation_mode = logreplay
 === Allowing {refsidadm} to access the Cluster
 
 The current version of the SAPHanaSR python hook uses the command `sudo` to allow
-the {refsidadm} user to access the cluster attributes. In Linux you can use `visudo`
+the _{refsidadm}_ user to access the cluster attributes. In Linux you can use `visudo`
 to start the vi editor for the _/etc/sudoers_ configuration file.
 
-The user {refsidadm} must be able to set the cluster attributes hana_{refsidLC}_site_srHook_*.
+The user _{refsidadm}_ must be able to set the cluster attributes hana_{refsidLC}_site_srHook_*.
 The {SAPHANA} system replication hook needs password free access. The following
 example limits the sudo access to exactly setting the needed attribute.
 
@@ -1014,7 +1031,7 @@ Replace the {refsidLC} by the *lowercase* SAP system ID (like `{sapssid}`).
 
 .Entry in sudo permissions /etc/sudoers file
 ===================================
-Basic sudoers entry to allow <sidadm> to use the srHook.
+Basic sudoers entry to allow {refsidadm} to use the srHook.
 
 // command to be allowed used in the hook:
 // "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
@@ -1027,7 +1044,7 @@ Basic sudoers entry to allow <sidadm> to use the srHook.
 
 More specific sudoers entries to meet a high security level. All Cmnd_Alias entries must be each defined as a single line entry.
 In the following example the lines might include a line-break forced by document formatting. In our example we would have
-four separate lines with Cmnd_Alias entries, one line for the {refsidadm} user and one or more lines for comments.
+four separate lines with Cmnd_Alias entries, one line for the _{refsidadm}_ user and one or more lines for comments.
 
 [subs="specialchars,attributes"]
 ----
@@ -1703,7 +1720,7 @@ on the exit state of the proceeding tests.
 - The primary HANA database is stopped during normal cluster operation.
 
 .{testProc}
-. Stop the primary HANA database gracefully as _<sid>adm_.
+. Stop the primary HANA database gracefully as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1711,7 +1728,7 @@ on the exit state of the proceeding tests.
 ----
 
 .{testRecover}
-. Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _<sid>adm_.
+. Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1755,7 +1772,7 @@ recovery procedure.
   The primary HANA database is stopped during normal cluster operation.
 
 .{testProc}
-. Stop the database gracefully as _<sid>adm_.
+. Stop the database gracefully as {refsidadm}.
 +
 [subs="attributes,quotes"]
 ----
@@ -1764,7 +1781,7 @@ recovery procedure.
 
 .{testRecover}
 .  Manually register the old primary (on node 2) with the new primary
-  after takeover (on node 1) as _<sid>adm_.
+  after takeover (on node 1) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1809,7 +1826,7 @@ recovery procedure.
   Simulate a complete break-down of the primary database system.
 
 .{testProc}
-.  Kill the primary database system using signals as _<sid>adm_.
+.  Kill the primary database system using signals as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1818,7 +1835,7 @@ recovery procedure.
 
 .{testRecover}
 .  Manually register the old primary (on node 1) with the new primary
-  after takeover (on node 2) as _<sid>adm_.
+  after takeover (on node 2) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1862,7 +1879,7 @@ recovery procedure.
   Simulate a complete break-down of the primary database system.
 
 .{testProc}
-.  Kill the primary database system using signals as _<sid>adm_.
+.  Kill the primary database system using signals as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1871,7 +1888,7 @@ recovery procedure.
 
 .{testRecover}
 .  Manually register the old primary (on node 2) with the new primary
-  after takeover (on node 1) as _<sid>adm_.
+  after takeover (on node 1) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -1939,7 +1956,7 @@ recovery procedure.
 {sapnode1}# {clusterstart}
 ----
 +
-.  Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _<sid>adm_.
+.  Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -2015,7 +2032,7 @@ recovery procedure.
 ----
 +
 .  Manually register the old primary (on node 2) with the new primary
-  after takeover (on node 1) as _<sid>adm_.
+  after takeover (on node 1) as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -2065,7 +2082,7 @@ recovery procedure.
   operation.
 
 .{testProc}
-.  Stop the secondary HANA database gracefully as _<sid>adm_.
+.  Stop the secondary HANA database gracefully as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -2104,7 +2121,7 @@ recovery procedure.
   Simulate a complete break-down of the secondary database system.
 
 .{testProc}
-.  Kill the secondary database system using signals as _<sid>adm_.
+.  Kill the secondary database system using signals as _{refsidadm}_.
 +
 [subs="attributes,quotes"]
 ----
@@ -2240,7 +2257,7 @@ on the exit state of the proceeding tests.
 - The primary HANA database is stopped during normal cluster operation.
 
 .{testProc}
-- Stop the primary HANA database gracefully as _<sid>adm_.
+- Stop the primary HANA database gracefully as _{refsidadm}_.
 
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2492,8 +2509,8 @@ was detected as new running master (changing from 4:S to 4:P).
 ==== {hana} LandscapeHostConfiguration
 
 To check the status of an SAPHana database and to find out if the
-cluster should react, you can use the script *landscapeHostConfiguration*
-to be called as Linux user _<sid>adm_.
+cluster should react, you can use the script *landscapeHostConfiguration.py*
+to be called as Linux user _{refsidadm}_.
 
 [subs="attributes,quotes"]
 ----
@@ -2555,7 +2572,7 @@ still active. Using the updated procedure allows a seamless {hana} maintenance
 in the cluster as the virtual IP address can automatically follow the running
 primary.
 
-//TODO: PRIO2 HINT for new wizard?!?!?!
+// TODO: PRIO2 HINT for new wizard?!?!?!
 
 Prepare the cluster not to react on the maintenance work to be done on
 the SAP HANA database systems. Set the multi-state resource to be
@@ -2622,7 +2639,7 @@ crm resource maintenance <multi-state-resource-name>
 
 Manual Takeover Process::
 * Stop the primary SAP HANA database system. Enter the command in our
-example on node1 as user _<sid>adm_.
+example on node1 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2630,7 +2647,7 @@ HDB stop
 ----
 +
 * Start the takeover process on the secondary SAP HANA database system.
-Enter the command in our example on node2 as user _<sid>adm_.
+Enter the command in our example on node2 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2638,7 +2655,7 @@ hdbnsutil -sr_takeover
 ----
 +
 * Register the former primary to become the new secondary. Enter the
-command in our example on node1 as user _<sid>adm_.
+command in our example on node1 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2648,7 +2665,7 @@ hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
 ----
 +
 * Start the new secondary SAP HANA database system. Enter the command in
-our example on node1 as user _<sid>adm_.
+our example on node1 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2716,7 +2733,7 @@ Mon Nov 11 20:38:50 2019; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:mas
 
 * If you have set up `AUTOMATED_REGISTER="true"`, you can skip this step. In
 other cases you now need to register the old primary. Enter the command
-in our example on node1 as user _<sid>adm_.
+in our example on node1 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2762,9 +2779,7 @@ primary.
 
 If you have set up `AUTOMATED_REGISTER="true"`, you can skip this step. In
 other cases you now need to register the old primary. Enter the command
-in our example on node1 as user _<sid>adm_.
-
-// DONE PRIO1: HANA 2.0 command?!?!?!
+in our example on node1 as user _{refsidadm}_.
 
 `hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} --replicationMode=sync --name={sapsite1} --operationMode=logreplay`
 
@@ -3003,13 +3018,15 @@ For more detailed information, have a look at the documents listed below.
 include::SAPNotes_HANA.adoc[]
 
 :leveloffset: 0
+=== Pacemaker
+
+Pacemaker Project Documentation::
+ https://clusterlabs.org/pacemaker/doc/
+
+:leveloffset: 0
 // Standard SUSE Best Practices includes
 == Legal Notice
 include::common_sbp_legal_notice.adoc[]
-
-=== Pacemaker
-Pacemaker Project Documentation::
-https://clusterlabs.org/pacemaker/doc/
 
 // Standard SUSE Best Practices includes
 :leveloffset: 0
@@ -3034,5 +3051,7 @@ include::common_gfdl1.2_i.adoc[]
 // REVISION 1.3.1 2020/04
 //   - fixed one smaller grammar error
 // REVISION 1.4 2022/02
+//   - updated examples, references
 //   - SAP native systemd support
+//
 

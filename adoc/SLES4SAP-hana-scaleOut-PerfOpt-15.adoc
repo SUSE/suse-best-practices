@@ -54,11 +54,13 @@ Replication Performance Optimized".
 From the application perspective the following variants are covered:
 
 - Plain system replication
-- System replication with secondary site read-enabled
 - Multi-tier (chained) system replication
 - Multi-target system replication
 - Multi-tenant database containers for all above
 - HANA host auto-failover for all above
+- HANA databases without host auto-failover are possible, but not explained
+  in this guide.
+// TODO PRIO3: - System replication with secondary site read-enabled
 
 From the infrastructure perspective the following variants are covered:
 
@@ -345,28 +347,29 @@ following configurations and parameters:
 * The {SAPHANA} scale-out system must have only *one* active master name server
   per site. It should have up to three master name server candidates ({SAPHANA}
   nodes with a configured role 'master<N>').
+* For {SAPHANA} databases without additional master name server candidate,
+  the package SAPHanaSR-ScaleOut version 0.180 or newer is needed.
 * The {SAPHANA} scale-out system must have only *one* failover group.
-* There is only one additional {saphana} system replication connected from
+* There is maximum one additional {saphana} system replication connected from
   outside the Linux cluster. Thus two sites are managed by the Linux cluster,
-  one site outside is recognized.
-* The setup implements the performance optimized scenario but not the cost
-  optimized scenario.
-* Only one {SAPHANA} SID is installed. Thus the cost-optimized and MCOS
-  scenarios are currently not supported.
+  one site outside is recognized. For {SAPHANA} multi-tier and multi-target
+  system replication, the package SAPHanaSR-ScaleOut version 0.180 or newer is needed.
+* Only one {SAPHANA} SID is installed. Thus the performance optimized setup is
+  supported. But the cost optimized and MCOS scenarios are currently not supported.
 * The _{sapHostAgent}_ must be running. _{sapHostAgent}_ is needed to translate
   between the system node names and SAP host names used during the installation
   of {saphana}. For SystemV style, the sapinit script needs to be active.
 // TODO PRIO1: publish the below, once SAP ships systemd integration for HANA  
 // For systemd style, the
 // services saphostagent and SAP<SID>_<INO> can stay enabled. The systemd enabled
-// saphostagent and instance´s sapstartsrv is supported from SAPHanaSR 0.155 onwards.
+// saphostagent and instance´s sapstartsrv is supported from SAPHanaSR-ScaleOut 0.181 onwards.
 // Please refer to the OS documentation for the systemd version. Please refer to {sap}
 // documentation for the {sap} HANA version. Combining systemd style hostagent with
 // SystemV style instance is allowed. However, all nodes in one Linux cluster have to
 // use the same style.
 * All {saphana} instances controlled by the cluster must not be activated via
   _sapinit_ auto-start.
-* The replication mode should be either 'sync' or 'syncmem'. 'async' is not
+* The replication mode should be either 'sync' or 'syncmem'. But 'async' is not
   supported.
 * The Linux cluster can be either freshly installed as described in this guide,
   or it can be upgraded as described in respective documentation.
@@ -1418,11 +1421,12 @@ image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
 This step must be done on both sites. {SAPHANA} must be stopped to change the
 _global.ini_ and allow {SAPHANA} to integrate the HA/DR hook script during start.
 
-- Install the HA/DR hook script into a read/writable directory
+// TODO - Install the HA/DR hook script into a read/writable directory
 - Integrate the hook into _global.ini_ ({saphana} needs to be stopped for doing that offline)
 - Check integration of the hook during {SAPHANA} start-up
 
-The HA/DR hook script is shipped with the SAPHanaSR-ScaleOut package in directory /usr/share/SAPHanaSR-ScaleOut/.
+The ready-to-use HA/DR hook script is shipped with the SAPHanaSR-ScaleOut package in
+directory /usr/share/SAPHanaSR-ScaleOut/.
 The hook script must be available on all cluster nodes, including the majority
 maker. Find more details in manual page SAPHanaSrMultiTarget.py(7).
 
@@ -1485,8 +1489,8 @@ you can use _visudo_ to start the vi editor for the Linux system */etc/sudoers*.
 We recommend to use a specific file */etc/sudoers.d/SAPHanaSR* instead. That
 file can be edited by plain vi, or handled by any configuration management.
 
-The user {refsidadm} must be able to set the cluster attribute
-hana_{refsidLC}_site_srHook_* .
+The user {refsidadm} must be able to set the cluster attributes
+hana_{refsidLC}_site_srHook_* and hana_{refsidLC}_gsh.
 The {SAPHANA} system replication hook needs password free access. The following
 example limits the sudo access to exactly setting the needed attribute.
 
@@ -1494,12 +1498,13 @@ Replace the {refsidLC} by the lowercase SAP system ID.
 
 .Entry in sudo permissions /etc/sudoers.d/SAPHanaSR file
 ===================================
-Basic parameter option to allow <sidadm> to use the srHook.
+Basic parameter options to allow {refsidadm} to use the srHook.
 
 [subs="specialchars,attributes"]
 ----
 # SAPHanaSR-ScaleOut needs for srHook
 {refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_*
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_gsh *
 ----
 
 // TODO PRIO3: align with manual page SAPHanaSrMultiTarget.py(7)
@@ -1510,7 +1515,8 @@ More specific parameters option to meet a high security level.
 # SAPHanaSR-ScaleOut needs for srHook
 Cmnd_Alias SOK   = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SOK   -t crm_config -s SAPHanaSR
 Cmnd_Alias SFAIL = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SFAIL -t crm_config -s SAPHanaSR
-{refsidadm} ALL=(ALL) NOPASSWD: SOK, SFAIL
+Cmnd_Alias GSH = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v * -l reboot -t crm_config -s SAPHanaSR
+{refsidadm} ALL=(ALL) NOPASSWD: SOK, SFAIL, GSH
 ----
 ////
 Manual page SAPHanaSrMultiTarget.py(7) contains additional details.
@@ -2610,7 +2616,7 @@ subs attribute accepts any of the following (in a list):
 // TODO PRIO3: revision history here ot at very top? see very top...
 // Revisions:
 // Revision 0.1 (2021-09-06) copied from 12 and replaced version strings, URLs, SAP notes, TIDs
-// Revision 0.2 (2022-03-04) systemd, includes
+// Revision 0.2 (2022-03-08) prepared for systemd, established includes
 ////
 
 ++++

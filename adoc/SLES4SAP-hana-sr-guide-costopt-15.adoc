@@ -154,7 +154,7 @@ and bound to the secondary role of the system replication.
 image::SAPHanaSR-ScaleUP-costOpt2.svg[scaledwidth=100.0%]
 +
 In the cost optimized scenario, the second node is also used for a
-non-replicated {hana} RDBMS system (like QAS or TST). Whenever a takeover
+stand-alone non-replicated {hana} RDBMS system (like QAS or TST). Whenever a takeover
 is needed, the non-replicated system must be stopped first. As the
 productive secondary system on this node must be limited in using system
 resources, the table preload must be switched off. A possible
@@ -636,73 +636,149 @@ For more information, see section _Installation and Basic Setup_ of the {uarr} {
 
 image::SAPHanaSR-ScaleOut-Plan-Phase3.svg[scaledwidth="100%"]
 
-Even though this document focuses on the integration of an installed {hana} with system replication already set up into the
+Even though this document focuses on the integration of an
+installed {hana} with system replication already set up into the
 pacemaker cluster, this chapter summarizes the test environment.
-Always use the official documentation from SAP to install {hana} and to set up the system replication.
+Always use the official documentation from SAP to install {hana} and to
+set up the system replication.
 
-=== Installing the SAP HANA Databases
+.Procedure
 
-.Preparation
+. Install the replicating {hana} databases.
+
+. Check if the SAP hostagent is installed on all cluster nodes.
+If this SAP service is not installed, install it now.
+
+. Verify that both replicating databases are up and running.
+
+. Install the non-replicating {hana} database on the secondary node.
+
+. Verify that the non-replicating database is up and running.
+
+=== Install the replicating {hana} databases
 
 * Read the SAP Installation and Setup Manuals available at the SAP Marketplace.
 
 * Download the {hana} Software from SAP Marketplace.
 
-.Actions
+* Install the {hana} database as described in the {hana} Server
+Installation Guide. The {hana} database client will be installed together with
+the server by default.
 
-. Install the {hana} Database as described in the {hana} Server Installation Guide.
+// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
+// begin systemd style
+////
+=== Check if the SAP hostagent is installed on all cluster nodes
 
-. Check if the SAP Host Agent and the HANA database client are installed on all cluster nodes. If these SAP components are not installed, install them now.
+Check if the native systemd enabled SAP hostagent and instance sapstartsrv
+are installed on all cluster nodes. If not, install and enable it now.
 
-. Verify that both databases (of the system replicated pair) are up and all processes of these databases are running correctly.
-
-As Linux user _<sid>adm_, use the command line tool _HDB_ to get an overview of running HANA processes. 
-The output of `HDB` `info` should be similar to the output shown below:
+As Linux user _root_ use the command _systemctl_ and _systemd-cgls_ to check
+the SAP hostagent and instance services:
 
 [subs="attributes,quotes"]
-// ----
-// {sapnode2}:~> HDB info
-// USER           PID  ...  COMMAND
-// {sapssid}adm         6561 ...  -csh
-// {sapssid}adm         6635 ...    \_ /bin/sh /usr/sap/{sapsid}/HDB{sapino}/HDB info
-// {sapssid}adm         6658 ...        \_ ps fx -U {sapssid} -o user,pid,ppid,pcpu,vsz,rss,args
-// {sapssid}adm         5442 ...  sapstart pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2}
-// {sapssid}adm         5456 ...   \_ /usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/trace/hdb.sap{sapsid}_HDB{sapino} -d
-// -nw -f /usr/sap/{sapsid}/HDB{sapino}/suse
-// {sapssid}adm         5482 ...       \_ hdbnameserver
-// {sapssid}adm         5551 ...       \_ hdbpreprocessor
-// {sapssid}adm         5554 ...       \_ hdbcompileserver
-// {sapssid}adm         5583 ...       \_ hdbindexserver
-// {sapssid}adm         5586 ...       \_ hdbstatisticsserver
-// {sapssid}adm         5589 ...       \_ hdbxsengine
-// {sapssid}adm         5944 ...       \_ sapwebdisp_hdb
-// pf=/usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/wdisp/sapwebdisp.pfl -f /usr/sap/SL
-// {sapssid}adm         5363 ...  /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv
-// pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2} -D -u s
-//----
 ----
-{sapssid}adm@{sapnode2}:/usr/sap/{sapsid}/HDB{sapino}> HDB info
-USER          PID  ...  COMMAND
-{sapssid}adm      18567  ...  -sh
-{sapssid}adm      18778  ...   \_ /bin/sh /usr/sap/{sapsid}/HDB{sapino}/HDB info
-{sapssid}adm      18809  ...       \_ ps fx -U {sapssid}adm -o user:8,pid:8,ppid:8,pcpu:5,vsz:10,rss:10,args
-{sapssid}adm       5340  ...  hdbrsutil  --start --port 3{sapino}03 --volume 2 --volumesuffix mnt00001/hdb00002.00003 --identifier 1623160626
-{sapssid}adm       4999  ...  hdbrsutil  --start --port 3{sapino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1623160598
-{sapssid}adm       4860  ...  sapstart pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2}
-{sapssid}adm       4867  ...   \_ /usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/trace/hdb.sap{sapsid}_HDB{sapino} -d
--nw -f /usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/daemon.ini pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode2}
-{sapssid}adm       4885  ...       \_ hdbnameserver
-{sapssid}adm       5088  ...       \_ hdbcompileserver
-{sapssid}adm       5091  ...       \_ hdbpreprocessor
-{sapssid}adm       5138  ...       \_ hdbindexserver -port 3{sapino}03
-{sapssid}adm       5141  ...       \_ hdbxsengine -port 3{sapino}07
-{sapssid}adm       5540  ...       \_ hdbwebdispatcher
-{sapssid}adm       4716  ...  /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv
-pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2} -D -u {sapssid}adm
+# systemctl list-unit-files | grep sap
+saphostagent.service enabled
+sapinit.service generated
+saprouter.service disabled
+saptune.service enabled
 ----
+The mandatory `saphostagent` service is enabled. This is the installation default.
+Some more {sap} related services might be enabled, e.g. the recommended `saptune`.
 
+[subs="attributes,quotes"]
+----
+# systemctl list-unit-files | grep SAP
+SAP{sapsid}_{sapino}.service enabled
+----
+The instance service is indeed enabled, as required. One instance service shows
+up on the primary node. It looks similar on the secondary node, as long as the
+additional non-replicating database is not installed.
 
-=== Installing the non-replicated {HANA} on the secondary site
+=== Verify that both databases are up and running
+[subs="attributes,quotes"]
+----
+# systemd-cgls -u SAP.slice
+Unit SAP.slice (/SAP.slice):
+├─saphostagent.service
+│ ├─2630 /usr/sap/hostctrl/exe/saphostexec pf=/usr/sap/hostctrl/exe/host_profile -systemd
+│ ├─2671 /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/hostctrl/exe/host_profile -D
+│ └─3591 /usr/sap/hostctrl/exe/saposcol -l -w60 pf=/usr/sap/hostctrl/exe/host_profile
+└─SAP{sapsid}_{sapino}.service
+  ├─ 1257 hdbcompileserver
+  ├─ 1274 hdbpreprocessor
+  ├─ 1353 hdbindexserver -port 3{sapino}03
+  ├─ 1356 hdbxsengine -port 3{sapino}07
+  ├─ 2077 hdbwebdispatcher
+  ├─ 2300 hdbrsutil --start --port 3{sapino}03 --volume 3 --volumesuffix mnt00001/hdb00003.00003 --identifier 1644426276
+  ├─28462 /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31314 sapstart pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31372 /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/trace/hdb.sap{sapsid}_HDB{sapino} -d -nw -f /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/daemon.ini pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31479 hdbnameserver
+  └─32201 hdbrsutil --start --port 3{sapino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1644426203
+----
+The SAP hostagent `saphostagent.service` and the instance´s sapstartsrv `SAP{sapsid}_{sapino}.service`
+are running in the `SAP.slice`. The example above is taken from the primary node.
+See also manual pages systemctl(8) and systemd-cgls(8) for details.
+////
+// end systemd style
+
+// TODO PRIO1: remove below, once SAP ships systemd integration for HANA
+// begin systemV style
+// ////
+=== Check if the SAP hostagent is installed on all cluster nodes
+
+Check if the SAP hostagent is installed on all cluster nodes.
+If not, install and enable it now.
+
+As Linux user _root_ use the commands _systemctl_ and _saphostctrl_
+to check the SAP hostagent:
+
+[subs="attributes,quotes"]
+----
+# systemctl status sapinit
+* sapinit.service - LSB: Start the sapstartsrv
+   Loaded: loaded (/etc/init.d/sapinit; generated; vendor preset: disabled)
+   Active: active (exited) since Wed 2022-02-09 17:25:36 CET; 3 weeks 0 days ago
+     Docs: man:systemd-sysv-generator(8)
+    Tasks: 0
+   CGroup: /system.slice/sapinit.service
+# /usr/sap/hostctrl/exe/saphostctrl ­function ListInstances
+Inst Info : {sapsid} ­ {sapino} ­ {sapnode1} ­ 753, patch 819, changelist 2069355
+----
+The SystemV style sapinit is running and the hostagent recognises the installed
+database.
+
+=== Verify that both databases are up and running
+
+As Linux user _{refsidadm}_ use the command line tool _HDB_ to get an
+overview of running HANA processes. The output of `HDB` `info` should
+be similar to the output shown below:
+
+[subs="attributes,quotes"]
+----
+{sapnode1}:{sapssid}adm> HDB info
+USER          PID     PPID  ... COMMAND
+{sapssid}adm      13017    ... -sh
+{sapssid}adm      13072    ...  \_ /bin/sh /usr/sap/{sapsid}/HDB{sapino}/HDB info
+{sapssid}adm      13103    ...      \_ ps fx -U {sapssid}adm -o user:8,pid:8,ppid:8,pcpu:5,vsz:10,rss:10,args
+{sapssid}adm       9268    ... hdbrsutil  --start --port 3{sapino}03 --volume 2 --volumesuffix mnt00001/hdb00002.00003 --identifier 1580897137
+{sapssid}adm       8911    ... hdbrsutil  --start --port 3{sapino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1580897100
+{sapssid}adm       8729    ... sapstart pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode1}
+{sapssid}adm       8738    ...  \_ /usr/sap/{sapsid}/HDB{sapino}/{sapnode2}/trace/hdb.sap{sapsid}_HDB{sapino} -d -nw -f /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/daemon.ini pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+{sapssid}adm       8756    ...      \_ hdbnameserver
+{sapssid}adm       9031    ...      \_ hdbcompileserver
+{sapssid}adm       9034    ...      \_ hdbpreprocessor
+{sapssid}adm       9081    ...      \_ hdbindexserver -port 3{sapino}03
+{sapssid}adm       9084    ...      \_ hdbxsengine -port 3{sapino}07
+{sapssid}adm       9531    ...      \_ hdbwebdispatcher
+{sapssid}adm       8574    ... /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode1} -D -u {sapssid}adm
+----
+// ////
+// end systemV style
+
+=== Install the non-replicated {HANA} on the secondary site
 
 * Stop the secondary (unlimited database)
 * Install the non-replicated {HANA} with memory limits
@@ -721,6 +797,48 @@ pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode2} -D -u {sapssid}
 global_allocation_limit = <size_in_mb_for_non_replicated_hana>
 ----
 =========
+
+// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
+// begin systemd style
+////
+.Verify that the non-replicating database is up and running.
+
+[subs="attributes,quotes"]
+----
+# systemctl list-unit-files | grep SAP
+SAP{sapsid}_{sapino}.service enabled
+SAP{sapnpsid}_{sapnpino}.service enabled
+----
+The instance services are indeed enabled, as required.
+
+[subs="attributes,quotes"]
+----
+# systemd-cgls -u SAP.slice
+Unit SAP.slice (/SAP.slice):
+├─saphostagent.service
+│ ├─2630 /usr/sap/hostctrl/exe/saphostexec pf=/usr/sap/hostctrl/exe/host_profile -systemd
+│ ├─2671 /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/hostctrl/exe/host_profile -D
+│ └─3591 /usr/sap/hostctrl/exe/saposcol -l -w60 pf=/usr/sap/hostctrl/exe/host_profile
+└─SAP{sapsid}_{sapino}.service
+  ├─ 1257 hdbcompileserver
+  ├─ 1274 hdbpreprocessor
+  ├─ 1353 hdbindexserver -port 3{sapnpino}03
+  ├─ 1356 hdbxsengine -port 3{sapnpino}07
+  ├─ 2077 hdbwebdispatcher
+  ├─ 2300 hdbrsutil --start --port 3{sapnpino}03 --volume 3 --volumesuffix mnt00001/hdb00003.00003 --identifier 1644426276
+  ├─28462 /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_{sapnode2}
+  ├─31314 sapstart pf=/usr/sap/{sapsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_{sapnode2}
+  ├─31372 /usr/sap/{sapnpsid}/HDB{sapnpino}/{sapnode2}/trace/hdb.sap{sapnpsid}_HDB{sapnpino} -d -nw -f /usr/sap/{sapnpsid}/HDB{sapnpino}/{sapnode2}/daemon.ini pf=/usr/sap/{sapnpsid}/SYS/profile/{sapnpsid}_HDB{sapnpino}_{sapnode2}
+  ├─31479 hdbnameserver
+  └─32201 hdbrsutil --start --port 3{sapnpino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1644426203
+----
+The SAP hostagent `saphostagent.service` and the non-replicating instance´s sapstartsrv
+`SAP{sapnpsid}_{sapnpino}.service` are running in the `SAP.slice`. If the replicating
+and non-replicating instances are both running, both will show up.
+See also manual pages systemctl(8) and systemd-cgls(8) for details.
+////
+// end systemd style
+
 
 [[cha.s4s.hana-sys-replication]]
 == {stepHSR}
@@ -747,7 +865,7 @@ As user {refsidadm} enter the following command:
 
 [subs="attributes,quotes"]
 ----
-hdbsql -u SYSTEM -d SYSTEMDB -i {sapino} \
+~> hdbsql -u SYSTEM -d SYSTEMDB -i {sapino} \
    "BACKUP DATA FOR FULL SYSTEM USING FILE ('backup')"
 ----
 
@@ -764,7 +882,7 @@ Enter the following command as user {refsidadm}:
 
 [subs="specialchars,attributes"]
 ----
-hdbsql -i {refInst} -u <dbuser> \
+~> hdbsql -i {refInst} -u <dbuser> \
    "BACKUP DATA USING FILE ('backup')"
 ----
 =========================
@@ -1008,17 +1126,11 @@ global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
 
 === Implementing SAPHanaSR hook for srConnectionChanged
 
-Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py. Optionally copy it to your preferred
-directory, such as /hana/shared/srHook/. The hook must be available on all {SAPHANA} cluster nodes. Refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook script.
+Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py.
+Optionally copy it to your preferred directory, such as /hana/shared/srHook/.
+The hook must be available on all {SAPHANA} cluster nodes.
+Refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook script.
 
-////
-[subs="specialchars,attributes"]
-----
-{mySite1FirstNode}~ # mkdir -p /hana/shared/srHook
-{mySite1FirstNode}~ # cp /usr/share/SAPHanaSR/SAPHanaSR.py /hana/shared/srHook/
-{mySite1FirstNode}~ # chown -R {refsidadm}:sapsys /hana/shared/srHook
-----
-////
 
 .Stop {hana}
 ===================================
@@ -1026,14 +1138,14 @@ Stop {SAPHANA} either with _HDB_ or using _sapcontrol_.
 
 [subs="specialchars,attributes"]
 ----
-sapcontrol -nr {refInst} -function StopSystem
+~> sapcontrol -nr {refInst} -function StopSystem
 ----
 ===================================
 
 .Adding SAPHanaSR via global.ini
 ===================================
 ----
-[ha_dr_provider_SAPHanaSR]
+[ha_dr_provider_saphanasr]
 provider = SAPHanaSR
 path = /usr/share/SAPHanaSR/
 execution_order = 1
@@ -1225,13 +1337,13 @@ Some hardware vendors ship systems management software that use the watchdog for
 Determine the right watchdog module. Alternatively, you can find a list of installed drivers with your kernel version.
 
 ----
-ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
+# ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
 ----
 
 Check if any watchdog module is already loaded.
 
 ----
-lsmod | egrep "(wd|dog|i6|iT|ibm)"
+# lsmod | egrep "(wd|dog|i6|iT|ibm)"
 ----
 
 If you get a result, the system has already a loaded watchdog. If the watchdog
@@ -1240,23 +1352,23 @@ does not match your watchdog device, you need to unload the module.
 To safely unload the module, check first if an application is using the watchdog device.
 
 ----
-lsof /dev/watchdog
-rmmod <wrong_module>
+# lsof /dev/watchdog
+# rmmod <wrong_module>
 ----
 
 Enable your watchdog module and make it persistent. For the example below, _softdog_ has been used. 
 However, _softdog_ has some restrictions and should not be used as first option.
 
 ----
-echo softdog > /etc/modules-load.d/watchdog.conf
-systemctl restart systemd-modules-load
+# echo softdog > /etc/modules-load.d/watchdog.conf
+# systemctl restart systemd-modules-load
 ----
 
 Check if the watchdog module is loaded correctly.
 
 ----
-lsmod | grep dog
-ls -l /dev/watchdog
+# lsmod | grep dog
+# ls -l /dev/watchdog
 ----
 
 Testing the watchdog can be done with a simple action. Ensure to switch of your {sapHana}
@@ -1274,7 +1386,7 @@ commands will force your system to be reset/switched off.
 In case the softdog module is used, the following action can be performed:
 
 ----
-sync; cat /dev/watchdog & while date; do sleep 10; done
+# sync; cat /dev/watchdog & while date; do sleep 10; done
 ----
 
 After your test was successful, you must implement the watchdog on all cluster members.
@@ -1296,14 +1408,14 @@ To use two corosync rings make sure you have two interfaces configured and run:
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~> {slehainit} -u -M -s {sapsbd1} -s {sapsbd2}
+{sapnode1}:~ # {slehainit} -u -M -s {sapsbd1} -s {sapsbd2}
 ----
 
 To use only one corosync ring leave out the _-M_ option (not recommended):
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~> {slehainit} -u -s {sapsbd1} -s {sapsbd2}
+{sapnode1}:~ # {slehainit} -u -s {sapsbd1} -s {sapsbd2}
 ----
 
 // TODO PRIO2: for disk less SBD: {slehainit} -u -S
@@ -1507,11 +1619,11 @@ entries are _clear_ , no fencing task is marked in the SBD device.
 
 [subs="attributes,quotes"]
 ----
- {sapnode1}:~ # sbd -d {sapsbd1} -d {sapsbd2} list
- 0     {sapnode1}      clear
- 1     {sapnode2}      clear
- 0     {sapnode1}      clear
- 1     {sapnode2}      clear
+{sapnode1}:~ # sbd -d {sapsbd1} -d {sapsbd2} list
+0     {sapnode1}      clear
+1     {sapnode2}      clear
+0     {sapnode1}      clear
+1     {sapnode2}      clear
 ----
 
 You can also call `cs_show_sbd_devices` again.
@@ -1949,10 +2061,10 @@ This can be checked, for example, with the following command sequence:
 
 [subs="attributes,quotes"]
 ----
- # crm_mon -1r
- # crm configure show | grep cli-
- # SAPHanaSR-showAttr
- # cs_clusterstate -i
+# crm_mon -1r
+# crm configure show | grep cli-
+# SAPHanaSR-showAttr
+# cs_clusterstate -i
 ----
 
 See also the man pages `SAPHanaSR-showAttr(8)`, `crm_mon(8)`, `crm(8)`, `cs_clusterstate(8)`,
@@ -3960,7 +4072,7 @@ Do you want to configure QDevice (y/n)? n
 The following example shows a complete crm configuration for a two-node cluster
 ({sapnode1}, {sapnode2}) and a replicated {hana} database with SID {sapsid}
 and instance number {sapino}. Priority fencing prefers the HANA primary in case of split-brain.
-The stand-alone database has SID QAS and instance number 20.
+The stand-alone database has SID {sapnpsid} and instance number {sapnpino}.
 The virtual IP address in the example is {sapip1srv1}.
 
 [subs="attributes,quotes"]

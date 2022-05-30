@@ -494,6 +494,8 @@ should be planned properly. You should have all needed parameters like SID, IP
 addresses and much more in place. It is good practice to first fill out
 the parameter sheet and then begin with the installation.
 
+// TODO PRIO2: info for user key store
+
 .Parameter Sheet for Planning
 [width="100%",cols="25%,25%,50%",options="header",]
 |=======================================================================
@@ -1106,7 +1108,8 @@ called by {SAPHANA} again when the system replication is back.
 
 **Procedure**
 
-. Implement the python hook SAPHanaSR.
+. Implement the python hook script SAPHanaSR.py on both sites.
+. Implement the python hook script susCostOpt.py on fail-over site.
 . Configure system replication operation mode.
 . Allow {refsidadm} to access the cluster.
 . Start {saphana}.
@@ -1114,22 +1117,21 @@ called by {SAPHANA} again when the system replication is back.
 
 // TODO PRIO2: Steps "Start" and "Test" are missing
 
-Implement two {hana} HA/DR provider hooks. One hook is named SAPHanaSR and shipped with the SAPHanaSR
-package. The other is named {haDrCostOptMem} and needs to be adapted to your database according to
-your specific username/password and connection.
+Implement two {hana} HA/DR provider hook scripts. One hook script is named SAPHanaSR.py
+and needs no config parameters. The other is named susCostOpt.py and needs to be
+adapted according to your specific system size and user key store.
 
-The steps in this section must be performed on both sites. {SAPHANA} must be stopped to change the
-global.ini and allow {SAPHANA} to integrate the HA/DR hook script during start.
+{SAPHANA} must be stopped to change the global.ini and allow {SAPHANA} to integrate
+the HA/DR hook scripts during start.
 
-- Install the HA/DR hook scripts into a read/writable directory
-- Integrate the hooks into global.ini ({saphana} needs to be stopped)
-- Check integration of the hooks during start-up
+- Create a database user key store for 
+- Integrate the hook scripts into global.ini ({saphana} needs to be stopped)
+- Check integration of the hook scripts during start-up
 
 === Implementing SAPHanaSR hook for srConnectionChanged
 
 Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py.
-Optionally copy it to your preferred directory, such as /hana/shared/srHook/.
-The hook must be available on all {SAPHANA} cluster nodes.
+The hook must be configured on all {SAPHANA} cluster nodes.
 Refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook script.
 
 
@@ -1155,6 +1157,48 @@ execution_order = 1
 ha_dr_saphanasr = info
 ----
 ===================================
+
+
+=== Implementing susCostOpt hook for PostTakeover
+
+Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/susCostOpt.py.
+The hook must be configured on the take-over node where usually the
+{SAPHANA} stand-alone database and the system replication secondary is running.
+Refer to the man page susCostOpt.py(7) for details on this HA/DR provider hook script.
+
+.Stop {hana}
+=================================== 
+Stop {SAPHANA} either with _HDB_ or using _sapcontrol_.
+
+[subs="specialchars,attributes"]
+----
+~> sapcontrol -nr {refInst} -function StopSystem
+----
+===================================
+
+.Adding SAPHanaSR via global.ini
+===================================
+----
+[memorymanager]
+global_allocation_limit = <size_in_mb_for_secondary_hana>
+
+[system_replication]
+preload_column_tables = false
+...
+
+[ha_dr_provider_suscostopt]
+provider = susCostOpt
+path = /usr/share/SAPHanaSR/
+userkey = saphanasr_{refSid}_costopt
+execution_order = 2
+
+[trace]
+...
+ha_dr_suscostopt = info
+----
+===================================
+
+
 
 ==== Configuring system replication operation mode
 
@@ -1240,33 +1284,8 @@ This document provides a sample code (see <<{haDrCostOptMem}>>) which needs to b
 Currently you need to provide a user name / password combination inside the hook.
 It is recommended to use a database user with minimum permissions.
 
-// TODO PRIO2: Check if we can provide an example of the hook within the SAPHanaSR package
-//             Was a left-over of file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/HADRDummy.py
-// TODO PRIO2: Study file /hana/shared/<SID>/exe/linuxx86_64/HDB_<VERSION>/python_support/hdb_ha_dr/client.py
-//             This file is naming more details about the HADR methods
-// TODO PRIO3: Get rid of the reference to DELL SAP Note 2196941?
-// TODO PRIO2: Don not quote the complete hook here, when it has been added to the package. So long keep it as example in the appendix
 // TODO PRIO2: Name minimum permissions of database user!!
-
-.Installing {haDrCostOptMemPy}
-========
-Copy the example, adapt it to your environment and set restrictive file permissions.
-[subs="specialchars,attributes"]
-----
-# cd /hana/shared/srHook
-## copy the example from the appendix of this document
-## set restricted file permissions
-# chown {refsidadm} {haDrCostOptMemPy}
-# chmod 500 {haDrCostOptMemPy}
-
-## change the connection setting to your local environment
-# vi {haDrCostOptMemPy}
-dbuser="SYSTEM"
-dbpwd="<yourPassword>"
-dbinst="<yourInstanceNr>"
-dbport="30013"
-----
-========
+// TODO PRIO1: merge below section with above section on susCostOpt
 
 .Enable use of {haDrCostOptMem}
 ========
@@ -1280,14 +1299,16 @@ path = /hana/shared/srHook/
 execution_order = 2
 ----
 
-After changing the `global.ini` on node 2 and implementing the {haDrCostOptMem} hook, you should start
-the productive {HANA} secondary database and check if the parameters are working.
+After changing the `global.ini` on node 2 and implementing the susCostOpt hook, you
+should start the productive {HANA} secondary database and check if the parameters
+are working.
 
-As user {refsidadm} on node 2, you might perform the following command:
+As user {refsidadm} on node 2, you might perform the following commands:
 [subs="specialchars,attributes"]
 ----
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> cdtrace
-{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep {haDrCostOptMem} nameserver_*.trc
+{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep HADR.*load.*susCostOpt nameserver_*.trc
+{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep susCostOpt.init nameserver_*.trc
 ----
 ========
 
@@ -3707,7 +3728,7 @@ Pre-Update Tasks:: For the multi-state-resource set the maintenance mode as foll
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <multi-state-resource>
+# crm resource maintenance <multi-state-resource>
 ----
 +
 The <multi-state-resource> in the guide at hand is `msl_SAPHana_{sapsid}_HDB{sapino}`.
@@ -3721,7 +3742,7 @@ reprobe the updated SAP HANA database systems.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource refresh <multi-state-resource>
+# crm resource refresh <multi-state-resource>
 ----
 +
 After the SAP HANA update is complete on both sites, tell the cluster
@@ -3730,7 +3751,7 @@ actively control and monitor the {sap} again.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <multi-state-resource> off
+# crm resource maintenance <multi-state-resource> off
 ----
 
 ==============================
@@ -3753,7 +3774,7 @@ cluster node.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <multi-state-resource-name>
+# crm resource maintenance <multi-state-resource-name>
 ----
 
 // TODO PRIO2: Check -sr_takeover with 'handshake'
@@ -3764,7 +3785,7 @@ example on node1 as user _<sid>adm_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-HDB stop
+~> HDB stop
 ----
 +
 * Before proceeding, make sure the primary HANA database is stopped.
@@ -3773,7 +3794,7 @@ Enter the command in our example on node2 as user _<sid>adm_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-hdbnsutil -sr_takeover
+~> hdbnsutil -sr_takeover
 ----
 +
 * Register the former primary to become the new secondary. Enter the
@@ -3781,7 +3802,7 @@ command in our example on node1 as user _<sid>adm_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
  --replicationMode=sync --name={sapsite1} \
  --operationMode=logreplay
 ----
@@ -3791,7 +3812,7 @@ our example on node1 as user _<sid>adm_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-HDB start
+~> HDB start
 ----
 
 Post-Migration Tasks::
@@ -3805,7 +3826,7 @@ cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource refresh <multi-state-resource-name>
+# crm resource refresh <multi-state-resource-name>
 ----
 +
 * Set the multi-state resource to the status managed again. The command
@@ -3813,7 +3834,7 @@ can be submitted on any cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-crm resource maintenance <multi-state-resource-name> off
+# crm resource maintenance <multi-state-resource-name> off
 ----
 ==============================
 
@@ -3827,7 +3848,7 @@ migration. For the described attribute query using `SAPHanaSR-showAttr` and
 +
 [subs="attributes,specialchars,quotes"]
 ----
-crm resource move <multi-state-resource-name> *force*
+# crm resource move <multi-state-resource-name> *force*
 ----
 +
 Because of the "move away" (*force*) rule, the cluster will *stop* the
@@ -3859,7 +3880,7 @@ in our example on node1 as user _<sid>adm_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
     --replicationMode=sync --operationMode=logreplay \
     --name={sapsite1}
 ----
@@ -4263,9 +4284,8 @@ location loc_{sapnode2}_stonith rsc_{sapnode2}_stonith -inf: {sapnode2}
 
 ==== {haDrCostOptMem}
 
-NOTE: This hook is given "as-is". It must be installed at node 2 as
-/hana/shared/srHook/{haDrCostOptMemPy} to undo the changes to global_allocation_limit and preload_column_tables in case
-of a takeover.
+NOTE: This hook script must not be used for new installations. It is listed here
+to document former setups.
 
 [subs="specialchars,attributes"]
 ----

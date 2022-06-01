@@ -554,18 +554,18 @@ the parameter sheet and then begin with the installation.
 [width="100%",cols="25%,25%,50%",options="header",]
 |=======================================================================
 |Parameter |Value |Role
-|Node 1 |`{sapnode1}`, `{sapip1node1}` |Cluster node name and IP address.
+|Node 1 | `{sapnode1}`, `{sapip1node1}` |Cluster node name and IP address.
 
 |Node 2 |`{sapnode2}`, `{sapip1node2}` |Cluster node name and IP address.
 
-|SID |`{sapsid}` |SAP System Identifier of the replicated {saphana} database
+|SID | `{sapsid}` |SAP System Identifier of the replicated {saphana} database
 
 |Instance Number |`{sapino}` |Number of the {hana} database. For
 system replication also Instance Number+1 is blocked.
 
-|Database user||database user used by HA/DR provider hook script susCostOpt.py
+|Database user| |database user used by HA/DR provider hook script susCostOpt.py
 
-|Database user key|saphanasr_{sapsid}_costopt|database user key in {refsidadm}`s keystore
+|Database user key| `saphanasr_{sapsid}_costopt` |database user key in {refsidadm}`s keystore
 
 |SID non-replicated |`{sapnpsid}`|SAP System Identifier of the non-replicated {saphana} database
 
@@ -1123,7 +1123,7 @@ This step is mandatory to inform the cluster immediately if the secondary gets o
 The hook is called by {SAPHANA} using the HA/DR provider interface in point-of-time when
 the secondary gets out of sync. This is typically the case when the first commit pending
 is released. The hook is called by {SAPHANA} again when the system replication is back.
-This HA/DR provider is srConnectionChanged(), the related {SUSE} hook script is SAPHanaSR.py
+This HA/DR provider is srConnectionChanged(), the related {SUSE} hook script is SAPHanaSR.py.
 
 Another is hook is called by {SAPHANA} after an SR take-over has happened. This can be
 used to remove the {SAPHANA} memory limit and enable table preload. 
@@ -1135,28 +1135,28 @@ This HA/DR provider is postTakeover(), the related {SUSE} hook script is susCost
 . Implement the python hook script SAPHanaSR.py on both sites.
 . Implement the python hook script susCostOpt.py on fail-over site.
 . Configure system replication operation mode.
-. Allow {refsidadm} to access the cluster.
-. Start {saphana}.
+. Allow {refsidadm} to access the cluster on both sites.
+. Create a database user key in {refsidadm}´s key store on fail-over site.
 . Test the hook integration.
 
-// TODO PRIO2: Steps "Start" and "Test" are missing
+// TODO PRIO2: Steps "Start" and "Test" are incomplete
 
-Implement two {hana} HA/DR provider hook scripts. One hook script is named SAPHanaSR.py
-and needs no config parameters. The other is named susCostOpt.py and needs to be
-adapted according to your specific system size and user key store.
+Implement two {hana} HA/DR provider hook scripts. SAPHanaSR.py needs no config
+parameters. susCostOpt.py needs to be adapted according to your specific system
+size and user key store.
 
 {SAPHANA} must be stopped to change the global.ini and allow {SAPHANA} to integrate
 the HA/DR hook scripts during start.
 
-- Create a database user key store for 
-- Integrate the hook scripts into global.ini ({saphana} needs to be stopped)
-- Check integration of the hook scripts during start-up
 
 === Implementing SAPHanaSR hook for srConnectionChanged
 
 Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py.
 The hook must be configured on all {SAPHANA} cluster nodes.
-Refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook script.
+In global.ini, the section `[ha_dr_provider_saphanasr]` needs to be created.
+The section `[trace]` might be adapted.
+Refer to the man page SAPHanaSR.py(7) for details on this HA/DR provider hook
+script.
 
 
 .Stop {hana}
@@ -1183,16 +1183,20 @@ ha_dr_saphanasr = info
 ===================================
 
 
-=== Implementing susCostOpt hook for PostTakeover
+=== Implementing susCostOpt hook for postTakeover
 
 Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/susCostOpt.py.
 The hook must be configured on the take-over node where usually the {SAPHANA}
 non-replicated database and the system replication secondary database is
-running. Refer to the man page susCostOpt.py(7) for details on this HA/DR
-provider hook script.
+running.
+In global.ini, the section `[ha_dr_provider_suscostopt]` needs to be created.
+The sections `[memorymanager]`, `[system_replication]` and optionally `[trace]` 
+need be adapted.
+Refer to the man page susCostOpt.py(7) for details on this HA/DR provider hook
+script.
 
 .Stop {hana}
-=================================== 
+===================================
 Stop {SAPHANA} either with _HDB_ or using _sapcontrol_.
 
 [subs="specialchars,attributes"]
@@ -1218,14 +1222,13 @@ userkey = saphanasr_{refSid}_costopt
 execution_order = 2
 
 [trace]
-...
 ha_dr_suscostopt = info
+...
 ----
 ===================================
 
 
-
-==== Configuring system replication operation mode
+=== Configuring system replication operation mode
 
 When your system is connected as an SAP HANA SR target, you can find an entry in the _global.ini_
 which defines the operation mode. Up to now there are the following modes available:
@@ -1256,21 +1259,24 @@ operation_mode = logreplay
 ----
 ===================================
 
-==== Allowing {refsidadm} to access the cluster
 
-The current version of the SAPHanaSR python hook uses the command `sudo` to allow
-the {refsidadm} user to access the cluster attributes.
+=== Allowing {refsidadm} to access the cluster
+
+The current version of the SAPHanaSR python hook uses the command `sudo` to
+allow the {refsidadm} user to access the cluster attributes.
 
 //In Linux you can use `visudo`
 //to start the vi editor for the _/etc/sudoers_ configuration file.
 
-The user {refsidadm} must be able to set the cluster attributes hana_{refsidLC}_site_srHook_*.
-The {SAPHANA} system replication hook needs password free access. The following
-example limits the sudo access to exactly setting the needed attribute.
+The user {refsidadm} must be able to set the cluster attributes
+hana_{refsidLC}_site_srHook_*. The {SAPHANA} system replication hook needs
+password free access. The following example limits the sudo access to exactly
+setting the needed attribute.
 
 Replace the {refsidLC} by the *lowercase* SAP system ID (like `{sapssid}`).
 
-The entries can be added to a new file _/etc/sudoers.d/SAPHanaSR_ so that the original _/etc/sudoers_ file does not need to be edited.
+The entries can be added to a new file _/etc/sudoers.d/SAPHanaSR_ so that the
+original _/etc/sudoers_ file does not need to be edited.
 
 .Entry in sudo permissions /etc/sudoers.d/SAPHanaSR file
 ===================================
@@ -1303,40 +1309,68 @@ Cmnd_Alias SFAIL_SITEB = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_
 
 ===================================
 
-=== Implementing hook {haDrCostOptMem} for srPostTakeover method
 
-The parameters added to global.ini imply that the hook {haDrCostOptMem} needs to be installed on the second node.
-This document provides a sample code (see <<{haDrCostOptMem}>>) which needs to be adapted for your environment.
-Currently you need to provide a user name / password combination inside the hook.
-It is recommended to use a database user with minimum permissions.
+=== Create a database user key in {refsidadm}´s key store
 
-// TODO PRIO2: Name minimum permissions of database user!!
-// TODO PRIO1: merge below section with above section on susCostOpt
+The user keystore has to be created for the {refsidadm} of the replicating database. 
+The keystore has to be created on node 2, where the replication secondary database
+is running. 
+In this example we use the {HANA} database user _SYSTEM_ for changing the values
+for memory limit and column pre-load. 
 
-.Enable use of susCostOpt
-========
+NOTE: For security reasons on production systems always a dedicated user with
+restricted permission needs to be created.
+// TODO PRIO2: Name minimum permissions of database user
 
-Enable the use of susCostOpt by adpating `global.ini` on node 2.
+// TODO PRIO1: explain values in below example
+// TODO PRIO1: use variables in below example
 [subs="specialchars,attributes"]
 ----
-[ha_dr_provider_suscostopt]
-provider = susCostOpt
-path = /hana/shared/srHook/
-execution_order = 2
+# su - {refsidadm}
+~> hdbuserstore SET saphanasr_{refsid}_costopt localhost:31013 SYSTEM SuSE1234
+~> hdbuserstore LIST saphanasr_{refsid}_costopt
 ----
 
-After changing the `global.ini` on node 2 and implementing the susCostOpt hook, you
-should start the productive {HANA} secondary database and check if the parameters
-are working.
+Please refer to {SAPHANA} documentation for further information on database
+users, permissions and the user key store.
 
-As user {refsidadm} on node 2, you might perform the following commands:
+
+=== Start {hana} and  test the hook integration 
+
+After implementing the hooks on both nodes, you should start the productive
+replicating {HANA} database on both nodes and check if the hook scripts have
+been loaded.
+
+Start {HANA} on both nodes. As user {refsidadm} either use _HDB_ or _sapcontrol_.
+[subs="specialchars,attributes"]
+----
+~> sapcontrol -nr {refInst} -function StartSystem
+----
+
+On both nodes you should check for the SAPHanaSR hook script. Perform the following
+commands as user {refsidadm}:
+[subs="specialchars,attributes"]
+----
+{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> cdtrace
+{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep HADR.*load.*SAPHanaS nameserver_*.trc
+----
+
+On both nodes you might perform the following commands as user root:
+[subs="specialchars,attributes"]
+----
+# grep "sudo.*crm_attribute.*srHook" /var/log/messages
+----
+
+On node 2 you should check for the susCostOpt hook script. Perform the following
+commands as user {refsidadm}:
 [subs="specialchars,attributes"]
 ----
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> cdtrace
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep HADR.*load.*susCostOpt nameserver_*.trc
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep susCostOpt.init nameserver_*.trc
 ----
-========
+
+Please see also manual pages SAPHanaSR.py(7) and susCostOpt.py(7).
 
 
 [[cha.s4s.configure-cluster]]
@@ -1358,28 +1392,32 @@ is part of {sles4sap}, and the {hana} Database integration.
 
 === Configuring the basic cluster
 
-The first step is to set up the basic cluster framework. For convenience, use YaST or the {slehainit} script. 
-It is strongly recommended to add a second corosync ring, change it to UCAST communication
-and adjust the timeout values to fit your environment.
+The first step is to set up the basic cluster framework. For convenience, use YaST
+or the {slehainit} script. It is strongly recommended to add a second corosync ring,
+change it to UCAST communication and adjust the timeout values to fit your environment.
 
 ==== Setting up watchdog for "Storage-Based Fencing"
 
 // TODO PRIO2: Should we add some more information here?
 
-If you use the storage-based fencing (SBD) mechanism (diskless or disk-based), you must also configure a watchdog. 
-The watchdog is needed to reset a node if the system cannot longer access the SBD (diskless or disk-based).
+If you use the storage-based fencing (SBD) mechanism (diskless or disk-based),
+you must also configure a watchdog. The watchdog is needed to reset a node if
+the system cannot longer access the SBD (diskless or disk-based).
 It is mandatory to configure the Linux system for loading a watchdog driver. 
-It is strongly recommended to use a watchdog with hardware assistance (as is available on most modern systems), such as hpwdt, iTCO_wdt,
-or others. As fallback, you can use the softdog module.
+It is strongly recommended to use a watchdog with hardware assistance (as is
+available on most modern systems), such as hpwdt, iTCO_wdt, or others. As fallback,
+you can use the softdog module.
 
 .Setup for Watchdog
 ====
 IMPORTANT: Access to the watchdog timer:
-No other software must access the watchdog timer; it can only be accessed by one process at any time. 
-Some hardware vendors ship systems management software that use the watchdog for system resets
-(for example HP ASR daemon). Such software must be disabled if the watchdog is to be used by SBD.
+No other software must access the watchdog timer; it can only be accessed by one
+process at any time. Some hardware vendors ship systems management software that
+use the watchdog for system resets (for example HP ASR daemon). Such software must
+be disabled if the watchdog is to be used by SBD.
 
-Determine the right watchdog module. Alternatively, you can find a list of installed drivers with your kernel version.
+Determine the right watchdog module. Alternatively, you can find a list of installed
+drivers with your kernel version.
 
 ----
 # ls -l /lib/modules/$(uname -r)/kernel/drivers/watchdog
@@ -1401,8 +1439,9 @@ To safely unload the module, check first if an application is using the watchdog
 # rmmod <wrong_module>
 ----
 
-Enable your watchdog module and make it persistent. For the example below, _softdog_ has been used. 
-However, _softdog_ has some restrictions and should not be used as first option.
+Enable your watchdog module and make it persistent. For the example below, _softdog_
+has been used. However, _softdog_ has some restrictions and should not be used as
+first option.
 
 ----
 # echo softdog > /etc/modules-load.d/watchdog.conf
@@ -1531,7 +1570,8 @@ nodelist {
 
 // TODO PRIO2: Should we add some information about SBD timing tunables?
 
-You can skip this section if you do not have any SBD devices, but be sure to implement another supported fencing mechanism.
+You can skip this section if you do not have any SBD devices, but be sure to
+implement another supported fencing mechanism.
 
 See the man pages sbd(8) and stonith_sbd(7) for details.
 
@@ -1541,13 +1581,13 @@ See the man pages sbd(8) and stonith_sbd(7) for details.
 |Parameter |Description
 |SBD_WATCHDOG_DEV="/dev/watchdog" a|
 // |SBD_WATCHDOG="yes" a|
-Use watchdog. It is mandatory to use a watchdog. SBD does not work
-reliable without watchdog. Refer to the {slsa} manual and SUSE
-TIDs 7016880 for setting up a watchdog.
+Use watchdog. It is mandatory to use a watchdog. SBD does not work reliable
+without watchdog. Refer to the {slsa} manual and SUSE TIDs 7016880 for setting
+up a watchdog.
 
 |SBD_STARTMODE="always" a|
-Start mode. If set to "clean", sbd will only start if the node was
-previously shut down cleanly or if the slot is empty.
+Start mode. If set to "clean", sbd will only start if the node was previously
+shut down cleanly or if the slot is empty.
 // TODO PRIO3: SBD_STARTMODE="clean"
 
 |SBD_PACEMAKER="yes" a|
@@ -1569,16 +1609,17 @@ SBD_OPTS=
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
 ----
 
-On your specific system, the file might have additional parameters not discussed here.
+On your specific system, the file might have additional parameters not discussed
+here.
 
 ===== Verifying the SBD device
 
-You can skip this section if you do not have any SBD devices, but make
-sure to implement a supported fencing mechanism.
+You can skip this section if you do not have any SBD devices, but make sure to
+implement a supported fencing mechanism.
 
-It is a good practice to check if the SBD device can be accessed from
-both nodes and does contain valid records. Check this for all devices
-configured in _/etc/sysconfig/sbd_. You can do so, for example, by calling `cs_show_sbd_devices`.
+It is a good practice to check if the SBD device can be accessed from both nodes
+and does contain valid records. Check this for all devices configured in 
+_/etc/sysconfig/sbd_. You can do so, for example, by calling `cs_show_sbd_devices`.
 
 [subs="attributes,quotes"]
 ----
@@ -1630,10 +1671,10 @@ for {sleha} {pn15}, and the TIDs 7016880 and 7008216.
 
 ==== Configuring the cluster on the second node
 
-The second node of the two nodes cluster can be integrated by starting
-the command `{slehajoin}`. This command asks for the IP address or
-name of the first cluster node. With this command, all needed configuration files are
-copied over. As a result, the cluster is started on both nodes.
+The second node of the two nodes cluster can be integrated by starting the command
+`{slehajoin}`. This command asks for the IP address or name of the first cluster
+node. With this command, all needed configuration files are copied over. As a result,
+the cluster is started on both nodes.
 
 [subs="specialchars,attributes,quotes"]
 ----
@@ -1659,8 +1700,8 @@ time on both nodes.
 
 Check the cluster status.
 First, check if all nodes have used the SBD devices.
-To check the current SBD entries for the various cluster nodes, you can use `sbd list`. If all
-entries are _clear_ , no fencing task is marked in the SBD device.
+To check the current SBD entries for the various cluster nodes, you can use `sbd list`.
+If all entries are _clear_ , no fencing task is marked in the SBD device.
 
 [subs="attributes,quotes"]
 ----
@@ -1674,17 +1715,18 @@ entries are _clear_ , no fencing task is marked in the SBD device.
 You can also call `cs_show_sbd_devices` again.
 
 Next, check if all nodes have joined the cluster.
-To do so, call `crm_mon`. Use the options _"-r1"_ to also see the resources that are configured but stopped.
+To do so, call `crm_mon`. Use the options _"-r1"_ to also see the resources that
+are configured but stopped.
 
 [subs="attributes,quotes"]
 ----
 # crm_mon -r1
 ----
 
-The command will show the "empty" cluster and will print something similar
-to the screen output below. The most interesting pieces of information for now are
-that there are two nodes in the status "online", the message
-"partition with quorum", and a running SBD resource.
+The command will show the "empty" cluster and will print something similar to the
+screen output below. The most interesting pieces of information for now are that
+there are two nodes in the status "online", the message "partition with quorum",
+and a running SBD resource.
 
 //----
 //Stack: corosync
@@ -2484,7 +2526,7 @@ on the exit state of the preceding tests.
  - Non-replicated database not affected on node 2 (site B)
 
 .{testRecover}
-. Reestablish network connection
+. Re-establish network connection
 . Wait until System replication status is _SOK_ again
 ==========
 
@@ -2866,7 +2908,7 @@ on the exit state of the preceding tests.
  - Non-replicated database not affected on node 2 (site B)
 
 .{testRecover}
-. Reestablish network connection
+. Re-establish network connection
 . Wait until system replication status is _SOK_ again
 ==========
 
@@ -2874,613 +2916,8 @@ on the exit state of the preceding tests.
 
 Also, test the maintenance procedures mentioned in section <<sec-maintenance>>.
 
-// ==== Additional generic cluster tests
+// TODO PRIO3: ==== Additional generic cluster tests
 
-////
-        __    __   ______          __
-  ____  / /___/ /  /_  __/__  _____/ /______
- / __ \/ / __  /    / / / _ \/ ___/ __/ ___/
-/ /_/ / / /_/ /    / / /  __(__  ) /_(__  )
-\____/_/\__,_/    /_/  \___/____/\__/____/
-////
-
-////
-// BEGIN COMMENT-OUT TESTS FROM PERFOPT
-// TODO Delete these tests later
-
-==== Test: Stop primary database on site A (node 1)
-
-.Test STOP_PRIMARY_SITE_A
-==========
-.{testComp}
- - Primary Database
-
-.{testDescr}
-- The primary HANA database is stopped during normal cluster operation.
-
-.{testProc}
-. Stop the primary HANA database gracefully as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# HDB stop
-----
-
-.{testRecover}
-. Wait and see. After the cluster has locally re-started the HANA primary, the resource failure needs to be cleared.
-
-.{testExpect}
-.  The cluster detects the stopped primary HANA database (on node 1) and marks the resource failed.
-.  The cluster promotes the secondary HANA database (on node 2) to take over as primary.
-.  The cluster initiates a local re-start (PREFER_SITE_TAKEOVER="false").
-==========
-
-
-==== Test: Repeat previous test until primary migrates
-
-==== Test: Stop primary database on site B (node 2)
-
-.Test STOP_PRIMARY_DB_SITE_B
-==========
-
-{testComp}::
-  Primary Database
-
-{testDescr}::
-  The primary HANA database is stopped during normal cluster operation.
-
-.{testProc}
-. Stop the database gracefully as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# HDB stop
-----
-
-.{testRecover}
-.  Manually register the old primary (on node 2) with the new primary
-  after take-over (on node 1) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# hdbnsutil -sr_register --remoteHost={sapnode1} --remoteInstance=10 \
-               --replicationMode=sync --operationMode=logreplay \
-               --name={sapsite2}
-----
-+
-.  Restart the HANA database (now secondary) on node 1 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the stopped primary HANA database (on node 2)
-and marks the resource failed.
-.  The cluster promotes the secondary HANA database (on node 1) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node
-1).
-.  After some time the cluster shows the sync_state of the stopped
-primary (on node 2) as SFAIL.
-.  Because of the parameter value AUTOMATED_REGISTER="false", the cluster does not restart
-the failed HANA database or does not register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the
-recovery procedure.
-==========
-
-==== Test: Crash primary database on site A (node 1)
-
-.Test CRASH_PRIMARY_DB_SITE_A
-==========
-
-{testComp}::
-  Primary Database
-
-{testDescr}::
-  Simulate a complete break-down of the primary database system.
-
-.{testProc}
-.  Kill the primary database system using signals as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# HDB kill-9
-----
-
-.{testRecover}
-.  Manually register the old primary (on node 1) with the new primary
-  after take-over (on node 2) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance=10 \
-               --replicationMode=sync  --operationMode=logreplay \
-               --name={sapsite1}
-----
-+
-.  Restart the HANA database (now secondary) on node 1 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
-----
-
-.{testExpect}
-.  The cluster detects the stopped primary HANA database (on node 1)
-and marks the resource failed.
-.  The cluster promotes the secondary HANA database (on node 2) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node
-2).
-.  After some time the cluster shows the sync_state of the stopped
-primary (on node 1) as SFAIL.
-.  Because of the parameter value AUTOMATED_REGISTER="false", the cluster does not restart
-the failed HANA database or does not register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the
-recovery procedure.
-==========
-
-==== Test: Crash primary database on site B (node 2)
-
-.Test CRASH_PRIMARY_DB_SITE_B
-==========
-
-{testComp}::
-  Primary Database
-{testDescr}::
-  Simulate a complete break-down of the primary database system.
-
-.{testProc}
-.  Kill the primary database system using signals as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# HDB kill-9
-----
-
-.{testRecover}
-.  Manually register the old primary (on node 2) with the new primary
-  after take-over (on node 1) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# hdbnsutil -sr_register --remoteHost={sapnode1} --remoteInstance=10 \
-               --replicationMode=sync  --operationMode=logreplay \
-               --name={sapsite2}
-----
-+
-.  Restart the HANA database (now secondary) on node 1 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the stopped primary HANA database (on node 2)
-and marks the resource failed.
-.  The cluster promotes the secondary HANA database (on node 1) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node
-1).
-.  After some time the cluster shows the sync_state of the stopped
-primary (on node 2) as SFAIL.
-.  Because of the parameter value AUTOMATED_REGISTER="false", the cluster does not restart
-the failed HANA database or does not register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the
-recovery procedure.
-==========
-
-==== Test: Crash primary node on site A (node 1)
-
-.Test CRASH_PRIMARY_NODE_SITE_A
-==========
-{testComp}::
-  Cluster node of primary site
-{testDescr}::
-  Simulate a crash of the primary site node running the primary HANA
-  database.
-
-.{testProc}
-.  Crash the primary node by sending a 'fast-reboot' system request.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# sync; echo b > /proc/sysrq-trigger
-----
-
-.{testRecover}
-.  If SBD fencing is used, pacemaker will not automatically restart after being fenced. In this case clear the fencing flag on all SBD devices and subsequently start pacemaker.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# sbd -d {sapsbd1} message {sapnode1} clear
-{sapnode1}# sbd -d {sapsbd2} message {sapnode1} clear
-...
-----
-+
-. Start the cluster framework
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# {clusterstart}
-----
-+
-.  Manually register the old primary (on node 1) with the new primary after take-over (on node 2) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance=10 \
-               --replicationMode=sync  --operationMode=logreplay \
-               --name={sapsite1}
-----
-+
-.  Restart the HANA database (now secondary) on node 1 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
-----
-
-.{testExpect}
-.  The cluster detects the failed node (node 1) and declares it
-UNCLEAN and sets the secondary node (node 2) to status "partition
-with quorum".
-.  The cluster fences the failed node (node 1).
-.  The cluster declares the failed node (node 1) OFFLINE.
-.  The cluster promotes the secondary HANA database (on node 2) to take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped primary (on node 2) as SFAIL.
-.  If SBD fencing is used, then the manual recovery procedure will be
-used to clear the fencing flag and restart pacemaker on the node.
-.  Because of the parameter value AUTOMATED_REGISTER="false", the cluster does not restart
-the failed HANA database or does not register it against the new primary.
-.  After the manual register and resource refresh the system replication pair is marked as in sync (SOK).
-. The cluster "failed actions" are cleaned up after following the recovery procedure.
-==========
-
-==== Test: Crash primary node on site B (node 2)
-
-.Test CRASH_PRIMARY_NODE_SITE_B
-==========
-{testComp}::
-  Cluster node of secondary site
-{testDescr}::
-  Simulate a crash of the secondary site node running the primary HANA
-  database.
-
-.{testProc}
-.  Crash the secondary node by sending a 'fast-reboot' system request.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# sync; echo b > /proc/sysrq-trigger
-----
-
-.{testRecover}
-.  If SBD fencing is used, pacemaker will not automatically restart
-  after being fenced. In this case clear the fencing flag on all SBD
-  devices and subsequently start pacemaker.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# sbd -d {sapsbd1} message {sapnode2} clear
-{sapnode2}# sbd -d {sapsbd2} message {sapnode2} clear
-...
-----
-+
-. Start the cluster Framework
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# {clusterstart}
-----
-+
-.  Manually register the old primary (on node 2) with the new primary
-  after take-over (on node 1) as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# hdbnsutil -sr_register --remoteHost={sapnode1} --remoteInstance=10 \
-               --replicationMode=sync  --operationMode=logreplay \
-               --name={sapsite2}
-----
-+
-.  Restart the HANA database (now secondary) on node 2 as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the failed secondary node (node 2) and
-declares it UNCLEAN and sets the primary node (node 1) to status
-"partition with quorum".
-.  The cluster fences the failed secondary node (node 2).
-.  The cluster declares the failed secondary node (node 2) OFFLINE.
-.  The cluster promotes the secondary HANA database (on node 1) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node
-1).
-.  After some time the cluster shows the sync_state of the stopped
-secondary (on node 2) as SFAIL.
-.  If SBD fencing is used, then the manual recovery procedure will be
-used to clear the fencing flag and restart pacemaker on the node.
-.  Because of the parameter value AUTOMATED_REGISTER="false", the cluster does not restart
-the failed HANA database or does not register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
-. The cluster "failed actions" are cleaned up after following the recovery procedure.
-==========
-
-==== Test: Stop the secondary database on site B (node 2)
-
-.Test STOP_SECONDARY_DB_SITE_B
-==========
-{testComp}::
-  Secondary HANA database
-
-{testDescr}::
-  The secondary HANA database is stopped during normal cluster operation.
-
-.{testProc}
-.  Stop the secondary HANA database gracefully as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# HDB stop
-----
-
-.{testRecover}
-.  Refresh the failed resource status of the secondary HANA database (on node 2) as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the stopped secondary database (on node 2) and marks the resource failed.
-.  The cluster detects the broken system replication and marks it as failed (SFAIL).
-.  The cluster restarts the secondary HANA database on the same node (node 2).
-.  The cluster detects that the system replication is in sync again and marks it as ok (SOK).
-.  The cluster "failed actions" are cleaned up after following the recovery procedure.
-==========
-
-==== Test: Crash the secondary database on site B (node 2)
-
-.Test CRASH_SECONDARY_DB_SITE_B
-==========
-{testComp}::
-  Secondary HANA database
-{testDescr}::
-  Simulate a complete break-down of the secondary database system.
-
-.{testProc}
-.  Kill the secondary database system using signals as _<sid>adm_.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# HDB kill-9
-----
-
-.{testRecover}
-.  Clean up the failed resource status of the secondary HANA database (on node 2) as root.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the stopped secondary database (on node 2) and marks the resource failed.
-.  The cluster detects the broken system replication and marks it as failed (SFAIL).
-.  The cluster restarts the secondary HANA database on the same node (node 2).
-.  The cluster detects that the system replication is in sync again and marks it as ok (SOK).
-.  The cluster "failed actions" are cleaned up after following the recovery procedure.
-==========
-
-==== Test: Crash the secondary node on site B (node 2)
-
-.Test CRASH_SECONDARY_NODE_SITE_B
-==========
-{testComp}::
-  Cluster node of secondary site
-{testDescr}::
-  Simulate a crash of the secondary site node running the secondary HANA
-  database.
-
-.{testProc}
-.  Crash the secondary node by sending a 'fast-reboot' system request.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# sync; echo b > /proc/sysrq-trigger
-----
-
-.{testRecover}
-.  If SBD fencing is used, pacemaker will not automatically restart
-  after being fenced. In this case clear the fencing flag on *all* SBD
-  devices and subsequently start pacemaker.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# sbd -d {sapsbd1} message {sapnode2} clear
-{sapnode2}# sbd -d {sapsbd2} message {sapnode2} clear
-...
-----
-+
-. Start the cluster framework.
-+
-[subs="attributes,quotes"]
-----
-{sapnode2}# {clusterstart}
-----
-
-.{testExpect}
-.  The cluster detects the failed secondary node (node 2) and
-declares it UNCLEAN and sets the primary node (node 1) to status
-"partition with quorum".
-.  The cluster fences the failed secondary node (node 2).
-.  The cluster declares the failed secondary node (node 2) OFFLINE.
-.  After some time the cluster shows the sync_state of the stopped secondary (on node 2) as SFAIL.
-.  If SBD fencing is used, then the manual recovery procedure will be
-used to clear the fencing flag and restart pacemaker on the node.
-.  When the fenced node (node 2) rejoins the cluster the former secondary HANA database is started automatically.
-.  The cluster detects that the system replication is in sync again and marks it as ok (SOK).
-==========
-
-==== Test: Failure of replication LAN
-
-.Test FAIL_NETWORK_SR
-==========
-
-{testComp}::
-  Replication LAN
-{testDescr}::
-  Loss of replication LAN connectivity between the primary and secondary node.
-
-.{testProc}
-.  Break the connection between the cluster nodes on the replication LAN.
-
-.{testRecover}
-. Re-establish the connection between the cluster nodes on the replication LAN.
-
-.{testExpect}
-.  After some time the cluster shows the sync_state of the secondary (on node 2) as SFAIL.
-.  The primary HANA database (node 1) "HDBSettings.sh
-systemReplicationStatus.py" shows "CONNECTION TIMEOUT" and the
-secondary HANA database (node 2) is not able to reach the primary
-database (node 1).
-.  The primary HANA database continues to operate as “normal”, but no
-system replication takes place and is therefore no longer a valid take-over destination.
-.  When the LAN connection is re-established, HDB automatically
-detects connectivity between the HANA databases and restarts the
-system replication process
-.  The cluster detects that the system replication is in sync again and marks it as ok (SOK).
-==========
-
-=== Test cases for full automation
-
-For the following test descriptions, we assume the following parameter values:
-* `PREFER_SITE_TAKEOVER="true"`
-* `AUTOMATED_REGISTER="true"`
-
-NOTE: The following tests are designed to run in a sequence. Each test depends
-on the exit state of the proceeding tests.
-
-==== Test: Stop primary database on site A
-
-.Test STOP_PRIMARY_DB_SITE_A
-==========
-
-.{testComp}
-- Primary Database
-
-.{testDescr}
-- The primary HANA database is stopped during normal cluster operation.
-
-.{testProc}
-- Stop the primary HANA database gracefully as _<sid>adm_.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode1}# HDB stop
-----
-
-.{testRecover}
-. Not needed, everything is automated.
-. Refresh the cluster resources on node 1 as root.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode1}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
-----
-
-.{testExpect}
-.  The cluster detects the stopped primary HANA database (on node 1) and marks the resource failed.
-.  The cluster promotes the secondary HANA database (on node 2) to take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped primary (on node 1) as SFAIL.
-.  Because of the parameter value AUTOMATED_REGISTER="true", the cluster restarts the failed HANA database and registers it against the new primary.
-.  After the automated register and resource refresh the system replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the recovery procedure.
-
-==========
-
-==== Test: Crash the primary node on site B (node 2)
-
-.Test CRASH_PRIMARY_NODE_SITE_B
-==========
-.{testComp}
-- Cluster node of site B
-
-.{testDescr}
-- Simulate a crash of the site B node running the primary HANA database.
-
-.{testProc}
-- Crash the secondary node by sending a 'fast-reboot' system request.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}# sync; echo b > /proc/sysrq-trigger
-----
-
-.{testRecover}
-* If SBD fencing is used, pacemaker will not automatically restart
-after being fenced. In this case clear the fencing flag on *all* SBD
-devices and subsequently start pacemaker.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}# sbd -d {sapsbd1} message {sapnode2} clear
-{sapnode2}# sbd -d {sapsbd2} message {sapnode2} clear
-...
-----
-
-* Start the cluster framework.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}# {clusterstart}
-----
-
-* Refresh the cluster resources on node 2 as root.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the failed primary node (node 2) and
-declares it UNCLEAN and sets the primary node (node 2) to status
-"partition with quorum".
-.  The cluster fences the failed primary node (node 2).
-.  The cluster declares the failed primary node (node 2) OFFLINE.
-.  The cluster promotes the secondary HANA database (on node 1) to take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 1).
-.  After some time the cluster shows the sync_state of the stopped secondary (on node 2) as SFAIL.
-.  If SBD fencing is used, then the manual recovery procedure will be
-used to clear the fencing flag and restart pacemaker on the node.
-.  When the fenced node (node 2) rejoins the cluster the former primary became a secondary.
-. Because of the parameter value AUTOMATED_REGISTER="true", the cluster restarts
-the failed HANA database and registers it against the new primary.
-.  The cluster detects that the system replication is in sync again and marks it as ok (SOK).
-
-==========
-
-// END COMMENT-OUT TESTS FROM PERFOPT
-////
 
 [[cha.hana-sr.administrate]]
 == Administration
@@ -3492,8 +2929,7 @@ In your project, you should:
 * define STONITH before adding other resources to the cluster.
 * do intensive testing.
 * tune the timeouts of operations of SAPHana and SAPHanaTopology.
-* start with the parameter values PREFER_SITE_TAKEOVER=”false”, AUTOMATED_REGISTER=”false” and
-DUPLICATE_PRIMARY_TIMEOUT=”7200”.
+* start with the parameter values PREFER_SITE_TAKEOVER=”false”, AUTOMATED_REGISTER=”false” and DUPLICATE_PRIMARY_TIMEOUT=”7200”.
 * set up a test cluster for testing configuration changes and administrative procedure before applying them on the production cluster.
 
 In your project, avoid:

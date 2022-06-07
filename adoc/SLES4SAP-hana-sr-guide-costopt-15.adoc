@@ -70,7 +70,7 @@ From the infrastructure perspective, the following variants are covered:
 
 - 2-node cluster with  disk-based SBD
 
-- 3-node cluster with diskless SBD
+- 3-node cluster with disk-less SBD
 
 - On-premises deployment on physical and virtual machines
 
@@ -311,54 +311,83 @@ include::common_intro_feedback.adoc[]
 [[cha.hana-sr.scenario]]
 == Supported scenarios and prerequisites
 
-With the `SAPHanaSR` resource agent software package, we limit the
-support to scale-up (single-box to single-box) system replication with
-the following configurations and parameters:
+With the `SAPHanaSR` resource agent software package, we limit the support to
+scale-up (single-box to single-box) system replication with the following
+configurations and parameters:
 
-* Two-node clusters are standard. Three node clusters are fine if you install the resource agents also on that third node. But define in the cluster that {saphana}
-resources must never run on that third node. In this case the third node is an additional majority maker in case of cluster separation.
+* Two-node clusters are standard. Three node clusters are fine if you install
+the resource agents also on that third node. But define in the cluster that
+{saphana} resources must never run on that third node. In this case the third
+node is an additional majority maker in case of cluster separation.
 * The cluster must include a valid STONITH method.
-** Any STONITH mechanism supported for production use by SUSE Linux Enterprise High Availability Extension {prodnr} (like SBD, IPMI) is supported with SAPHanaSR.
+** Any STONITH mechanism supported for production use by {sleha} {prodnr} (like
+SBD, IPMI) is supported with SAPHanaSR.
 ** This guide is focusing on the SBD fencing method as this is hardware independent.
-** If you use disk-based SBD as the fencing mechanism, you need one or more shared drives. For productive environments, we recommend more than one SBD
-device. For details on disk-based SBD, read the product documentation for {sleha} and the manual pages
-sbd(8) and stonith_sbd(7).
-** For diskless SBD, you need at least three cluster nodes. The diskless SBD mechanism has the benefit that you do not need a shared drive for fencing.
-** Priority fencing is an optional improvement for two nodes, but does not work for three nodes. 
-* Both nodes are in the same network segment (layer 2). Similar methods provided by cloud environments such as overlay IP addresses and load balancer functionality
+** If you use disk-based SBD as the fencing mechanism, you need one or more shared
+drives. For productive environments, we recommend more than one SBD device. For
+details on disk-based SBD, read the product documentation for {sleha} and the
+manual pages sbd(8) and stonith_sbd(7).
+** For disk-less SBD, you need at least three cluster nodes. The disk-less SBD
+mechanism has the benefit that you do not need a shared drive for fencing.
+Since disk-less SBD is based on self-fencing, reliable detection of lost quorum
+is absolutely crucial.
+** Priority fencing is an optional improvement for two nodes, but does not work
+for three nodes. 
+* Both nodes are in the same network segment (layer 2). Similar methods provided
+by cloud environments such as overlay IP addresses and load balancer functionality
 are also fine. Follow the cloud specific guides to set up your {sles4sap} cluster.
-* Technical users and groups, such as _<sid>adm_ are defined locally in the Linux system. If that is not possible, additional measures are needed to ensure reliable
+* Technical users and groups, such as _<sid>adm_ are defined locally in the Linux
+system. If that is not possible, additional measures are needed to ensure reliable
 resolution of users, groups and permissions at any time. This might include caching.
-* Name resolution of the cluster nodes and the virtual IP address must be done locally on all cluster nodes. 
-If that is not possible, additional measures are needed to ensure reliable resolution of host names at any time.
+* Name resolution of the cluster nodes and the virtual IP address must be done
+locally on all cluster nodes. If that is not possible, additional measures are
+needed to ensure reliable resolution of host names at any time.
 * Time synchronization between the cluster nodes, such as NTP, is required.
-* Both {hana} instances of the system replication pair (primary and secondary) have the same SAP Identifier (SID) and instance number.
-* If the cluster nodes are installed in different data centers or data center areas, the environment must match the requirements of the 
-SUSE Linux Enterprise High Availability Extension cluster product. Of particular concern are the network latency and recommended maximum distance between the nodes. 
-Review the product documentation for SUSE Linux Enterprise High Availability Extension about those recommendations.
-* Automated registration of a failed primary after take-over prerequisites need to be defined.
-** As initial configuration for projects, we recommend to switch off the automated registration of a failed primary. 
-The setup `AUTOMATED_REGISTER="false"` is set as default. In this case, you need to register a failed primary after a take-over manually. 
-For re-registration, use precisely the site names that are already known by the cluster. Use SAP tools like {saphana} cockpit or _hdbnsutil_.
+* Both {hana} instances of the system replication pair (primary and secondary)
+have the same SAP Identifier (SID) and instance number.
+* If the cluster nodes are installed in different data centers or data center
+areas, the environment must match the requirements of the {sleha} cluster product.
+Of particular concern are the network latency and recommended maximum distance
+between the nodes. Review the product documentation for {sleha} about those
+recommendations.
+* Automated registration of a failed primary after take-over prerequisites need
+to be defined.
+** As initial configuration for projects, we recommend to switch off the automated
+registration of a failed primary. The setup `AUTOMATED_REGISTER="false"` is set as
+default. In this case, you need to register a failed primary after a take-over
+manually. For re-registration, use precisely the site names that are already known
+by the cluster. Use SAP tools like {saphana} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend to set `AUTOMATED_REGISTER="true"`.
-** The cluster automates one single take-over in case of a failed primary. After that happened, the initial state needs to be restored by the administrative
+** The cluster automates one single take-over in case of a failed primary. After
+that happened, the initial state needs to be restored by the administrative
 procedure outlined in this guide.
 * Automated start of {hana} instances during system boot must be switched off.
 * Multi-tenancy (MDC) databases are supported.
-** Multi-tenancy databases can be used in combination with any other setup (performance based, cost optimized and multi-tier).
-** In MDC configurations, the SAP HANA RDBMS is treated as a single system including all database containers. Therefore cluster take-over
-decisions are based on the complete RDBMS status independent of the status of individual database containers.
-** Tests on Multi-tenancy databases can force a different test procedure if you are using strong separation of the tenants. 
-As an example, killing the complete {hana} instance using _HDB kill_ does not work, because the tenants are running with different Linux user UIDs. 
+** Multi-tenancy databases can be used in combination with any other setup
+(performance based, cost optimized and multi-tier).
+** In MDC configurations, the SAP HANA RDBMS is treated as a single system including
+all database containers. Therefore cluster take-over decisions are based on the
+complete RDBMS status independent of the status of individual database containers.
+** Tests on Multi-tenancy databases can force a different test procedure if you
+are using strong separation of the tenants. 
+As an example, killing the complete {hana} instance using _HDB kill_ does not work,
+because the tenants are running with different Linux user UIDs. 
 {refsidadm} is not allowed to terminate the processes of the other tenant users.
-** The scenario Multi-SID (MCOS) is not supported together with the cost-optimized scenario. 
-Hence, only one replicating database pair and one non-replicating database in the same cluster as described in this guide are supported for the cost-optimized scenario.
-* {sles4sap} versions:
-** You need at least {SAPHanaSR} version {sapHanaSrMinVers} and at least {sles4sap} 15 SP2.
-** Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodNr} GA or newer.
-** IBM Power vPMEM is supported since {sles4sap} {prodNr} SP1 or newer.
+** The scenario Multi-SID (MCOS) is not supported together with the cost optimized
+scenario. Hence, only one replicating database pair and one non-replicating database
+in the same cluster as described in this guide are supported for the cost-optimized
+scenario.
 
+The {sles4sap} versions are:
+
+* You need at least {SAPHanaSR} version {sapHanaSrMinVers} and at least {sles4sap}
+15 SP2.
+* Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodNr} GA or newer.
+* IBM Power vPMEM is supported since {sles4sap} {prodNr} SP1 or newer.
+
+////
 * {hana} versions:
+// TODO PRIO3: remove HANA 1.0
 ** {hana} 1.0 is supported since SPS09 (095) for all mentioned setups. {hana} 1.0
 does not support the HA/DR provider hook method srConnectionChanged() with
 multi-target aware parameters. These parameters are needed for the HA/DR provider
@@ -366,18 +395,29 @@ hook in the package.
 ** For {hana} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop
 tenants during production and you want the cluster to be able to take over. Older
 {hana} versions are marking the system replication as failed if you stop a tenant.
-* {sap} HANA 2.0 SPS04 or later provides the HA/DR provider hook method
+////
+
+For the HA/DR provider hook scripts SAPHanaSR.py and susCostOpt.py, the following
+requirements apply:
+
+* {saphana} 2.0 SPS04 or later provides the HA/DR provider hook method
 srConnectionChanegd() with multi-target aware parameters. {sap} HANA 1.0 does not
 provide them. The multi-target aware parameters are needed for the SAPHanaSR
 scale-up package.
-* {sap} HANA 2.0 SPS04 or later provides the HA/DR provider hook method postTakeover().
+* {saphana} 2.0 SPS04 or later provides the HA/DR provider hook method postTakeover().
 // TODO PRIO1: check above version
-** Particularly the {HANA} system replication cost optimized scenario can benefit
+* The user {refsidadm} needs execution permission as user root for the command
+crm_attribute.
+
+Additional considerations for the {saphana} version are:
+
+* Particularly the {HANA} system replication cost-optimized scenario can benefit
 from {HANA}'s persistent memory features. Local restart and take-over are affected
 by the time {HANA} needs for shutdown and loading column store. {HANA} 2.0 SPS04 and
 later support persistent memory.
 
-IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported and will not work properly.
+IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
+and will not work properly.
 
 If you need to implement a different scenario, we strongly recommend to define
 a Proof of Concept (PoC) with SUSE. This PoC will focus on testing the existing
@@ -526,17 +566,17 @@ out the parameter sheet and then begin with the installation.
 
 |Node 2 ||Cluster node name and IP address.
 
-|Site A ||Site name of the primary replicating SAP HANA database
+|Site A ||Site name of the primary replicating {hana} database
 
-|Site B ||Site name of the secondary replicating and the non-replicating SAP HANA database
+|Site B ||Site name of the secondary replicating and the non-replicating {hana} database
 
 |SID ||SAP System Identifier of the replicated {hana} database
 
 |Instance Number ||Number of the {hana} database. For system replication also Instance Number+1 is blocked.
 
-|Database user||database user used by HA/DR provider hook script susCostOpt.py
+|Database user||Database user used by HA/DR provider hook script susCostOpt.py
 
-|Database user key||database user key in {refSIDadm}`s keystore
+|Database user key||Database user key in {refSIDadm}`s keystore
 
 |SID non-replicated ||SAP System Identifier of the non-replicated {hana} database
 
@@ -553,7 +593,7 @@ out the parameter sheet and then begin with the installation.
 
 |Storage | |Storage for HDB data and log files is connected “locally” (per node; not shared)
 
-|SBD ||STONITH device (two for production) or diskless SBD
+|SBD ||STONITH device (two for production) or disk-less SBD
 
 |HAWK Port |`7630` |
 
@@ -568,20 +608,20 @@ out the parameter sheet and then begin with the installation.
 
 |Node 2 |`{sapnode2}`, `{sapip1node2}` |Cluster node name and IP address.
 
-|SID | `{sapsid}` |SAP System Identifier of the replicated {saphana} database
+|SID | `{sapsid}` |SAP System Identifier of the replicated {hana} database
 
-|Instance Number |`{sapino}` |Number of the {hana} database. For
+|Instance Number |`{sapino}` |Instance Number of the {hana} database. For
 system replication also Instance Number+1 is blocked.
 
-|Database user| |database user used by HA/DR provider hook script susCostOpt.py
+|Database user| |Database user used by HA/DR provider hook script susCostOpt.py
 
-|Database user key| `saphanasr_{sapsid}_costopt` |database user key in {refsidadm}`s keystore
+|Database user key| `saphanasr_{sapsid}_costopt` |Database user key in {refsidadm}`s keystore
 
-|SID non-replicated |`{sapnpsid}`|SAP System Identifier of the non-replicated {saphana} database
+|SID non-replicated |`{sapnpsid}`|SAP System Identifier of the non-replicated {hana} database
 
-|Instance Number |`{sapnpino}`|Number of the non-replicated {hana} database.
+|Instance Number |`{sapnpino}`|Instance Number of the non-replicated {hana} database.
 
-|Network mask |`255.255.255.0` |Network mask for HANA's virtual IP address(es)
+|Network mask |`255.255.255.0` |Network mask for {hana}'s virtual IP address(es)
 
 |vIP primary |`{sapip1srv1}` |
 
@@ -592,7 +632,7 @@ system replication also Instance Number+1 is blocked.
 |Storage | |Storage for HDB data and log files is connected “locally”
 (per node; not shared)
 
-|SBD |`{sapsbd1}` |STONITH device (two for production) or diskless
+|SBD |`{sapsbd1}` |STONITH device (two for production) or disk-less
 
 |HAWK Port |`7630` |
 
@@ -620,11 +660,13 @@ you should consider to get a well-working system in place.
 
 ==== Installing the base operating system
 
-Depending on your infrastructure and the hardware used, you need to adapt the installation.
-All supported installation methods and minimum requirement are described in the _Deployment Guide_ for SUSE Linux Enterprise Server
+Depending on your infrastructure and the hardware used, you need to adapt the
+installation. All supported installation methods and minimum requirement are
+described in the _Deployment Guide_ for SUSE Linux Enterprise Server
 ({deploymentGuide15}).
-In case of automated installations you can find further information in the _AutoYaST Guide_ ({autoYastGuide15}).
-The main installation guides for {sles4sap} that fit all requirements for {sapHana} are available from the SAP notes:
+In case of automated installations you can find further information in the
+_AutoYaST Guide_ ({autoYastGuide15}). The main installation guides for {sles4sap}
+that fit all requirements for {sapHana} are available from the SAP notes:
 
 // SUSE and SAP are kept literal here not by the reference, because its a quote of an external title
 * {sapnote15} SUSE Linux Enterprise Server 15: Installation Note
@@ -659,22 +701,22 @@ The pattern _High Availability_ summarizes all tools recommended to be installed
 
 ====
 
-Optionally, the packages supportutils-plugin-ha-sap and ClusterTools2 can be installed. 
-The first helps collecting data for support requests, the second simplifies common
-administrative tasks.
+Optionally, the packages supportutils-plugin-ha-sap and ClusterTools2 can be
+installed. The first helps collecting data for support requests, the second
+simplifies common administrative tasks.
 
-For more information, see section _Installation and Basic Setup_ of the {uarr} {sleha} guide.
+For more information, see section _Installation and Basic Setup_ of the {uarr}
+{sleha} guide.
 
 [[cha.s4s.hana-install]]
 == {stepHANA}
 
 image::SAPHanaSR-ScaleOut-Plan-Phase3.svg[scaledwidth="100%"]
 
-Even though this document focuses on the integration of an
-installed {hana} with system replication already set up into the
-pacemaker cluster, this chapter summarizes the test environment.
-Always use the official documentation from SAP to install {hana} and to
-set up the system replication.
+Even though this document focuses on the integration of an installed {hana} with
+system replication already set up into the Linux cluster, this chapter summarizes
+the test environment. Always use the official documentation from {sap} to install
+{hana} and to set up the system replication.
 
 .Procedure
 
@@ -695,9 +737,8 @@ If this SAP service is not installed, install it now.
 
 * Download the {hana} Software from SAP Marketplace.
 
-* Install the {hana} database as described in the {hana} Server
-Installation Guide. The {hana} database client will be installed together with
-the server by default.
+* Install the {hana} database as described in the {hana} Server Installation Guide.
+The {hana} database client will be installed together with the server by default.
 
 // TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
 // begin systemd style
@@ -786,9 +827,9 @@ database.
 
 === Verify that both databases are up and running
 
-As Linux user _{refsidadm}_ use the command line tool _HDB_ to get an
-overview of running HANA processes. The output of `HDB` `info` should
-be similar to the output shown below:
+As Linux user _{refsidadm}_ use the command line tool _HDB_ to get an overview
+of running HANA processes. The output of `HDB` `info` should be similar to the
+output shown below:
 
 [subs="attributes,quotes"]
 ----
@@ -923,13 +964,16 @@ Enter the following command as user {refsidadm}:
 ----
 =========================
 
-IMPORTANT: Without a valid backup, you cannot bring {hana} into a system replication configuration.
+IMPORTANT: Without a valid backup, you can not bring {hana} into a system
+replication configuration.
 
 === Enabling the primary node
 
-As Linux user _<sid>adm_, enable the system replication at the primary node. You need to define a site name (like {sapsite1}). 
-This site name must be unique for all {hana} databases which are connected via system replication. 
-This means the secondary must have a different site name. The site names must not be changed later when the cluster has been activated.
+As Linux user _<sid>adm_, enable the system replication at the primary node. You
+need to define a site name (like {sapsite1}). This site name must be unique for
+all {hana} databases which are connected via system replication. This means the
+secondary must have a different site name. The site names must not be changed
+later when the cluster has been activated.
 
 NOTE: Do not use strings like "primary" and "secondary" as site names.
 
@@ -1024,16 +1068,19 @@ done.
 ----
 ==========
 
-The _remoteHost_ is the primary node in our case, the _remoteInstance_ is the database instance number (here {sapino}).
+The _remoteHost_ is the primary node in our case, the _remoteInstance_ is the
+database instance number (here {sapino}).
 
 Now start the database instance again and verify the system replication status. 
-On the secondary node, the mode should be one of "SYNC" or "SYNCMEM". "ASYNC" is *not supported with automated cluster take-over*.
-The mode depends on the *replicationMode* option defined during the registration of the secondary.
+On the secondary node, the mode should be one of "SYNC" or "SYNCMEM". "ASYNC" is
+*not supported with automated cluster take-over*. The mode depends on the
+*replicationMode* option defined during the registration of the secondary.
 
 .Set Memory Limits for the {HANA} Secondary
 ==========
-Add the memory limits to the global.ini. Keep in mind that SUSE cannot provide a sizing guide here.
-{HANA} sizing needs to be done according to respective SAP guidelines.
+Add the memory limits to the global.ini. Keep in mind that SUSE cannot provide a
+sizing guide here. {HANA} sizing needs to be done according to respective SAP
+guidelines.
 // TODO PRIO2: Add sizing reference here
 [subs="specialchars,attributes,quotes"]
 ----
@@ -1102,8 +1149,9 @@ local_site_id=1
 
 === Manually testing the {HANA} SR take-over
 
-Before you integrate your {HANA} system replication into the HA cluster, it is mandatory to do a manual take-over. 
-Testing without the cluster helps to make sure that basic operation (take-over and registration) is working as expected.
+Before you integrate your {HANA} system replication into the HA cluster, it is
+mandatory to do a manual take-over. Testing without the cluster helps to make
+sure that basic operation (take-over and registration) is working as expected.
 
 * Stop {hana} on node 1
 
@@ -1134,15 +1182,16 @@ Bring the systems back to the original state:
 
 image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
 
-This step is mandatory to inform the cluster immediately if the secondary gets out of sync.
-The hook is called by {SAPHANA} using the HA/DR provider interface in point-of-time when
-the secondary gets out of sync. This is typically the case when the first commit pending
-is released. The hook is called by {SAPHANA} again when the system replication is back.
-This HA/DR provider is srConnectionChanged(), the related {SUSE} hook script is SAPHanaSR.py.
+This step is mandatory to inform the cluster immediately if the secondary gets
+out of sync. The hook is called by {SAPHANA} using the HA/DR provider interface
+in point-of-time when the secondary gets out of sync. This is typically the case
+when the first commit pending is released. The hook is called by {SAPHANA} again
+when the system replication is back. This HA/DR provider is srConnectionChanged(),
+the related {SUSE} hook script is SAPHanaSR.py.
 
-Another hook is called by {SAPHANA} after an SR take-over has happened. This can be
-used to remove the {SAPHANA} memory limit and enable table preload. 
-This HA/DR provider is postTakeover(), the related {SUSE} hook script is susCostOpt.py.
+Another hook is called by {SAPHANA} after an SR take-over has happened. This can
+be used to remove the {SAPHANA} memory limit and enable table preload. This HA/DR
+provider is postTakeover(), the related {SUSE} hook script is susCostOpt.py.
 
 
 **Procedure**
@@ -1254,11 +1303,11 @@ which defines the operation mode. Up to now there are the following modes availa
 
 Until a take-over and re-registration in the opposite direction, the entry for the
 operation mode is missing on your primary site. The first operation mode which was
-available was _delta_datashipping_. Today the preferred modes for HA are
-_logreplay_ or _logreplay_readaccess_. Using the operation mode _logreplay_ makes your secondary site in the {saphana}
-system replication a hot standby system.
-For more details regarding all operation modes, check the available SAP documentation such as
-"How To Perform System Replication for SAP HANA ".
+available was _delta_datashipping_. Today the preferred modes for HA are _logreplay_
+or _logreplay_readaccess_. Using the operation mode _logreplay_ makes your secondary
+site in the {saphana} system replication a hot standby system.
+For more details regarding all operation modes, check the available SAP documentation
+such as "How To Perform System Replication for SAP HANA ".
 
 .Checking the Operation Mode
 ===================================
@@ -1309,8 +1358,10 @@ Basic sudoers entry to allow <sid>adm to use the srHook.
 More specific sudoers entries to meet a high security level.
 
 All Cmnd_Alias entries must be each defined as a single line entry.
-In our example, we have four separate lines with Cmnd_Alias entries, one line for the {refsidadm} user and one or more lines for comments.
-In the document at hand, however, the separate lines of the example might include a line-break forced by document formatting.
+In our example, we have four separate lines with Cmnd_Alias entries, one line
+for the {refsidadm} user and one or more lines for comments. In the document at
+hand, however, the separate lines of the example might include a line-break
+forced by document formatting.
 
 [subs="specialchars,attributes"]
 ----
@@ -1382,7 +1433,7 @@ commands as user {refsidadm}:
 [subs="specialchars,attributes"]
 ----
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> cdtrace
-{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep HADR.*load.*susCostOpt nameserver_*.3*.trc
+{refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep HADR.*load.*susCostOpt nameserver_*.trc
 {refsidadm}@{sapnode2}:/usr/sap/{refsid}/HDB{refInst}> grep susCostOpt.init nameserver_*.3*.trc
 ----
 
@@ -1416,9 +1467,9 @@ change it to UCAST communication and adjust the timeout values to fit your envir
 
 // TODO PRIO2: Should we add some more information here?
 
-If you use the storage-based fencing (SBD) mechanism (diskless or disk-based),
+If you use the storage-based fencing (SBD) mechanism (disk-less or disk-based),
 you must also configure a watchdog. The watchdog is needed to reset a node if
-the system cannot longer access the SBD (diskless or disk-based).
+the system cannot longer access the SBD (disk-less or disk-based).
 It is mandatory to configure the Linux system for loading a watchdog driver. 
 It is strongly recommended to use a watchdog with hardware assistance (as is
 available on most modern systems), such as hpwdt, iTCO_wdt, or others. As fallback,
@@ -1837,7 +1888,7 @@ Now add the configuration to the cluster.
 ==== STONITH device
 // pcmk_delay_max is set automagically nowadays
 //
-// Skip this section if you are using diskless SBD.
+// Skip this section if you are using disk-less SBD.
 //
 // The next configuration part defines an SBD disk STONITH resource with an appropriate
 // value for the parameter_pcmk_delay_max_.
@@ -1868,7 +1919,7 @@ For fencing with IPMI/ILO, see <<cha.hanasr-using-ipmi>>.
 [[cha.hanasr-using-ipmi]]
 ==== Using IPMI as fencing mechanism
 
-This section is only relevant if the recommended disk-based or diskless SBD fencing is not used.
+This section is only relevant if the recommended disk-based or disk-less SBD fencing is not used.
 
 For details about IPMI/ILO fencing, read the cluster product documentation ({haAdminGuide15}).
 An example for an IPMI STONITH resource can be found in <<cha.hanasr-example-ipmi>>
@@ -1886,7 +1937,7 @@ run its own STONITH resource.
 
 ==== Using other fencing mechanisms
 
-This section is only relevant if the recommended disk-based or diskless SBD fencing is not used.
+This section is only relevant if the recommended disk-based or disk-less SBD fencing is not used.
 
 We recommend to use SBD (best practice) or IPMI (second choice) as STONITH mechanism. The {sleha} product
 also supports additional fencing mechanism not covered here.

@@ -9,7 +9,6 @@
 // Load document variables
 include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15.txt[]
 include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15-param.txt[]
-:docinfo:
 //
 // Start of the document
 //
@@ -26,8 +25,15 @@ include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15-param.txt[]
 // TODO PRIO2: Scale-Up multi sid aka MCOS for the performance optimized scenario
 // TODO PRIO1: Scale-Up with read-enabled (scheduled for 'next' publishing)
 // TODO PRIO3: Scale-Up and Handshake take-over (scheduled for 'after next' publishing)
-// TODO PRIO3: Scale-Up and multi target (scheduled for 'after next' publishing)
+// TODO PRIO3: Scale-Up and multi-target (scheduled for 'after next' publishing)
 
+////
+   ____      __                 __           __  _
+   /  _/___  / /__________  ____/ /_  _______/ /_(_)___  ____
+   / // __ \/ __/ ___/ __ \/ __  / / / / ___/ __/ / __ \/ __ \
+ _/ // / / / /_/ /  / /_/ / /_/ / /_/ / /__/ /_/ / /_/ / / / /
+/___/_/ /_/\__/_/   \____/\__,_/\__,_/\___/\__/_/\____/_/ /_/
+////
 
 === Introduction
 
@@ -67,7 +73,7 @@ From the application perspective the following variants are covered:
 
 - multi-tenant database containers for all above
 
-From the infrastructure perspective the following variants are covered:
+From the infrastructure perspective, the following variants are covered:
 
 - 2-node cluster with  disk-based SBD
 
@@ -395,13 +401,14 @@ You need at least {SAPHanaSR} version {sapHanaSrMinVers} and in best {sles4sap} 
 {hana} 2.0 is supported with all known SPS versions.
 ////
 
-For the HA/DR provider hook scripts SAPHanaSR.py and susTkOver.py, the following requirements apply:
+For the HA/DR provider hook scripts SAPHanaSR.py and susTkOver.py, the following
+requirements apply:
 
-* {sap} HANA 2.0 SPS04 or later provides the HA/DR provider hook method
+* {saphana} 2.0 SPS04 or later provides the HA/DR provider hook method
 srConnectionChanegd() with multi-target aware parameters. {sap} HANA 1.0 does not
 provide them. The multi-target aware parameters are needed for the SAPHanaSR
 scale-up package.
-* {sap} HANA 2.0 SPS04 or later provides the HA/DR provider hook method preTakeover().
+* {saphana} 2.0 SPS04 or later provides the HA/DR provider hook method preTakeover().
 * The user _{refsidadm}_ needs execution permission as user root for the command
 crm_attribute.
 * The hook provider needs to be added to the HANA global configuration, in memory
@@ -414,14 +421,14 @@ See also manual pages SAPHanaSR(7) and SAPHanaSR.py(7) for more details and requ
 IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
 and will not work properly.
 
-If you need to implement a different scenario, we strongly recommend to
-define a PoC with {suse}. This PoC will focus on testing the existing
-solution in your scenario. Most of the above mentioned limitations are because
-careful testing is needed.
+If you need to implement a different scenario, we strongly recommend to define
+a Proof of Concept (PoC) with {suse}. This PoC will focus on testing the existing
+solution in your scenario. Most of the above mentioned limitations are set
+because careful testing is needed.
 
 
 [[cha.hana-sr.scope]]
-== Scope of this documentation
+== Scope of this document
 
 This document describes how to set up the cluster to control {hana} in
 System Replication Scenarios. The document focuses on the steps to
@@ -1317,21 +1324,40 @@ totem {
 
     interface {
         ringnumber: 0
-        mcastport:  5405
-        ttl:        1
+        mcastport: 5405
+        ttl: 1
     }
-    #Transport protocol
-    transport:      udpu
+ 
+    interface {
+        ringnumber: 1
+        mcastport: 5407
+        ttl: 1
+    }
+ 
+    rrp_mode: passive
+    transport: udpu
+ 
+    ...
+ 
+}
+
+    ...
+
+nodelist {
+    node {
+            ring0_addr: {sapIp1Node1}
+            ring1_addr: {sapIp2Node1}
+            nodeid: 1
+    }
+ 
+    node {
+            ring0_addr: {sapIp1Node2}
+            ring1_addr: {sapIp2Node2}
+            nodeid: 2
+    }
 
 }
-nodelist {
-        node {
-        #ring0 address
-        ring0_addr:     {sapip1node1}
-        nodeid: 1
-
-        }
-    }
+    ...
 ----
 
 
@@ -2457,47 +2483,58 @@ and marks it as ok (SOK).
 
 In your project, you should:
 
-* Define STONITH before adding other resources to the cluster
+* Define STONITH before adding other resources to the cluster.
 * Do intensive testing.
 * Tune the timeouts of operations of SAPHana and SAPHanaTopology.
 * Start with PREFER_SITE_TAKEOVER=”true”, AUTOMATED_REGISTER=”false” and
 DUPLICATE_PRIMARY_TIMEOUT=”7200”.
+* Always wait for pending cluster actions to finish before doing something.
+* Set up a test cluster for testing configuration changes and administrative
+procedure before applying them on the production cluster.
 
 In your project, avoid:
 
-* Rapidly changing/changing back cluster configuration, such as: Setting
+* Rapidly changing/changing back a cluster configuration, such as setting
 nodes to standby and online again or stopping/starting the multi-state
 resource.
-* Creating a cluster without proper time synchronization or unstable
-name resolutions for hosts, users and groups
-* Adding location rules for the clone, multi-state or IP resource. Only
-location rules mentioned in this setup guide are allowed.
-* As "migrating" or "moving" resources in crm-shell, HAWK or other tools
-would add client-prefer location rules this activities are completely
-forbidden.
+* Creating a cluster without proper time synchronization or unstable name
+resolutions for hosts, users and groups.
+* Using site names other than the ones already known by the cluster when
+manually re-registering a site.
+* Adding location rules for the clone, multi-state or IP resource. Only location
+rules mentioned in this setup guide are allowed. For public cloud refer to the
+cloud specific documentation.
+* Using {SAP} tools for attempting start/stop/take-over actions on a database
+while the cluster is in charge of managing that database.
+
+IMPORTANT: As "migrating" or "moving" resources in crm-shell, HAWK or other
+tools would add client-prefer location rules, support is limited to maintenance
+procedures described in this document. See <<cluster-tests>> and
+<<sec-maintenance>> for proven procedures.
 
 === Monitoring and tools
 
-You can use the High Availability Web Console (HAWK), {hana} Studio and
-different command line tools for cluster status requests.
+You can use the High Availability Web Console (HAWK), {hana} Studio and different
+command line tools for cluster status requests.
 
 ==== HAWK – cluster status and more
 
-You can use an Internet browser to check the cluster status.
+You can use a Web browser to check the cluster status.
 
 .Cluster Status in HAWK
 image::SAPHanaSR-ScaleUp-HAWK-Status-SLE12.png[scaledwidth=100%]
 
-If you set up the cluster using {slehainit} and you have installed all
-packages as described above, your system will provide a very useful Web
-interface. You can use this graphical Web interface to get an overview
-of the complete cluster status, perform administrative tasks or configure resources and cluster bootstrap parameters. Read our product
-manuals for a complete documentation of this powerful user interface.
+If you set up the cluster using {slehainit} and you have installed all packages
+as described above, your system will provide a very useful Web interface. You
+can use this graphical Web interface to get an overview of the complete cluster
+status, perform administrative tasks or configure resources and cluster bootstrap
+parameters. Read the product manuals for a complete documentation of this user
+interface. For the {HANA} system replication {usecase} scenario the use of HAWK
+should follow the guidance given in this guide.
 
 ==== {hana} Studio
 
-Database-specific administration and checks can be done with {hana}
-studio.
+Database-specific administration and checks can be done with {hana} Studio.
 
 // TODO PRIO1: We need a HANA Cockpit screen-shot here
 
@@ -3002,62 +3039,64 @@ op_defaults op-options \
 
 === Example for _/etc/corosync/corosync.conf_
 
-The following file shows a typical corosync configuration with one ring.
-Ideally two rings would be used.
-Review the SUSE product documentation about details and about
-additional rings. See also manual pages corosync.conf(5) and
-votequorum(5).
+The following file shows a typical corosync configuration with two rings.
+Review the SUSE product documentation about details.
+See also manual pages corosync.conf(5) and votequorum(5).
 
 [subs="attributes,quotes"]
 ----
 # Read the corosync.conf.5 manual page
 totem {
-        version: 2
-        secauth: on
-        crypto_hash: sha1
-        crypto_cipher: aes256
-        cluster_name: suse-ha
-        clear_node_high_bit: yes
-        token: 5000
-        token_retransmits_before_loss_const: 10
-        join: 60
-        consensus: 6000
-        max_messages: 20
-        interface {
-                ringnumber: 0
-                mcastport: 5405
-                ttl: 1
-        }
-
-        transport: udpu
+    version: 2
+    secauth: on
+    crypto_hash: sha1
+    crypto_cipher: aes256
+    cluster_name: suse-ha
+    clear_node_high_bit: yes
+    token: 5000
+    token_retransmits_before_loss_const: 10
+    join: 60
+    consensus: 6000
+    max_messages: 20
+    interface {
+        ringnumber: 0
+        mcastport: 5405
+        ttl: 1
+    }
+    interface {
+        ringnumber: 1
+        mcastport: 5407
+        ttl: 1
+    }
+    rrp_mode: passive
+    transport: udpu
 }
 
 logging {
-        fileline: off
-        to_stderr: no
-        to_logfile: no
-        logfile: /var/log/cluster/corosync.log
-        to_syslog: yes
+    fileline: off
+    to_stderr: no
+    to_logfile: no
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: QUORUM
         debug: off
-        timestamp: on
-        logger_subsys {
-                subsys: QUORUM
-                debug: off
-        }
-
+    }
 }
 
 nodelist {
-        node {
-                ring0_addr: {sapIp1Node1}
-                nodeid: 1
-        }
-
-        node {
-                ring0_addr: {sapIp1Node2}
-                nodeid: 2
-        }
-
+    node {
+            ring0_addr: {sapIp1Node1}
+            ring1_addr: {sapIp2Node1}
+            nodeid: 1
+    }
+    node {
+            ring0_addr: {sapIp1Node2}
+            ring1_addr: {sapIp2Node2}
+            nodeid: 2
+    }
 }
 
 quorum {
@@ -3149,5 +3188,9 @@ include::common_gfdl1.2_i.adoc[]
 // REVISION 1.4 2022/02
 //   - updated examples, references
 //   - prepared for SAP native systemd support
+// REVISION 1.5 2022/06
+//   - susTkOver.py
+//   - corosync example with two rings
+
 //
 

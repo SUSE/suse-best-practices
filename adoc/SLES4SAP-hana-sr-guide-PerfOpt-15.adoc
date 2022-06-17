@@ -1024,6 +1024,7 @@ local_site_id=1
 ==========
 
 === Manually testing the {HANA} SR take-over
+[[cha.s4s.testtakeover]]
 
 Before you integrate your {HANA} system replication into the HA cluster, it is
 mandatory to do a manual take-over. Testing without the cluster helps to make
@@ -1246,6 +1247,71 @@ Cmnd_Alias HOOK_HELPER  = /usr/sbin/SAPHanaSR-hookHelper *
 ----
 ==========
 
+=== Starting {SAPHANA}
+
+Start {SAPHANA} as user {refsidadm}.
+
+[subs="specialchars,attributes,quotes"]
+----
+~> HDB start
+----
+
+=== Testing the hook integration
+
+==== Check the load of the hook scripts
+
+As user {refsidadm} check the {SAPHANA} tracefiles, if the HA/DR provider scripts are loaded successfully and are called successfully during an
+{SAPHANA} event.
+
+Check for script SAPHanaSR.py, if it is loaded and initialized correctly:
+
+----
+ ~> cdtrace
+ ~> grep HADR.*load.*SAPHanaSR nameserver_*.trc
+ ~> grep SAPHanaSR.init nameserver_*.trc
+----
+
+Check for script susTkOver.py, it it is loaded and initialized correctly:
+
+----
+ ~> cdtrace
+ ~> grep HADR.*load.*susTkOver nameserver_*.trc
+ ~> grep susTkOver.init nameserver_*.trc
+----
+
+==== Check an srConnectionChanged event
+
+As user {refsidadm} check the {SAPHANA} tracefiles, if SAPHanaSR.py did succesffuly interact with the cluster or created a fallback file.
+
+----
+ ~> cdtrace
+ ~> grep SAPHanaSR.srConnection.*CRM nameserver_*.trc
+ ~> grep SAPHanaSR.srConnection.*fallback nameserver_*.trc
+----
+
+==== Check a preTakeover event
+
+After an event has been processed by the HA/DR provider scripts, check for the correct behaviour: 
+
+To test script susTkOver.py with stopped cluster, procedure <<cha.s4s.testtakeover>> can be used here again. While the cluster is not set up
+at this moment the takeover will not be blocked.
+
+As user root check the system messages, if the sudo permissions for susTkOver.py calling SAPHanaSR-hookHelper are set successfully.
+
+[subs="specialchars,attributes,quotes"]
+----
+# grep "sudo.*SAPHanaSR-hookHelper"  /var/log/messages
+----
+
+As user {refsidadm} check the {SAPHANA} tracefiles, if susTkOver.py did succesffuly blocked or permitted the take-over request.
+
+----
+ ~> cdtrace
+# check for permitted take-over requests
+grep susTkOver.preTakeover.*permit nameserver_*.trc
+# check for blocked take-over requests
+grep susTkOver.preTakeover.*failed.*50277 nameserver_*.trc
+----
 
 [[cha.s4s.configure-cluster]]
 == {stepCluster}

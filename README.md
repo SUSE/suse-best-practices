@@ -40,8 +40,7 @@ Thank you for contributing to this repo. Please adhere to the following guidelin
   (see instructions below) to verify and build the files. Travis CI only validates, and does not ensure the XML builds
   are correct.
 
-* Implement any required changes, or fix any merge conflicts if relevant. If you have any questions, ping a documentation team
-  member in #susedoc on RocketChat.
+* Implement any required changes, or fix any merge conflicts if relevant. If you have any questions and are a SUSE employee, ping a documentation team member in #team-suse-docs on Slack.
 
 
 ## Editing DocBook

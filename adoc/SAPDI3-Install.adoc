@@ -1,0 +1,470 @@
+[#DI_Install]
+
+== Installing SAP Data Intelligence {di_version}
+
+This section describes the installation of {di} {di_version} on an RKE 2-powered Kubernetes cluster.
+
+=== Preparations
+
+The following steps need to be executed before the deployment of {di} {di_version} can start:
+
+* Create a namespace for {di} {di_version}.
+* Create an access to a secure private registry.
+* Create a default storage class.
+* Download and install SAP SLCBridge.
+* Download the `stack.xml` file for provisioning the DI {di_version} installation.
+* Check if the `nfsd` and `nfsv4` kernel modules are loaded and/or loadable on the Kubernetes nodes.
+
+
+==== Creating namespace for {di} {di_version} in the Kubernetes cluster
+
+Log in your management workstation and create the namespace in the Kubernetes cluster where DI {di_version} will be deployed.
+
+----
+$ kubectl create ns <NAMESPACE for DI 31>
+$ kubectl get ns
+----
+
+==== Creating `cert` file to access the secure private registry
+
+Create a file named `cert` that contains the SSL certificate chain for the secure private registry.
+This imports the certificates into {di} {di_version}. 
+//TODO Uli check completeness of commands below
+----
+$ cat CA.pem > cert
+$ kubectl -n <NAMESPACE for DI 31> create secret generic cmcertificates --from-file=cert
+----
+
+=== Creating default storage class
+
+To install {di} {di_version}, a default storage class is needed to provision the installation with physical volumes (PV).
+Below find an example for a `ceph`/`rbd` based storage class that uses the CSI.
+
+* Create the `yaml` files for the storage class; contact your storage admin to get the required information.
+
+* Create `config-map`:
++
+----
+$ cat << EOF > csi-config-map.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    [
+      {
+        "clusterID": "<ID of your ceph cluster>",
+        "monitors": [
+          "<IP of Monitor 1>:6789",
+          "<IP of Monitor 2>:6789",
+          "<IP of Monitor 3>:6789"
+        ]
+      }
+    ]
+metadata:
+  name: ceph-csi-config
+EOF
+----
+
+* Create a secret to access the storage:
++
+----
+$ cat << EOF > csi-rbd-secret.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-rbd-secret
+  namespace: default
+stringData:
+  userID: admin
+  userKey: AQCR7htglvJzBxAAtPN0YUeSiDzyTeQe0lveDQ==
+EOF
+----
+
+* Download the file:
++
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin-provisioner.yaml
+----
+
+* Download the file:
++
+----
+$ curl -LO https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-rbdplugin.yaml
+----
+
+* Create a pool on the Ceph storage where the PVs will be created, and insert the poolname and the Ceph cluster ID:
++
+----
+$ cat << EOF > csi-rbd-sc.yaml
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+   name: csi-rbd-sc
+provisioner: rbd.csi.ceph.com
+parameters:
+   clusterID: <your ceph cluster id>
+   pool: <your pool>
+   csi.storage.k8s.io/provisioner-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/provisioner-secret-namespace: default
+   csi.storage.k8s.io/node-stage-secret-name: csi-rbd-secret
+   csi.storage.k8s.io/node-stage-secret-namespace: default
+reclaimPolicy: Delete
+mountOptions:
+   - discard
+EOF
+----
+
+* Create `config` for encryption. This is needed, else the deployment of the CSI driver for `ceph`/`rbd` will fail.
++
+----
+$ cat << EOF > kms-config.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+data:
+  config.json: |-
+    {
+      },
+      "vault-tokens-test": {
+          "encryptionKMSType": "vaulttokens",
+          "vaultAddress": "http://vault.default.svc.cluster.local:8200",
+          "vaultBackendPath": "secret/",
+          "vaultTLSServerName": "vault.default.svc.cluster.local",
+          "vaultCAVerify": "false",
+          "tenantConfigName": "ceph-csi-kms-config",
+          "tenantTokenName": "ceph-csi-kms-token",
+          "tenants": {
+              "my-app": {
+                  "vaultAddress": "https://vault.example.com",
+                  "vaultCAVerify": "true"
+              },
+              "an-other-app": {
+                  "tenantTokenName": "storage-encryption-token"
+              }
+          }
+       }
+    }
+metadata:
+  name: ceph-csi-encryption-kms-config
+EOF
+----
+
+* Deploy the `ceph`/`rbd` CSI and storage class: 
++
+----
+$ kubectl apply -f csi-config-map.yaml
+$ kubectl apply -f csi-rbd-secret.yaml
+$ kubectl apply -f \ 
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-provisioner-rbac.yaml
+$ kubectl apply -f \
+  https://raw.githubusercontent.com/ceph/ceph-csi/master/deploy/rbd/kubernetes/csi-nodeplugin-rbac.yaml
+$ kubectl apply -f csi-rbdplugin-provisioner.yaml 
+$ kubectl apply -f csi-rbdplugin.yaml 
+$ kubectl apply -f csi-rbd-sc.yaml 
+$ kubectl apply -f kms-config.yaml
+$ kubectl patch storageclass csi-rbd-sc \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+----
+
+* Check your storage class:
++
+----
+$ kubectl get sc
+NAME                   PROVISIONER        RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+csi-rbd-sc (default)   rbd.csi.ceph.com   Delete          Immediate           false                  103m
+----
+
+=== Downloading the SLC Bridge
+
+The SLC Bridge can be obtained:
+
+* from the SAP software center https://support.sap.com/en/tools/software-logistics-tools.html#section_622087154. 
+Choose *Download SLC Bridge*.
+
+* via the information in the release notes of the SLC Bridge at https://launchpad.support.sap.com/#/notes/2589449.
+
+* via https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/{di_version}.latest/en-US/8ae38791d71046fab1f25ee0f682dc4c.html.
+
+Download the SLC Bridge software to the management workstation.
+
+
+=== Installing the SLC Bridge
+
+Rename the SLC Bridge binary to `slcb` and make it executable. Deploy the SLC Bridge to the Kubernetes cluster.
+
+----
+$ mv SLCB01_XX-70003322.EXE slcb
+$ chmod 0700 slcb
+$ export KUBECONFIG=<KUBE_CONFIG>
+$ ./slcb init
+----
+
+During the interactive installation, the following information is needed:
+
+* URL of secure private registry
+* Choose *expert mode*
+* Choose *NodePort* for the service
+
+Take a note of the service port of the SLC Bridge. It is needed for the installation of {di} {di_version} or for the reconfiguration of DI {di_version}, 
+for example to enable backup. If you forgot to note it down, the following command will list the service port:
+// FIXME add screenshot / command line showing result service port > 30000
+----
+$ kubectl -n sap-slcbridge get svc
+----
+
+=== Creating and downloading Stack XML for the {di} installation
+
+Follow the steps described in the chapter
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/{di_version}.latest/en-US/7e4847e241c340b3a3c50a5db11b46e2.html[Install SAP Data Intelligence with SLC Bridge in a Cluster with Internet Access]
+of the {di} {di_version} Installation Guide.
+
+==== Creating Stack XML
+
+You can create the Stack XML via the SAP Maintenance Planner. Access the tool via https://support.sap.com/en/alm/solution-manager/processes-72/maintenance-planner.html.
+Go to the Maintenance Planner at https://apps.support.sap.com/sap/support/mp published on the SAP Web site 
+and generate a Stack XML file with the container image definitions of the SAP Data Intelligence release that you want to install. 
+Download the Stack XML file to a local directory. Copy `stack.xml` to the management workstation.
+
+
+=== Running the installation of {di}
+
+The installation of {di} {di_version} is invoked by:
+
+----
+$ export KUBECONFIG=<path to kubeconfig>
+$ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
+----
+
+This starts an interactive process for configuring and deploying {di} {di_version}.
+
+The table below lists some parameters available for an {di} {di_version} installation:
+
+[cols="3",options="header"]
+|===
+| Parameter| Condition | Recommendation
+| Kubernetes Namespace | Always | set to namespace created beforehand
+| Installation Type | installation or update| either
+| Container Registry| Always | add the uri for the secure private registry
+| Checkpoint Store Configuration| installation | whether to enable Checkpoint Store
+| Checkpoint Store Type |if Checkpoint Store is enabled | use S3 object store from SES
+| Checkpoint Store Validation |if Checkpoint is enabled | Object store access will be verified
+| Container Registry Settings for Pipeline Modeler |optional| used if a second container registry is used
+| StorageClass Configuration |optional, needed if a different StorageClass is used for some components| leave the default
+| Default StorageClass |detected by {di} installer| The Kubernetes cluster shall have a storage class annotated as default SC
+| Enable Kaniko Usage |optional if running on Docker| enable
+| Container Image Repository Settings for SAP Data Intelligence Modeler|mandatory|
+| Container Registry for Pipeline Modeler |optional| Needed if a different container registry is used for the pipeline modeler images
+| Loading NFS Modules |optional| Make sure that nfsd and nfsv4 kernel modules are loaded on all worker nodes
+| Additional Installer Parameters |optional|
+|===
+
+For more details about input parameters for an {di} {di_version} installation, visit the section
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/{di_version}.latest/en-US/abfa9c73f7704de2907ea7ff65e7a20a.html[Required Input Parameters]
+of the SAP Data Intelligence Installation Guide.
+
+
+=== Post-installation tasks
+
+After the installation workflow is successfully finished, you need to carry out some more tasks:
+// FIXME Formulierung
+
+* Obtain or create an SSL certificate to securely access the {di} installation:
+
+** Create a certificate request using `openssl`, for example:
++
+----
+$ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
+----
+
+** Decrypt the key: 
++
+----
+$ openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
+----
+
+** Let a CA sign the <hostname>.csr
+You will receive  a <hostname>.crt.
+
+** Create a secret from the certificate and the key in the {di} 3 namespace:
++
+----
+$ export NAMESPACE=<{di} 3 namespace>
+$ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
+----
+
+* Deploy an `nginx-ingress` controller
+
+** For more information, see https://kubernetes.github.io/ingress-nginx/deploy/#bare-metal
+
+** Create the `nginx-ingress` controller as a *nodePort* service according to the Ingress `nginx` documentation:
++
+----
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/baremetal/deploy.yaml
+----
+
+** Determine the port the `nginx` controller is redirecting HTTPS to:
++
+----
+$ kubectl -n ingress-nginx get svc ingress-nginx-controller
+----
++
+The output should be similar to the below:
++
+----
+kubectl -n ingress-nginx get svc ingress-nginx-controller
+NAME                       TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller   NodePort   10.43.86.90   <none>        80:31963/TCP,443:{di_version}06/TCP   53d
+----
++
+In our example here, the TLS port is be {di_version}06. Note the port IP down as you will need it to access the {di} installation from the outside.
+
+* Create an Ingress to access the {di} installation:
++
+----
+$ cat <<EOF > ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/secure-backends: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 16k
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+  name: vsystem
+spec:
+  rules:
+  - host: "<hostname FQDN must match SSL certificate"
+    http:
+      paths:
+      - backend:
+          serviceName: vsystem
+          servicePort: 8797
+        path: /
+  tls:
+  - hosts:
+    - "<hostname FQDN must match SSL certificate>"
+    secretName: vsystem-tls-certs
+EOF
+$ kubectl apply -f ingress.yaml
+----
+
+* Connecting to \https://hostname:<ingress service port> brings up the {di} login dialog. 
+
+
+=== Testing the {di} 3 installation
+
+Finally, the {di} 3 installation should be verified with some very basic tests:
+
+* Log in to {di}'s launchpad
+
+* Create example pipeline
+
+* Create ML Scenario
+
+* Test machine learning
+
+* Download `vctl`
+
+For details, see the
+https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/{di_version}.latest/en-US/1551785f3d7e4d37af7fe99185f7acb6.html[{di} 3 Installation Guide]
+
+
+== Maintenance tasks
+
+This section provides some tips about what should and could be done to maintain the Kubernetes cluster, 
+the operating system and the {di} 3 deployment.
+
+=== Backup
+
+It is good practice to keep backups of all relevant data to be able to restore the environment in case of a failure.
+
+To perform regular backups, follow the instructions as outlined in the respective documentation below:
+
+* For RKE 2, consult section https://rancher.com/docs/rke/latest/en/etcd-snapshots/[Backups and Disaster Recovery]
+* SAP Data Intelligence 3 can be configured to create regular backups. For more information, 
+visit help.sap.com https://help.sap.com/viewer/a8d90a56d61a49718ebcb5f65014bbe7/{di_version}.latest/en-US/e8d4c33e6cd648b0af9fd674dbf6e76c.html.
+
+
+=== Upgrade or update
+
+This section explains how you can keep your installation of {di}, RKE 2 and {sles} up-to-date.
+
+==== Updating the operating system
+
+To obtain updates for {sles} 15 SP2, 
+the installation must be registered either to SUSE Customer Center, an SMT or RMT server, or SUSE Manager with a valid subscription.
+
+* {sles} 15 SP2 can be updated on the command line using `zypper`:
++
+----
+$ sudo zypper ref -s
+$ sudo zypper lu
+$ sudo zypper patch
+----
+
+* Other methods for updating {sles} 15 SP2 are described in the https://documentation.suse.com/sles[product documentation].
+
+If an update requires a reboot of the server, make sure that this can be done safely.
+
+* For example, block access to {di}, and drain and cordon the Kubernetes node before rebooting:
++
+----
+$ kubectl edit ingress <put in some dummy port>
+$ kubectl drain <node>
+----
+
+* Check the status of the node:
++
+----
+$kubectl get node <node>
+----
++
+The node should be marked as *not schedulable*.
+
+* On RKE 2 master nodes, run the command:
++
+----
+$ sudo systemctl stop rke2-server
+----
+
+* On RKE 2 worker nodes, run the command:
++
+----
+$ sudo systemctl stop rke2-agent
+----
+
+* Update {sles} 15 SP2:
++
+----
+$ ssh node
+$ sudo zypper patch
+----
+
+* Reboot the nodes if necessary or start the appropriate RKE 2 service.
+
+** On master nodes, run the command:
++
+----
+$ sudo systemctl start rke2-server
+----
+
+** On worker nodes, run the command:
++
+----
+$ sudo systemctl start rke2-agent
+----
+ 
+* Check if the respective nodes are back and uncordon them.
++
+----
+$ kubectl get nodes
+$ kubectl uncordon <node>
+----

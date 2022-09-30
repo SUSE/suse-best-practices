@@ -1,7 +1,11 @@
 [Longhorn]
 
+:lh_version: 1.3.1
 
 == Installing {lh}
+
+This chapter will show the minimum requirements to install {lh} and show three different ways to do so.
+For more details, visit https://longhorn.io/docs/{lh_version}/deploy/install/ 
 
 === Requirements
 
@@ -18,17 +22,9 @@ $ curl -sSfL https://raw.githubusercontent.com/longhorn/longhorn/v1.2.4/scripts/
 ----
 
 
-{lh} can be installed using the following three ways:
-* Using the {rancher} Marketplace
-* Using the {lh} Helm chart
-* Using kubectl
-
-
-
-
 === Install {lh} using {rancher}
 
-
+https://longhorn.io/docs/{lh_version}/deploy/install/install-with-rancher/
 
 
 === Install {lh} using Helm
@@ -46,8 +42,58 @@ This will add the Longhorn Helm charts to the list of Helm repositories, update 
 
 Installing {lh} using kubectl can be done running:
 ----
-$ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.2.4/deploy/longhorn.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v{lh_version}/deploy/longhorn.yaml
 ----
 
 
-// TODO Expose UI
+=== Expose {lh} UI by creating an Ingress with Basic Authentication
+
+
+
+* Create a basic `auth` file:
++
+----
+$ USER=<USERNAME_HERE>; \
+  PASSWORD=<PASSWORD_HERE>; \
+  echo "${USER}:$(openssl passwd -stdin -apr1 <<< ${PASSWORD})" >> auth
+----
+
+* Create a secret from the file `auth`:
++
+----
+$ kubectl -n longhorn-system create secret generic basic-auth --from-file=auth
+----
+
+* Create the Ingress with basic authentication:
++
+----
+$ cat <<EOF > longhorn-ingress.yaml
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: longhorn-ingress
+  namespace: longhorn-system
+  annotations:
+    # type of authentication
+    nginx.ingress.kubernetes.io/auth-type: basic
+    # prevent the controller from redirecting (308) to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    # name of the secret that contains the user/password definitions
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    # message to display with an appropriate context why the authentication is required
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required '
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: longhorn-frontend
+          servicePort: 80
+EOF
+
+$ kubectl -n longhorn-system apply -f longhorn-ingress.yaml
+----
+
+
+For more details, visit https://longhorn.io/docs/{lh_version}/deploy/accessing-the-ui/longhorn-ingress/

@@ -7,8 +7,6 @@ include::Var_SLES4SAP-hana-scaleOut-PerfOpt-15-param.txt[]
 //
 
 = {SAPHANA} System Replication Scale-Out - Performance Optimized Scenario
-// Fabian Herschel, Lars Pinne
-// 2022-05-27
 
 :Revision: 0.2
 // TODO PRIO3: revision here, or at very bottom? see very bottom...
@@ -24,19 +22,17 @@ include::common_copyright_gfdl.adoc[]
 
 === Introduction
 
-{sles4sapReg} is optimized in various
-ways for {SAPreg} applications. This guide provides detailed information about
-installing and customizing _{sles4sap}_
-for {HANA} scale-out system replication automation in the performance
-optimized scenario.
+{sles4sapReg} is optimized in various ways for {SAPreg} applications. This guide
+provides detailed information about installing and customizing _{sles4sap}_
+for {HANA} scale-out system replication automation in the performance optimized
+scenario, including standby nodes.
 
 High availability is an important aspect of running your mission-critical
 {HANA} servers.
 
 The {HANA} scale-out system replication is a synchronization of all data in
-{HANA} to a second {HANA} system. The {HANA} itself replicates all of
-its data to a secondary {HANA} instance. It is an out-of-the-box, standard
-feature.
+{HANA} to a second {HANA} system. The {HANA} itself replicates all of its data
+to a secondary {HANA} instance. It is an out-of-the-box, standard feature.
 
 The recovery time objective (RTO) is minimized through the data replication at
 regular intervals. {HANA} supports asynchronous and synchronous modes. The
@@ -49,7 +45,10 @@ decision based on coded algorithms.
 
 This guide describes planning, setup, and basic testing of {sles4sap} {prodNr}
 for the high availability solution scenario "SAP HANA Scale-Out System
-Replication Performance Optimized".
+Replication Performance Optimized - BW Style". The setup includes {HANA} standby
+nodes. It is addressing the needs for scale-out systems as they are used for
+{SAP} Business Warehouse (BW) systems. For {SAP} Enterprise Resource Planning
+(ERP) systems, another setup guide exists.  
 
 From the application perspective the following variants are covered:
 
@@ -58,14 +57,14 @@ From the application perspective the following variants are covered:
 - Multi-target system replication
 - Multi-tenant database containers for all above
 - HANA host auto-failover for all above
-- HANA databases without host auto-failover are possible, but not explained
-  in this guide
-// TODO PRIO3: - System replication with secondary site read-enabled
+- HANA databases without host auto-failover are possible, but not explained here
+// note: active/read-enabled is currently not working for host-autofailover
 
 From the infrastructure perspective the following variants are covered:
 
 - 3-site cluster with disk-based and diskless SBD fencing
 - 1-site cluster with disk-based and diskless SBD fencing
+- other fencing is possible, but not explained here
 
 
 === Additional documentation and resources
@@ -91,7 +90,9 @@ include::common_intro_feedback.adoc[]
 // TODO PRIO3: work on SUSE doc standard conventions file
 //include::common_intro_typografie.adoc[]
 
+
 == Scope of this documentation
+
 This document describes how to set up automation of an {HANA} scale-out
 system replication cluster installed on two sites based on {sles4sap} {pn15} {psp15}.
 This concept can also be used with {sles4sap} {pn15} SP1 or newer.
@@ -122,9 +123,13 @@ Details on requirements and supported scenarios are given below.
 // TODO PRIO3: internal link to requirements section
 In this guide, we describe two scenarios where {HANA} is configured for host
 auto-failover. That means there are standby nodes which are managed by {HANA}.
-A dedicated setup guide describes how to manage a specific HANA scale-out
-configuration without standby-nodes. You will find background information on that
-setup in a series of blog articles on {#towardsZeroDowntime}, for example
+This setup is addressing the needs for scale-out systems as they are used for
+{SAP} Business Warehouse (BW) systems.
+
+For {SAP} Enterprise Resource Planning (ERP) systems, another setup guide exists.
+That setup guide describes how to manage a specific HANA scale-out configuration
+without standby-nodes. You will find background information on that setup in a
+series of blog articles on {#towardszerodowntime}, for example
 https://www.suse.com/c/sap-hana-scale-out-system-replication-for-large-erp-systems/ .
 
 NOTE: For upgrading an existing {HANA} scale-out system replication cluster
@@ -213,10 +218,11 @@ the parameter sheet and than begin with the installation.
 ^|Parameter ^| Value
 |Path to {sles4sapAbbr} media |
 |RMT server or SCC account |
+|NTP server(s) |
 |Path to {HANA} media |
 |S-User for SAP marketplace |
-|Node names site 1  |
-|Node names site 2  |
+|Node names site 1 |
+|Node names site 2 |
 |Node name majority maker  |
 |IP addresses of all cluster nodes |
 |SID |
@@ -238,7 +244,6 @@ the parameter sheet and than begin with the installation.
 
 // TODO PRIO3: Add sheet rows for 'HANA virtual host names' and 'HANA SAN parameter sheet'
 // TODO PRIO3: Should we write a SAP specific white paper in collaboration with a HW vendor?
-// DONE PRIO3: Should we write a SUSE storage specific white paper also? There is no longer SUSE storage...
 
 === Scale-out scenario and resource agents
 
@@ -1380,8 +1385,9 @@ command as _{refsidadm}_ user on the primary site.
 ~> HDBSettings.sh systemReplicationStatus.py
 ----
 
-This script prints a human-readable table of the system replication channels and their status. The
-most interesting column is the **Replication Status**, which should be **ACTIVE**.
+This script prints a human-readable table of the system replication channels and
+their status. The most interesting column is the **Replication Status**, which
+should be **ACTIVE**.
 
 [subs="specialchars,attributes,quotes"]
 ----
@@ -1411,15 +1417,39 @@ site name: WDF1
 .<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> Integration <<Cluster>> <<Testing>>
 image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
 
-[[Integration]]Proceed with the following steps:
+[[Integration]]
+This chapter describes what to change on the {saphana} configuration for the
+BW style scale-out scenario.
+
+This step is mandatory to inform the cluster immediately if the secondary gets
+out of sync. The hook is called by {HANA} using the HA/DR provider interface
+in point-of-time when the secondary gets out of sync. This is typically the case
+when the first commit pending is released. The hook is called by {HANA} again
+when the system replication is back. This HA/DR provider method is
+`srConnectionChanged()`, the related {SUSE} hook script is `{haDrMultiTargetPy}`.
+
+// note: susChkSsrv.py is not intended for host-autofailover
 
 .Procedure
 
+. Stop {saphana}
 . Implement the HA/DR python hook {haDrMultiTargetPy}
 . Configure system replication operation mode
 . Allow {refsidadm} to access the cluster
 . Start {HANA}
 . Test the hook integration
+
+=== Stopping {saphana}
+
+The {saphana} needs to be stopped at both sites that will be part of the Linux
+cluster. At each site do the following:
+[subs="specialchars,attributes"]
+----
+# su - {refsidadm}
+~> sapcontrol -nr {refInst} -function StopSystem
+~> sapcontrol -nr {refinst} -function WaitforStopped 300 20
+~> sapcontrol -nr {refInst} -function GetSystemInstanceList
+----
 
 === Implementing the HA/DR provider hook {haDrMultiTargetPy}
 
@@ -1428,7 +1458,6 @@ image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
 This step must be done on both sites. {HANA} must be stopped to change the
 _global.ini_ and allow {HANA} to integrate the HA/DR hook script during start.
 
-// TODO - Install the HA/DR hook script into a read/writable directory
 - Integrate the hook into _global.ini_ ({HANA} needs to be stopped for doing that offline)
 - Check integration of the hook during {HANA} start-up
 
@@ -1436,13 +1465,6 @@ The ready-to-use HA/DR hook script is shipped with the SAPHanaSR-ScaleOut packag
 directory /usr/share/SAPHanaSR-ScaleOut/.
 The hook script must be available on all cluster nodes, including the majority
 maker. Find more details in manual page SAPHanaSrMultiTarget.py(7).
-
-Stop {HANA}.
-
-[subs="specialchars,attributes"]
-----
-~> sapcontrol -nr {refInst} -function StopSystem
-----
 
 .Adding {haDrMultiTargetPy} via global.ini
 ===================================
@@ -1500,7 +1522,7 @@ The user {refsidadm} must be able to set the cluster attributes
 hana_{refsidLC}_site_srHook_* and hana_{refsidLC}_gsh.
 The {HANA} system replication hook needs password free access. The following
 example limits the sudo access to exactly setting the needed attribute.
-See manual page sudoers(5) for details.
+See manual pages sudoers(5) and SAPHanaSrMultiTarget.py(7) for details.
 
 Replace the {refsidLC} by the lowercase SAP system ID.
 
@@ -1566,12 +1588,14 @@ Check if {HANA} has finished starting.
 [subs="specialchars,attributes"]
 ----
 ~> sapcontrol -nr {refinst} -function WaitforStarted 300 20
+~> sapcontrol -nr {refinst} -function GetSystemInstanceList
 ----
 ==========
 
 === Testing the hook integration
 
-When the {HANA} database has been restarted after the changes, check if the hook script is called correctly.
+When the {HANA} database has been restarted after the changes, check if the hook
+script is called correctly.
 A useful verification is to check the {HANA} trace files as {refsidadm}:
 
 [subs="specialchars,attributes"]
@@ -1586,25 +1610,25 @@ A useful verification is to check the {HANA} trace files as {refsidadm}:
 // TODO PRIO3: align check with manual page SAPHanaSrMultiTarget.py(7)
 
 == Configuring the cluster and {HANA} resources
-[[Cluster]]This chapter describes the configuration of the {sleha} cluster. The {sleha} is part of {sles4sap}.
-Further, the integration of {HANA} System Replication with the {sleha} cluster is explained. The integration is done
-by using the SAPHanaSR-ScaleOut package which is also part of {sles4sap}.
-
 .<<Planning>> <<OsSetup>> <<SAPHanaInst>> <<SAPHanaHsr>> <<Integration>> Cluster <<Testing>>
 image::SAPHanaSR-ScaleOut-Plan-Phase6.svg[scaledwidth="100%"]
+[[Cluster]]This chapter describes the configuration of the {sleha} cluster. The
+{sleha} is part of {sles4sap}. Further, the integration of {HANA} System Replication
+with the {sleha} cluster is explained. The integration is done by using the
+SAPHanaSR-ScaleOut package which is also part of {sles4sap}.
 
 .Procedure
 
 . Installation of cluster packages
-. Basic Cluster Configuration
-. Configure Cluster Properties and Resources
+. Basic cluster configuration
+. Configure cluster properties and resources
 . Final steps
 
 === Installing the cluster packages
 
 If not already done, install the pattern _High Availability_ on *all* nodes.
 
-To do so, use Zypper.
+To do so, use zypper.
 ----
 # zypper in -t pattern ha_sles
 ----

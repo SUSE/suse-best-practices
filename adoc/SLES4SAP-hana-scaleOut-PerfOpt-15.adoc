@@ -64,7 +64,12 @@ From the infrastructure perspective the following variants are covered:
 
 - 3-site cluster with disk-based and diskless SBD fencing
 - 1-site cluster with disk-based and diskless SBD fencing
-- other fencing is possible, but not explained here
+- Other fencing is possible, but not explained here
+- On-premises deployment on physical and virtual machines
+- Public cloud deployment (usually needs additional documentation on cloud specific details)
+
+Deployment automation simplifies roll-out. There are several options available, particularly on public cloud platfoms. Ask your public cloud provider or your
+{SUSE} contact for details.
 
 
 === Additional documentation and resources
@@ -128,14 +133,14 @@ This setup is addressing the needs for scale-out systems as they are used for
 
 For {SAP} Enterprise Resource Planning (ERP) systems, another setup guide exists.
 That setup guide describes how to manage a specific HANA scale-out configuration
-without standby-nodes. You will find background information on that setup in a
-series of blog articles on {#towardszerodowntime}, for example
+without standby-nodes. The multi-target configuration is shown there as well. You
+will find background information on that setup in a series of blog articles on
+{#towardszerodowntime}, for example
 https://www.suse.com/c/sap-hana-scale-out-system-replication-for-large-erp-systems/ .
 
-NOTE: For upgrading an existing {HANA} scale-out system replication cluster
-from SAPHanaSR-ScaleOut version 0.160, consult manual page
-SAPHanaSR-manageAttr(8) and the blog article
-https://www.suse.com/c/sap-hana-scale-out-multi-target-upgrade/ .
+NOTE: For upgrading an existing {HANA} scale-out system replication cluster from
+SAPHanaSR-ScaleOut version 0.160, consult manual page SAPHanaSR-manageAttr(8) and
+the blog article https://www.suse.com/c/sap-hana-scale-out-multi-target-upgrade/ .
 
 
 == Planning the installation
@@ -759,7 +764,7 @@ DNS service. Replace the IP address and the host name in the following commands.
 
 [subs="quotes,attributes"]
 ----
-vi /etc/hosts
+# vi /etc/hosts
 ----
 
 Insert the following lines to `/etc/hosts`. Change the IP address and host name
@@ -1796,10 +1801,22 @@ module matching your systems. In the example at hand the _softdog_ kernel module
 ----
 
 ==== Checking the cluster for the first time
+
 Now it is time to check and optionally start the cluster for the first time on
 all nodes.
+----
+# crm cluster run "crm cluster start"
+----
+// TODO PRIO3: output
 
 NOTE: All nodes should be started in parallel. Otherwise unseen nodes might get fenced.
+
+Check whether all cluster nodes have registered at the SBD device(s). See manual
+page cs_show_sbd_devices(8) for details.
+----
+# cs_show_sbd_devices
+----
+// TODO PRIO3: output
 
 Check the cluster status with `crm_mon`. Use the option `-r` to also see
 resources which are configured but stopped.
@@ -1829,6 +1846,7 @@ stonith-sbd     (stonith:external/sbd): Started suse-mm
 ----
 
 === Configuring cluster properties and resources
+
 This section describes how to configure bootstrap, STONITH, resources, and constraints
 using the _crm_ configure shell command as described in section
 _Configuring and Managing Cluster Resources (Command Line)_ of the
@@ -1851,6 +1869,7 @@ in a second step. This step is as follows:
 ----
 
 ==== Cluster bootstrap and more
+
 The first example defines the cluster bootstrap options including the resource and
 operation defaults.
 
@@ -1946,6 +1965,7 @@ best way to avoid unexpected cluster reactions is to
 ----
 
 ==== SAPHanaTopology
+
 Next, define the group of resources needed, before the {HANA} instances can be
 started. Prepare the changes in a text file, for example _crm-saphanatop.txt_,
 and load these with the _crm_ command.
@@ -2075,7 +2095,8 @@ Add the configuration to the cluster.
 ----
 ==========
 
-[cols="1,2", options="header"]
+// [cols="1,2", options="header"]
+[width="100%",cols="40%,60%",options="header"]
 .Table Description of important Resource Agent parameter
 |===
 |Name
@@ -2155,6 +2176,7 @@ IP address to be presented to the client systems.
 Use the command `man ocf_heartbeat_IPAddr2` for details on additional parameters.
 
 ==== Constraints
+
 The constraints are organizing the correct placement of the virtual IP
 address for the client database access and the start order between the two
 resource agents SAPHana and SAPHanaTopology. The rules help to remove false
@@ -2271,9 +2293,11 @@ project or customer expectations are defined and passed completely.
 
 The test prerequisite, if not described differently, is always that all cluster
 nodes are booted, are already normal members of the cluster and the {HANA}
-RDBMS is running. The system replication is in state *SYNC* represented by 'SOK'.
+RDBMS is running. The system replication is in state *SYNC* represented by 'srHook SOK' for the secondary site.
 The cluster is idle, no actions are pending, no migration constraints left over,
 no fail-counts left over.
+
+The expected results are given for SAPHanaController parameter AUTOMATED_REGISTER="false" and SBD parameter SBD_START_MODE="always". These are installation defaults.
 
 In the current version of this setup guide a plain list of test cases is provided.
 A more detailed description of the test cases is planned for future versions.
@@ -2293,18 +2317,18 @@ simulating SBD failures and much more.
 * Isolate the SBD.
 * Simulate a maintenance procedure with cluster continuously running.
 * Simulate a maintenance procedure with cluster restart.
-// * ? Force a sr_takeover via cluster migration commands (use force!!).
 * Kill the corosync process of one of the cluster nodes.
+
 
 === Tests on the primary site
 
-The tests described in this section are checking the reaction on several
-failures of the primary site.
+The tests described in this section are checking the reaction on several failures
+of the primary site.
 
 ==== Tests regarding cluster nodes of the primary site
 
-The tests listed here check the {HANA} and cluster reaction if one or more nodes of the primary site are failing or
-re-joining the cluster.
+The tests listed here check the {HANA} and cluster reaction if one or more nodes
+of the primary site are failing or re-joining the cluster.
 
 * Power-off master name server of the primary. The test assumes that there is still an {HANA} standby instance.
 * Power-off master name server of the primary after all standby instances are already in use.
@@ -2319,6 +2343,10 @@ This test category is simulating a complete site failure.
 
 * Power-off all nodes of the primary site in parallel.
 
+* Manually registering a failed primary site as new secondary.
+
+Prerequistes: A failed former primary sites has just been manually registered. The exact site name has been used as already known to the cluster, see parameter sheet.
+
 ==== Tests regarding the {HANA} instances of the primary site
 
 The tests listed here are checks about the {HANA} and cluster reactions triggered by application failures such as a crashed {HANA} instance.
@@ -2329,6 +2357,7 @@ The tests listed here are checks about the {HANA} and cluster reactions triggere
 * Kill the {HANA} instance of any worker node but not the master name server of the primary after all standby instances are already in use.
 * Kill the {HANA} instance of any standby node.
 * Kill sapstartsrv of any {HANA} instance of the primary.
+
 
 === Tests on the secondary site
 
@@ -2399,11 +2428,15 @@ In your project, *avoid* the following:
 * As "migrating" or "moving" resources in _crm-shell_, HAWK or other tools would
   add client-prefer location rules, these activities are completely *forbidden!*.
 
+
 === Monitoring and tools
+
 You can use the High Availability Web Konsole (HAWK), {HANA} Cockpit and
-different command line tools for cluster status requests.
+different command line tools for cluster status requests. Please see manual pages
+crm_mon(8), cs_wait_for_idle(8), SAPHanaSR_maintenance_examples(7), SAPHanaSR-showAttr(8), SAPHanaSrMultiTarget.py(7) and susChkSrv.py(7).
 
 ==== HAWK – cluster status and more
+
 You can use an Internet browser to check the cluster status. Use the following URL:
 https://<node>:7630
 
@@ -2430,6 +2463,7 @@ Read the product manuals for a complete documentation of this powerful user
 interface.
 
 ==== {HANA} Cockpit
+
 Database-specific administration and checks can be done with {HANA} Cockpit.
 
 .{HANA} Cockpit – System Replication Overview

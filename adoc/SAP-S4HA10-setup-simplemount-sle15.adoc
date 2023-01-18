@@ -1163,6 +1163,119 @@ A minimal example sequence for checking the cluster status might look like the f
 
 See also manual pages cs_clusterstate(8), crm(8) and crm_mon(8).
 
+==== Maintenance procedure for a Linux cluster or operating system with ASCS and ERS instances remain running
+
+Check state of Linux cluster and ASCS/ERS:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+----
+
+This must return the following output:
+
+----
+Cluster state: S_IDLE
+----
+
+Obtain a cluster summary, list of nodes, and a full list of resources:
+
+[subs="attributes"]
+----
+# crm_mon -1r
+----
+
+Check for any undesired location constraints:
+
+[subs="attributes"]
+----
+# crm configure show|grep cli-
+----
+
+If the command returns no output, it means that there are no undesired constraints.
+
+Get a list of system instances:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function GetSystemInstanceList"
+----
+
+Get a list of processes running on the ASCS and ERS instances:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function GetProcessList"
+----
+
+Check whether maintenance mode is set in the cluster configuration:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function HACheckMaintenanceMode"
+----
+
+Get the information about cluster solution, available HA nodes, and the active node where the given instance is running:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function HAGetFailoverConfig"
+----
+
+Before you set the Linux cluster into the maintenance mode, check its state by running the `cs_clusterstate -i` command. Then run the command below to set the cluster into the maintenance mode:
+
+[subs="attributes"]
+----
+# crm maintenance on
+----
+
+Stop the Linux cluster on all nodes:
+
+[subs="attributes"]
+----
+# crm cluster stop
+----
+
+You can now perform maintenance on the Linux cluster or system. Before doing the system maintenance, you must bring down SAP instances as necessary. If the SAP instances were brought down, then you also need to bring up the SAP instances before activating the cluster.
+
+When the maintenance is complete, start the Linux cluster on all nodes:
+
+[subs="attributes"]
+----
+# crm cluster start
+----
+
+Let the Linux cluster detect the status of the ASCS and ERS resources:
+
+[subs="attributes"]
+----
+# crm resource refresh rsc_sap_EN2_ASCS00
+# crm resource refresh rsc_sap_EN2_ERS10
+----
+
+Set the cluster ready for operations:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+# crm maintenance off
+----
+
+Check the status of the Linux cluster and ASCS/ERS:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+# crm_mon -1r
+# crm configure show|grep cli-
+# su - en2adm -c "sapcontrol -nr 00 -function GetSystemInstanceList"
+# su - en2adm -c "sapcontrol -nr 00 -function GetProcessList"
+# su - en2adm -c "sapcontrol -nr 10 -function GetProcessList"
+# su - en2adm -c "sapcontrol -nr 00 -function HACheckMaintenanceMode"
+# su - en2adm -c "sapcontrol -nr 00 -function HAGetFailoverConfig"
+# cs_clusterstate -i
+----
+
 ==== Migrating the ASCS instance
 
 To *migrate* the ASCS {sap} instance, you should use {sap} tools such as
@@ -1180,9 +1293,9 @@ As user _{mysapadm}_, type the command:
 
 ==== Using unique instance numbers
 
-Currently all {sap} *instance numbers controlled by the cluster must be unique*.
-  If you need multiple dialog instances, such as D00, running on different
-  systems, they should not be controlled by the cluster.
+All {sap} instance numbers controlled by the cluster must be unique. If you need
+multiple dialog instances with the same instance number running on different
+systems, they must not be controlled by the cluster.
 
 ==== Setting the cluster to maintenance mode
 
@@ -1240,11 +1353,9 @@ As user _{mysapadm}_, type the command:
 
 ==== Cleaning up resources
 
-You can also *clean-up resource failures*. Failures of the ASCS will be automatically
-  deleted to allow a failback after the configured period of time. For all other
-  resources, you can clean-up the status including the failures.
-
-As user _root_, type the following command:
+You can also *clean up resource failures*. Failures are automatically deleted to
+allow a failback after a specified period of time. You can also clean up the
+status, including the failures, by running the following command as root:
 
 [subs="attributes"]
 ----
@@ -1336,7 +1447,7 @@ As user _{mysapadm}_, do the following:
 ## example for ASCS
 # sapcontrol -nr {myAscsIno} -function Stop
 # sapcontrol -nr {myAscsIno} -function WaitforStopped 60 20
-## check, if cluster is in status idle
+## cs_clusterstate -i
 # sapcontrol -nr {myAscsIno} -function Start
 ----
 

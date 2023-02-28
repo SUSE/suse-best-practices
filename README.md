@@ -31,7 +31,7 @@ git pull -r
 
 Thank you for contributing to this repo. Please adhere to the following guidelines when creating a pull request:
 
-* Make your pull request against the *main* branch if you are contributing to the most recent release. This branch is is protected.
+* Make your pull request against the *main* branch if you are contributing to the most recent release. This branch is protected.
 
 * Make sure all validation (Travis CI) checks are passed, and tag relevant SMEs from the development team (if applicable)
   and members of the SUSE Best Practices team: Meike Chabowski (@chabowski).

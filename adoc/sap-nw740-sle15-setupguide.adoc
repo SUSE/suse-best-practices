@@ -1609,12 +1609,12 @@ include::SAPNotes_ha740.adoc[]
 ////
 
 :leveloffset: 0
-
 == Appendix
 
-=== CRM configuration
+=== CRM configuration of the two-node cluster
 
-Find below the complete crm configuration for {sap} system {mySid}.
+Find below the complete crm configuration for {sap} system {mySid}. This example
+is for the two node cluster, but without the simple mount setup.
 // TODO PRIO2: priority fencing with below priorities?
 
 [subs="attributes"]
@@ -1690,6 +1690,50 @@ rsc_defaults rsc-options: \
 op_defaults op-options: \
 	timeout=600 \
 	record-pending=true
+----
+
+=== CRM configuration fragments of the two-node cluster with simple mount setup
+
+Find below crm configuration fragments for {sap} system {mySid}. This example
+shows the specific items for the two node cluster with priority fencing.
+This configuration is basically the same as above, except the items shown below.
+
+[subs="attributes"]
+----
+...
+#
+# primitives for ASCS and ERS, SAPStartSrv resources replacing Filesystem 
+#
+primitive rsc_SAPStartSrv_{mySID}_{myInstAscs} ocf:suse:SAPStartSrv \
+    params InstanceName={mySID}_{myInstAscs}_{myVipNAscs}
+primitive rsc_SAPStartSrv_{mySID}_{myInstErs} ocf:suse:SAPStartSrv \
+    params InstanceName={mySID}_{myInstErs}_{myVipNErs}
+#
+# primitives for ASCS and ERS, SAPInstance option MINIMAL_PROBE=true 
+#
+primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
+    op monitor interval=11 timeout=60 on-fail=restart \
+    params InstanceName={mySID}_{myInstAscs}_{myVipNAscs} \
+        START_PROFILE="/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}" \
+        AUTOMATIC_RECOVER=false MINIMAL_PROBE=true \
+	meta resource-stickiness=5000 failure-timeout=60 migration-threshold=1 \
+	priority=10
+primitive rsc_sap_{mySID}_{myInstErs} SAPInstance \
+    op monitor interval=11 timeout=60 on-fail=restart \
+    params InstanceName={mySID}_{myInstErs}_{myVipNErs} \
+        START_PROFILE="/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}" \
+        AUTOMATIC_RECOVER=false IS_ERS=true MINIMAL_PROBE=true \
+	meta priority=1000
+...
+#
+# group definitions for ASCS and ERS
+#
+group grp_{mySid}_{myInstAscs} rsc_ip_{mySid}_{myInstAscs} \
+    rsc_SAPStartSrv_{mySID}_{myInstAscs} rsc_sap_{mySid}_{myInstAscs} \
+    meta resource-stickiness=3000
+group grp_{mySid}_{myInstErs} rsc_ip_{mySid}_{myInstErs} \
+    rsc_SAPStartSrv_{mySID}_{myInstErs} rsc_sap_{mySid}_{myInstErs}
+...
 ----
 
 === Corosync configuration of the two-node cluster

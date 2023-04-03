@@ -306,7 +306,7 @@ will be updated, maintained and published at a higher frequency:
 (https://www.suse.com/support/kb/doc/?id=7023526 -
 see also the blog article https://www.suse.com/c/lets-flip-the-flags-is-my-sap-hana-database-in-sync-or-not/)
 
-// TODO PRIO3: TID  errata for CostOpt insteaf ogf below
+// TODO PRIO3: TID  errata for CostOpt instead of below
 // In addition to this guide, check the SUSE SAP Best Practice Guide Errata for other solutions
 // (https://www.suse.com/support/kb/doc/?id=7023713).
 
@@ -391,18 +391,6 @@ The {SLES4SAP} versions are:
 * Intel Optane DCPMM (aka PMEM) is supported since {sles4sap} {prodNr} GA or newer.
 * IBM Power vPMEM is supported since {SLES4SAP} {prodNr} SP1 or newer.
 
-////
-* {HANA} versions:
-// TODO PRIO3: remove HANA 1.0
-** {HANA} 1.0 is supported since SPS09 (095) for all mentioned setups. {HANA} 1.0
-does not support the HA/DR provider hook method srConnectionChanged() with
-multi-target aware parameters. These parameters are needed for the HA/DR provider
-hook in the package.
-** For {HANA} 1.0 you need version SPS10 rev3, SPS11 or newer if you want to stop
-tenants during production and you want the cluster to be able to take over. Older
-{HANA} versions are marking the system replication as failed if you stop a tenant.
-////
-
 For the HA/DR provider hook scripts SAPHanaSR.py and susCostOpt.py, the following
 requirements apply:
 
@@ -421,6 +409,12 @@ Additional considerations for the {HANA} version are:
 from {HANA}'s persistent memory features. Local restart and takeover are affected
 by the time {HANA} needs for shutdown and loading column store. {HANA} 2.0 SPS04 and
 later support persistent memory.
+* Starting with {HANA} 2.0 SPS07, systemd native integration is default.
+* Besides {HANA} you need {SAP} hostagent installed and started on your system.
+** For SystemV style, the sapinit script needs to be active.
+** For systemd style SAPHanaSR, the service SAP<SID>_<INO> can stay enabled.
+** The systemd enabled saphostagent and instance´s sapstartsrv is supported from SAPHanaSR
+0.155 and resource-agents 4.4.0 onwards.
 
 IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
 and will not work properly.
@@ -429,8 +423,6 @@ If you need to implement a different scenario, we strongly recommend to define
 a Proof of Concept (PoC) with {suse}. This PoC will focus on testing the existing
 solution in your scenario. Most of the above mentioned limitations are set
 because careful testing is needed.
-
-In addition to {HANA}, you need to install the {SAP} Host Agent on your system.
 
 For information on supported hardware and virtualization, refer to the {SUSE}
 release notes and hardware compatibility database:
@@ -724,6 +716,10 @@ system replication already set up into the Linux cluster, this chapter summarize
 the test environment. Always use the official documentation from {sap} to install
 {HANA} and to set up the system replication.
 
+This guide shows {HANA} and saphostagent with native systemd integration.
+An example for legacy SystemV is outlined in the appendix
+<<cha.hanasr-example-systemv>>.
+
 .Procedure
 
 . Install the replicating {HANA} databases.
@@ -746,9 +742,7 @@ If this SAP service is not installed, install it now.
 * Install the {HANA} database as described in the {HANA} Server Installation Guide.
 The {HANA} database client will be installed together with the server by default.
 
-// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
 // begin systemd style
-////
 === Check if the SAP hostagent is installed on all cluster nodes
 
 Check if the native `systemd`-enabled SAP hostagent and instance `sapstartsrv`
@@ -802,12 +796,10 @@ Unit SAP.slice (/SAP.slice):
 The SAP hostagent `saphostagent.service` and the instance´s `sapstartsrv` `SAP{sapsid}_{sapino}.service`
 are running in the `SAP.slice`. The example above is taken from the primary node.
 See also manual pages systemctl(8) and systemd-cgls(8) for details.
-////
 // end systemd style
 
-// TODO PRIO1: remove below, once SAP ships systemd integration for HANA
 // begin systemV style
-// ////
+////
 === Check if the SAP hostagent is installed on all cluster nodes
 
 Check if the SAP hostagent is installed on all cluster nodes.
@@ -856,7 +848,7 @@ USER          PID     PPID  ... COMMAND
 {sapssid}adm       9531    ...      \_ hdbwebdispatcher
 {sapssid}adm       8574    ... /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode1} -D -u {sapssid}adm
 ----
-// ////
+////
 // end systemV style
 
 === Install the non-replicated {HANA} on the secondary site
@@ -879,9 +871,7 @@ global_allocation_limit = <size_in_mb_for_non_replicated_hana>
 ----
 =========
 
-// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
 // begin systemd style
-////
 .Verify that the non-replicating database is up and running.
 
 [subs="attributes,quotes"]
@@ -917,7 +907,6 @@ The SAP hostagent `saphostagent.service` and the non-replicating instance´s sap
 `SAP{sapnpsid}_{sapnpino}.service` are running in the `SAP.slice`. If the replicating
 and non-replicating instances are both running, both will show up.
 See also manual pages systemctl(8) and systemd-cgls(8) for details.
-////
 // end systemd style
 
 
@@ -1251,8 +1240,8 @@ Stop {HANA} either with _HDB_ or using _sapcontrol_.
 
 .Adding SAPHanaSR via global.ini
 ==========
-Use the {HANA} tools for changing global.ini.
-// TODO PRIO2: use official HANA python tool for changing global.ini
+Use the {HANA} tools for changing global.ini. See also manual page
+SAPHanaSR-manageProvider(8).
 
 ----
 [ha_dr_provider_saphanasr]
@@ -3844,7 +3833,53 @@ location loc_{sapnode1}_stonith rsc_{sapnode1}_stonith -inf: {sapnode1}
 location loc_{sapnode2}_stonith rsc_{sapnode2}_stonith -inf: {sapnode2}
 ----
 
-==== {haDrCostOptMem}
+[[cha.hanasr-example-systemv]]
+=== Example for checking legacy SystemV integration
+
+Check if the SAP hostagent is installed on all cluster nodes.
+As Linux user _root_, use the commands `systemctl` and `saphostctrl`
+to check the SAP hostagent:
+
+[subs="attributes,quotes"]
+----
+# systemctl status sapinit
+* sapinit.service - LSB: Start the sapstartsrv
+   Loaded: loaded (/etc/init.d/sapinit; generated; vendor preset: disabled)
+   Active: active (exited) since Wed 2022-02-09 17:25:36 CET; 3 weeks 0 days ago
+     Docs: man:systemd-sysv-generator(8)
+    Tasks: 0
+   CGroup: /system.slice/sapinit.service
+# /usr/sap/hostctrl/exe/saphostctrl -function ListInstances
+Inst Info : {sapsid} - {sapino} - {sapnode1} - 753, patch 819, changelist 2069355
+----
+The SystemV style sapinit is running and the hostagent recognises the installed
+database.
+
+As Linux user _{refsidadm}_, use the command line tool `HDB` to get an
+overview of running {HANA} processes. The output of `HDB info` should
+be similar to the output shown below:
+
+[subs="attributes,quotes"]
+----
+{sapnode1}:{sapssid}adm> HDB info
+USER          PID     PPID  ... COMMAND
+{sapssid}adm      13017    ... -sh
+{sapssid}adm      13072    ...  \_ /bin/sh /usr/sap/{sapsid}/HDB{sapino}/HDB info
+{sapssid}adm      13103    ...      \_ ps fx -U {sapssid}adm -o user:8,pid:8,ppid:8,pcpu:5,vsz:10,rss:10,args
+{sapssid}adm       9268    ... hdbrsutil  --start --port 3{sapino}03 --volume 2 --volumesuffix mnt00001/hdb00002.00003 --identifier 1580897137
+{sapssid}adm       8911    ... hdbrsutil  --start --port 3{sapino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1580897100
+{sapssid}adm       8729    ... sapstart pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode1}
+{sapssid}adm       8738    ...  \_ /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/trace/hdb.sap{sapsid}_HDB{sapino} -d -nw -f /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/daemon.ini pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+{sapssid}adm       8756    ...      \_ hdbnameserver
+{sapssid}adm       9031    ...      \_ hdbcompileserver
+{sapssid}adm       9034    ...      \_ hdbpreprocessor
+{sapssid}adm       9081    ...      \_ hdbindexserver -port 3{sapino}03
+{sapssid}adm       9084    ...      \_ hdbxsengine -port 3{sapino}07
+{sapssid}adm       9531    ...      \_ hdbwebdispatcher
+{sapssid}adm       8574    ... /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/hana/shared/{sapsid}/profile/{sapsid}_HDB{sapino}_{sapnode1} -D -u {sapssid}adm
+----
+
+=== {haDrCostOptMem}
 
 NOTE: This hook script must not be used for new installations. It is listed here
 to document former setups.
@@ -3970,4 +4005,6 @@ include::common_gfdl1.2_i.adoc[]
 //   - more priority fencing
 // REVISION 1.5 2022/06
 //   - susCostOpt.py from SAPHanaSR replaced custom script {haDrCostOptMem}
+// REVISION 1.6 2023/04
+//   - SAP native systemd support is default for HANA 2.0 SPS07
 //

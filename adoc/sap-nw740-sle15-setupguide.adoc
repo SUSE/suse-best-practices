@@ -3,7 +3,6 @@
 :slesProdVersion: 15
 
 = SAP NetWeaver Enqueue Replication 1 High Availability Cluster - SAP NetWeaver 7.40 and 7.50: Setup Guide
-//Revision {Revision} from {docdate}
 // Standard SUSE includes
 //include::common_copyright_gfdl.adoc[]
 //:toc:
@@ -115,6 +114,7 @@ include::common_intro_feedback.adoc[]
 //=== Documentation conventions
 //TODO PRIO3: work on SUSE doc standard conventions file
 //include::common_intro_typografie.adoc[]
+
 
 == Scope of this document
 
@@ -1692,11 +1692,59 @@ op_defaults op-options: \
 	record-pending=true
 ----
 
-=== CRM configuration fragments of the two-node cluster with simple mount setup
+=== Example for the two-node cluster with simple-mount setup
+
+In contrast to the traditional setups, this setup uses an additional NFS mount
+for the {sap} application layer without the need to have dedicated block devices
+and cluster-controlled file systems. That greatly simplifies the overall
+architecture, implementation and maintenance of a {sleHA} cluster for {sapNW}
+with {sapERS}.
+See also SUSE TID https://www.suse.com/support/kb/doc/?id=000019944.
+
+==== systemd services for simple-mount setup
+
+Disable *systemd* services of the ASCS and the ERS {sap} instance:
+
+[subs="specialchars,attributes"]
+----
+# systemctl disable SAP{mySid}_{myAscsIno}.service
+# systemctl disable SAP{mySid}_{myErsIno}.service
+----
+
+With the `sapstartsrv-resource-agents` RPM package there come two *systemd*
+services called `sapping` and `sappong`. `sapping` runs before `sapinit` and
+moves _/usr/sap/sapservices_ out of the way. `sappong` runs after `sapinit`
+and moves _/usr/sap/sapservices_ back to its original location.
+
+[subs="attributes"]
+----
+# zypper info sapstartsrv-resource-agents
+# systemctl enable sapping
+# systemctl enable sappong
+----
+See manual pages ocf_suse_SAPStartSrv(7), sapping(8) and SAPStartSrv_basic_cluster(7)
+for details.
+
+==== fstab entries for simple-mount setup
+
+As the directories _/sapmnt/{mySid}_, _/usr/sap/{mySid}_ need to be available
+at all time, make sure they are mounted during boot. This can be
+achieved by putting the information into the _/etc/fstab_.
+Mount options may depend on your particular environment.
+
+[subs="specialchars,attributes"]
+----
+{myNfsSrv}:/x/sapmnt/{mySid} /sapmnt/{mySid}  nfs 0 0
+{myNfsSrv}:/x/usrsap/{mySid} /usr/sap/{mySid} nfs 0 0
+----
+See also manual pages SAPStartsrv_basic_cluster(8) and mount.nfs(8).
+
+==== CRM configuration fragments with simple-mount setup
 
 Find below crm configuration fragments for {sap} system {mySid}. This example
 shows the specific items for the two-node cluster with priority fencing.
-This configuration is basically the same as above, except the items shown below.
+This configuration is basically the same as above, except the Filesystem
+resources are replaced by SAPStartSrv resources.
 
 [subs="attributes"]
 ----
@@ -1735,10 +1783,13 @@ group grp_{mySid}_{myInstErs} rsc_ip_{mySid}_{myInstErs} \
     rsc_SAPStartSrv_{mySID}_{myInstErs} rsc_sap_{mySid}_{myInstErs}
 ...
 ----
+See also manual page ocf_suse_SAPStartSrv(7).
+
 
 === Corosync configuration of the two-node cluster
 
 Find below a corosync configuration example for one corosync ring. Ideally, two rings would be used.
+// TODO PRIO3: get corosync.conf from common include file
 
 [subs="specialchars,attributes"]
 ----
@@ -1760,7 +1811,6 @@ totem {
         mcastport: 5405
         ttl: 1
     }
-
     transport: udpu
 }
 
@@ -1784,7 +1834,6 @@ nodelist {
         ring0_addr: {myIPNode1}
         nodeid: 1
     }
-
     node {
         ring0_addr: {myIPNode2}
         nodeid: 2
@@ -1793,9 +1842,6 @@ nodelist {
 }
 
 quorum {
-
-    # Enable and configure quorum subsystem (default: off)
-    # see also corosync.conf.5 and votequorum.5
     provider: corosync_votequorum
     expected_votes: 2
     two_node: 1
@@ -1827,21 +1873,19 @@ include::common_sbp_legal_notice.adoc[]
 :leveloffset: 0
 include::common_gfdl1.2_i.adoc[]
 
-////
-Version 1.0 - Initial version based on SLE12 and NW 7.40
-Version 1.1 - Including SLE15 preparation, NW 7.50, Unicast set-up
-////
 //
-// REVISION 1.1  2018/04
+// REVISION 1.1 2018/04
 //   - PowerLE
 //   - corr: StartService
 //   - removed no-quorum-policy=ignore
 //   - corr: upper/lowercase of section titles
-// Revision 1.1a 2020/04
+// REVISION 1.1a 2020/04
 //   - migration to adoc build process
 //   - small adaption based on customer feedback
-// Revision 1.1b 2022/02
+// REVISION 1.1b 2022/02
 //   - SAP native systemd support
-// Revision 1.1b 2022/02
+// REVISION 1.1b 2022/02
 //  - small adaption based on customer feedback
+// REVISION 1.2 2023/03
+//  - simple-mount example
 //

@@ -8,9 +8,6 @@ include::Var_SLES4SAP-hana-scaleOut-multiTarget-PerfOpt-15-param.txt[]
 
 = {saphana} System Replication Scale-Out - Multi-Target Performance-Optimized Scenario
 
-:Revision: 0.1
-// TODO PRIO3: revision here, or at very bottom? see very bottom...
-// TODO PRIO3: check what we can borrow from AWS scale-out 15 guide
 // TODO PRIO3: use variables like {usecase}, as in scale-up
 
 ////
@@ -385,15 +382,15 @@ following configurations and parameters:
   supported. The cost optimized and MCOS scenarios are currently not supported.
 * The _{sapHostAgent}_ must be running. _{sapHostAgent}_ is needed to translate
   between the system node names and SAP host names used during the installation
-  of {saphana}. For SystemV style, the sapinit script needs to be active.
-// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA  
-// For systemd style, the
-// services saphostagent and SAP<SID>_<INO> can stay enabled. The systemd enabled
-// saphostagent and instance´s sapstartsrv is supported from SAPHanaSR-ScaleOut 0.181 onwards.
-// Refer to the OS documentation for the systemd version. Refer to {sap}
-// documentation for the {sap} HANA version. Combining systemd style hostagent with
-// SystemV style instance is allowed. However, all nodes in one Linux cluster have to
-// use the same style.
+  of {saphana}.
+** For SystemV style, the sapinit script needs to be active.
+** For systemd style, the services saphostagent and SAP<SID>_<INO> can stay enabled.
+The systemd enabled saphostagent and instance´s sapstartsrv is supported from SAPHanaSR-ScaleOut 0.181 onwards.
+Refer to the OS documentation for the systemd version.
+{HANA} comes with native systemd integration as default starting with version 2.0 SPS07.
+Refer to {sap} documentation for the {sap} HANA version.
+** Combining systemd style hostagent with SystemV style instance is allowed.
+However, all nodes in one Linux cluster have to use the same style.
 * All {saphana} instances controlled by the cluster must not be activated via
   _sapinit_ auto-start.
 * Automated start of {saphana} instances during system boot must be switched
@@ -494,6 +491,7 @@ SAP notes:
 
 
 ==== Installing additional software
+
 {SUSE} delivers with {sles4sap} special resource agents for {saphana}. With the pattern _sap-hana_ the resource
 agent for {saphana} *ScaleUp* is installed. For the *ScaleOut* scenario you need a special resource agent.
 Follow the instructions below on each node if you have installed the systems based on SAP note {sapnoteset15}.
@@ -681,9 +679,9 @@ Collect the public host keys from all other node. For the document at hand, the 
 # ssh-keyscan
 ----
 
-The SSH host key is automatically collected and stored in the file `/root/.ssh/known_host` during the first SSH
-connection. To avoid to confirm the first login with "yes", which accepts the host key, collect and store
-them beforehand.
+The SSH host key is automatically collected and stored in the file `/root/.ssh/known_host`
+during the first SSH connection. To avoid to confirm the first login with "yes", which
+accepts the host key, collect and store them beforehand.
 
 ----
 # ssh-keyscan -t ecdsa-sha2-nistp256 <host1>,<host1 ip> >>.ssh/known_hosts
@@ -826,8 +824,15 @@ synchronization.
 .<<Planning>> <<OsSetup>> SAPHanaInst <<SAPHanaHsr>> <<Integration>> <<Cluster>> <<MultiTarget>> <<Testing>>
 image::SAPHanaSR-ScaleOut-MultiTarget-Plan-Phase3.svg[scaledwidth="100%"]
 
-[[SAPHanaInst]]The infrastructure is set up. Now install the {saphana} database on
-both sites. In a cluster a machine is also called a _node_.
+[[SAPHanaInst]]The infrastructure is set up. Now install the {saphana} database
+at both sites. This chapter summarizes the test environment.
+In a cluster a machine is also called a _node_.
+Always use the official documentation from {SAP} to install {HANA} and to set up
+the system replication.
+
+This guide shows {HANA} and saphostagent with native systemd integration.
+An example for legacy SystemV is outlined in the appendix
+<<cha.hanasr-example-systemv>>.
 
 .Procedure
 
@@ -988,9 +993,6 @@ The second example use the modified template file as answering file.
 ----
 ==============================
 
-// TODO PRIO1: publish the below, once SAP ships systemd integration for HANA
-// begin systemd style
-////
 === Check if the SAP hostagent is installed on all {hana} nodes
 
 Check if the native systemd enabled SAP hostagent and instance sapstartsrv
@@ -1009,6 +1011,8 @@ saptune.service enabled
 ----
 The mandatory `saphostagent` service is enabled. This is the installation default.
 Some more {sap} related services might be enabled, e.g. the recommended `saptune`.
+
+The instance service SAP<SID>_<NR>.service needs to be enabled as well.
 
 [subs="attributes,quotes"]
 ----
@@ -1044,90 +1048,20 @@ Unit SAP.slice (/SAP.slice):
   ├─31479 hdbnameserver
   └─32201 hdbrsutil --start --port 31001 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1644426203
 ----
-The SAP hostagent `saphostagent.service` and the instance´s sapstartsrv `SAP{sapsid}_{sapino}.service`
-are running in the `SAP.slice`.
+
+The SAP hostagent `saphostagent.service` and the instance´s sapstartsrv
+`SAP{sapsid}_{sapino}.service` are running in the `SAP.slice`.
 See also manual pages systemctl(8) and systemd-cgls(8) for details.
-////
-// end systemd style
-// TODO PRIO1: merge with HANA checks from below hostagent, once SAP ships systemd integration for HANA 
 
-=== Check if the SAP hostagent is installed on all {hana} nodes
-
-Check if the SAP hostagent is installed on all {hana} nodes.
-If not, install and enable it now.
-
-As Linux user _root_ run the command _systemctl_ and _saphostctrl_ on all {hana} nodes
-to check the SAP hostagent:
-
-[subs="attributes,quotes"]
-----
-# systemctl status sapinit
-* sapinit.service - LSB: Start the sapstartsrv
-   Loaded: loaded (/etc/init.d/sapinit; generated; vendor preset: disabled)
-   Active: active (exited) since Wed 2022-02-09 17:25:36 CET; 3 weeks 0 days ago
-     Docs: man:systemd-sysv-generator(8)
-    Tasks: 0
-   CGroup: /system.slice/sapinit.service
-----
-[subs="attributes,quotes"]
-----
-# /usr/sap/hostctrl/exe/saphostctrl -function ListInstances
-Inst Info : {sapsid} - {sapino} - {sapnode1} - 753, patch 819, changelist 2069355
-----
-The SystemV style sapinit is running and the hostagent recognises the installed
-database.
-
-=== Verify that both databases are up and running
-
-Verify that *both* database sites are up and all processes of these databases
-are running correctly.
-
-. As Linux user _{refsidadm}_ use the SAP command line tool _HDB_ to get an
-overview of all running {saphana} processes. The output of _HDB info_ should look like
-the example below for *both* sites:
-+
-.Calling  HDB info (as user {refsidadm})
-==============================
-[subs="specialchars,attributes"]
-----
-~> HDB info
-----
-
-The _HDB info_ command lists the processes currently running for that SID.
-
-[subs="specialchars,attributes"]
-----
-USER     PID  ...  COMMAND
-{mysidlc}adm   6561 ...  -csh
-{mysidlc}adm   6635 ...    \_ /bin/sh /usr/sap/{sid}/HDB{inst}/HDB info
-{mysidlc}adm   6658 ...        \_ ps fx -U {sid} -o user,pid,ppid,pcpu,vsz,rss,args
-{mysidlc}adm   5442 ...  sapstart pf=/hana/shared/{sid}/profile/{sid}_HDB{inst}_{mySite1FirstNode}
-{mysidlc}adm   5456 ...   \_ /usr/sap/{sid}/HDB{inst}/{mySite1FirstNode}/trace/hdb.sap{mysidlc}_HDB{inst} -d -nw -f /usr/sap/{mysidlc}/HDB{inst}/suse
-{mysidlc}adm   5482 ...       \_ hdbnameserver
-{mysidlc}adm   5551 ...       \_ hdbpreprocessor
-{mysidlc}adm   5554 ...       \_ hdbcompileserver
-{mysidlc}adm   5583 ...       \_ hdbindexserver
-{mysidlc}adm   5586 ...       \_ hdbstatisticsserver
-{mysidlc}adm   5589 ...       \_ hdbxsengine
-{mysidlc}adm   5944 ...       \_ sapwebdisp_hdb pf=/usr/sap/{sid}/HDB{inst}}/{mySite1FirstNode}/wdisp/sapwebdisp.pfl -f /usr/sap/SL
-{mysidlc}adm   5363 ...  /usr/sap/{sid}/HDB{inst}/exe/sapstartsrv pf=/hana/shared/{sid}/profile/{sid}_HDB{inst}_{mySite2FirstNode} -D -u s
-----
-==============================
-+
-. Use the python script _landscapeHostConfiguration.py_ to show the status of
+Use the python script _landscapeHostConfiguration.py_ to show the status of
 an entire {saphana} site.
-+
-.Query the host roles (as user {refsidadm})
-==========
+The landscape host configuration is shown with a line per {saphana} host.
+Query the host roles (as user {refsidadm}):
+
 [subs="specialchars,attributes"]
 ----
 ~> HDBSettings.sh landscapeHostConfiguration.py
-----
 
-The landscape host configuration is shown with a line per {saphana} host.
-
-[subs="specialchars,attributes"]
-----
 | Host   | Host   |... NameServer  | NameServer  | IndexServer | IndexServer
 |        | Active |... Config Role | Actual Role | Config Role | Actual Role
 | ------ | ------ |... ----------- | ----------- | ----------- | -----------
@@ -1136,21 +1070,13 @@ The landscape host configuration is shown with a line per {saphana} host.
 
 overall host status: ok
 ----
-==========
-+
-. Get an overview of instances of that site (as user {refsidadm})
-+
-.Get the list of instances
-=========
-[subs="specialchars,attributes"]
-----
-~> sapcontrol -nr {refinst} -function GetSystemInstanceList
-----
 
+Get an overview of instances of that site (as user {refsidadm})
 You should get a list of {saphana} instances belonging to that site.
 
 [subs="specialchars,attributes"]
 ----
+~> sapcontrol -nr {refinst} -function GetSystemInstanceList
 25.07.2022 17:25:16
 GetSystemInstanceList
 OK
@@ -1158,7 +1084,6 @@ hostname, instanceNr, httpPort, httpsPort, startPriority, features, dispstatus
 {hanaso0}, {inst}, 5{inst}13, 5{inst}14, 0.3, HDB|HDB_WORKER, GREEN
 {hanaso1}, {inst}, 5{inst}13, 5{inst}14, 0.3, HDB|HDB_WORKER, GREEN
 ----
-=========
 
 
 == Setting up {saphana} system replication
@@ -3057,6 +2982,16 @@ intention, this could trigger a takeover.
 |===
 
 
+[[cha.hanasr-example-systemv]]
+=== Example for checking legacy SystemV integration
+
+include::SLES4SAP-hana-systemv-appendix.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+
 [[app.hana-sr.information]]
 == References
 
@@ -3065,8 +3000,8 @@ For more detailed information, have a look at the documents listed below.
 // SUSE docu, manual pages, TIDs and blogs. SAP guides and notes.
 :leveloffset: 2 
 include::SAPNotes_HANA20_15.adoc[]
-
 :leveloffset: 0
+
 === Pacemaker
 
 Pacemaker Project Documentation::
@@ -3075,6 +3010,7 @@ Pacemaker Project Documentation::
 ++++
 <?pdfpagebreak?>
 ++++
+
 
 // Standard SUSE Best Practices includes
 == Legal notice
@@ -3102,16 +3038,18 @@ subs attribute accepts any of the following (in a list):
  Global Settings
 ////
 
-////
-// TODO PRIO3: revision history here ot at very top? see very top...
-// Revisions:
-// Revision 0.1 (2021-09-06) copied from 12 and replaced version strings, URLs, SAP notes, TIDs
-// Revision 0.2 (2022-03-08) prepared for systemd, established includes
-////
-
 ++++
 <?pdfpagebreak?>
 ++++
 
+// Standard SUSE Best Practices includes
 include::common_gfdl1.2_i.adoc[]
 
+//
+// REVISION 0.1 (2021-09-06)
+//	- copied from 12 and replaced version strings, URLs, SAP notes, TIDs
+// REVISION 0.2 (2022-03-08)
+//	- prepared for systemd, established includes
+// REVISION 0.3 (2023-04-03)
+//	- SAP native systemd support is default for HANA 2.0 SPS07
+//

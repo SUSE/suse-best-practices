@@ -1,40 +1,138 @@
 [#SAPDI-Vsphere-vsan]
 
-=== Installation of SAP DI 3 on top of VMWare vSphere and VMWare vSAN
+== Installation of SAP DI 3 on top of VMWare vSphere and VMWare vSAN
 
 Prerequisites: A running VMWare vSphere vSAN installation.
 
-Create the virtual machines with SLES 15 SP4 in the vSphere environment.
+Create the virtual machines with SLES 15 SP4 in the vSphere environment. Make sure these virtual machines are sized according to the recommendations given above. 
 Make sure that uuid creation for disks is enabled.
+
+See KB article by VMWare.
+disk.EnableUUID=1
+Or here:
+https://rke.docs.rancher.com/config-options/cloud-providers/vsphere/enabling-uuid
 
 
 
 Install RKE 2 cluster on top of the  VMware virtual machines.
 
-Before the installation of RKE2 create the following
+Before the installation of RKE2 create the following configuration for the RKE 2 cluster:
+This is neccessary to be able to make use of the vSAN as backing storage for the storage class in RKE 2. The following data will be needed:
+
+* user on vSphere/vSAN
+* datacenter ID
+* ClusterID
+* vsan url
+
+These informations should be obtainable from the vSphere/vSAN administrator.
+
+
+These data will be used to configure the helm manifests for the vsphere CPI and CSI provider and to access the resources in the vSphere installation.
+
+For RKE 2 to be able to use the vsphere CSI and CPI it must be configured to use the rancher-vsphere cloud provider.
 
 ----
 mkdir -p /etc/rancher/rke2
 echo "cloud-provider: rancher-vsphere" > /etc/rancher/rke2/config.yaml"
 ----
 
-Create the configuration of the CSI vSphere provider:
+This enables the deployment of the CPI and CSI from pre-packaged Helm charts in RKE 2.
+
+Create the configuration for the CPI vSphere provider Helm chart:
+
+* First create the directory structure
 
 ----
-mkdir /var/lib/rancher/rke2/server
+mkdir -p /var/lib/rancher/rke2/server/manifests
+cd /var/lib/rancher/rke2/server/manifests
 ----
 
+
+Then create file rancher-vsphere-cpi-config.yaml in the directory 
+
 ----
-cat <<EOF > /var/lib/rancher/rke2/server/config.yaml
+/var/lib/rancher/rke2/server/manifests
+---- 
+
+----
+cat <<EOF >
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rancher-vsphere-cpi
+  labels:
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    vCenter:
+      host: "vcenterhostname"
+      datacenters: "datacentername"
+      username: "xxxxxxxxxxx"
+      password: "xxxxxxxxxxxx"
+      insecure: true
+      credentialsSecret:
+        generate: true
+    cloudControllerManager:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+
 EOF
 ----
 
+In the same directory the file rancher-vsphere-csi-config.yaml will be created.
 
-Install the RKE 2 cluster in the usual way. Download and start RKE2.
+----
+cat <<EOF > /var/lib/rancher/rke2/server/manifests/rancher-vsphere-csi-config.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rancher-vsphere-csi
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    vCenter:
+      host: "vcenter host"
+      datacenters: "datacenter"
+      username: "xxxxxxx"
+      password: "xxxxxxxxx"
+      clusterId: "vSANClusterID"
+      insecure: true
+      configSecret:
+        configTemplate: |
+         [Global]
+         cluster-id = {{ required ".Values.vCenter.clusterId must be provided" (default .Values.vCenter.clusterId .Values.global.cattle.clusterId) | quote }}
+         user = {{ .Values.vCenter.username | quote }}
+         password = {{ .Values.vCenter.password | quote }}
+         port = {{ .Values.vCenter.port | quote }}
+         insecure-flag = {{ .Values.vCenter.insecureFlag | quote }}
+         [VirtualCenter {{ .Values.vCenter.host | quote }}]
+         datacenters = {{ .Values.vCenter.datacenters | quote }}
+         [Labels]
+    storageClass:
+      datastoreURL: "ds:///vmfs/volumes/vsan:522e5b74a144f8f6-7b4b06f8633581c1/"
+    csiController:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+EOF
+----
+
+See the RKE2 documentation here:
+//TODO: Add link
+
+Now the RKE 2 cluster can be deployed on the dedicated virtual machines.
+
 
 Create storage class to use vSAN storage.
 
+----
+kubectl create cs ....
+----
+
 Make this storage class the default storage class.
+
+----
+kubectl patch ...
+----
 
 Now you can proceed with installing SAP DI 3
 

@@ -401,12 +401,16 @@ However, all nodes in one Linux cluster have to use the same style.
   with needed parameters for SAPHanaSrMultiTarget.py.
 * SAP HANA 2.0 SPS05 or later provides the HA/DR provider hook method srServiceStateChanged()
   with needed parameters for susChkSrv.py.
+* SAP HANA 2.0 SPS06 or later provides the HA/DR provider hook  method preTakeover() with
+  multi-target aware parameters and separate return code for Linux HA clusters.
 * No other HA/DR provider hook script should be configured for the above mentioned methods.
   Hook scripts for other methods, provided in SAPHanaSR-ScaleOut, can  be used in parallel,
   if not documented contradictingly.
 * The Linux cluster needs to be up and running to allow HA/DR provider events being written
   into CIB attributes. The current HANA SR status might differ from CIB srHook attribute
   after Linux cluster maintenance.
+* The user {refSIDadm} needs execution permission as user root for the command
+  _SAPHanaSR-hookHelper_.
 * For optimal automation, _AUTOMATED_REGISTER="true"_ is recommended.
 
 [IMPORTANT]
@@ -432,10 +436,11 @@ See also manual page SAPHanaSrMultiTarget.py(7).
 * The Linux cluster can be either freshly installed as described in this guide,
   or it can be upgraded as described in respective documentation.
   Not allowed is mixing old and new cluster attributes or hook scripts within
+  one cluster.
 
 Find more details in the REQUIREMENTS section of manual pages
 SAPHanaSR-ScaleOut(7), ocf_suse_SAPHanaController(7),
-SAPHanaSrMultiTarget.py(7), SAPHanaSR-manageAttr(8) and susChkSrv.py(7).
+SAPHanaSrMultiTarget.py(7), SAPHanaSR-manageAttr(8), susChkSrv.py(7) and susTkOver.py(7).
 
 IMPORTANT: You must implement a valid STONITH method. Without a valid STONITH
 method, the complete cluster is unsupported and will not work properly.
@@ -1384,9 +1389,10 @@ ERP style scale-out multi-target scenario.
 
 . Stop {saphana}
 . Configure system replication operation mode
-. Adapt SAP HANA nameserver configuration
+. Adapt {saphana} nameserver configuration
 . Implement {haDrMultiTargetPy} for srConnectionChanged
 . Implement susChkSrv.py for srServiceStateChanged
+. Implement susTkOver.py for preTakeover
 . Allow {refsidadm} to access the cluster
 . Start {saphana}
 . Test the HA/DR provider hook script integration
@@ -1549,6 +1555,39 @@ patching is mandatory after registering the system to SCC, RMT or SUSE Manager.
 From {sles4sap} 15 SP5 onwards the "susChkSrv.py" will be included in the ISO.
 
 
+=== Implementing susTkOver.py for preTakeover
+
+This step must be done on both sites that will be part of the cluster.
+Use the {saphana} tools for changing global.ini and integrating the hook script.
+In global.ini, the section `[ha_dr_provider_sustkover]` needs to be created.
+The section `[trace]` might be adapted.
+The ready-to-use HA/DR hook script is shipped with the SAPHanaSR-ScaleOut
+package in directory /usr/share/SAPHanaSR-ScaleOut/.
+The hook script must be available on all cluster nodes, including the majority
+maker. Find more details in manual pages susTkOver.py(7) and
+SAPHanaSR-manageProvider(8).
+
+.Adding susTkOver.py via global.ini
+===================================
+----
+[ha_dr_provider_sustkover]
+provider = susTkOver
+path = /usr/share/SAPHanaSR-ScaleOut/
+execution_order = 2
+sustkover_timeout = 30
+
+[trace]
+ha_dr_sustkover = info
+----
+===================================
+
+It is again reminded that the srHook script "susTkOver.py" is not available in
+the installation ISO media. It is only available in update channels of
+{sles4sap} 15 SP4 or earlier. So, for a correctly working setup a full system
+patching is mandatory after registering the system to SCC, RMT or SUSE Manager.
+From {sles4sap} 15 SP5 onwards the "susTkOver.py" will be included in the ISO.
+
+
 === Allowing {refsidadm} to access the cluster
 
 // TODO PRIO2: align with manual page SAPHanaSrMultiTarget.py(7), also gsh
@@ -1587,6 +1626,7 @@ More specific parameters option to meet a high security level.
 Cmnd_Alias SOK   = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SOK   -t crm_config -s SAPHanaSR
 Cmnd_Alias SFAIL = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v SFAIL -t crm_config -s SAPHanaSR
 Cmnd_Alias GSH = /usr/sbin/crm_attribute -n hana_{refsidLC}_glob_srHook -v * -l reboot -t crm_config -s SAPHanaSR
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/SAPHanaSR-hookHelper --sid={refsidLC} --case=checkTakeover
 {refsidadm} ALL=(ALL) NOPASSWD: SOK, SFAIL, GSH
 ----
 ////
@@ -1683,7 +1723,7 @@ See also manual page susChkSrv.py(7).
 ----
 ~> cdtrace
 ~> grep HADR.*load.*susChkSrv nameserver_*.trc | tail -3
-~> grep susChkSrv.init nameserver_suschksrv.trc | tail -3
+~> grep susChkSrv.init nameserver_*.trc | tail -3
 ----
 // TODO PRIO2: output example
 
@@ -1697,6 +1737,18 @@ See also manual page susChkSrv.py(7).
 ~> egrep '(LOST:|STOP:|START:|DOWN:|fail)' nameserver_suschksrv.trc
 ----
 ////
+
+==== Checking for susTkOver.py
+
+Check if {saphana} has initialized the susTkOver.py hook script for
+the preTakeover events. Check the HANA name server trace. Do this on all nodes.
+See also manual page susTkOver.py(7).
+----
+~> cdtrace
+~> grep HADR.*load.*susTkOver nameserver_*.trc | tail -3
+~> grep susTkOver.init nameserver_*.trc | tail -3
+----
+
 
 
 == Configuring the cluster and {saphana} resources

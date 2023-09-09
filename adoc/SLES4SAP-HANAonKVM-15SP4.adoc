@@ -4,7 +4,7 @@
 
 // Document Variables
 :DocumentName: SUSE Best Practices for SAP HANA on KVM
-:slesProdVersion: 15 SP2
+:slesProdVersion: 15 SP4
 :suse: SUSE
 :SUSEReg: SUSE(R)
 :sleAbbr: SLE
@@ -119,7 +119,23 @@ no
 |
 no
 |===
+|
+{cascadelake}
+|
+_Hypervisor:_ {sles4sapAbbr} 15 SP4 
 
+_Guest:_ {sles4sapAbbr} 15 SP4 onwards 
+
+_Size:_ max. 4 sockets footnote:max4sockets[Maximum 4 sockets using Intel standard chipsets on a single system board, for example Lenovo* SR950, Fujitsu* rx4770 etc.], 6 TiB RAM
+|
+_Hypervisor:_ {sles4sapAbbr} 15 SP4 
+
+_Guest:_ {sles4sapAbbr} 15 SP4 onwards 
+
+_Size:_ One VM per socket (max. 4 VMs per host)
+|
+no
+|===
 
 Check the following SAP Notes for the latest details of supported SAP HANA on KVM scenarios:
 
@@ -157,9 +173,7 @@ See <<_sec_memory_backing>> for more details.
 [[_sec_cpu_sizing]]
 ==== CPU sizing
 
-//TODO: Check CPU Overhead
-Some artificial workload tests on {skylake} CPUs have shown an approximately of up to 20% overhead when running SAP HANA on KVM.
-Therefore a thorough test of the configuration for the required workload is highly recommended before "`go live`".
+Thorough test of the configuration for the required workload is highly recommended before "`go live`", as workload tests have shown that certain scenarios can generate CPU overhead of up to 20%.
 
 There are two main ways to deal with CPU sizing from a sizing perspective:
 
@@ -174,15 +188,16 @@ The certification of the SAP HANA Appliance hardware to be used for KVM prescrib
 
 The relevant memory-to-core ratio required to size a VM can be easily calculated as follows:
 
-* Go to the https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html["SAP HANA Certified Hardware Directory"].
-* Select the required SAP HANA Appliance and Appliance Type (for example CPU Architecture "Intel Skylake SP" for Appliance Type "Scale-up: BWoH").
-* Look for the largest certified RAM size for the number of CPU Sockets on the server (for example 3 TiB/3072 GiB on 4-Socket).
-* Look up the number of cores per CPU of this CPU Architecture used in SAP HANA Appliances. The CPU model numbers are listed at: https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/index.html#details (for example 28).
+* Go to the https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/#/solutions["SAP HANA Certified Hardware Directory"].
+* Select the required SAP HANA Appliance and Appliance Type (for example CPU Architecture "Intel Cascade Lake SP" for Appliance Type "Scale-up: BWoH").
+* Look for the largest certified RAM size for the number of CPU Sockets on the server (for example 6 TiB/6144 GiB on 4-Socket).
+* Look up the number of cores per CPU of this CPU Architecture used in SAP HANA Appliances. The CPU model numbers are shown after clicking on the 'Read more' button in the details view of a selected SAP HANA Appliance. To get the amount of cores of a specific CPU model you can query the product databases of the respective manufacturers (for example https://ark.intel.com["Intel"]) 
 * Using the above values calculate the total number of cores on the certified Appliance by multiplying number of sockets by number of cores (for example 4x28=112).
 * Now divide the Appliance RAM by the total number of cores (not hyperthreads) to give you the *memory-to-core* ratio (for example 3072 GiB/112 = approx. 28 GiB per core).
 
 <<_sap_hana_core_to_memory_ratio_examples>> below has some current examples of SAP HANA memory-to-core ratios.
 
+// TODO: Mit Gereon reden. Passt das so auch für CSL? (identische Core Anzahl)
 [[_sap_hana_core_to_memory_ratio_examples]]
 .SAP HANA memory-to-core ratio examples
 [cols="1,1,1,1,1,1", options="header"]
@@ -194,13 +209,12 @@ The relevant memory-to-core ratio required to size a VM can be easily calculated
 | Cores per Socket
 | SAP HANA memory-to-core ratio
 
-| {skylake} | OLTP | 6 TiB / 6144 GiB | 4 | 28 | 54.86 GiB/core
-| {skylake} | OLAP | 3 TiB / 3072 GiB | 4 | 28 | 27.43 GiB/core
+| {cascadelake} | OLTP | 6 TiB / 6144 GiB | 4 | 28 | 54.86 GiB/core
+| {cascadelake} | OLAP | 3 TiB / 3072 GiB | 4 | 28 | 27.43 GiB/core
 |===
 
 
 // TODO: Remove or change the following
-
 From your memory requirement, calculate the RAM size the VM needs to be compliant with the appropriate memory-to-core ratio defined by SAP.
 
 * To get the memory per socket, multiply the memory-to-core ratio by the number of cores (not threads) of a single socket in your host
@@ -237,9 +251,24 @@ The hypervisor must be configured according to the *SUSE Best Practices for SAP
           HANA on KVM - {sles4sap} {slesProdVersion}* guide at hand and fulfill the following minimal requirements:
 
 * {sles4sap} {slesProdVersion} ("Unlimited Virtual Machines" subscription)
-** kernel (Only major version 5.3, minimum package version 5.3.18-24.24.1)
-** libvirt (Only major version 6.0, minimum package version 6.0.0-13.3.1)
-** qemu (Only major version 4.2, minimum package version 4.2.1-11.10.1)
+** kernel (Only major version 5.14, minimum package version 5.4.21.150400.24.46)
+** libvirt (Only major version 8.0, minimum package version 8.0.0-150400.7.3.1)
+** qemu (Only major version 6.2, minimum package version 6.2.0-150400.37.11.1)
+
+// (Hypervisor) root@kvmclx2:~ # uname -a
+// Linux kvmclx2 5.14.21-150400.24.46-default #1 SMP PREEMPT_DYNAMIC Thu Feb 9 08:38:18 UTC 2023 (2d95137) x86_64 x86_64 x86_64 GNU/Linux
+//
+// (Hypervisor) root@kvmclx2:~ # zypper info libvirt
+// (...)
+// Information for package libvirt:
+// (...)
+// Status         : out-of-date (version 8.0.0-150400.7.3.1 installed)
+//
+// (Hypervisor) root@kvmclx2:~ # zypper info qemu
+// (...)
+// Information for package qemu:
+// (...)
+// Status         : out-of-date (version 6.2.0-150400.37.11.1 installed)
 
 
 [[_sec_hypervisor_hardware]]
@@ -252,9 +281,9 @@ Use SAP HANA certified servers and storage as per SAP HANA Hardware Directory at
 
 The guest VM must:
 
-* run {sles4sap} 15 SP2 or later.
-* be a {sles} supported VM guest as per Section 7.1 "Supported VM Guests" of the https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-virt-support.html#virt-support-guests[SUSE Virtualization Guide].
-* comply with KVM limits as per https://www.suse.com/releasenotes/x86_64/SUSE-SLES/15-SP2/#allArch-virtualization-kvm-limits["SUSE Linux Enterprise Server 15 SP2 release notes]".
+* run {sles4sap} 15 SP4 or later.
+* be a {sles} supported VM guest as per Section 7.1 "Supported VM Guests" of the https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#book-virtualization[SUSE Virtualization Guide].
+* comply with KVM limits as per https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#virt-hypervisors-limits["SUSE Linux Enterprise Server 15 SP4 Hypervisor Limits]".
 * fulfill the SAP HANA Hardware and Cloud Measurent Tools (HCMT) storage KPI's as per {launchpadnotes}2493172[SAP Note 2493172 "SAP HANA Hardware and Cloud Measurement Tools"]. 
   Refer to <<_sec_storage>> for storage configuration details.
 * be configured according to the *SUSE Best Practices for SAP HANA on KVM - {sles4sap} {slesProdVersion}* document at hand.
@@ -268,7 +297,7 @@ The following sections describe how to set up and configure the hypervisor for a
 [[_sec_kvm_hypervisor_installation]]
 === Installing the KVM hypervisor 
 
-For details refer to section 6.4 "Installation of Virtualization Components" of the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-vt-installation.html#sec-vt-installation-patterns)
+For details refer to section 6.4 "Installation of Virtualization Components" of the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#cha-vt-installation)
 
 Install the KVM packages using the following Zypper patterns:
 

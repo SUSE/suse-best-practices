@@ -1,0 +1,165 @@
+[#SAPDI-Vsphere-vsan]
+
+== Installation of RKE 2 on top of {vmw} vSphere and {vmw} vSAN
+
+=== Prerequisites:
+
+* A running {vmw} vSphere / vSAN installation.
+
+** NOTE: The installation of the {vmw} vSphere / vSAN environment is not in the scope of this document.
+
+* Create the virtual machines for the RKE 2 cluster with SUSE Linux Enterprise Server 15 SP4 as operating system in the vSphere environment. Make sure these virtual machines are sized according to the recommendations given above in this guide. 
+
+* Make sure that `uuid` creation for disks is enabled in the settings for the virtual machines.
+
+** https://rke.docs.rancher.com/config-options/cloud-providers/vsphere/enabling-uuid
+
+
+=== Install RKE 2 cluster on top of the {vmw} virtual machines.
+
+Before you start the installation of RKE 2, create the configuration below for the RKE 2 cluster.
+This is neccessary to use the vSAN as backing storage for the storage class in RKE 2. You will need the following data:
+
+* user on vSphere/vSAN with the necessary access rights 
+* vCenter hostname
+* datacenter ID
+* ClusterID
+* vSAN url / datastorage url
+
+You should obtain this information from the {vmw} vSphere/vSAN administrator.
+
+These data will be used to configure the helm manifests for the vsphere CPI and CSI provider and to access the resources in the vSphere installation.
+
+To use the vSphere CPI and CSI, RKE2 must be configured to use the rancher-vsphere cloud provider.
+
+----
+$ sudo  mkdir -p /etc/rancher/rke2
+$ sudo echo "cloud-provider-name: rancher-vsphere" > /etc/rancher/rke2/config.yaml"
+----
+
+This enables the deployment of the vSphere CPI and CSI from pre-packaged Helm charts in RKE 2.
+It will also deploy a storage class that makes use of the vSphere CPI/CSI drivers.
+
+Create the configuration for the CPI vSphere provider Helm chart:
+
+* Create the directory structure on first the master node 
+
+----
+$ sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+$ cd /var/lib/rancher/rke2/server/manifests
+----
+
+
+Then create the file `rancher-vsphere-cpi-config.yaml` in the directory. 
+
+----
+/var/lib/rancher/rke2/server/manifests
+---- 
+
+----
+$ cat <<EOF >
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rancher-vsphere-cpi
+  labels:
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    vCenter:
+      host: "vcenterhostname"
+      datacenters: "datacentername"
+      username: "xxxxxxxxxxx"
+      password: "xxxxxxxxxxxx"
+      insecure: true
+      credentialsSecret:
+        generate: true
+    cloudControllerManager:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+
+EOF
+----
+
+In the same directory, the file `rancher-vsphere-csi-config.yaml` will be created.
+
+----
+$ cat <<EOF > /var/lib/rancher/rke2/server/manifests/rancher-vsphere-csi-config.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rancher-vsphere-csi
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    vCenter:
+      host: "vcenter host"
+      datacenters: "datacenter"
+      username: "xxxxxxx"
+      password: "xxxxxxxxx"
+      clusterId: "vSANClusterID"
+      insecure: true
+      configSecret:
+        configTemplate: |
+         [Global]
+         cluster-id = {{ required ".Values.vCenter.clusterId must be provided" (default .Values.vCenter.clusterId .Values.global.cattle.clusterId) | quote }}
+         user = {{ .Values.vCenter.username | quote }}
+         password = {{ .Values.vCenter.password | quote }}
+         port = {{ .Values.vCenter.port | quote }}
+         insecure-flag = {{ .Values.vCenter.insecureFlag | quote }}
+         [VirtualCenter {{ .Values.vCenter.host | quote }}]
+         datacenters = {{ .Values.vCenter.datacenters | quote }}
+         [Labels]
+    storageClass:
+      datastoreURL: "ds:///vmfs/volumes/vsan:XXXXXXXXXXX/"
+    csiController:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+EOF
+----
+
+See the RKE 2 documentation here:
+
+* https://ranchermanager.docs.rancher.com/pages-for-subheaders/vsphere
+
+Now you can deploy the RKE 2 cluster on the dedicated virtual machines.
+
+// Deployment of RKE2
+
+* Connect to the nodes dedicated as master for the RKE 2 cluster
+
+* Download and install RKE 2
+
+----
+$ export INSTALL_RKE2_TYPE=server
+$ export INSTALL_RKE2_VERSION=<wanted version here>
+$ curl -sfL https://get.rke2.io | sh -
+$ systemctl enable --now rke2-server.service
+----
+
+* Connect to the nodes dedicated as workers of the RKE 2 cluster:
+
+----
+$ export INSTALL_RKE2_TYPE=agent
+$ export INSTALL_RKE2_VERSION=<wanted version here>
+$ curl -sfL https://get.rke2.io | sh -
+$ systemctl enable --now rke2-agent.service
+----
+
+* More details can be found in the RKE 2 documentation:
+
+* https://docs.rke2.io/install/methods
+
+
+* After the deployment of the RKE 2 cluster, check the availability of the storage class 
+vsphere-csi-sc which should have been created.
+
+----
+$ kubectl get sc
+NAME                       PROVISIONER              RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+vsphere-csi-sc (default)   csi.vsphere.vmware.com   Delete          Immediate           false                  17m
+----
+
+
+Now you can proceed with installing {di}.
+

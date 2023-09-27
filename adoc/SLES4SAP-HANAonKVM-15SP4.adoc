@@ -94,18 +94,6 @@ At the time of this publication, the following configurations are supported for 
 | SAP HANA scale-up (multi VM)
 | SAP HANA Scale-out
 
-// |
-// {haswell}
-// | 
-// _Hypervisor:_ {sles4sapAbbr} 12 SP2 
-//
-// _Guest:_ {sles4sapAbbr} 12 SP1 onwards 
-// 
-// _Size:_ max. 4 sockets footnote:max4sockets[Maximum 4 sockets using Intel standard chipsets on a single system board, for example Lenovo* x3850, Fujitsu* rx4770 etc.], 2 TiB RAM
-// |
-// no
-// |
-// no
 |
 {skylake}
 |
@@ -118,7 +106,7 @@ _Size:_ max. 4 sockets footnote:max4sockets[Maximum 4 sockets using Intel standa
 no
 |
 no
-|===
+
 |
 {cascadelake}
 |
@@ -347,8 +335,8 @@ If such line is not present, it might be the case that SR-IOV needs to be explic
 ==== Preparing a Virtual Function (VF) for a guest VM
 
 After checking that the NIC is SR-IOV capable, the host and the guest VM should be configured to use one of the available Virtual Functions (VFs) as (one of) the guest VM's network device(s).
-More information about SR-IOV as a technology and how to properly configure everything that is necessary for it to work well in the general case can be found in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 SP2 (https://documentation.suse.com/sles/15-SP2/single-html/SLES-virtualization),
-and specifically in section "Adding SR-IOV Devices" (https://documentation.suse.com/sles/15-SP2/single-html/SLES-virtualization/#sec-libvirt-config-io).
+More information about SR-IOV as a technology and how to properly configure everything that is necessary for it to work well in the general case can be found in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 SP4 (https://documentation.suse.com/sles/15-SP4/html/SLES-all/book-virtualization.html),
+and specifically in section "Adding SR-IOV Devices" (https://documentation.suse.com/sles/15-SP4/html/SLES-all/cha-libvirt-config-virsh.html#sec-libvirt-config-io).
 
 
 *Enabling PCI passthrough for the host kernel*
@@ -369,7 +357,7 @@ It can be loaded with the `modprobe` command, but chances are high that it is al
 If the SR-IOV-capable module is not in use by default and it also fails to load with `modprobe`, this might mean that another driver, potentially one that is not SR-IOV-capable, 
 is the one that is currently loaded. In which case, it should be removed with the `rmmod` command.
 
-When the proper module is loaded, creating at least one VF happens with the following command (which creates four of them):
+When the proper module is loaded, creating at least one VF can be done by issueing the following command (which creates four of them):
 
 ----
 echo 4 > /sys/bus/pci/devices/0000\:17\:00.0/sriov_numvfs
@@ -414,7 +402,7 @@ As with compute resources, the storage used for running SAP HANA must also be SA
 Therefore only the storage from SAP HANA Appliances or SAP HANA Certified Enterprise Storage (https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/#/solutions?filters=v:deCertified;storage) is supported.
 In all cases the SAP HANA storage configuration recommendations from the respective hardware vendor and the SAP HANA Storage Requirements for TDI (https://archive.sap.com/kmuuid2/70c8e423-c8aa-3210-3fae-e043f5c1ca92/SAP%20HANA%20TDI%20-%20Storage%20Requirements.pdf) should be followed.
 
-There are two supported storage options to use for the SAP HANA database: Fibre Channel (FC) storage and Network Attached Storage (NAS).
+There are three supported storage options to use for the SAP HANA database inside a VM and on top of a {sles} 15 SP4 hypervisor: Fibre Channel (FC) storage, Network Attached Storage (NAS) and local storage.
 
 ==== Network attached Storage
 The SAP HANA storage is attached via the NFSv4 protocol. 
@@ -441,6 +429,10 @@ The HBAs that are assigned to the guest VM must not be in use on the host.
 
 The remaining storage configuration details, such as how to add the disks and the HBA controllers to the guest VM configuration file, 
 and what to do with them from inside the guest VM itself, are available in <<_sec_storage>>.
+
+==== Local Storage
+
+Local storage configurations should be in line with current guidelines by the respective hardware vendors and their recommendations regarding SAP HANA.
 
 [[_sec_hypervisor_operating_system_configuration]]
 === Configuring the hypervisor operating system 
@@ -554,7 +546,7 @@ To edit the boot options for the Linux kernel, perform the following steps:
 +
 
 ----
-mitigations=auto kvm.nx_huge_pages=off numa_balancing=disable kvm_intel.ple_gap=0 transparent_hugepage=never intel_idle.max_cstate=1 default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> intel_iommu=on iommu=pt intremap=no_x2apic_optout
+intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor mmio_stale_data=off tsx=off
 ----
 +
 
@@ -575,21 +567,19 @@ reboot
 [[_sec_technical_explanation_of_the_above_described_configuration_settings]]
 ==== Technical explanation of the above described configuration settings
 
-*Hardware vulnerabilities mitigations (mitigations=auto kvm.nx_huge_pages=off)*
+*Hardware vulnerabilities mitigations (mitigations=auto kvm.nx_huge_pages=off tsx=off)*
 
 Recently, a class of side channel attacks exploiting the branch prediction and the speculative execution capabilities of modern CPUs appeared.
 On an affected CPU, these problems cannot be fixed, but their effect and their actual exploitability can be mitigated in software.
 However, this sometimes has a non-negligible impact on the performance.
 
-For achieving the best possible security, the software mitigations for these vulnerabilities are being enabled (`mitigations=auto`) with the only exception of the one that deals with "Machine Check Error Avoidance on Page Size Change (CVE-2018-12207, also known as "iTLB Multiht").
-
-//TODO: We probably want a more generic and little bit more detailed section about mitigations?
+For achieving the best possible security, the software mitigations for these vulnerabilities are being enabled (`mitigations=auto`) with the exceptions of those that deal with "Machine Check Error Avoidance on Page Size Change" (CVE-2018-12207, also known as "iTLB Multiht") and "TSX asynchronous abort" (CVE-2019-11135).
 
 *Automatic NUMA balancing (numa_balancing=disable)*
 
 Automatic NUMA balancing can result in increased system latency and should therefore be disabled.
 
-*KVM PLE-GAP (kvm_intel.ple_gap=0)*
+*KVM PLE-GAP (kvm_intel.ple_gap=0 kvm_intel.ple_window=0)*
 
 Pause Loop Exit (PLE) is a feature whereby a spinning guest CPU releases the physical CPU until a lock is free.
 This is useful in cases where multiple virtual CPUs are using the same physical CPU but causes unnecessary delays when the system is not overcommitted.
@@ -601,10 +591,7 @@ Disabling it will avoid `khugepaged` interfering with the virtual machine while 
 
 *Processor C-states (intel_idle.max_cstate=1)*
 
-Optimal performance is achieved by limiting the processor to states C0 (normal running state) and C1 (first lower power state).
-
-Note that, while there is an exit latency associated with C1 states, it is offset on hyperthread-enabled platforms by the fact sibling cores can borrow resources from sibling cores 
-if they are in the C1 state and some CPUs can boost the CPU frequency higher if siblings are in the C1 state.
+Optimal performance is achieved by limiting the processor to states C0 (normal running state) as any other state includes the possibility for the operating system to put certain cpu cores in a lower powered idle state and the 'wake-up' time can impact performance inside the virtual machine.
 
 *Huge pages (default_hugepagesz=1 GiB
             hugepagesz=<1 GiB hugepages=number of hugepages>)*
@@ -882,7 +869,7 @@ The various properties (for example `domain`, `bus`, etc.) of the `address` elem
 [[_sec_storage]]
 === Configuring storage
 
-The storage configuration is critical, as in plays an important role in terms of performance.
+The storage configuration is critical, as it plays an important role in terms of performance.
 
 [[_sec_storage_configuration_for_operating_system_volumes]]
 ==== Configuring storage for operating system volumes
@@ -929,7 +916,7 @@ Since storage controller passthrough is used (see <<_sec_storage_hypervisor>>), 
 
 The guest VM XML configuration must be based on the underlying storage configuration on the hypervisor (see <<_sec_storage_hypervisor>>)
 
-Since the storage for HANA (`/data`, `/log/` and `/shared` volumes) is performance critical, it is recommended to take advantage of an SAN HBA that is passed through to the guest VM.
+Since the storage for HANA (`/data`, `/log` and `/shared` volumes) is performance critical, it is recommended to take advantage of an SAN HBA that is passed through to the guest VM.
 
 
 Note that it is not possible to only use one function of the adapter, and both must always be attached to the guest VM.
@@ -958,6 +945,16 @@ An example guest VM configuration with storage passthrough configured would look
 
 More details about how to directly assign PCI devices to a guest VM are described in section 14.7 "Adding a PCI Device" of the Virtualization Guide (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-config-virsh.html#sec-libvirt-config-pci-virsh).
 
+==== Local storage
+
+To achieve the best possible performance it is recommended to directly attach the block device(s) and/or raid controllers, which will be used as storage for the SAP HANA data files. If there is a dedicated raid controller available in the system that only manages devices and raid volumes that will be used in one single VM the recommendation is to connect it via PCI passthrough as described in the section above. If single devices need to be used (e.g. NVMe devices) you can connect those to the VM by doing something similar to this:
+// TODO: Trockencode! Check this before publishing!!!
+
+----
+virsh attach-disk <VMNAME> <DEVICE-PATH> <VDISK-PATH>
+e.g. virsh attach-disk hana01 /dev/nvme0n1 vdc
+----
+
 [[_sec_vhostmd_guest]]
 === Setting up a `vhostmd` device
 
@@ -978,25 +975,6 @@ Make sure that the clock timers are set up as follows, in the guest VM configura
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='no'/>
   </clock>
-  <!-- ... -->
-</domain>
-----
-
-[[_sec_virtio_rng]]
-=== Setting up the Virtio Random Number Generator (RNG) device
-
-The host /dev/random file should be passed through to QEMU as a source of entropy using the virtio RNG device:
-
-----
- <domain type='kvm'>
-  <!-- ... -->
-  <devices>
-    <!-- ... -->
-    <rng model='virtio'>
-      <backend model='random'>/dev/urandom</backend>
-    </rng>
-    <!-- ... -->
-  </devices>
   <!-- ... -->
 </domain>
 ----
@@ -1029,7 +1007,7 @@ Note that this is a requirement for making it possible to load and use the "`cpu
 [[_sec_install_sles_for_sap_inside_the_guest_vm]]
 === Installing SUSE Linux Enterprise Server for SAP Applications inside the Guest VM
 
-Refer to the https://documentation.suse.com/sles-sap/15-SP2/[SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 15].
+Refer to the https://documentation.suse.com/sles-sap/15-SP4/[SUSE Guide "`SUSE Linux Enterprise Server for SAP Applications 15 SP4].
           
 
 [[_sec_guest_operating_system_configuration_for_sap_hana]]
@@ -1050,7 +1028,7 @@ To edit the boot options for the Linux kernel to the following:
 +
 
 ----
-mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout
+mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 numa_balancing=disable tsx=off mmio_stale_data=off
 ----
 +
 
@@ -1113,8 +1091,8 @@ Detailed documentation on `saptune` is available in chapter https://documentatio
 
 
 ----
-POLL_NS=800000
-GROW_START=200000
+POLL_NS=2400000
+GROW_START=24000000
 modprobe cpuidle-haltpoll
 echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
 echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
@@ -1122,10 +1100,10 @@ echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
 
 ===== Setting the clock source
 
-The clock source needs to be set to `tsc`.
+The clock source needs to be set to `kvm-clock`.
 
 ----
-echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+echo kvm-clock > /sys/devices/system/clocksource/clocksource0/current_clocksource
 ----
 
 ===== Disabling Kernel Same Page Merging
@@ -1146,8 +1124,8 @@ The following script is provided as an example for a script implementing above r
 # Configure KVM guest for SAP HANA
 #
  
-POLL_NS=800000
-GROW_START=200000
+POLL_NS=2400000
+GROW_START=24000000
  
 # disable irqbalance 
 systemctl disable --now irqbalance
@@ -1157,7 +1135,7 @@ echo $POLL_NS > /sys/module/haltpoll/parameters/guest_halt_poll_ns
 echo $GROW_START > /sys/module/haltpoll/parameters/guest_halt_poll_grow_start
  
 # Set clocksource to tsc
-echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource
+echo kvm-clock > /sys/devices/system/clocksource/clocksource0/current_clocksource
  
 # disable Kernel Samepage Merging
 echo 2 >/sys/kernel/mm/ksm/run
@@ -1287,6 +1265,8 @@ lscpu
 [[_sec_example_guest_vm_xml]]
 === Example guest VM XML 
 
+// TODO: XML config sample needs to be replaced with a CSL 6TB version!!!
+
 .XML configuration example
 [WARNING]
 ====
@@ -1308,7 +1288,6 @@ Points of interest in this example (refer to the detailed sections of the *SUSE 
 * Storage I/O
 ** A single SAN HBA is passed through to the VM as `hostdev` device (one for each function/port)
 ** See <<_sec_storage>> for details
-* `rng model='virtio'`, for details see <<_sec_virtio_rng>>
 * `qemu:commandline` elements to describe CPU attributes, for details see <<_sec_global_vcpu_configuration>>
 
 

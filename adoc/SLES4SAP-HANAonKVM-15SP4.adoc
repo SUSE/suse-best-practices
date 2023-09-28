@@ -33,7 +33,7 @@
 [[_sec_introduction]]
 == Introduction
 
-This best practice document describes how {sles4sap} {slesProdVersion} with KVM should be configured to run SAP HANA for use in production environments.
+This best practice document describes how {sles4sap} {slesProdVersion} with KVM should be configured to run SAP HANA for its use in productive environments.
 The setup of the SAP HANA system or other components like HA clusters are beyond the scope of this document.
 
 The following sections describe how to set up and configure the three KVM components required to run SAP HANA on KVM:
@@ -43,21 +43,21 @@ The following sections describe how to set up and configure the three KVM compon
 * *<<_sec_guest_operating_system>>* - The operating system inside the VM where SAP HANA is running
 
 Follow *<<_sec_supported_scenarios_prerequisites>>* and the respective SAP Notes to ensure a supported configuration.
-Most of the configuration options are specific to the libvirt package and therefore require modifying the VM guest's domain XML file.
+Most of the configuration options are specific to the libvirt package and therefore require modifying the VM's domain XML file.
 
 [[_sec_definitions]]
 === Definitions
 
-Virtual Machine:: is an emulation of a computer.
+Virtual Machine:: is an emulation of a computer. (abbr.: VM)
 Hypervisor:: The software running directly on the physical sever to create and run VMs (Virtual Machines).
 Guest OS:: The operating system running inside the VM (Virtual Machine). 
 This is the OS running SAP HANA and therefore the one that should be checked for SAP HANA support as per {launchPadNotes}2235581[SAP Note 2235581 "SAP HANA: Supported Operating Systems"] and the https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html["`SAP HANA Hardware Directory`"].
 Paravirtualization:: Allows direct communication between the hypervisor and the VM guest resulting in a lower overhead and better performance.
 libvirt:: A management interface for KVM.
-qemu:: The virtual machine emulator, also seen a process on the hypervisor running the VM.
+qemu:: The virtual machine emulator, also seen as process on the hypervisor running the VM.
 SI units:: Some commands and configurations use the decimal prefix (for example GB), while other use the binary prefix (for example GiB). In this document we use the binary prefix where possible.
 
-For a general overview of the technical components of the KVM architecture, refer to section https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-kvm-intro.html["Introduction to KVM Virtualization"] of the Virtualization Guide.
+For a general overview of the technical components of the KVM architecture, refer to section https://documentation.suse.com/sles/15-SP4/html/SLES-all/cha-kvm-intro.html["Introduction to KVM Virtualization"] of the Virtualization Guide.
 
 [[_sec_sap_hana_virtualization_scenarios]]
 === SAP HANA virtualization scenarios
@@ -101,7 +101,7 @@ _Hypervisor:_ {sles4sapAbbr} 15 SP2
 
 _Guest:_ {sles4sapAbbr} 15 SP2 onwards 
 
-_Size:_ max. 4 sockets footnote:max4sockets[Maximum 4 sockets using Intel standard chipsets on a single system board, for example Lenovo* x3850, Fujitsu* rx4770 etc.], 3 TiB RAM
+_Size:_ max. 4 sockets, 3 TiB RAM
 |
 no
 |
@@ -128,7 +128,7 @@ no
 Check the following SAP Notes for the latest details of supported SAP HANA on KVM scenarios:
 
 * {launchPadNotes}2284516[SAP Note 2284516 - "SAP HANA virtualized on SUSE Linux Enterprise Hypervisors"]
-* {launchPadNotes}3120786[SAP Note 3120786 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP2"]
+* {launchPadNotes}3366235[SAP Note 3366235 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP4"]
 
 [[_sec_sizing]]
 === Sizing
@@ -161,7 +161,7 @@ See <<_sec_memory_backing>> for more details.
 [[_sec_cpu_sizing]]
 ==== CPU sizing
 
-Thorough test of the configuration for the required workload is highly recommended before "`go live`", as workload tests have shown that certain scenarios can generate CPU overhead of up to 20%.
+Thorough test of the configuration for the required workload is highly recommended before a "`go live`", as workload tests have shown that certain scenarios can generate CPU overhead of up to 20%.
 
 There are two main ways to deal with CPU sizing from a sizing perspective:
 
@@ -201,8 +201,6 @@ The relevant memory-to-core ratio required to size a VM can be easily calculated
 | {cascadelake} | OLAP | 3 TiB / 3072 GiB | 4 | 28 | 27.43 GiB/core
 |===
 
-
-// TODO: Remove or change the following
 From your memory requirement, calculate the RAM size the VM needs to be compliant with the appropriate memory-to-core ratio defined by SAP.
 
 * To get the memory per socket, multiply the memory-to-core ratio by the number of cores (not threads) of a single socket in your host
@@ -215,6 +213,7 @@ From your memory requirement, calculate the RAM size the VM needs to be complian
 * Your CPUs have 28 cores per socket. The memory per socket is `28 cores * 54.86 GiB/core = 1536 GiB`.   
 * Divide your memory requirement `2000 GiB / 1536 GiB = 1.2987` and round this result up to 2. Then multiply `2 * 1536 GiB = 3072 GiB` 
 * 3072 GiB is now the memory size to use in the VM configuration as described in <<_sec_memory_backing>>
+* On a machine that has four sockets and a total of 6 TiB of memory this VM would span over two sockets, leaving two sockets for another VM running SAP HANA with a similar workload or different VM's running other workloads
 ====
 
 
@@ -342,7 +341,7 @@ and specifically in section "Adding SR-IOV Devices" (https://documentation.suse.
 *Enabling PCI passthrough for the host kernel*
 
 Make sure that the host kernel boot command line contains these two parameters: `intel_iommu=on iommu=pt`.
-This is done by editing [path]_/etc/default/grub_: 
+This can be done by editing [path]_/etc/default/grub_: 
 
 * Append `intel_iommu=on iommu=pt` to the string that is assigned to the variable `GRUB_CMDLINE_LINUX_DEFAULT`. 
 * Then run `update-bootloader` (more detailed information is provided later in the document).
@@ -354,8 +353,8 @@ Before starting the VM, SR-IOV must be enabled on the desired NIC, and the VFs m
 Always make sure that the proper SR-IOV-capable driver is loaded. For example, for an *Intel Corporation Ethernet Controller X710* NIC, the driver resides in the `i40e` kernel module.
 It can be loaded with the `modprobe` command, but chances are high that it is aldready loaded by default.
 
-If the SR-IOV-capable module is not in use by default and it also fails to load with `modprobe`, this might mean that another driver, potentially one that is not SR-IOV-capable, 
-is the one that is currently loaded. In which case, it should be removed with the `rmmod` command.
+If the SR-IOV-capable module is not in use by default and it also fails to load with `modprobe`, this could mean that another driver, potentially one that is not SR-IOV-capable, 
+is currently loaded instead. In which case, it should be removed with the `rmmod` command.
 
 When the proper module is loaded, creating at least one VF can be done by issueing the following command (which creates four of them):
 
@@ -437,7 +436,7 @@ Local storage configurations should be in line with current guidelines by the re
 [[_sec_hypervisor_operating_system_configuration]]
 === Configuring the hypervisor operating system 
 
-The hypervisor host operating system needs to be configured to assure compatibility and maxized performance for an SAP HANA VM.
+The hypervisor host operating system needs to be configured to assure compatibility and maximized performance for an SAP HANA VM.
 
 
 [[_sec_vhostmd]]
@@ -501,10 +500,10 @@ cpupower -c all info
 Modern processors also attempt to save power when they are idle, by switching to a lower power state.
 Unfortunately this incurs latency when switching in and out of these states.
 
-To avoid that, and achieve better and more consistent the performance, the CPUs should not be allowed to go into too aggressive power saving modes (known as C-states).
-It therefore is recommended that only C0 and C1 are used.
+To avoid that, and achieve better and more consistent the performance, the CPUs should not be allowed to switch those power saving modes (known as C-states) and stay in normal operation mode all the time.
+It therefore is recommended that only the state C0 is used.
 
-This can be enforced by adding the following parameters to the kernel boot command line: `intel_idle.max_cstate=1`.
+This can be enforced by adding the following parameters to the kernel boot command line: `intel_idle.max_cstate=0`.
 
 To double check that only the desired C-states are actually available, the following command can be used:
 
@@ -530,7 +529,7 @@ systemctl stop irqbalance.service
 [[_sec_no_ksm]]
 ==== Kernel Samepage Merging (ksm)
 
-Kernel Samepage Merging (KSM, https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html ) is of no use, because there is only one single VM. Thus it should be disabled.
+Kernel Samepage Merging (KSM, https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html ) should be disabled.
 The following command makes sure that it is tuned off and that any sharing and de-duplication activity that may have happened, in case it was enabled, is reverted:
 
 ----
@@ -589,7 +588,7 @@ This is useful in cases where multiple virtual CPUs are using the same physical 
 Because 1 GiB pages are used for the virtual machine, then there is no additional benefit from having THP enabled.
 Disabling it will avoid `khugepaged` interfering with the virtual machine while it scans for pages to promote to hugepages.
 
-*Processor C-states (intel_idle.max_cstate=1)*
+*Processor C-states (intel_idle.max_cstate=0)*
 
 Optimal performance is achieved by limiting the processor to states C0 (normal running state) as any other state includes the possibility for the operating system to put certain cpu cores in a lower powered idle state and the 'wake-up' time can impact performance inside the virtual machine.
 
@@ -608,7 +607,7 @@ It also important to ensure the order of the huge page options. Specifically the
 [NOTE]
 ====
 The value for `<number of hugepages>` should be calculated by taking the number GiB`'s of RAM minus approx. 8% for the hypervisor OS.
-For example, 3 TiB RAM (3072 GiB) minus 8% are approximately 2770 huge pages.
+For example, 6 TiB RAM (6144 GiB) minus 8% are approximately 5650 huge pages.
 ====
 
 *PCI Passthrough (intel_iommu=on iommu=pt)*
@@ -628,13 +627,13 @@ This section describes the modifications required to the libvirt XML definition 
 The libvirt XML may be edited using the following command:
 
 ----
-virsh edit Guest VM name
+virsh edit <Guest VM name>
 ----
 
 [[_sec_create_an_initial_guest_vm_xml]]
 === Creating an initial guest VM XML
 
-Refer to section 9 "Guest Installation" of the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-kvm-inst.html ).
+Refer to section 10 "Guest Installation" of the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP4/html/SLES-all/cha-kvm-inst.html).
 
 [[_sec_global_vcpu_configuration]]
 === Configuring global vCPU
@@ -656,15 +655,15 @@ All the NUMA cells should also have the same number of huge pages assigned to th
 
 Therefore the number of huge pages needs to be dividable by the number of NUMA cells.
 
-For example, if the host has 3169956100 KiB (that is, 3 TiB) of memory and we want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pages:
+For example, if the host has 6442450944 KiB (that is, 6 TiB) of memory and we want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pages:
 
-* (3169956100 * (91.75/100)) / 1048576 / 4 = 693
+* (6442450944 * (91.75/100)) / 1048576 / 4 = 1409
 
 This means that, in total, there will need to be the following number of huge pages:
 
-* 693 * 4 = 2772
+* 1409 * 4 = 5636
 
-Such number must be passed to the host kernel command line parameter on boot (that is `hugepages=2772`, see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
+Such number must be passed to the host kernel command line parameter on boot (that is `hugepages=5636`, see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
 
 Both the total amount of memory the guest VM should use and the fact that such memory must come from 1 GiB huge pages need to be specified in the guest VM configuration file.
 
@@ -673,8 +672,8 @@ It must also be ensured that the `memory` and the `currentMemory` element have t
 ----
 <domain type='kvm'>
   <!-- ... -->
-  <memory unit='KiB'>2906652672</memory>
-  <currentMemory unit='KiB'>2906652672</currentMemory>
+  <memory unit='KiB'>5910948740</memory>
+  <currentMemory unit='KiB'>5910948740</currentMemory>
   <memoryBacking>
     <hugepages>
       <page size='1048576' unit='KiB'/>
@@ -1037,7 +1036,7 @@ A detailed explanation of these parameters has been given in <<_sec_technical_ex
 [[_sec_enabling_host_monitoring_guest]]
 ==== Enabling host monitoring
 
-The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor. This enables SAP HANA can collect data about the hypervisor. 
+The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor. This enables SAP HANA to collect data about the hypervisor. 
 {launchPadNotes}1522993[SAP Note 1522993 - "Linux: SAP on SUSE KVM - Kernel-based Virtual Machine"] describes how to set up the virtual devices for `vhostmd` and how to configure it.
 When using a virtual disk for `vhostmd`, the virtual disk device must be world-readable, which is ensured with the boot time configuration below.
 
@@ -1081,7 +1080,7 @@ force_latency=5
 ----
 * Re-apply the recommendations for SAP Note 2684254: `saptune note apply 2684254`
 
-Detailed documentation on `saptune` is available in chapter https://documentation.suse.com/sles-sap/15-SP2/html/SLES-SAP-guide/cha-tune.html[Tuning systems with `saptune`] of the {sles4sap} Guide.
+Detailed documentation on `saptune` is available in chapter https://documentation.suse.com/sles-sap/15-SP4/html/SLES-SAP-guide/cha-tune.html[Tuning systems with `saptune`] of the {sles4sap} Guide.
 
 
 
@@ -1165,7 +1164,7 @@ Both `sapconf` and `saptune` apply their settings at boot time automatically and
 [[_sec_performance_considerations]]
 == Performance considerations
 
-The Linux kernel has code to mitigate existing vulnerabilities of the {skylake} CPUs. Our testing showed no visible impact of those mitigations with regard to SAP HANA performance, except for the https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/multihit.html[iTLB Multihit] mitigation. This mitigation can be controlled by the kernel parameter `kvm.nx_huge_pages` (see https://www.suse.com/support/kb/doc/?id=000019411[SUSE support document 7023735]).
+The Linux kernel has code to mitigate existing vulnerabilities of the {skylake} and {cascadelake} CPUs. Our testing showed no visible impact of those mitigations with regard to SAP HANA performance, except for the https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/multihit.html[iTLB Multihit] and the https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/tsx_async_abort.html[TSX Asynchronous Abort] mitigation. These mitigations can be controlled by the kernel parameter `kvm.nx_huge_pages` (see https://www.suse.com/support/kb/doc/?id=000019411[SUSE support document 7023735]) and `tsx`.
 
 In general, the setting of parameter `kvm.nx_huge_pages` has an impact on performance. 
 The implications on performance need to be considered as laid out in the Skylake example below.
@@ -1194,8 +1193,8 @@ Thorough test of configuration for all workload conditions are highly recommende
 
 For a full explanation of administration commands, refer to official SUSE Virtualization documentation such as:
 
-* Section 10 "Basic VM Guest Management" and others in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-managing.html)
-* SUSE Virtualization Best Practices for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP2/html/SLES-all/article-vt-best-practices.html)
+* Section 11 "Basic VM Guest Management" and others in the SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP4/html/SLES-all/cha-libvirt-managing.html)
+* SUSE Virtualization Best Practices for SUSE Linux Enterprise Server 15 (https://documentation.suse.com/sles/15-SP4/html/SLES-all/article-virtualization-best-practices.html)
 
 
 [[_sec_useful_commands_on_the_hypervisor]]
@@ -1222,13 +1221,13 @@ virsh list --all
 Start a VM (Note: VM start times can take some minutes on larger RAM systems, check the progress with `/proc/meminfo | grep Huge`:
 
 ----
-virsh start VM/Guest Domain name
+virsh start <VM/Guest Domain name>
 ----
 
 Shut down a VM:
 
 ----
-virsh shutdown VM/Guest Domain name
+virsh shutdown <VM/Guest Domain name>
 ----
 
 This is the location of VM guest configuration files:

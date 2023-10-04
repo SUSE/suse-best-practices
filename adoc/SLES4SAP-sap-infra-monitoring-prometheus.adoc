@@ -1,0 +1,234 @@
+# tag::prom-general[]
+===== Prometheus
+https://prometheus.io[Prometheus] is an open source systems monitoring and alerting toolkit.
+It is storing time series data like metrics locally and runs rules over this data to aggregate and record new time series from existing data. Prometheus it also able to generate alerts.
+The project has a very active developer and user community.
+It is now a stand-alone open source project and maintained independently of any company.
+This makes it very attractive for SUSE as open source company and fits into our culture.
+To emphasize this, and to clarify the project's governance structure, Prometheus joined the Cloud Native Computing Foundation 5 years ago (2016).
+Prometheus works well for recording any purely numeric time series.
+
+Prometheus is designed for reliability. It is the system to go to during an outage as it allows you to quickly analyze a situation.
+Each Prometheus server is a stand-alone server, not depending on network storage or other remote services.
+You can rely on it when other parts of your infrastructure are broken, and you do not need to set up extensive infrastructure to use it.
+# end::prom-general[]
+
+# tag::prometheus-inst[]
+
+=== Prometheus Installation
+
+The Prometheus RPM packages can be found in the PackageHub repository.
+This repository needs to be activated via the `SUSEConnect` command first.
+
+[discrete]
+==== PackageHub
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# SUSEConnect --product PackageHub/15.3/x86_64
+----
+////
+[discrete]
+==== OBS repository
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+[server_monitoring]
+name=Server Monitoring Software (SLE_15_SP3)
+type=rpm-md
+baseurl=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/repodata/repomd.xml.key
+enabled=1
+----
+////
+
+Prometheus can then easily be installed using the `zypper` command:
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# zypper ref
+# zypper in golang-github-prometheus-prometheus
+----
+
+[discrete]
+==== Prometheus Configuration
+There are at least two configuration files which are important:
+
+* Prometheus systemd options `/etc/sysconfig/prometheus`
+* Prometheus server configuration `/etc/prometheus/prometheus.yml`
+
+[discrete]
+===== Systemd arguments
+In the `/etc/sysconfig/prometheus` we added the following arguments to extend the data retention,
+the storage location and the enable the configuration reload via web api.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# vi /etc/sysconfig/prometheus
+
+...
+ARGS="--storage.tsdb.retention.time=90d --storage.tsdb.path /var/lib/prometheus/ --web.enable-lifecycle"
+...
+----
+
+[discrete]
+===== Prometheus storage
+The storage in this example has a dedicated storage volume. In case changing the storage location to a
+different one or after the installation of Prometheus you must take care for the filesystem permissions.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# ls -ld /var/lib/promethe*
+
+drwx------ 9 prometheus prometheus 199 Nov 18 18:00 /var/lib/prometheus
+----
+
+[discrete]
+===== Prometheus configuration `prometheus.yml`
+Edit the Prometheus configuration file `/etc/prometheus/prometheus.yml` to include the scrape job configurations you want to add.
+In our example we have defined multiple job for different exporters. This would simplify the
+Grafana dashboard creation later and the Prometheus alertmanger rule definition.
+
+[source]
+.Job definition for Node Exporter
+----
+  - job_name: node-export
+    static_configs:
+      - targets:
+        - monint1:9100
+----
+
+
+[source]
+.Job definition for Collectd
+----
+  - job_name: intel-collectd
+    static_configs:
+      - targets:
+        - monint2:9103
+        - monint1:9103
+----
+
+[source]
+.Job definition for PCM
+----
+  - job_name: intel-pcm
+    scrape_interval: 2s
+    static_configs:
+      - targets:
+        - monint1:9738
+----
+
+
+[source]
+.Prometheus IPMI Exporter
+----
+  - job_name: ipmi
+    scrape_interval: 1m
+    scrape_timeout: 30s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+        - monint1:9290
+        - monint2:9290
+----
+
+Finally start and enable the Prometheus service:
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl enable --now prometheus.service
+----
+
+NOTE: Defining Prometheus rules are done in a separate file. The metrics defined in such a file will trigger an alert as soon as the condition is met.
+
+# end::prometheus-inst[]
+
+# tag::prometheus-maint[]
+=== Prometheus maintenance
+//TODO:web api and systemctl reload comparision, way of documenting the commands must be review
+
+[discrete]
+===== Start, Stop and Reload Prometheus
+The installation of Prometheus is providing a systemd unit. The Prometheus server can easily started and stopped with `systemctl` command.
+
+* Start Prometheus `systemctl start prometheus.service`
+* Stop Prometheus `systemctl stop prometheus.service`
+* Restart Prometheus `systemctl restart prometheus.service`
+* Reload Prometheus configuration `systemctl reload prometheus.service`
+
+In case the `--web.enable-lifecycle` option is set for Prometheus the configuration can be reloaded via `curl`.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# curl -X POST http://<hostname or IP>:9090/-/reload
+----
+
+[discrete]
+===== Validating Prometheus configuration and rules
+With the installation of Prometheus a check tool is installed. The `promtool` can check the rules and the
+configuration of Prometheus before the system is running into failure due to wrong formatings or settings.
+
+* promtool check config /etc/prometheus/<..>.yml
+* promtool check rule /etc/prometheus/<..>.yml
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# promtool check config /etc/prometheus/prometheus.yml
+
+Checking /etc/prometheus/prometheus.yml
+  SUCCESS: 1 rule files found
+
+Checking /etc/prometheus/rules.yml
+  SUCCESS: 43 rules found
+----
+
+# end::prometheus-maint[]
+
+
+
+// Prometheus alerting rules
+# tag::prometheus-alert[]
+
+==== Prometheus alerts
+
+Prometheus alerting is based on rules. Alerting rules allow you to define alert conditions based on Prometheus expression language.
+The Prometheus Alertmanager will then send notifications about firing alerts to an external service (receiver). 
+
+
+To activate alerting the Prometheus config needs the following components:
+
+[source]
+.Alerting section in the prometheus.yaml config file
+----
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+        - alertmanager:9093
+
+rule_files:
+  - /etc/prometheus/rules.yml
+----
+
+Depending on the rule_files path the rules have to be store in the given file. The example rule below will trigger an alert if an exporter (see prometheus.yaml - targets)
+is not `up`. The labels `instance` and `job` gives more information about hostnamen and type of exporter.
+
+[source]
+.Rule file configuration 
+----
+groups:
+
+  - alert: exporter-down
+    expr: up{job=~".+"} == 0
+    for: 1m
+    labels:
+    annotations:
+      title: Exporter {{ $labels.instance }} is down
+      description: Failed to scrape {{ $labels.job }} on {{ $labels.instance }} for more than 1 minutes. Exporter seams down.
+
+----
+
+# end::prometheus-alert[]

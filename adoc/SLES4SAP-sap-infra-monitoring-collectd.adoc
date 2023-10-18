@@ -1,0 +1,106 @@
+// Collectd adoc file
+// Please use the following line to implement each tagged content to the main document:
+// include::SLES4SAP-sap-infra-monitoring-collectd.adoc[tag=collectd-XXXXX]
+
+// Collectd general
+# tag::collectd-general[]
+
+===== `collectd` - System information collection daemon
+https://collectd.org/[`collectd`] is a small daemon which collects system information periodically and provides mechanisms to store and monitor the values in a variety of ways.
+
+# end::collectd-general[]
+
+
+// Collectd implementing
+# tag::collectd-impl[]
+
+=== `collectd`
+
+The `collectd` packages can be installed from the SUSE repositories as well. For the example at hand, we have used a newer version from the openSUSE repository.
+
+Create a file `/etc/zypp/repos.d/server_monitoring.repo` and add the following content to it:
+[subs="attributes,specialchars,verbatim,quotes"]
+.Content for /etc/zypp/repos.d/server_monitoring.repo
+----
+[server_monitoring]
+name=Server Monitoring Software (SLE_15_SP3)
+type=rpm-md
+baseurl=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/
+gpgcheck=1
+gpgkey=https://download.opensuse.org/repositories/server:/monitoring/SLE_15_SP3/repodata/repomd.xml.key
+enabled=1
+----
+
+Afterward refresh the repository metadata and install `collectd` and its plugins.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# zypper ref
+# zypper in collectd collectd-plugins-all
+----
+
+Now the `collectd` must be adapted to collect the information you want to get and export it in the format you need.
+For example, when looking for network latency, use the ping plugin and expose the data in a Prometheus format.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+.Configuration of collectd in /etc/collectd.conf (excerpts)
+----
+...
+LoadPlugin ping
+...
+<Plugin ping>
+        Host "10.162.63.254"
+        Interval 1.0
+        Timeout 0.9
+        TTL 255
+#       SourceAddress "1.2.3.4"
+#       AddressFamily "any"
+        Device "eth0"
+        MaxMissed -1
+</Plugin>
+...
+LoadPlugin write_prometheus
+...
+<Plugin write_prometheus>
+        Port "9103"
+</Plugin>
+...
+----
+
+Uncomment the `LoadPlugin` line and check the `<Plugin ping>` section in the file.
+
+Modify the `systemd` unit that `collectd` works as expected. First, create a copy from the system-provided service file.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# cp /usr/lib/systemd/system/collectd.service /etc/systemd/system/collectd.service
+----
+
+Second, adapt this local copy.
+Add the required `CapabilityBoundingSet` parameters in our local copy `/etc/systemd/system/collectd.service`.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+...
+# Here's a (incomplete) list of the plugins known capability requirements:
+#   ping            CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+...
+----
+
+Activate the changes and start the `collectd` function.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl daemon-reload
+# systemctl enable --now collectd
+----
+
+All `collectd` metrics are accessible at port 9103.
+
+With a quick test, you can see if the metrics can be scraped.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# curl localhost:9103/metrics
+----
+// The offical project on github: https://github.com/collectd/collectd/
+
+
+# end::collectd-impl[]

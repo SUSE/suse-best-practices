@@ -1,0 +1,457 @@
+// Node exporter adoc file
+// Please use the following line to implement each tagged content to the main document:
+// include::SLES4SAP-sap-infra-monitoring-nodeexporter.adoc[tag=nodeexporter-XXXXX]
+
+// Prometheus Node Exporter general
+# tag::nodeexporter-general[]
+
+===== Prometheus Node Exporter
+The https://github.com/prometheus/node_exporter[Prometheus Node Exporter] is an exporter for hardware and OS metrics exposed by *NIX kernels.
+It is written in Go with pluggable metric collectors.
+
+# end::nodeexporter-general[]
+
+
+// Prometheus Node Exporter implementing
+# tag::nodeexporter-impl[]
+
+=== Node exporter
+
+The `prometheus-node_exporter` can be installed directly from the SUSE repository.
+It is part of {sles} and all derived products.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# zypper -n in golang-github-prometheus-node_exporter
+----
+
+Start and enable the node exporter for automatic start at system boot.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl enable --now prometheus-node_exporter
+----
+
+[TIP]
+====
+To check if the exporter is running, you can use the following commands:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl status prometheus-node_exporter
+# ss -tulpan |grep exporter
+----
+====
+
+Configure the node exporter depending on your needs. Arguments to be passed to `prometheus-node_exporter` can be provided in the configuration file `/etc/sysconfig/prometheus-node_exporter`, for example to modify which metrics the `node_exporter` will collect and expose.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+.Arguments provided in /etc/sysconfig/prometheus-node_exporter
+----
+...
+ARGS="--collector.systemd --no-collector.mdadm --collector.ksmd --no-collector.rapl --collector.meminfo_numa --no-collector.zfs --no-collector.udp_queues --no-collector.softnet --no-collector.sockstat --no-collector.nfsd --no-collector.netdev --no-collector.infiniband --no-collector.arp"
+...
+----
+By default, the node exporter is listening for incoming connections on port 9100.
+
+# end::nodeexporter-impl[]
+
+
+// === Extend Prometheus node_exporter function area
+# tag::node-extend[]
+[#id-extend-prometheus-node-exporter-function-area]
+==== Extend Prometheus node_exporter function area
+
+[discrete]
+[#id-use-the-collector-textfile-option-from-the-node-exporter]
+===== Use the collector.textfile option from the node_exporter
+The textfile.collector functionality of the Prometheus node_exporter is already activated by default.
+
+https://github.com/prometheus/node_exporter#textfile-collector
+
+The option must be activated in the node_exporter configuration file by add the path where the node_exporter has to look for `*.prom` files. The option is called `--collector.textfile.directory=”<path>”`.
+The content in this files have to be formated in a node_exporter consumable way.
+
+These information sources helped:
+
+* https://www.robustperception.io/using-the-textfile-collector-from-a-shell-script#more-4014
+* https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md#metric-types
+
+//[subs="attributes,specialchars,verbatim,quotes"]
+[source]
+----
+# cat /etc/sysconfig/prometheus-node_exporter
+
+## Path: Network/Monitors/Prometheus/node_exporter
+## Description: Prometheus node exporter startup parameters
+## Type: string
+## Default: ''
+ARGS="--collector.systemd --no-collector.mdadm  --collector.textfile.directory="/var/lib/node_exporter/" --collector.meminfo_numa"
+----
+
+Finally, the node_exporter needs to be informed about the configuration changes and the directory must be created.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl restart prometheus-node_exporter.service
+# mdir -p /var/lib/node_exporter
+----
+
+[discrete]
+===== Example for disk information behind the RAID controller
+Information from the disks that are connected to the RAID controller are missing. All the important pieces of information like error counters or the status of the logical volumes are not accessible from the OS by default.
+The RAID controller provides the hard disks as a logical device in two parts. The logical volumes of the RAID controller are on the one hand a RAID1 volume for the operating system and a RAID6 volume
+for the data on the other hand. In SLES a /dev/sda and a /dev/sdb is shown. Perhaps due to the age of the hardware, it was not possible to read SMART data or query the status of the logical devices with native tools provided by the OS.
+The tool `amCLI` can exactly display the information we are looking for: detailed data about the RAID controller and all associated devices, at runtime. This tool is provided by the hardware vendor.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# # *overview*
+# amCLI -l
+...
+ 32/7: SAS Backplane
+ 32/11: Disk, 'TOSHIBA MBF2300RC (0)', 285568MB
+ 32/10: Disk, 'TOSHIBA MBF2300RC (1)', 285568MB
+ 32/9: Disk, 'TOSHIBA MBF2300RC (2)', 285568MB
+ 32/8: Disk, 'TOSHIBA MBF2300RC (3)', 285568MB
+ 32/15: Disk, 'TOSHIBA MBF2300RC (4)', 285568MB
+ 32/14: Disk, 'TOSHIBA MBF2300RC (5)', 285568MB
+ 32/13: Disk, 'TOSHIBA MBF2300RC (6)', 285568MB
+ 32/12: Disk, 'TOSHIBA MBF2300RC (7)', 285568MB
+ 32/2: Logical drive 0, 'LogicalDrive_0', RAID-1, 285568MB
+ 32/3: Logical drive 1, 'storage', RAID-6, 1142272MB
+ ...
+
+# # *detailed view*
+# amCLI -l 32/11
+32/11: Disk, 'TOSHIBA MBF2300RC (0)', 285568MB
+ Parents: 1
+ Children: -
+ Properties:
+ Port number: 3
+ Name: TOSHIBA MBF2300RC (0)
+ Vendor: TOSHIBA
+ Product: MBF2300RC
+ Type: SAS
+ Firmware version: 5208
+ Serial number: EB07PC305JS2
+ Transfer speed: 600 MB/s
+ Transfer width: 1 bit(s)
+ Rotational speed: 10 Krpm
+ Device number: 7
+ Slot: 0
+ SAS address 00: 0x50000393E8216D5E
+ Physical size: 286102 MB
+ Config. size: 285568 MB
+ Status: Operational
+...
+----
+
+The output of the `amCLI` must be written in a file so that the node_exporter can collect it. Later, the raw data can be process in the Prometheus server.
+The tool `amCLI` provides a different level of detail of the data depending on the options set, as shown above.
+
+//image::amcli-view-options.png[amCLI overview and detail view for the disks,scaledwidth=80%,title="amCLI disk status information"]
+
+The output must be prepared to be used later in Prometheus. Think about and decide what information wanted to use later and how it should be presented.
+In this example, two things has influenced the decision:
+
+* The first one a label set
+* The second one values that changes, like an error counter.
+
+The example picked values out of the `amCLI` output and defined them either as labels or as processable values. For queries where the labels were important, the output of a 0 or 1 as a value is defined.
+For the second case, it returns the value that the output provides.
+Using `awk` helped preparing the output of the `amCLI` in such a way that it end up with a metric that has a custom name on it (amcli_disk_information_summary). 
+The script is called `amcli.sh` and it is recommended to put this under `/usr/local/bin`. The file what is created should located at `/var/lib/node_exporter`. This directory must be created. 
+
+[source]
+----
+#!/bin/bash
+
+TEXTFILE_COLLECTOR_DIR=/var/lib/node_exporter/
+FILE=$TEXTFILE_COLLECTOR_DIR/amcli.prom
+TS=$(date +%s)
+
+{
+	diskinfo=amcli_disk_information_summary
+	echo "# HELP $diskinfo Physical Disk properties."
+	echo "# TYPE $diskinfo gauge"
+
+	PHYDisks=$(amCLI --list |sed -ne '/Disk,/{s/^\s*//;s/:.*$//;p}')
+	for disk in $PHYDisks; do
+		output=$(amCLI -l $disk \
+			| awk -v name=$disk -v ts=$TS 'BEGIN {
+				slot    = "";
+				vendor  = "";
+				product = "";
+				status  = "";
+				power_status  = "";
+				port_number   = "";
+				rotational_speed = "";
+			}{
+				if ($1 == "Vendor:")    { vendor  = $2; }
+				if ($1 == "Product:")   { product = $2; }
+				if ($1 == "Port" && $2 == "number:")       { port_number = $3; }
+				if ($1 == "Rotational") { rotational_speed = $3 $4; }
+				if ($1 == "Power" && $2 == "status:")      { power_status = $3; }
+				if ($1 == "Status:")    { status       = $2 $3 $4 $5; }
+				if ($1 == "Slot:")      { slot         = $2; }
+			} END {
+				printf ("amcli_disk_information_summary{name=\"%s\", vendor=\"%s\", product=\"%s\", port_number=\"%s\", rotational_speed=\"%s\", power_status=\"%s\", slot=\"%s\", status=\"%s\", ts=\"%s\" }\n",
+					name, vendor, product, port_number, rotational_speed, power_status, slot, status, ts);
+			}')
+		rc=$?
+		if [ $rc = 0 ]; then
+			stat=1
+		else
+			stat=0
+		fi
+		echo "$output $stat"
+	done
+
+} > "$FILE.$$"
+mv $FILE.$$ $FILE
+
+exit 0
+# End
+----
+Once the script was executed the content of the file with the name “amcli.prom” looked like this:
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# cat amcli.prom
+
+# HELP amcli_disk_information_summary Physical Disk properties.
+# TYPE amcli_disk_information_summary gauge
+amcli_disk_information_summary{name="32/11", vendor="TOSHIBA", product="MBF2300RC", port_number="3", rotational_speed="10Krpm", power_status="Active", slot="0", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/10", vendor="TOSHIBA", product="MBF2300RC", port_number="2", rotational_speed="10Krpm", power_status="Active", slot="1", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/9", vendor="TOSHIBA", product="MBF2300RC", port_number="1", rotational_speed="10Krpm", power_status="Active", slot="2", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/8", vendor="TOSHIBA", product="MBF2300RC", port_number="0", rotational_speed="10Krpm", power_status="Active", slot="3", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/15", vendor="TOSHIBA", product="MBF2300RC", port_number="7", rotational_speed="10Krpm", power_status="Active", slot="4", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/14", vendor="TOSHIBA", product="MBF2300RC", port_number="6", rotational_speed="10Krpm", power_status="Active", slot="5", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/13", vendor="TOSHIBA", product="MBF2300RC", port_number="5", rotational_speed="10Krpm", power_status="Active", slot="6", status="Operational", ts="1646052400" } 1
+amcli_disk_information_summary{name="32/12", vendor="TOSHIBA", product="MBF2300RC", port_number="4", rotational_speed="10Krpm", power_status="Active", slot="7", status="Operational", ts="1646052400" } 1
+----
+
+And the view from the node_exporter webui:
+
+image::amcli-disk-info.png[amCLI disk information, collected from `amCLI` and sorted by `awk`,scaledwidth=100%,title="amCLI basic disk information"]
+
+For the second case reused already existing labels from the disk information section. This help to be able to implement a mapping later. Therefore extended the script by a section like this:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+...
+	diskmedia=amcli_disk_media_error
+	echo "# HELP $diskmedia Physical Disk Error Counter for Media."
+	echo "# TYPE $diskmedia counter"
+
+	diskmisc=amcli_disk_misc_error
+	echo "# HELP $diskmisc Physical Disk Error Counter for Misc."
+	echo "# TYPE $diskmisc counter"
+
+	disksmart=amcli_disk_smart_error
+	echo "# HELP $disksmart Physical Disk Error Counter for SMART."
+	echo "# TYPE $disksmart counter"
+
+	for disk in $(amCLI --list |sed -ne '/Disk,/{s/^\s*//;s/:.*$//;p}'); do
+		DISKmedia=$(amCLI -l $disk \
+			| awk -v name=$disk -v ts=$TS 'BEGIN {
+				slot = "";
+				port_number   = "";
+				serial_number = "";
+		}{
+		 if ($1 == "Port")       { port_number = $3; }
+		 if ($1 == "Status:")    { status = $2 $3 $4; }
+		 if ($1 == "Slot:")      { slot = $2; }
+		 if ($1 == "Media" && $2 == "errors:")  { media_error = $3; }
+		 if ($1 == "Misc" && $2 == "errors:")   { misc_error = $3; }
+		 if ($1 == "SMART" && $2 == "errors:")  { smart_error = $3; }
+		 if ($1 == "Serial" && $2 == "number:") { serial_number = $3; }
+		} END {
+			printf ("amcli_disk_media_error{name=\"%s\", port_number=\"%s\", serial_number=\"%s\", slot=\"%s\", ts=\"%s\" } %s\n",
+				name, port_number, serial_number, slot, ts, media_error);
+			printf ("amcli_disk_misc_error{name=\"%s\", port_number=\"%s\", serial_number=\"%s\", slot=\"%s\", ts=\"%s\" } %s\n",
+				name, port_number, serial_number, slot, ts, misc_error);
+			printf ("amcli_disk_smart_error{name=\"%s\", port_number=\"%s\", serial_number=\"%s\", slot=\"%s\", ts=\"%s\" } %s\n",
+				name, port_number, serial_number, slot, ts, smart_error);
+		}')
+		echo "$DISKmedia"
+	done
+...
+----
+
+After the script was executed again the contents of the file looked now like this:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# cat amcli.prom
+
+# HELP amcli_disk_information_summary Physical Disk properties.
+# TYPE amcli_disk_information_summary gauge
+amcli_disk_information_summary{name="32/11", vendor="TOSHIBA", product="MBF2300RC", port_number="3", rotational_speed="10Krpm", power_status="Active", slot="0", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/10", vendor="TOSHIBA", product="MBF2300RC", port_number="2", rotational_speed="10Krpm", power_status="Active", slot="1", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/9", vendor="TOSHIBA", product="MBF2300RC", port_number="1", rotational_speed="10Krpm", power_status="Active", slot="2", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/8", vendor="TOSHIBA", product="MBF2300RC", port_number="0", rotational_speed="10Krpm", power_status="Active", slot="3", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/15", vendor="TOSHIBA", product="MBF2300RC", port_number="7", rotational_speed="10Krpm", power_status="Active", slot="4", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/14", vendor="TOSHIBA", product="MBF2300RC", port_number="6", rotational_speed="10Krpm", power_status="Active", slot="5", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/13", vendor="TOSHIBA", product="MBF2300RC", port_number="5", rotational_speed="10Krpm", power_status="Active", slot="6", status="Operational", ts="1646054157" } 1
+amcli_disk_information_summary{name="32/12", vendor="TOSHIBA", product="MBF2300RC", port_number="4", rotational_speed="10Krpm", power_status="Active", slot="7", status="Operational", ts="1646054157" } 1
+# HELP amcli_disk_media_error Physical Disk Error Counter for Media.
+# TYPE amcli_disk_media_error counter
+# HELP amcli_disk_misc_error Physical Disk Error Counter for Misc.
+# TYPE amcli_disk_misc_error counter
+# HELP amcli_disk_smart_error Physical Disk Error Counter for SMART.
+# TYPE amcli_disk_smart_error counter
+amcli_disk_media_error{name="32/11", port_number="3", serial_number="EB07PC305JS2", slot="0", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/11", port_number="3", serial_number="EB07PC305JS2", slot="0", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/11", port_number="3", serial_number="EB07PC305JS2", slot="0", ts="1646054157" } 0
+amcli_disk_media_error{name="32/10", port_number="2", serial_number="EB07PC305JUV", slot="1", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/10", port_number="2", serial_number="EB07PC305JUV", slot="1", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/10", port_number="2", serial_number="EB07PC305JUV", slot="1", ts="1646054157" } 0
+amcli_disk_media_error{name="32/9", port_number="1", serial_number="EB07PC305K2W", slot="2", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/9", port_number="1", serial_number="EB07PC305K2W", slot="2", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/9", port_number="1", serial_number="EB07PC305K2W", slot="2", ts="1646054157" } 0
+amcli_disk_media_error{name="32/8", port_number="0", serial_number="EB07PC305K5J", slot="3", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/8", port_number="0", serial_number="EB07PC305K5J", slot="3", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/8", port_number="0", serial_number="EB07PC305K5J", slot="3", ts="1646054157" } 0
+amcli_disk_media_error{name="32/15", port_number="7", serial_number="EB07PC305K96", slot="4", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/15", port_number="7", serial_number="EB07PC305K96", slot="4", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/15", port_number="7", serial_number="EB07PC305K96", slot="4", ts="1646054157" } 0
+amcli_disk_media_error{name="32/14", port_number="6", serial_number="EB07PC305JNS", slot="5", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/14", port_number="6", serial_number="EB07PC305JNS", slot="5", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/14", port_number="6", serial_number="EB07PC305JNS", slot="5", ts="1646054157" } 0
+amcli_disk_media_error{name="32/13", port_number="5", serial_number="EB07PC305JSC", slot="6", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/13", port_number="5", serial_number="EB07PC305JSC", slot="6", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/13", port_number="5", serial_number="EB07PC305JSC", slot="6", ts="1646054157" } 0
+amcli_disk_media_error{name="32/12", port_number="4", serial_number="EB07PC305JR7", slot="7", ts="1646054157" } 0
+amcli_disk_misc_error{name="32/12", port_number="4", serial_number="EB07PC305JR7", slot="7", ts="1646054157" } 0
+amcli_disk_smart_error{name="32/12", port_number="4", serial_number="EB07PC305JR7", slot="7", ts="1646054157" } 0
+----
+
+The view in the browser looks as expected:
+
+image::amcli-disk-counter.png[amCLI disk error counters,scaledwidth=100%,title="amCLI disk error counters"]
+
+Gathering everything that seems important, by using this method and extending the script. With the texfile.collector option of prometheus-node_exporter it is possible to gather all the information that where not accessible before.
+
+
+[discrete]
+===== Regular update of the file content
+For this task, “systemd.service” and “systemd.timer” can be used. Alternatively, this could also be realized by means of “cron”. The script needs executable permissions for this.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# chmod 750 amcli.sh
+----
+
+In “/etc/systemd/system/” create the timer and the service unit. The example will start with a timer calling the service every minute. With the 15sec scrap interval, the information in Prometheus is only updated every 4th interval.
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# cat /etc/systemd/system/prometheus_amcli.timer
+
+ [Unit]
+ Description=Collecting RAID controller information
+ Documentation=man:amCLI
+
+[Timer]
+ OnCalendar=*-*-* *:*:00
+ Persistent=true
+ Unit=prometheus_amcli.service
+
+[Install]
+ WantedBy=multi-user.target
+
+----
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# cat /etc/systemd/system/prometheus_amcli.service
+
+[Unit]
+Description=Collecting RAID controller information
+Documentation=man:amCLI
+
+[Service]
+Type=simple
+Restart=no
+ExecStartPre=/usr/bin/rm -f /var/lib/node_exporter/amcli.prom
+ExecStart=/usr/local/bin/amcli.sh
+Nice=19
+
+[Install]
+WantedBy=multi-user.target
+----
+
+The “systemd” needs to be informed about the new units:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl daemon-reload
+----
+
+Enable and start the monitoring extension for the node_exporter:
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl enable prometheus_amcli.timer
+
+Created symlink /etc/systemd/system/multi-user.target.wants/prometheus_amcli.timer → /etc/systemd/system/prometheus_amcli.timer
+
+# systemctl enable --now prometheus_amcli.timer
+----
+
+Check the status again briefly:
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl status prometheus_amcli
+
+● prometheus_amcli.service - Collecting RAID controller information
+ Loaded: loaded (/etc/systemd/system/prometheus_amcli.service; disabled; vendor preset: disabled)
+ Active: inactive (dead) since Mon 2022-02-28 07:52:07 CET; 2s ago
+ Docs: man:amCLI
+ Process: 4824 ExecStart=/usr/local/bin/amcli.sh (code=exited, status=0/SUCCESS)
+ Main PID: 4824 (code=exited, status=0/SUCCESS)
+
+Feb 28 07:52:03 fscs99 systemd[1]: Started Collecting RAID controller information.
+----
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# systemctl status prometheus_amcli.timer
+
+● prometheus_amcli.timer - Collecting RAID controller information
+ Loaded: loaded (/etc/systemd/system/prometheus_amcli.timer; enabled; vendor preset: disabled)
+ Active: active (waiting) since Mon 2022-02-28 07:30:24 CET; 21min ago
+ Trigger: Mon 2022-02-28 07:53:00 CET; 44s left
+ Docs: man:amCLI
+
+Feb 28 07:30:24 fscs99 systemd[1]: Stopping Collecting RAID controller information.
+Feb 28 07:30:24 fscs99 systemd[1]: Started Collecting RAID controller information.
+----
+
+The data is now retrieved every minute with the script `amcli.sh` and the output is redirected to a file `amcli.prom` that the Prometheus node_exporter can process.
+The result of our work now looks like this:
+
+image::amcli-newdata.png[amCLI disk information collection,scaledwidth=100%,title="amCLI disk information collection"]
+
+[discrete]
+===== Query the data from Prometheus
+With the metrics accessible from Prometheus, a rule can be built to set up an alert trigger. Starting with built the metrics using the 
+Prometheus Web UI.
+
+image::prometheus-alertmanager-metrics.png[amCLI disk metrics processed by Prometheus,scaledwidth=100%,title="amCLI basic disk metrics in Prometheus"]
+
+Once the query is complete and provides the desired result, include these metrics in our Prometheus rule file.
+
+# end::node-extend[]
+
+# tag::script_export[]
+==== Use a script_exporter to expose data
+
+[discrete]
+===== ???? Use a script_exporter to expose data
+
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+----
+
+//image::amcli-disk-info.png[amCLI disk information, collected from `amCLI` and sorted by `awk`,scaledwidth=80%,title="amCLI basic disk information"]
+
+# end::script_export[]

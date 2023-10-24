@@ -48,10 +48,10 @@ Most of the configuration options are specific to the libvirt package and theref
 [[_sec_definitions]]
 === Definitions
 
-Virtual Machine:: is an emulation of a computer. (abbr.: VM)
-Hypervisor:: The software running directly on the physical sever to create and run VMs (Virtual Machines).
+Virtual Machine:: is the emulation of a computer. (abbr.: VM)
+Hypervisor:: The software running directly on the physical server to create and run VMs (Virtual Machines).
 Guest OS:: The operating system running inside the VM (Virtual Machine). 
-This is the OS running SAP HANA and therefore the one that should be checked for SAP HANA support as per {launchPadNotes}2235581[SAP Note 2235581 "SAP HANA: Supported Operating Systems"] and the https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/appliances.html["`SAP HANA Hardware Directory`"].
+This is the OS running SAP HANA and therefore the one that should be checked for SAP HANA support as per {launchPadNotes}2235581[SAP Note 2235581 "SAP HANA: Supported Operating Systems"] and the https://www.sap.com/dmc/exp/2014-09-02-hana-hardware/enEN/["`SAP HANA Hardware Directory`"].
 Paravirtualization:: Allows direct communication between the hypervisor and the VM guest resulting in a lower overhead and better performance.
 libvirt:: A management interface for KVM.
 qemu:: The virtual machine emulator, also seen as process on the hypervisor running the VM.
@@ -76,9 +76,11 @@ Scale-Out:: For an SAP HANA Scale-Out deployment, distributed over multiple VMs 
 Follow the *{DocumentName} - {sles4sap} {slesProdVersion}*
         document at hand which describes the steps necessary
         to create a supported SAP HANA on KVM configuration. 
-        The use of {sles4sap} is recommended in this scenario, however its also valid to use {sles} as both hypervisor and VM guest operating system.
+        The use of {sles4sap} is recommended in this scenario, however its also valid to use {sles} as both hypervisor and VM guest operating system.  
 
 Inquiries about scenarios not listed here should be directed to mailto:saphana@suse.com[saphana@suse.com].
+
+Please be informed that the XML examples in this guide will deal with a Single-VM scenario.
 
 [[_sec_supported_scenarios]]
 === Supported scenarios
@@ -268,9 +270,9 @@ Use SAP HANA certified servers and storage as per SAP HANA Hardware Directory at
 
 The guest VM must:
 
-* run {sles4sap} 15 SP4 or later.
-* be a {sles} supported VM guest as per Section 7.1 "Supported VM Guests" of the https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#book-virtualization[SUSE Virtualization Guide].
-* comply with KVM limits as per https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#virt-hypervisors-limits["SUSE Linux Enterprise Server 15 SP4 Hypervisor Limits]".
+* run {sles} or {sles4sap} 15 SP4 or later.
+* be a {sles} supported VM guest as per Section 7.4 "Supported guest operating systems" of the https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#book-virtualization[SUSE Virtualization Guide].
+* comply with KVM limits as per https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#virt-hypervisors-limits["SUSE Linux Enterprise Server 15 SP4 Hypervisor Limits"].
 * fulfill the SAP HANA Hardware and Cloud Measurent Tools (HCMT) storage KPI's as per {launchpadnotes}2493172[SAP Note 2493172 "SAP HANA Hardware and Cloud Measurement Tools"]. 
   Refer to <<_sec_storage>> for storage configuration details.
 * be configured according to the *SUSE Best Practices for SAP HANA on KVM - {sles4sap} {slesProdVersion}* document at hand.
@@ -286,6 +288,8 @@ The following sections describe how to set up and configure the hypervisor for a
 
 For details refer to section 6.4 "Installation of Virtualization Components" of the SUSE Virtualization Guide (https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#cha-vt-installation)
 
+This guide assumes that there is a bare installation of {sles} or {sles4sap} available on the system. For installation instructions on {sles} or {sles4sap} please refer to the https://documentation.suse.com/sles/15-SP4/html/SLES-all/article-installation.html["SUSE Linux Enterprise Server 15 SP4 Installation Quick Start Guide"]
+
 Install the KVM packages using the following Zypper patterns:
 
 ----
@@ -299,7 +303,7 @@ In addition, it is also useful to install the `lstopo` tool which is part of the
 
 To achieve maximum performance required for productive SAP HANA workloads, one of the host networking devices must be assigned directly to the KVM guest VM.
 A Network Interface Card (NIC) including support for the technology that goes under the name of Single Root I/O Virtualization (SR-IOV) is required.
-This guarantees that the overhead in which we would have incurred if using IO Virtualization is avoided.
+This guarantees that the overhead is avoided in which we would have incurred if using IO Virtualization.
 
 To check whether such technology is available, assuming that `17:00.0` is the address of the NIC on the PCI bus (as visible in the output of the `lspci` tool), the following command can be issued:
 
@@ -351,7 +355,7 @@ This can be done by editing [path]_/etc/default/grub_:
 Before starting the VM, SR-IOV must be enabled on the desired NIC, and the VFs must be created.
 
 Always make sure that the proper SR-IOV-capable driver is loaded. For example, for an *Intel Corporation Ethernet Controller X710* NIC, the driver resides in the `i40e` kernel module.
-It can be loaded with the `modprobe` command, but chances are high that it is aldready loaded by default.
+It can be loaded with the `modprobe` command, but chances are high that it is already loaded by default.
 
 If the SR-IOV-capable module is not in use by default and it also fails to load with `modprobe`, this could mean that another driver, potentially one that is not SR-IOV-capable, 
 is currently loaded instead. In which case, it should be removed with the `rmmod` command.
@@ -368,7 +372,7 @@ Or, assuming that the designated NIC corresponds to the symbolic name of `eth10`
 echo 4 > /sys/class/net/eth10/device/sriov_numvfs
 ----
 
-The procedure can be automated to run at boot time: Create the following `systemd` unit file [path]_/etc/systemd/system/after.local_:
+This procedure is temporary until the next reboot. To make it reboot persistent it can be automated and needs to run at boot time. To do so create the following `systemd` unit file [path]_/etc/systemd/system/after.local_:
 
 ----
 [Unit]
@@ -500,8 +504,8 @@ cpupower -c all info
 Modern processors also attempt to save power when they are idle, by switching to a lower power state.
 Unfortunately this incurs latency when switching in and out of these states.
 
-To avoid that, and achieve better and more consistent the performance, the CPUs should not be allowed to switch those power saving modes (known as C-states) and stay in normal operation mode all the time.
-It therefore is recommended that only the state C0 is used.
+To avoid that, and achieve better and more consistent performance, the CPUs should not be allowed to switch those power saving modes (known as C-states) and stay in normal operation mode all the time.
+Therefore it is recommended that only the state C0 is used.
 
 This can be enforced by adding the following parameters to the kernel boot command line: `intel_idle.max_cstate=0`.
 
@@ -511,7 +515,7 @@ To double check that only the desired C-states are actually available, the follo
 cpupower idle-info
 ----
 
-The idle state settings can be verified by looking at the line containing`Available idle states:`.
+The idle state settings can be verified by looking at the line containing `Available idle states:`.
 
 
 [[_sec_irqbalance]]
@@ -521,9 +525,9 @@ The `irqbalance` service should be disabled because it can cause latency issues 
 To disable `irqbalance` run the following command:
 
 ----
-systemctl disable irqbalance.service
-
 systemctl stop irqbalance.service
+
+systemctl disable irqbalance.service
 ----
 
 [[_sec_no_ksm]]
@@ -541,7 +545,7 @@ echo 2 >  /sys/kernel/mm/ksm/run
 
 To edit the boot options for the Linux kernel, perform the following steps:
 
-. Edit [path]_/etc/defaults/grub_ and add the following boot options to the line *GRUB_CMDLINE_LINUX_DEFAULT* (a detailed explanation of these options will follow).
+. Edit [path]_/etc/default/grub_ and add the following boot options to the line *GRUB_CMDLINE_LINUX_DEFAULT* (a detailed explanation of these options will follow).
 +
 
 ----
@@ -593,7 +597,7 @@ This is useful in cases where multiple virtual CPUs are using the same physical 
 ----
 transparent_hugepage=never
 ----
-Because 1 GiB pages are used for the virtual machine, then there is no additional benefit from having THP enabled.
+Because 1 GiB pages are used for the virtual machine, there is no additional benefit from having THP enabled.
 Disabling it will avoid `khugepaged` interfering with the virtual machine while it scans for pages to promote to hugepages.
 
 *Processor C-states*
@@ -604,7 +608,7 @@ Optimal performance is achieved by limiting the processor to states C0 (normal r
 
 *Huge pages*
 ----
-default_hugepagesz=1 GiB hugepagesz=<1 GiB hugepages=number of hugepages>
+default_hugepagesz=1G hugepagesz=1G hugepages=<number of hugepages>
 ----
 The use of 1 GiB huge pages is to reduce overhead and contention when the guest is updating its page tables.
 This requires allocation of 1 GiB huge pages on the host.
@@ -612,7 +616,7 @@ The number of pages to allocate depends on the memory size of the guest.
 
 1 GiB pages are not pageable by the OS. Thus they always remain in RAM and therefore the `locked` definition in libvirt XML files is not required.
 
-It also important to ensure the order of the huge page options. Specifically the `<number of hugepages>` option must be placed *after* the 1 GiB huge page size definitions.
+It is also important to ensure the order of the huge page options. Specifically the `<number of hugepages>` option must be placed *after* the 1 GiB huge page size definitions.
 
 .Calculating value
 [NOTE]
@@ -621,18 +625,33 @@ The value for `<number of hugepages>` should be calculated by taking the number 
 For example, 6 TiB RAM (6144 GiB) minus 8% are approximately 5650 huge pages.
 ====
 
-*PCI Passthrough (intel_iommu=on iommu=pt)*
-
-For being able to directly assign host devices (like storage controllers and NIC Virtual Functions), with PCI Passthrough and SR-IOV, the IOMMU must be enabled. 
+*PCI Passthrough*
+----
+intel_iommu=on iommu=pt
+----
+For being able to directly assign host devices (like storage controllers and NIC Virtual Functions) to the VM, with PCI Passthrough and SR-IOV, the IOMMU must be enabled. 
 On top of that, `iommu=pt` makes sure that you set up the devices for the best performance (that is, passthrough mode).
 
-*Interrupt remapping (intremap=no_x2apic_optout)*
+*Interrupt remapping*
+----
+ intremap=no_x2apic_optout
+----
+Interrupt remapping allows the kernel to overwrite the interrupt remapping tables created by the BIOS or UEFI Firmware, to make sure that certain interrupts from peripheral devices are routed to a certain CPU. With the 'no_x2apic_optout' we make sure that this feature is always enabled.
 
-Interrupt remapping interrupts from devices to be intercepted, validated and routed to a specific CPU (for example, one where a virtual CPU of the guest VM that has the device assigned is running).
-This parameter makes sure that such feature is always enabled.
+*Processor MMIO Stale Data Vulnerabilities*
+----
+mmio_stale_data=off
+----
+Processor MMIO Stale Data Vulnerabilities are a set of vulnerabilities that can expose data to attackers in a very limited scope of environments. Processors of the type {cascadelake} are not affected by this vulnerability, therefore it is unnecessary to mitigate it in the environment at hand. For more information refer to the https://www.intel.com/content/www/us/en/developer/topic-technology/software-security-guidance/processors-affected-consolidated-product-cpu-model.html[Intel Guidance for Security Issues on Intel Processors] and the indicated https://docs.kernel.org/6.2/admin-guide/hw-vuln/processor_mmio_stale_data.html[Article in the official documentation of the Linux Kernel].
+
 
 [[_sec_guest_vm_xml_configuration]]
 == Configuring the guest VM
+
+[NOTE]
+====
+This section describes the creation of a single VM on a single system. For the configuration of multiple VM's most of the values regarding CPU count and/or memory amount need to be divided by the total socket count of the system and multiplied by the desired socket count of the single VM. Pay attention to the memory assignment. Try to assign memory that is located on the socket you are using for the VM.
+====
 
 This section describes the modifications required to the libvirt XML definition of the guest VM.
 The libvirt XML may be edited using the following command:
@@ -707,7 +726,7 @@ The memory unit can be set to GiB to ease the memory computations.
 It is important to map the host topology into the guest VM, as described below.
 This allows HANA to spread its own workload threads across many virtual CPUs and NUMA nodes.
 
-For example, for a 4-socket system, with 28 cores per socket and hyperthreading enabled, the virtual CPU configuration will also have 4 sockets, 28 cores, 2 threads.
+For example, for a 4-socket system, with 28 cores per socket and hyperthreading enabled, the virtual CPU configuration for a single VM will also have 4 sockets, 28 cores, 2 threads. In a multi-VM scenario its also imperative that the hosts NUMA topology is maped to the VM's. Two VM's on a 4-socket systems would both reflect the NUMA topology of two of the hosts NUMA nodes/sockets. Four VM's on a 4-socket system would reflect the NUMA topology of a single NUMA node/socket.
 
 Always make sure that, in the guest VM configuration file:
 
@@ -717,7 +736,7 @@ Always make sure that, in the guest VM configuration file:
 ** the `cell` elements describe how much RAM should be distributed per NUMA node. In this 4-node example enter 25% (or 1/4) of the entire guest VM memory.
 Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> of this paper for further details.
 ** each NUMA cell of the guest VM has 56 vCPUs.
-** the distances between the cells are identical to those of the physical hardware (as per the output of  the command`numactl --hardware`).
+** the distances between the cells are identical to those of the physical hardware (as per the output of  the command `numactl --hardware`).
 
 ----
 <domain type='kvm'>
@@ -783,7 +802,7 @@ Make sure to take note of the following configuration components:
 
 * The `vcpu placement` element lists the total number of vCPUs in the guest.
 * The `cputune` element contains the attributes describing the mappings of vCPUs to physical CPUs.
-* The `numatune` element contains the attributes to describe distribution of RAM across the virtual NUMA nodes (CPU sockets).
+* The `numatune` element contains the attributes to describe the distribution of RAM across the virtual NUMA nodes (CPU sockets).
 ** The `mode` attribute should be set to `strict`.
 ** The appropriate number of nodes should be entered in the `nodeset` and `memnode` attributes. In this example, there are 4 sockets, therefore the values are `nodeset=0-3` and `cellid` 0 to 3.
 
@@ -918,7 +937,7 @@ For details on HCMT refer to {launchpadnotes}2493172[SAP Note 2493172 - "SAP HAN
 ===== Network attached storage 
 
 Follow the SAP HANA specific best practices of the storage system vendor. 
-Make sure though that the VM has access to one or more dedicated 10 GiB Ethernet interfaces for the network traffic to the network attached storage.
+Make sure though that the VM has access to one or more dedicated 10 GiB (or better) Ethernet interfaces for the network traffic to the network attached storage.
 
 ===== Fibre Channel storage 
 
@@ -955,7 +974,7 @@ An example guest VM configuration with storage passthrough configured would look
 
 More details about how to directly assign PCI devices to a guest VM are described in section 14.7 "Adding a PCI Device" of the Virtualization Guide (https://documentation.suse.com/sles/15-SP2/html/SLES-all/cha-libvirt-config-virsh.html#sec-libvirt-config-pci-virsh).
 
-==== Local storage
+===== Local storage
 
 To achieve the best possible performance it is recommended to directly attach the block device(s) and/or raid controllers, which will be used as storage for the SAP HANA data files. If there is a dedicated raid controller available in the system that only manages devices and raid volumes that will be used in one single VM the recommendation is to connect it via PCI passthrough as described in the section above. If single devices need to be used (e.g. NVMe devices) you can connect those to the VM by doing something similar to this:
 // TODO: Trockencode! Check this before publishing!!!
@@ -966,9 +985,9 @@ e.g. virsh attach-disk hana01 /dev/nvme0n1 vdc
 ----
 
 [[_sec_vhostmd_guest]]
-=== Setting up a `vhostmd` device
+=== Setting up a vhostmd device
 
-The `vhostmd` device is passed to the VM so that the `vm-dump-metrics command` can retrieve metrics about the hypervisor provided by `vhostmd`.
+The `vhostmd` device is passed to the VM so that the `vm-dump-metrics` command can retrieve metrics about the hypervisor provided by `vhostmd`.
 You can use either a vbd disk or a virtio-serial device (preferred) to set this up (see {launchPadNotes}1522993[SAP Note 1522993 - "Linux: SAP on SUSE KVM - Kernel-based Virtual Machine"] for details).
 
 
@@ -1026,15 +1045,15 @@ Refer to the https://documentation.suse.com/sles-sap/15-SP4/[SUSE Guide "`SUSE L
 Install and configure {sles4sap} {slesProdVersion} and SAP HANA as described in: 
 
 * {launchPadNotes}1944799[SAP Note 1944799 - "SAP HANA Guidelines for SLES Operating System Installation"]
-* {launchPadNotes}2205917[SAP Note 2684254 - "SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15"]
+* {launchPadNotes}2684254[SAP Note 2684254 - "SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP Applications 15"]
 
 [[_sec_customizing_linux_cmdline_guest]]
 ==== Customizing the Linux kernel parameters of the guest
 
 Like the hypervisor host, the VM also needs special kernel parameters to be set. 
-To edit the boot options for the Linux kernel to the following:
+To edit the boot options for the Linux kernel do the following:
 
-. Edit [path]_/etc/defaults/grub_ and add the following boot options to the line "`GRUB_CMDLINE_LINUX_DEFAULT`".
+. Edit [path]_/etc/default/grub_ and add the following boot options to the line "`GRUB_CMDLINE_LINUX_DEFAULT`".
 +
 
 ----
@@ -1047,7 +1066,7 @@ A detailed explanation of these parameters has been given in <<_sec_technical_ex
 [[_sec_enabling_host_monitoring_guest]]
 ==== Enabling host monitoring
 
-The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor. This enables SAP HANA to collect data about the hypervisor. 
+The VM needs to have the `vm-dump-metrics` package installed, which dumps the metrics provided by the `vhostmd` service running on the hypervisor (see <<_sec_vhostmd_guest>> for information how to set this up on hypervisor level). This enables SAP HANA to collect data about the hypervisor. 
 {launchPadNotes}1522993[SAP Note 1522993 - "Linux: SAP on SUSE KVM - Kernel-based Virtual Machine"] describes how to set up the virtual devices for `vhostmd` and how to configure it.
 When using a virtual disk for `vhostmd`, the virtual disk device must be world-readable, which is ensured with the boot time configuration below.
 
@@ -1280,7 +1299,7 @@ lscpu
 .XML configuration example
 [WARNING]
 ====
-The XML file below is only an *example* showing the key configurations based on the about command outputs to assist in understanding how to configure the XML.
+The XML file below is only an *example* showing the key configurations to assist in understanding how to configure a valid VM in this environment via an XML file.
 The actual XML configuration must be based on your respective hardware configuration and VM requirements.
 ====
 
@@ -1615,7 +1634,7 @@ or other application using the libvirt API.
 * {launchpadnotes}3120786[SAP Note 3120786 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP2"]
 * {launchPadNotes}2284516[SAP Note 2284516 - "SAP HANA virtualized on SUSE Linux Enterprise Hypervisors"]
 * {launchPadNotes}1944799[SAP Note 1944799 - "SAP HANA Guidelines for SLES Operating System Installation"]
-* {launchPadNotes}2205917[SAP Note 2684254 - "SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP"] 
+* {launchPadNotes}2684254[SAP Note 2684254 - "SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP"] 
 * {launchPadNotes}1522993[SAP Note 1522993 - "Linux: SAP on SUSE KVM - Kernel-based Virtual Machine"]
 
 

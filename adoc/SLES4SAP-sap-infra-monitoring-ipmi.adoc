@@ -1,0 +1,105 @@
+// IPMI adoc file
+// Please use the following line to implement each tagged content to the main document:
+// include::SLES4SAP-sap-infra-monitoring-ipmi.adoc[tag=ipmi-XXXXX]
+
+// IPMI general
+# tag::ipmi-general[]
+
+===== Prometheus IPMI Exporter
+The https://github.com/prometheus-community/ipmi_exporter[Prometheus IPMI Exporter] supports both
+
+* the regular /metrics endpoint for Prometheus, exposing metrics from the host that the exporter is running on,
+* and an /ipmi endpoint that supports IPMI over RMCP.
+
+One exporter instance running on one host can be used to monitor a large number of IPMI interfaces by passing the target parameter to a scrape.
+
+# end::ipmi-general[]
+
+
+// IPMI implementing
+# tag::ipmi-impl[]
+
+
+=== Prometheus IPMI Exporter
+
+The IPMI exporter can be used to scrape information like temperature, power supply information and fan information.
+
+Create a directory, download and extract the IPMI exporter.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# mkdir ipmi_exporter
+# cd ipmi_exporter
+# curl -OL https://github.com/prometheus-community/ipmi_exporter/releases/download/v1.4.0/ipmi_exporter-1.4.0.linux-amd64.tar.gz
+# tar xzvf ipmi_exporter-1.4.0.linux-amd64.tar.gz
+----
+
+NOTE: We have been using the version 1.4.0 of the IPMI exporter. For a different release, the URL used in the `curl` command above needs to be adapted.
+      Current releases can be found at the https://github.com/prometheus-community/ipmi_exporter[IPMI exporter GitHub repository].
+
+
+Some additional packages are required and need to be installed.
+[subs="attributes,specialchars,verbatim,quotes"]
+----
+# zypper in freeipmi libipmimonitoring6 monitoring-plugins-ipmi-sensor1
+----
+
+To start the IPMI exporter on the observed host, first start a new `screen` session, and then start the exporter.footnote:[Starting the IPMI exporter should really be done by creating a systemd unit.]
+// TODO: replace use of screen by a systemd unit for the IPMI exporter
+[subs="attributes,specialchars,verbatim,quotes"]
+.Starting IPMI
+----
+screen -S ipmi
+# cd ipmi_exporter-1.4.0.linux-amd64
+# ./ipmi_exporter
+----
+The IPMI exporter binary `ipmi_exporter` has been started in a screen session which can be detached (type `Ctrl+a d`).
+This lets the exporter continue running in the background.
+
+==== IPMI Exporter Systemd Service File 
+
+A more convenient and secure way to start the IPMI exporter is using a systemd service.
+To do so a service unit file has to be created under /etc/systemd/system/:
+
+[subs="attributes,specialchars,verbatim,quotes"]
+.Copy IPMI binary
+----
+cp ipmi_exporter-1.4.0.linux-amd64 /usr/local/bin/
+----
+
+[source]
+----
+# cat /etc/systemd/system/ipmi-exporter.service
+[Unit]
+Description=IPMI exporter
+Documentation=
+[Service]
+Type=simple
+Restart=no
+ExecStart=/usr/local/bin/ipmi_exporter-1.4.0.linux-amd64
+[Install]
+WantedBy=multi-user.target
+----
+
+The "systemd" needs to be informed about the new unit:
+
+.reload the systemd daemon
+[source]
+----
+# systemctl daemon-reload 
+----
+
+And finally enabled and started:
+
+.Start ipmi exporter 
+[source]
+----
+# systemctl enable --now ipmi-exporter.service 
+----
+
+
+The metrics of the ipmi_exporter are accessible port 9290.
+
+//accessing the remote configured ipmi metrics: http://ls3331:9290/ipmi?target=ls3316r&module=remote
+
+
+# end::ipmi-impl[]

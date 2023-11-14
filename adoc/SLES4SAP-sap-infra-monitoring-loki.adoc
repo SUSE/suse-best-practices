@@ -1,0 +1,123 @@
+// Loki adoc file
+// Please use the following line to implement each tagged content to the main document:
+// include::SLES4SAP-sap-infra-monitoring-loki.adoc[tag=loki-XXXXX]
+
+// Loki general
+# tag::loki-general[]
+
+===== Loki
+
+https://grafana.com/oss/loki/[Loki] is a log aggregation system, inspired by Prometheus and designed to be cost effective and easy to operate.
+Unlike other logging systems, Loki is built around the idea of only indexing a set of metadata (labels) for logs and leaving the original log message unindexed.
+Log data itself is then compressed and stored in chunks in object stores, for example locally on the file system.
+A small index and highly compressed chunks simplify the operation and significantly lower the cost of Loki.
+
+# end::loki-general[]
+
+
+
+// Loki implementing
+# tag::loki-impl[]
+
+=== Loki
+The Loki RPM packages can be found in the PackageHub repository.
+The repository needs to be activated via the SUSEConnect command first, unless you have activated it in the previous steps already.
+----
+# SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Loki can then be installed via the `zypper` command:
+----
+# zypper in loki
+----
+
+Edit the Loki configuration file `/etc/loki/loki.yaml` and change the following lines:
+[source]
+----
+chunk_store_config:
+  max_look_back_period: 240h
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 240h
+----
+
+Start and enable Loki service:
+----
+# systemctl enable --now loki.service
+----
+
+# end::loki-impl[]
+
+
+
+// Loki practical usecases
+# tag::loki-alert[]
+
+==== Loki alerts
+Loki supports Prometheus-compatible alerting rules. They are following the same syntax, except they use LogQL for their expressions.
+To activate alerting the loki config needs a component called ruler:
+
+.loki.yaml
+[source]
+-----
+# Loki defaults to running in multi-tenant mode.
+# Multi-tenant mode is set in the configuration with:
+# auth_enabled: false
+# When configured with "auth_enabled: false", Loki uses a single tenant.
+# The single tenant ID will be the string fake.
+auth_enabled: false
+[...]
+
+ruler:
+  wal:
+    dir: /loki/ruler-wal
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/rules
+  rule_path: /tmp/loki-rules-scratch
+  alertmanager_url: http://alertmanager:9093
+  enable_alertmanager_v2: true
+-----
+
+Depending on the given directory path in our eample above, the rule file has to be stored under:
+
+ /etc/loki/rules/fake/rules.yml
+
+NOTE: We are using `auth_enabled: false` and therefor the default tenant ID is `fake` which needs to be add
+      to the path the rules are stored.
+
+The example rule below will trigger a mail (vial alertmanager configuration) if the password failed after accessing via ssh.
+The log line looks like the following:
+
+ 2023-07-19T10:41:38.076428+02:00 nuc5 sshd[16723]: Failed password for invalid user charly from 192.168.1.201 port 58831 ssh2
+
+.rules.yml
+[source]
+----
+groups:
+    - name: accessLog
+      rules:
+        - alert: Failed_user_found
+          expr: 'sum(
+                   count_over_time(
+                     {filename="/var/log/messages" }
+                       |= "Failed password for"
+                       | pattern `<day>T<time> <host> <unit>: <_> <_> <_> <_> <_> <user> <_> <ip> <_> <port>`
+                       [10m]
+                   )
+                 ) by (day, time, host, unit, user, ip, port)'
+          for: 1m
+          labels:
+            alertname: AccessFailed
+          annotations:
+            description: "There was a failed password message!"
+            title: "Loki Alert - Failed Password!"
+
+----
+
+image::sap_infra-monitoring-deep_dive-loki01.png[Using Loki Alert,scaledwidth=80%,title="Loki Alert Message"]
+
+
+# end::loki-alert[]

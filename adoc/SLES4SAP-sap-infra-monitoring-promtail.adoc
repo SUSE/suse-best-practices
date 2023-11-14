@@ -1,0 +1,170 @@
+// Promtail adoc file
+// Please use the following line to implement each tagged content to the main document:
+// include::SLES4SAP-sap-infra-monitoring-promtail.adoc[tag=promtail-XXXXX]
+
+// Promtail general      ------------------------------------------------------------------------------------
+# tag::promtail-general[]
+===== Promtail
+
+https://grafana.com/docs/loki/latest/clients/promtail/[Promtail] is a Loki agent responsible for shipping the contents of local logs to a Loki instance.
+It is usually deployed to every machine that needed to be monitored.
+# end::promtail-general[]
+
+
+// Promtail implementing ------------------------------------------------------------------------------------
+# tag::promtail-impl[]
+=== Promtail (Loki agent)
+The Promtail RPM packages can be found in the PackageHub repository.
+The repository has to be activated via the `SUSEConnect` command first, unless you have activated it in the previous steps already.
+----
+# SUSEConnect --product PackageHub/15.3/x86_64
+----
+
+Promtail can then be installed via the `zypper` command.
+----
+# zypper in promtail
+----
+
+Edit the Promtail configuration file `/etc/loki/promtail.yaml` to include the scrape configurations you want to add.
+
+.To include the systemd-journal, add the following:
+[source]
+----
+  - job_name: journal
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        target_label: 'unit'
+----
+
+IMPORTANT: If you are using `systemd-journal`, do not forget to add the `loki` user to the `systemd-journal` group: `usermod -G systemd-journal -a loki`
+
+.To include the HANA alert trace files, add the following:
+[source]
+----
+  - job_name: HANA
+    static_configs:
+    - targets:
+        - localhost
+      labels:
+        job: hana-trace
+        host: monint1
+        __path__: /usr/sap/IN1/HDB11/monint1/trace/*_alert_monint1.trc
+----
+
+IMPORTANT: If you are using SAP logs like the HANA traces, do not forget to add the `loki` user to the `sapsys` group: `usermod -G sapsys -a loki`
+
+
+Start and enable the Promtail service:
+----
+# systemctl enable --now promtail.service
+----
+
+# end::promtail-impl[]
+
+
+
+// Promtail practical usecases  -----------------------------------------------------------------------------
+# tag::promtail-deep[]
+
+=== Promtail
+Promtail is not only able to collecting and pasing logs to Loki. Promtail can do much more. By using the pipeline section it can
+be include several stages to add and transform logs, labels and timestamp. Below are some examples of common and useful stages.
+
+==== Template
+
+The template stage are mostly used to manipulate text, convert it to upper or lower cases, etc.
+The below example will manipulate the timestamp to fit into the correct RFC:
+
+.promtail.yaml
+[source]
+----
+- job_name: services
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: service-available
+      dataSource: Fullsysteminfodump
+      __path__: /logs/fu/HDB*/*/trace/system_availability_*.trc
+
+  pipeline_stages:
+
+  - match:
+      selector: '{job="service-available"}'
+      stages:
+
+      # Separate timestamp and messages for further process
+      - regex:
+          expression: '^0;(?P<time>.*?\..{6});(?P<message>.*$)'
+
+      # Correct  and create loki compatible timestamp
+      - template:
+          source: time
+          template: '{{ Replace .Value " " "T" -1 }}000+00:00'
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+          action_on_failure: fudge
+----
+
+
+==== Labels for log content
+
+Labels are used a lot in Grafana products. The example below already contain labels like "job" and host".
+It is however also possible to create labels depending on the log content by using regex.
+
+.promtail.yaml
+[source]
+----
+scrape_configs:
+- job_name: system
+  static_configs:
+   - targets:
+      - localhost
+     labels:
+      job: messages
+      loghost: logserver01
+      __path__: /var/log/messages
+
+  pipeline_stages:
+  - match:
+      selector: '{job="systemlogs"}'
+      stages:
+      - regex:
+          expression: '^.* .* (?P<Unit>.*?)\[.*\]: .*$'
+      - labels:
+          Unit:
+----
+
+With the above config the label `Unit` can be used to show all messages with a specific unit:
+
+image::sap-infra-monitoring-deep_dive-promtail01.png[Using Labels,scaledwidth=80%,title="Labels depending on the log content"]
+
+
+==== Drop log entries
+Sometimes an application is constantly writing annoying messages in the log you want to get rid of.
+The stage `drop` can exactly do that by using, for example, the parameter `expression`.
+
+.promtail.yaml
+[source]
+----
+- job_name: messages
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: systemlogs
+      host: nuc5
+      __path__: /logs/messages
+
+  pipeline_stages:
+  - drop:
+      expression: ".*annoying messages.*"
+----
+
+
+# end::promtail-deep[]

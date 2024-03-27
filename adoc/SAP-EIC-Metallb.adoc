@@ -9,18 +9,77 @@ There are multiple ways to install the MetalLB software
 === Pre-requisites
 
 Before starting with installation, make sure you meet all the requirements. In particular, you should pay attention to network addon compatibility.
-If you’re trying to run MetalLB on a cloud platform, you should also look at the cloud compatibility page and make sure your cloud platform can work with MetalLB (most cannot).
+If you are trying to run MetalLB on a cloud platform, you should also look at the cloud compatibility page and make sure your cloud platform can work with MetalLB (most cannot).
 There are three supported ways to install MetalLB: using plain Kubernetes manifests, using Kustomize, or using Helm.
 
-=== Installation
+=== Preparations
+
+On your rke2 cluster edit the kube-proxy configmap:
+----
+# kubectl edit configmap -n kube-system kube-proxy
+----
+
+set ipvs strictarp to true:
+----
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: "ipvs"
+ipvs:
+  strictARP: true
+----
+
+=== Installation of MetalLB
 
 ==== by manifest
 
+----
+# kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.4/config/manifests/metallb-native.yaml
+----
+
 ==== via Helm chart
+
+----
+helm repo add metallb https://metallb.github.io/metallb
+helm install metallb metallb/metallb
+----
 
 == Configuration
 
-Create the files.
+Create the configuration files for the MetalLB IP address pool.
+
+
+----
+# cat <EOF>>iprange.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: first-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - 192.168.1.240-192.168.1.250
+EOF
+----
+
+and the layer 2 network advertisement:
+
+----
+# cat <EOF>> l2advertisment.yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: example
+  namespace: metallb-system
+EOF
+----
+
+Apply the configuration:
+
+----
+# kubectl apply -f iprange.yaml
+# kubectl apply -f l2advertisment.yaml
+----
+
 
 == Test
 

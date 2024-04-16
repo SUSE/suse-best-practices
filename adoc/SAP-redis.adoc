@@ -2,38 +2,125 @@
 
 == Installing Redis
 
-
-https://help.sap.com/docs/integration-suite/sap-integration-suite/prepare-your-kubernetes-cluster#redis-data-store-requirements
-
-Before deploying Redis, make sure that the requirements described in
-https://me.sap.com/notes/3247839
-are met.
+IMPORTANT::
+SUSE does not offer database support for {redis}.
+To get support, turn to 
+link:https://redis.com/[Redis Ltd.]
 
 
-=== Deploying Redis using the Rancher App
+IMPORTANT::
+In this guide we'll describe one variant of installing {redis} which is called Redis Cluster.
+There are other possible ways to setup {redis} which are not focussed in this guide.
+Please check out if you rather require 
+link:https://redis.io/docs/management/sentinel/[Sentinel]
+instead of 
+link:https://redis.io/docs/management/scaling/[Cluster]
 
-{redis} is available for deployment using the :rancher: Apps. To do so, open your :rancher: and access the cluster you want to deploy {redis} in.
-Navigate to Apps -> Charts. You can us the search bar on the right hand side or search manually for the {redis} App.
-Once found, click on it.
+=== Deploying Redis
 
-image::Rancher_Redis_App.png[title=Rancher Redis App,scaledwidth=99%]
+Even though {redis} is available for deployment using the {rancher} Apps, we recommend to use the {rac}.
+The {redis} chart can be found at https://apps.rancher.io/applications/redis .
 
-You'll now see a description of the {redis} helm chart. On the right hand side, you'll see a list of "Chart Versions" and the related "Application Version" below.
-Make sure the chosen version is supported as stated in 
-https://me.sap.com/notes/3247839
-and hit the "Install" button on the upper right hand side.
+==== Creating an imagePullSecret
+To make the ressources be available to roll out, you'll need to create a imagePullSecret.
+In this guide we'll use the name application-collection for it.
 
-image::Rancher_Redis_Overview.png[title=Rancher Redis Overview,scaledwidth=99%]
+===== Creating a imagePullSecret using kubectl
 
-// TODO Which namespace to deploy into?
-Next, you'll need to pick the namespace you want to deploy {redis} into.
-When done, click the "Next" button at the bottom right of the website.
-
-As a last step, you'll need to modify the {redis} configuration.
-
-Adjust the storageClass in the manifest to match your storage solution.
-If you use :longhorn:, your manifest would have related lines look like:
+Using kubectl to create the imagePullSecret is quite easy.
+Get your username and your access token for the {rac}.
+Then run:
 ----
-storageClass: 'longhorn'
+$ kubectl create secret docker-registry application-collection --docker-server=dp.apps.rancher.io --docker-username=<yourUser> --docker-password=<yourPassword>
 ----
 
+
+
+===== Creating an imagePullSecret using {rancher}
+
+You can also create an imagePullSecret using {rancher}.
+Therefore open {rancher} and enter your cluster.
+
+Navigate to *Storage* -> *Secrets* as shown below:
+
+image::EIC-Secrets-Menu.png[title=Secrets Menu,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Select the *Create* button in the upper right corner.
+
+image::EIC-Secrets-Overview.png[title=Secrets Overview,scaledwidth=99%]
+
+A selection screen will be shown asking you to choose the Secret type. Select *Registry* as shown here:
+
+image::EIC-Secrets-Types.png[title=Secrets Type Selection,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Enter a name like application-collection for the Secret. For the text field *Registry Domain Name*, enter dp.apps.rancher.io .
+Enter your username and password and hit the *Create* button on the bottom right side.
+
+image::EIC-Secret-Create.png[title=Secrets Creation Step,scaledwidth=99%]
+
+
+==== Deploy the chart
+
+{rancher} instances prior to version 2.9 can not integrate the {rac}. Thus you need to use the console and Helm.
+The easiest way to do so is to use the built-in shell in {rancher}. To access it, navigate to your cluster and click on *Kubectl Shell* as shown below:
+
+image::EIC-Rancher-Kubectl-Button.png[title=Rancher Shell Access,scaledwidth=99%]
+
+A shell will open as in the given picture:
+
+image::EIC-Rancher-Kubectl-Shell.png[title=Rancher Shell Overview,scaledwidth=99%]
+
+
+You will need to login to the {rac} which can be done like:
+----
+$ helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
+----
+
+
+To install the application run:
+
+----
+$ helm pull oci://dp.apps.rancher.io/charts/redis --untar
+$ helm install --set storageClass=longhorn --set-json 'global.imagePullSecrets=["application-collection"]' --set architecture=cluster --set nodeCount=3 redis ./redis
+----
+
+
+// TODO
+// Create Ingress
+
+
+// . To do so, open your {rancher} and access the cluster you want to deploy {redis} in.
+// Navigate to Apps -> Charts. You can us the search bar on the right hand side or search manually for the {redis} App.
+// Once found, click on it.
+
+// image::Rancher_Redis_App.png[title=Rancher Redis App,scaledwidth=99%]
+
+// You'll now see a description of the {redis} helm chart. On the right hand side, you'll see a list of "Chart Versions" and the related "Application Version" below.
+// Make sure the chosen version is supported as stated in 
+// https://me.sap.com/notes/3247839
+// and hit the "Install" button on the upper right hand side.
+
+// image::Rancher_Redis_Overview.png[title=Rancher Redis Overview,scaledwidth=99%]
+
+// // TODO Which namespace to deploy into?
+// Next, you'll need to pick the namespace you want to deploy {redis} into.
+// When done, click the "Next" button at the bottom right of the website.
+ 
+// As a last step, you'll need to modify the {redis} configuration.
+
+// Adjust the storageClass in the manifest to match your storage solution. In this chart it is sufficient to set the value at global.storageClass to your desired storageClass.
+// If you use {longhorn}, your manifest would have related lines look like:
+// ----
+// global:
+//   storageClass: 'longhorn'
+// ----
+
+// Enable TLS by setting the value under tls.enable to "true".

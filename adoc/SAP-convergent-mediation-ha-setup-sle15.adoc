@@ -246,26 +246,70 @@ TODO
 
 TODO on both nodes
 
-==== IP addresses and virtual names
+==== HA software and Java virtual machine
 
-Check if the file _/etc/hosts_ contains at least the following address resolutions.
-Add those entries if they are missing.
+TODO on both nodes
 
 [subs="attributes"]
 ----
+# zypper se --type pattern ha_sles
+
+S  | Name    | Summary           | Type
+---+---------+-------------------+--------
+i  | ha_sles | High Availability | pattern
+----
+
+[subs="attributes"]
+----
+# zypper se java-17-openjdk
+
+S | Name                     | Summary                            | Type
+--+--------------------------+------------------------------------+--------
+i | java-17-openjdk          | OpenJDK 17 Runtime Environment     | package
+  | java-17-openjdk-demo     | OpenJDK 17 Demos                   | package
+  | java-17-openjdk-devel    | OpenJDK 17 Development Environment | package
+  | java-17-openjdk-headless | OpenJDK 17 Runtime Environment     | package
+----
+
+==== IP addresses and virtual names
+
+Check if the file _/etc/hosts_ contains at least the address resolution for
+both cluster nodes {myNode1}, {myNode1} as well as the ControlZone virtual
+hostname sap{mySidLc}cz. Add those entries if they are missing.
+TODO on both nodes
+
+[subs="attributes"]
+----
+# grep -e {myNode1} {myNode1} sap{mySidLc}cz /etc/hosts
+
 {myIPNode1}  {myNode1}
 {myIPNode2}  {myNode2}
-
-{myVipAAscs}  sap{mySidLc}as
+{myVipAcz}  sap{mySidLc}cz
 ----
 
 ==== Mount points and NFS shares
 
-TODO
+Check if the file _/etc/fstab_ contains the NFS shares for TODO
+TODO on both nodes
+
+[subs="attributes"]
+----
+# grep /etc/fstab
+
+# mount | grep 
+----
 
 ==== Linux user and group number scheme
 
-TODO
+Check if the file _/etc/passwd_ contains the mzadmin user {mySapAdm}.
+TODO on both nodes
+
+[subs="attributes"]
+----
+# grep {mySapAdm} /etc/passwd
+
+{mySapAdm}:x:1001:100:{ConMed} user:/opt/cm/{mySid}:/bin/bash
+----
 
 ==== Password-free ssh login
 
@@ -274,6 +318,22 @@ TODO
 ==== Time synchronisation
 
 TODO
+TODO on both nodes
+
+[subs="attributes"]
+----
+#  systemctl status chronyd | grep Active
+
+     Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 6min ago
+
+# chronyc sources
+
+MS Name/IP address         Stratum Poll Reach LastRx Last sample          
+===============================================================================
+^* ntp.longtime.ago              2  10   377   100  -1286us[-1183us] +/-   15ms
+----
+
+See also manual page chronyc(1) and chrony.conf(5).
 
 [id="sec.ha-basic-check"]
 === Checking the HA cluster basic setup
@@ -282,24 +342,129 @@ TODO on both nodes
 
 ==== Watchdog
 
-TODO
+Check if the watchdog module is loaded correctly.
+TODO on both nodes
+
+[subs="specialchars,attributes"]
+----
+# lsmod | grep -e dog -e wdt
+
+iTCO_wdt               16384  1
+iTCO_vendor_support    16384  1 iTCO_wdt
+
+# ls -l /dev/watchdog
+
+crw------- 1 root root 10, 130 May 14 16:37 /dev/watchdog
+
+# lsof dev/watchdog
+
+COMMAND PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+sbd     686 root    4w   CHR 10,130      0t0  410 /dev/watchdog
+----
 
 ==== SBD device
 
-TODO
+It is a good practice to check if the SBD device can be accessed from both nodes
+and does contain valid records. Only one SBD device is used this example. For
+production, always three devices should be used.
+TODO on both nodes
+
+[subs="specialchars,attributes"]
+----
+# egrep -v "(^#|^$)" /etc/sysconfig/sbd
+
+SBD_PACEMAKER=yes
+SBD_STARTMODE="clean"
+SBD_WATCHDOG_DEV="/dev/watchdog"
+SBD_WATCHDOG_TIMEOUT="20"
+SBD_TIMEOUT_ACTION="flush,reboot"
+SBD_MOVE_TO_ROOT_CGROUP="auto"
+SBD_OPTS=""
+SBD_DEVICE="{myDevPartSbd}"
+
+# cs_show_sbd_devices
+
+==Dumping header on disk {myDevPartSbd}
+Header version     : 2.1
+UUID               : 0f4ea13e-fab8-4147-b9b2-3cdcfff07f86
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 40
+==Header on disk {myDevPartSbd} is dumped
+0     {myNode1}      clear
+0     {myNode2}      clear
+
+# systemctl status sbd | grep Active
+
+     Active: active (running) since Tue 2024-05-14 16:37:22 CEST; 13min ago
+----
+
+For more information on SBD configuration parameters, read the section Storage-based Fencing,
+{SLEHA} Extension, and TIDs 7016880 and 7008216. See also manual pages sbd(8), stonith_sbd(7)
+and cs_show_sbd_devices(8).
 
 ==== Corosync cluster communication
 
-TODO 
+TODO on both nodes
+
+[subs="specialchars,attributes"]
+----
+# systemctl status corosync | grep Active
+
+ Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 14min ago
+
+{myNode1}:~ # corosync-cfgtool -s
+
+Printing ring status.
+Local node ID 2
+RING ID 0
+        id      = {myIPNode1}
+        status  = ring 0 active with no faults
+----
+
+See also manual page systemctl(1) and corosync-cfgtool(1).
 
 ==== systemd cluster services
 
-TODO
+TODO on both nodes
+
+[subs="specialchars,attributes"]
+----
+# systemctl status pacemaker | grep Active
+
+ Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 17min ago
+----
+
+See also manual page systemctl(1).
 
 ==== Basic Linux cluster configuration
 
 TODO on one node
 
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+
+Cluster Summary:
+  * Stack: corosync
+  * Current DC: {myNode1} (version 2.1.2+20211124...) - partition with quorum
+  * Last updated: Tue May 14 17:03:30 2024
+  * Last change:  Mon Apr 22 15:00:58 2024 by root via cibadmin on {myNode2}
+  * 2 nodes configured
+  * 1 resource instances configured
+
+Node List:
+  * Online: [ {myNode1} {myNode2} ]
+
+Full List of Resources:
+  * rsc_stonith_sbd     (stonith:external/sbd):  Started {myNode1}
+
+----
+
+See also manual page crm_mon(8).
 
 == Integrating {ConMed} ControlZone with the Linux cluster
 
@@ -317,10 +482,14 @@ TODO
 
 ==== Adapting cluster bootstrap options and resource defaults
 
-TODO
+The first example defines the cluster bootstrap options, the resource and operation
+defaults. The stonith-timeout should be greater than 1.2 times the SBD on-disk msgwait
+timeout. The priority-fencing-delay should be at least 2 times the SBD CIB pcmk_delay_max.
 
 [subs="specialchars,attributes"]
 ----
+# vi crm-cib.txt
+# enter the below to crm-cib.txt
 property cib-bootstrap-options: \
     have-watchdog=true \
     cluster-infrastructure=corosync \
@@ -339,15 +508,36 @@ op_defaults op-options: \
     record-pending=true
 ----
 
-==== Adapting SBD STONITH resource
-
-TODO for priority fencing
+Load the file to the cluster.
 
 [subs="specialchars,attributes"]
 ----
+# crm configure load update crm-cib.txt
+----
+
+See also manual page crm(8), sbd(8) and SAPCMControlZone_basic_cluster(7).
+
+==== Adapting SBD STONITH resource
+
+The next configuration part defines an disk-based SBD STONITH resource.
+Timing is adapted for priority fencing.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-sbd.txt
+# enter the below to crm-sbd.txt
 primitive rsc_stonith_sbd stonith:external/sbd \
     params pcmk_delay_max=15
 ----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-sbd.txt
+----
+
+See also manual pages crm(8), sbd(8), stonith_sbd(7) and SAPCMControlZone_basic_cluster(7). 
 
 [id="sec.cm-ha-cib"]
 === Configuring ControlZone cluster resources
@@ -356,16 +546,28 @@ TODO
 
 ==== Virtual IP address resource
 
-TODO
+Now an IP adress resource rsc_ip_{mySid} is configured.
+In case of IP address failure (or monitor timeout), the IP address resource gets
+restarted until it gains success or migration-threshold is reached.
 
 [subs="specialchars,attributes"]
 ----
+# vi crm-ip.txt
+# enter the below to crm-ip.txt
 primitive rsc_ip_{mySid} ocf:heartbeat:IPaddr2 \
     op monitor interval=60 timeout=20 on-fail=restart \
-    params ip={myVipAAscs}
+    params ip={myVipAcz} \
+    meta maintenance=true
 ----
 
-See manual page ocf_heartbeat_IPAddr2(7) for more details.
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-ip.txt 
+----
+
+See also manual page crm(8) and ocf_heartbeat_IPAddr2(7).
 
 ==== Filesystem resource (only monitoring)
 
@@ -373,7 +575,8 @@ A shared filesystem migth be statically mounted by OS on both cluster nodes.
 This filesystem holds work directories. It must not be confused with the
 ControlZone application itself. Client-side write caching has to be disabled.
 
-A Filesystem resource is configured for a bind-mount of the real NFS share.
+A Filesystem resource rsc_fs_{mySid} is configured for a bind-mount of the real
+NFS share.
 This resource is grouped with the ControlZone platform and IP address. In case
 of filesystem failures, the node gets fenced.
 No mount or umount on the real NFS share is done.
@@ -383,6 +586,8 @@ the cluster resource is activated.
 
 [subs="specialchars,attributes"]
 ----
+# vi crm-fs.txt
+# enter the below to crm-fs.txt
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
     params device=/usr/sap/{mySid}/.check/ directory=/mnt/check/{mySid}/ \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
@@ -390,38 +595,82 @@ primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
     op_params OCF_CHECK_LEVEL=20 \
     op start timeout=120 \
     op stop timeout=120 \
-    meta target-role=stopped
+    meta maintenance=true
 ----
 
-See also manual page SAPCMControlZone_basic_cluster(7), ocf_heartbeat_Filesystem(7)
-and nfs(5). 
+Load the file to the cluster.
 
-==== SAP Convergent Mediation ControlZone platform resource
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-fs.txt 
+----
+
+See also manual page crm(8), SAPCMControlZone_basic_cluster(7), ocf_heartbeat_Filesystem(7)
+and nfs(5).
+
+==== SAP Convergent Mediation ControlZone platform and UI resources
 
 A ControlZone platform resoure rsc_cz_{mySid} is configured, handled by OS user
 {mySapAdm}. The local /opt/cm/{mySid}/bin/mzsh is used for monitoring, but for other
 actions /usr/sap/{mySid}/bin/mzsh is used.
 
-In case of ControlZone platform failure (or monitor timeout), the resource gets
-restarted until it gains success or migration-threshold is reached. In case of
-IP address failure, the resource group gets restarted until it gains success or
-migration-threshold is reached. If migration-threshold is exceeded, or if the
-node fails where the group is running, the group will be moved to the other
-node. A priority is configured for correct fencing in split-brain situations.
-
 [subs="specialchars,attributes"]
 ----
+# vi crm-cz.txt
+# enter the below to crm-cz.txt
 primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
     params SERVICE=platform USER={mySapAdm} \
     MZSHELL=/opt/cm/{mySid}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
     MZHOME=/opt/cm/{mySid}/;/usr/sap/{mySid}/ \
     MZPLATFORM=http://localhost:9000 \
     JAVAHOME=/opt/cm/{mySid}/sapmachine17 \
-    op monitor interval=60 timeout=120 on-fail=restart \
-    op start timeout=300 interval=0 \
-    op stop timeout=300 interval=0 \
+    op monitor interval=90 timeout=120 on-fail=restart \
+    op start timeout=300 \
+    op stop timeout=300 \
     meta priority=100 maintenance=true
 ----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-cz.txt
+----
+
+A ControlZone UI resoure rsc_ui_{mySid} is configured, handled by OS user
+{mySapAdm}. The local /opt/cm/{mySid}/bin/mzsh is used for monitoring, but for other
+actions /usr/sap/{mySid}/bin/mzsh is used.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-ui.txt
+# enter the below to crm-ui.txt
+primitive rsc_ui_{mySid} ocf:suse:SAPCMControlZone \
+    params SERVICE=ui USER={mySapAdm} \
+    MZSHELL=/opt/cm/{mySid}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+    MZHOME=/opt/cm/{mySid}/;/usr/sap/{mySid}/ \
+    MZPLATFORM=http://localhost:9000 \
+    JAVAHOME=/opt/cm/{mySid}/sapmachine17 \
+    op monitor interval=90 timeout=120 on-fail=restart \
+    op start timeout=300 \
+    op stop timeout=300 \
+    meta priority=100 maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-ui.txt
+----
+
+In case of ControlZone platform failure (or monitor timeout), the platform resource
+gets restarted until it gains success or migration-threshold is reached.
+In case of ControlZone UI failure (or monitor timeout), the UI resource gets restarted
+until it gains success or migration-threshold is reached.
+If migration-threshold is reached, or if the node fails where the group is running,
+the group will be moved to the other node.
+A priority is configured for correct fencing in split-brain situations.
 
 // [cols="1,2", options="header"]
 [width="100%",cols="30%,70%",options="header"]
@@ -480,19 +729,31 @@ Optional. Unique, string. Default value: "/usr/lib64/jvm/jre-17-openjdk".
 
 |===
 
-See manual page ocf_suse_SAPCMControlZone(7) for more details.
+See also manual page crm(8) and ocf_suse_SAPCMControlZone(7).
 
 ==== CM ControlZone resource group
 
 ControlZone platform and UI resources rsc_cz_{mySid} and rsc_ui_{mySid} are grouped
-with filesystem rsc_fs_{mySid}, IP address resource rsc_ip_{mySid} into group
+with filesystem rsc_fs_{mySid} and IP address resource rsc_ip_{mySid} into group
 grp_cz_{mySid}. The filesystem starts first, then platform, IP address starts before
 UI. The resource group might run on either node, but never in parallel.
+If the filesystem resource gets restarted, all resources of the group will restart as
+well. If the platform or IP adress resource gets restarted, the UI resource will
+restart as well.
 
 [subs="specialchars,attributes"]
 ----
+# vi crm-grp.txt
+# enter the below to crm-grp.txt 
 group grp_cz_{mySid} rsc_fs_{mySid} rsc_cz_{mySid} rsc_ip_{mySid} rsc_ui_{mySid} \
     meta maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-grp.txt
 ----
 
 === Activating the cluster resources
@@ -501,6 +762,9 @@ TODO
 
 [subs="specialchars,attributes"]
 ----
+# crm resource refresh grp_cz_{mySid}
+...
+
 # crm resource maintenance grp_cz_{mySid} off
 ----
 
@@ -511,13 +775,41 @@ TODO
 [subs="specialchars,attributes"]
 ----
 # crm_mon -1r
+
+Cluster Summary:
+  * Stack: corosync
+  * Current DC: {myNode1} (version 2.1.2+20211124...) - partition with quorum
+  * Last updated: Tue May 14 17:03:30 2024
+  * Last change:  Mon Apr 22 15:00:58 2024 by root via cibadmin on {myNode2}
+  * 2 nodes configured
+  * 6 resource instances configured
+
+Node List:
+  * Online: [ {myNode1} {myNode2} ]
+
+Full List of Resources:
+  * rsc_stonith_sbd     (stonith:external/sbd):  Started {myNode1}
+  * Resource Group: grp_cz_{mySid}:
+    * rsc_fs_{mySid} (ocf::heartbeat:Filesystem):    Started {myNode2}
+    * rsc_cz_{mySid} (ocf::suse:SAPCMControlZone):   Started {myNode2}
+    * rsc_ip_{mySid} (ocf::heartbeat:IPaddr2):       Started {myNode2}
+    * rsc_ui_{mySid} (ocf::suse:SAPCMControlZone):   Started {myNode2}
 ----
 
 TODO Congratulations!
 
-[subs="specialchars,attributes"]
+TODO make a backup of the cluster resource configuration.
+
+[subs="specialchars,attributes,verbatim,quotes"]
 ----
-# crm configure show
+FIRSTIME=$(date +%s)
+# crm configure show > crm-all-$\{FIRSTIME\}.txt
+
+# cat crm-all-$\{FIRSTIME\}.txt
+...
+
+# crm_report
+...
 ----
 
 [id="sec.testing"]
@@ -614,10 +906,8 @@ include::SAPNotes-convergent-mediation.adoc[]
 
 === CRM configuration for a minimal setup
 
-Find below a minimal CRM configuration for an CM ControlZone platform instance,
-with the platform service and its IP address.
-Ideally a filesystem resource would be included in the group. Also an UI instance
-could be included.
+Find below a typical CRM configuration for an CM ControlZone instance,
+with a dummy filesystem, platform and UI services and related IP address.
 
 [subs="specialchars,attributes"]
 ----
@@ -625,21 +915,44 @@ could be included.
 node 1: {myNode1}
 node 2: {myNode2}
 #
+primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
+	params device=/usr/sap/{mySid}/ directory=/mnt/check/{mySid}/ \
+	fstype=nfs4 options=bind,rw,noac,sync,defaults \
+	op monitor interval=90 timeout=120 on-fail=restart \
+	op_params OCF_CHECK_LEVEL=20 \
+	op start timeout=120 interval=0 \
+	op stop timeout=120 interval=0
+#
 primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
-        params SERVICE=platform MZSHELL="/opt/mz/bin/mzsh" \
-        op monitor interval=60 timeout=120 on-fail=restart \
-        op start timeout=120 interval=0 \
-        op stop timeout=120 interval=0 \
+        params SERVICE=platform USER={mySapAdm} \
+        MZSHELL=/opt/cm/{mySid}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+	MZHOME=/opt/cm/{mySid}/;/usr/sap/{mySid}/ \
+	MZPLATFORM=http://localhost:9000 \
+	JAVAHOME=/usr/lib64/jvm/jre-17-openjdk \
+	op monitor interval=90 timeout=120 on-fail=restart \
+        op start timeout=300 interval=0 \
+        op stop timeout=300 interval=0 \
+        meta priority=100
+#
+primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
+        params SERVICE=ui USER={mySapAdm} \
+        MZSHELL=/opt/cm/{mySid}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+	MZHOME=/opt/cm/{mySid}/;/usr/sap/{mySid}/ \
+	MZPLATFORM=http://localhost:9000 \
+	JAVAHOME=/usr/lib64/jvm/jre-17-openjdk \
+	op monitor interval=90 timeout=120 on-fail=restart \
+        op start timeout=300 interval=0 \
+        op stop timeout=300 interval=0 \
         meta priority=100
 #
 primitive rsc_ip_{mySid} IPaddr2 \
-        params ip={myVipAAscs} \
+        params ip={myVipAcz} \
         op monitor interval=60 timeout=20 on-fail=restart
 #
 primitive rsc_stonith_sbd stonith:external/sbd \
         params pcmk_delay_max=15
 #
-group grp_cz_{mySid} rsc_ip_{mySid} rsc_cz_{mySid}
+group grp_cz_{mySid} rsc_fs_{mySid} rsc_cz_{mySid} rsc_ip_{mySid} rsc_ui_{mySid}
 #
 property cib-bootstrap-options: \
         have-watchdog=true \
@@ -657,7 +970,8 @@ rsc_defaults rsc-options: \
         migration-threshold=3 \
         failure-timeout=86400
 op_defaults op-options: \
-        timeout=120
+        timeout=120 \
+	record-pending=true
 ----
 
 === Corosync configuration of the two-node cluster
@@ -704,12 +1018,12 @@ logging {
 
 nodelist {
     node {
-        ring0_addr: {myIP2nd1}
+        ring0_addr: {myIPNode1}
         nodeid: 1
     }
 
     node {
-        ring0_addr: {myIP2nd2}
+        ring0_addr: {myIPNode2}
         nodeid: 2
     }
 }

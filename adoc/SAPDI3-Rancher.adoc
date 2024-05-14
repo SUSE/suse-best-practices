@@ -15,12 +15,126 @@ Setup a virtual machine or bare metal server with {sles} and the HA Extension or
 Create the configuration for haproxy:
 ----
 cat <EOF>> /etc/haproxy/haproxy.cfg 
+global
+        log /dev/log    local0
+        log /dev/log    local1 notice
+        chroot /var/lib/haproxy
+        stats socket /run/haproxy/admin.sock mode 660 level admin
+        stats timeout 30s
+        user haproxy
+        group haproxy
+        daemon
+
+        # Default SSL material locations
+        ca-base /etc/ssl/certs
+        crt-base /etc/ssl/private
+        maxconn 2000000
+        # Default ciphers to use on SSL-enabled listening sockets.
+        # For more information, see ciphers(1SSL). This list is from:
+        #  https://hynek.me/articles/hardening-your-web-servers-ssl-ciphers/
+        #ssl-default-bind-ciphers  ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:!aNULL:!MD5:!DSS
+        ssl-default-bind-ciphers ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS
+        ssl-default-bind-options force-tlsv12 no-sslv3 no-tls-tickets
+        tune.ssl.default-dh-param 2048
+        nbproc 8
+        cpu-map  1 1
+        cpu-map  2 2
+        cpu-map  3 3
+        cpu-map  4 4
+        stats bind-process 4
+
+defaults
+        log     global
+        mode    http
+        option  httplog
+        option forwardfor
+        option  dontlognull
+        timeout connect 50000s
+        timeout client  50000s
+        timeout server  50000s
+        retries 4
+        maxconn 2000000
+        errorfile 400 /etc/haproxy/errors/400.http
+        errorfile 403 /etc/haproxy/errors/403.http
+        errorfile 408 /etc/haproxy/errors/408.http
+        errorfile 500 /etc/haproxy/errors/500.http
+        errorfile 502 /etc/haproxy/errors/502.http
+        errorfile 503 /etc/haproxy/errors/503.http
+        errorfile 504 /etc/haproxy/errors/504.http
+
+frontend www-http
+    mode http
+    stats enable
+    stats uri /haproxy?stats
+    bind 0.0.0.0:80
+    http-request set-header X-Forwarded-Proto http
+    option http-server-close
+    option forwardfor except 127.0.0.1
+    option forwardfor header X-Real-IP
+    # CHANGE ME 
+    acl host_rancher hdr(host) -i rancher.glimpse.me
+    # 
+    acl is_websocket hdr(Upgrade) -i WebSocket
+    acl is_websocket hdr_beg(Host) -i wss
+    use_backend rancher if host_rancher
+
+frontend www-https
+    bind *:443 ssl crt /etc/ssl/certificate.pem alpn h2,http/1.1
+    option http-server-close
+    redirect scheme https if !{ ssl_fc }
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    option forwardfor except 127.0.0.1
+    option forwardfor header X-Real-IP
+    # CHANGE ME
+    acl host_rancher hdr(host) -i rancher.glimpse.me
+    # 
+    acl is_websocket hdr(Upgrade) -i WebSocket
+    acl is_websocket hdr_beg(Host) -i wss
+    use_backend rancher if host_rancher
+
+
+frontend kubernetes
+	bind 10.10.70.2:6443
+	option tcplog
+	mode tcp
+	default_backend kubernetes-master-nodes
+
+backend kubernetes-master-nodes
+	mode tcp
+	balance roundrobin
+	option tcp-check
+        server g-rke-dev-01 10.10.70.3:6443 check fall 3 rise 2
+        server g-rke-dev-02 10.10.70.4:6443 check fall 3 rise 2
+        server g-rke-dev-03 10.10.70.5:6443 check fall 3 rise 2
+
+frontend supervisor
+	bind 10.10.70.2:9345
+	option tcplog
+	mode tcp
+	default_backend supervisor
+
+backend supervisor
+	mode tcp
+	balance roundrobin
+	option tcp-check
+        server g-rke-dev-01 10.10.70.3:9345 check fall 3 rise 1
+        server g-rke-dev-02 10.10.70.4:9345 check fall 3 rise 1
+        server g-rke-dev-03 10.10.70.5:9345 check fall 3 rise 1
+
+backend rancher
+        redirect scheme https if !{ ssl_fc }
+        mode http
+        balance roundrobin
+        option tcp-check
+        server g-rke-dev-01 10.10.70.3:80 check fall 3 rise 2
+        server g-rke-dev-02 10.10.70.4:80 check fall 3 rise 2
+        server g-rke-dev-03 10.10.70.5:80 check fall 3 rise 2
 EOF 
 ----
 
 Check the configuration file:
 ----
-#
+# haproxy -f -c
 ----
 
 Enable and start the haproxy loadbalancer:
@@ -46,7 +160,8 @@ To install RKE2, the script provided at https://get.rke2.io can be used as follo
 # curl -sfL https://get.rke2.io | sh -
 ----
 
-For HA setups it is necessary to create rke2 cluster configuration files in advance:
+For HA setups it is necessary to create rke2 cluster configuration files in advance.
+On the first master node:
 ----
 # mkdir -p /etc/rancher/rke2
 # cat <EOF >> /etc/rancher/rke2/config.yaml
@@ -72,7 +187,7 @@ EOF
 ----
 
 
-After the script finished, start the RKE2 components and run on each cluster node:
+Now it is time to enable and start the RKE2 components and run on each cluster node:
 ----
 # systemctl enable rke2-server --now
 ----

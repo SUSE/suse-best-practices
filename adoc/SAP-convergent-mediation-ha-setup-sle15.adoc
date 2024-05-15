@@ -26,14 +26,6 @@ TODO PRIOx: example
 The following sections focus on background information and the purpose of the
 document at hand.
 
-=== Introduction
-
-{sles4sapReg} is the optimal platform to run {sapReg} applications with high
-availability. Together with a redundant layout of the technical infrastructure,
-single points of failure can be eliminated.
-
-TODO
-
 
 === Abstract
 
@@ -782,7 +774,7 @@ Cluster Summary:
   * Last updated: Tue May 14 17:03:30 2024
   * Last change:  Mon Apr 22 15:00:58 2024 by root via cibadmin on {myNode2}
   * 2 nodes configured
-  * 6 resource instances configured
+  * 5 resource instances configured
 
 Node List:
   * Online: [ {myNode1} {myNode2} ]
@@ -815,7 +807,29 @@ FIRSTIME=$(date +%s)
 [id="sec.testing"]
 === Testing the cluster
 
-TODO
+As with any HA cluster, testing is crucial. Make sure that all test cases derived
+from customer expectations are conducted and passed. Otherwise the project is likely
+to fail in production.
+
+- Set up a test cluster for testing configuration changes and administrative
+procedures before applying them on the production cluster.
+
+- Carefully define, perform, and document tests for all scenarios that should be
+covered, as well as all maintenance procedures.
+
+- Test ControlZone features without Linux cluster before doing the overall
+cluster tests.
+
+- Test basic Linux cluster features without ControlZone before doing the overall
+cluster tests.
+
+Test cases for the basic Linux cluster as well as test cases for the bar CM
+ControlZone components are not covered in this document. Plese refer to the
+respective product documentation for this cases.
+// TODO PRIO2: URLs to product docu fot tests
+
+The following list shows common test cases for the CM ControlZone resources managed
+by the HA cluster.
 
 ==== Manually restarting ControlZone resources in-place
 
@@ -829,7 +843,7 @@ TODO
 
 TODO
 
-==== Testing ControlZone migration by cluster on operating system failure
+==== Testing ControlZone migration by cluster on OS or node failure
 
 TODO
 
@@ -841,38 +855,137 @@ TODO
 
 TODO
 
+////
 ==== Additional tests
+// TODO PRIO3: add basic tests
+////
 
-TODO basic cluster tests
-
-TODO
 
 
 == Administration
 
+HA clusters are complex, the CM ControlZone is complex.
+Deploying and running HA clusters for CM ControlZonen needs preparation and
+carefulness. Fortunately, most pitfalls and lots of proven procedures are already
+known. This chapter outlines common administrative tasks.
+
 === Dos and don'ts
 
-TODO
+Five basic rules will help to avoid known issues.
 
-==== Stopping an starting the ControlZone resources
+- Carefully test all configuration changes and administrative procedures on the
+test cluster before applying them on the production cluster.
+
+- Before doing anything, always check for the Linux cluster's idle status,
+left-over migration constraints, and resource failures as well as the
+ControlZone status.
+
+- Be patient. For detecting the overall ControlZone status, the Linux cluster
+needs a certain amount of time, depending on the ControlZone services and the
+configured intervals and timeouts.
+
+- As long as the ControlZone components are managed by the Linux cluster, they
+must never be started/stopped/moved from outside. Thus no manual actions are done.
+
+See also the manual page SAPCMControlZone_maintenance_examples(7),
+SAPCMControlZone_basic_cluster(7) and ocf_suse_SAPCMControlZone(7).
+
+==== Showing status of ControlZone resources and HA cluster
+
+This  steps  should  be performed before doing anything with the cluster, and after
+something has been done.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+----
+
+See also manual page SAPCMControlZone_maintenance_examples(7), crm_mon(8),
+cs_clusterstate(8), cs_show_cluster_actions(8).
+
+==== Starting the ControlZone resources
 
 TODO
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+# cs_wait_for_idle -s 6
+# crm resource start grp_cz_{mySid}
+# cs_wait_for_idle -s 6; crm_mon -1r
+----
+
+==== Stopping the ControlZone resources
+
+TODO
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+# cs_wait_for_idle -s 6
+# crm resource stop grp_cz_{mySid}
+# cs_wait_for_idle -s 6; crm_mon -1r
+----
 
 ==== Migrating the ControlZone resources
 
+ControlZone application and Linux cluster are checked for clean and idle state.
+The ControlZone resources are moved to the other node. The related location rule
+is removed after the takeover took place. ControlZone application and HA cluster
+are checked for clean and idle state.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+
+# crm resource move grp_cz_{mySid} force
+# cs_wait_for_idle -s 9; crm_mon -1r
+# crm resource clear grp_cz_{mySid}
+
+# cs_wait_for_idle -s 6; crm_mon -1r
+# crm configure show | grep cli-
+# su - {mySapAdm} -c "mzsh status"
+----
+
+==== Example for generic maintenance procedure.
+
+ControlZone application and HA cluster are checked for clean and idle state.
+The ControlZone resource group is set into maintenance mode. This is needed to
+allow manual actions on the resources. After the manual actions are done, the
+resource group is put back under cluster control. It is neccessary to wait for
+each step to complete and to check the result. ControlZone application and HA
+cluster are finally checked for clean and idle state.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+# crm resource maintenance grp_cz_{mySid}
+
+<do maintenance>
+
+# crm resource refresh grp_cz_{mySid}
+# cs_wait_for_idle -s 6; crm_mon -1r
+# crm resource maintenance grp_cz_{mySid} off
+# cs_wait_for_idle -s 6; crm_mon -1r
+# su - {mySapAdm} -c "mzsh status"
+----
+
+==== Cleaning up resource failcount
+
 TODO
-
-==== Setting ControlZone resources into maintenance mode
-
-TODO
-
-==== Ending ControlZone resources maintenance
-
-TODO
-
-==== Cleaning up resources
-
-TODO
+[subs="specialchars,attributes"]
+----
+----
 
 
 

@@ -216,6 +216,9 @@ TODO
 - Checking the HA cluster basic setup
 // [id="sec.ha-basic-check"]
 
+- Preparing mzadmin user´s ~./bahsrc
+// [id="sec.ha-bashrc"]
+
 - Preparing the OS for NFS monitoring
 // [id="sec.ha-filsystem-monitor"]
 
@@ -227,6 +230,7 @@ TODO
 
 - Testing the HA cluster
 //  [id="sec.testing"]
+
 
 
 == Checking the operating system and the HA cluster basic setup
@@ -288,17 +292,28 @@ TODO on both nodes
 {myVipAcz}   {myVipNcz}
 ----
 
+See also manual page hosts(8).
+
 ==== Mount points and NFS shares
 
 Check if the file _/etc/fstab_ contains the NFS shares for TODO
+The filesystem is statically mounted on all nodes of the cluster. 
+The correct mount options are depending on the NFS server. However, client-side
+write caching has to be disabled in any case.
 TODO on both nodes
 
 [subs="attributes"]
 ----
-# grep /etc/fstab
+# grep "/usr/sap/{mySid}" /etc/fstab
 
-# mount | grep 
+nfsrv:/s/{mySid}/cz /usr/sap/{mySid} nfs4 rw,noac,sync,default 0 0
+
+# mount | grep "/usr/sap/{mySid}"
+
+TODO
 ----
+
+See also manual page mount(8), fstab(5) and nfs(5).
 
 ==== Linux user and group number scheme
 
@@ -312,9 +327,21 @@ TODO on both nodes
 {mySapAdm}:x:1001:100:{ConMed} user:/opt/cm/{mySid}:/bin/bash
 ----
 
+See also manual page passwd(5).
+
 ==== Password-free ssh login
 
-TODO
+TODO on both nodes
+
+[subs="attributes"]
+----
+{myNode1}:~# ssh {myNode2}
+{myNode2}:~# ssh {myNode1}
+{myNode1}:~# exit
+{myNode2}:~# exit
+---
+
+See also manual page ssh(1) and ssh-keygen(1).
 
 ==== Time synchronisation
 
@@ -413,11 +440,7 @@ TODO on both nodes
 
 [subs="specialchars,attributes"]
 ----
-# systemctl status corosync | grep Active
-
- Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 14min ago
-
-{myNode1}:~ # corosync-cfgtool -s
+{myNode1}:~# corosync-cfgtool -s
 
 Printing ring status.
 Local node ID 2
@@ -467,14 +490,45 @@ Full List of Resources:
 
 See also manual page crm_mon(8).
 
+
+
 == Integrating {ConMed} ControlZone with the Linux cluster
 
 TODO
+
+[id="sec.ha-bashrc"]
+=== Preparing mzadmin user ~/.bashrc file
+
+TODO on both nodes
+
+Certain values for environment variables JAVA_HOME, MZ_HOME and MZ_PLATFORM are
+needed. The values are inherited from the RA, thru related RA_... variables.
+
+[subs="specialchars,attributes,verbatim,quotes"]
+----
+{myNode1}:~# su - {mzadm}
+{myNode1}:~> cd
+{myNode1}:~> vi .bashrc
+ 
+# MZ_PLATFORM, MZ_HOME, JAVA_HOME are set by HA RA
+export MZ_PLATFORM=${RA_MZ_PLATFORM:-"http://localhost:9000"}
+export MZ_HOME=${RA_MZ_HOME:-"/opt/cm/{mySid}"}
+export JAVA_HOME=${RA_JAVA_HOME:-"/usr/lib64/jvm/jre-17-openjdk"}
+
+{myNode1}:~> scp .bashrc {myNode2}:~/
+----
+
+See also manual page ocf_suse_SAPCMControlZone(7).
 
 [id="sec.ha-filsystem-monitor"]
 === Preparing the OS for NFS monitoring
 
 TODO on both nodes
+
+[subs="specialchars,attributes"]
+----
+# mkdir -p /usr/sap/{mySid}/.check /usr/sap/.check_{mySid}
+----
 
 [id="sec.basic-ha-cib"]
 === Adapting the cluster basic configuration
@@ -590,7 +644,7 @@ the cluster resource is activated.
 # vi crm-fs.txt
 # enter the below to crm-fs.txt
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
-    params device=/usr/sap/{mySid}/.check/ directory=/mnt/check/{mySid}/ \
+    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid}/ \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
     op monitor interval=90 timeout=120 on-fail=restart \
     op_params OCF_CHECK_LEVEL=20 \
@@ -1032,14 +1086,14 @@ include::SAPNotes-convergent-mediation.adoc[]
 === The mzadmin user {mzadm}´s ~/.bashrc file
 
 Certain values for environment variables JAVA_HOME, MZ_HOME and MZ_PLATFORM are
-needed. The values are inherited from the RA. 
+needed. The values are inherited from the RA, thru related RA_... variables. 
 
 [subs="specialchars,attributes,verbatim,quotes"]
 ----
 # MZ_PLATFORM, MZ_HOME, JAVA_HOME are set by HA RA
-export MZ_PLATFORM=$\{RA_MZ_PLATFORM:-"http://localhost:9000"\}
-export MZ_HOME=$\{RA_MZ_HOME:-"/opt/cm/{mySid}"\}
-export JAVA_HOME=$\{RA_JAVA_HOME:-"/usr/lib64/jvm/jre-17-openjdk"\}
+export MZ_PLATFORM=${RA_MZ_PLATFORM:-"http://localhost:9000"}
+export MZ_HOME=${RA_MZ_HOME:-"/opt/cm/{mySid}"}
+export JAVA_HOME=${RA_JAVA_HOME:-"/usr/lib64/jvm/jre-17-openjdk"}
 ----
 
 === CRM configuration for a typical setup
@@ -1054,7 +1108,7 @@ node 1: {myNode1}
 node 2: {myNode2}
 #
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
-    params device=/usr/sap/{mySid}/ directory=/mnt/check/{mySid}/ \
+    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
     op monitor interval=90 timeout=120 on-fail=restart \
     op_params OCF_CHECK_LEVEL=20 \

@@ -6,7 +6,9 @@
 :slesProdVersion: 15
 //
 
-= SAP Convergent Mediation ControlZone High Availability Cluster: Setup Guide
+= Convergent Mediation ControlZone High Availability Cluster: Setup Guide
+
+// TODO PRIO1: SAP Convergent Mediation ControlZone ? 
 
 // Revision {Revision} from {docdate}
 // Standard SUSE includes
@@ -17,9 +19,6 @@
 include::Var_SAP-convergent-mediation.adoc[]
 //
 
-////
-// TODO PRIOx: example
-////
 
 == About this guide
 
@@ -129,11 +128,13 @@ details)
 
 The ControlZone services platform and UI are handled as active/passive resources.
 The related virtual IP adress is managed by the HA cluster as well.
-NFS shares with work directories are mounted statically on all nodes.
-The HA cluster does not control that NFS filesystems. However, this filesystem are
-monitored.
 
-// TODO PRIO1: picture
+A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
+filesystem holds work directories. However, the ControlZone software is copied to
+both node´s local filesystems.
+
+.Two-node HA cluster and statically mounted filesystems
+image::sles4sap_cm_cluster.svg[scaledwidth=100.0%]
 
 A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
 filesystem holds work directories. It must not be confused with the ControlZone
@@ -143,6 +144,9 @@ A Filesystem resource is configured for a bind-mount of the real NFS share. This
 resource is grouped with the ControlZone platform and IP address. In case of
 filesystem failures, the cluster takes action. No mount or umount on the real NFS
 share is done.
+
+.ControlZone resource group
+image::sles4sap_cm_cz_group.svg[scaledwidth=70.0%]
 
 === Scope of this document
 
@@ -265,7 +269,7 @@ eight steps.
 // [id="sec.cm-ha-cib"]
 
 - Testing the HA cluster
-//  [id="sec.testing"]
+// [id="sec.testing"]
 
 
 
@@ -288,7 +292,7 @@ already in place. It is good practice to first fill out the parameter sheet.
 |Value
 
 | NFS server and share
-| {myNFSSrv}:/s/{mySid}/cz
+| {myNFSSrv}:/s/{mySid}/cm
 |
 
 | NFS mount options
@@ -393,11 +397,11 @@ TODO on both nodes
 
 [subs="attributes"]
 ----
-# grep -e {myNode1} {myNode1} {myVipNcz} /etc/hosts
+# grep -e {myNode1} -e {myNode2} -e {myVipNcz} /etc/hosts
 
-{myIPNode1}  {myNode1}
-{myIPNode2}  {myNode2}
-{myVipAcz}   {myVipNcz}
+{myIPNode1}  {myNode1}.fjaell.se   {myNode1}
+{myIPNode2}  {myNode2}.fjaell.se   {myNode2}
+{myVipAcz}   {myVipNcz}.fjaell.se  {myVipNcz}
 ----
 
 See also manual page hosts(8).
@@ -500,7 +504,7 @@ sbd     686 root    4w   CHR 10,130      0t0  410 /dev/watchdog
 ==== SBD device
 
 It is a good practice to check if the SBD device can be accessed from both nodes
-and does contain valid records. Only one SBD device is used this example. For
+and contains valid records. Only one SBD device is used in this example. For
 production, always three devices should be used.
 TODO on both nodes
 
@@ -527,7 +531,7 @@ Sector size        : 512
 Timeout (watchdog) : 20
 Timeout (allocate) : 2
 Timeout (loop)     : 1
-Timeout (msgwait)  : 40
+Timeout (msgwait)  : 120
 ==Header on disk {myDevPartSbd} is dumped
 0     {myNode1}      clear
 0     {myNode2}      clear
@@ -556,6 +560,8 @@ RING ID 0
         status  = ring 0 active with no faults
 ----
 
+See appendix for a complete corosync configuration example.
+// TODO PRIO2: link to appendix corosync.conf 
 See also manual page systemctl(1) and corosync-cfgtool(1).
 
 ==== systemd cluster services
@@ -754,7 +760,7 @@ the cluster resource is activated.
 
 # enter the below to crm-fs.txt
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
-    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid}/ \
+    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
     op monitor interval=90 timeout=120 on-fail=restart \
     op_params OCF_CHECK_LEVEL=20 \
@@ -776,7 +782,7 @@ and nfs(5).
 ==== SAP Convergent Mediation ControlZone platform and UI resources
 
 A ControlZone platform resoure rsc_cz_{mySid} is configured, handled by OS user
-{mySapAdm}. The local {mzhome}/bin/mzsh is used for monitoring, but for other
+{mySapAdm}. The local {mzsh} is used for monitoring, but for other
 actions /usr/sap/{mySid}/bin/mzsh is used.
 
 [subs="specialchars,attributes"]
@@ -786,11 +792,11 @@ actions /usr/sap/{mySid}/bin/mzsh is used.
 # enter the below to crm-cz.txt
 primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
     params SERVICE=platform USER={mySapAdm} \
-    MZSHELL={mzhome}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
     MZHOME={mzhome}/;/usr/sap/{mySid}/ \
     MZPLATFORM={mzPlatf} \
     JAVAHOME={mzJavah} \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=150 on-fail=restart \
     op start timeout=300 \
     op stop timeout=300 \
     meta priority=100 maintenance=true
@@ -804,7 +810,7 @@ Load the file to the cluster.
 ----
 
 A ControlZone UI resoure rsc_ui_{mySid} is configured, handled by OS user
-{mySapAdm}. The local {mzhome}/bin/mzsh is used for monitoring, but for other
+{mySapAdm}. The local {mzsh} is used for monitoring, but for other
 actions /usr/sap/{mySid}/bin/mzsh is used.
 
 [subs="specialchars,attributes"]
@@ -814,11 +820,11 @@ actions /usr/sap/{mySid}/bin/mzsh is used.
 # enter the below to crm-ui.txt
 primitive rsc_ui_{mySid} ocf:suse:SAPCMControlZone \
     params SERVICE=ui USER={mySapAdm} \
-    MZSHELL={mzhome}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
     MZHOME={mzhome}/;/usr/sap/{mySid}/ \
     MZPLATFORM={mzPlatf} \
     JAVAHOME={mzJavah} \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=150 on-fail=restart \
     op start timeout=300 \
     op stop timeout=300 \
     meta priority=100 maintenance=true
@@ -1265,22 +1271,22 @@ primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
 #
 primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
     params SERVICE=platform USER={mySapAdm} \
-    MZSHELL={mzhome}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
     MZHOME={mzhome}/;/usr/sap/{mySid}/ \
     MZPLATFORM={mzPlatf} \
     JAVAHOME={mzJavah} \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=150 on-fail=restart \
     op start timeout=300 interval=0 \
     op stop timeout=300 interval=0 \
     meta priority=100
 #
 primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
     params SERVICE=ui USER={mySapAdm} \
-    MZSHELL={mzhome}/bin/mzsh;/usr/sap/{mySid}/bin/mzsh \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
     MZHOME={mzhome}/;/usr/sap/{mySid}/ \
     MZPLATFORM={mzPlatf} \
     JAVAHOME={mzJavah} \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=150 on-fail=restart \
     op start timeout=300 interval=0 \
     op stop timeout=300 interval=0 \
     meta priority=100

@@ -1038,19 +1038,40 @@ cluster tests.
 
 - Follow the overall best practices, see <<sec.best-practice>>. 
 
-// crm_mon -1r -> do complete status of ControlZone resources and HA cluster
-// <<sec.adm-show>>
-
-Test cases for the basic HA cluster as well as test cases for the bare CM
-ControlZone components are not covered in this document. Plese refer to the
-respective product documentation for this cases.
-// TODO PRIO2: URLs to product docu for tests
+// TODO PRIO2: crm_mon -1r -> cs_show_cluster_actions, SAPCMControlZone_maintenance_exampls(7)
 
 The following list shows common test cases for the CM ControlZone resources managed
 by the HA cluster.
 
-// TODO PRIO2: list of test cases
+// Manually restarting ControlZone resources in-place
+- <<sec.test-restart>>
+// Manually migrating ControlZone resources
+- <<sec.test-migrate>>
+// Testing ControlZone restart by cluster on resource failure
+- <<sec.test-rsc-fail>>
+// Testing ControlZone takeover by cluster on node failure
+- <<sec.test-node-fail>>
+// Testing ControlZone takeover by cluster on NFS failure
+- <<sec.test-nfs-fail>>
+// Testing cluster reaction on network split-brain
+- <<sec.test-split-brain>>
 
+This is not a complete list. Please define additional test cases according to your
+needs. And please do not forget to perform every test on each node.
+
+NOTE: Tests for the basic HA cluster as well as tests for the bare CM ControlZone
+components are not covered in this document. Please refer to the respective product
+documentation for this tests.
+
+// TODO PRIO2: URLs to product docu for tests
+
+The test prerequisite, if not described differently, is always that both cluster
+nodes are booted and joined to the cluster. SBD and corosync are fine.
+NFS and local disks are fine. The ControlZone resources are all running.
+No failcounts or migration constraints are in the CIB. The cluster is idle, no
+actions are pending.
+
+[[sec.test-restart]]
 ==== Manually restarting ControlZone resources in-place
 ==========
 .{testComp}
@@ -1067,7 +1088,7 @@ by the HA cluster.
 . Check the ControlZone resources and cluster.
 [subs="specialchars,attributes"]
 ----
-# cs_wait_for_idle -s 6; crm_mon -1r
+# cs_wait_for_idle -s 5; crm_mon -1r
 ----
 [subs="specialchars,attributes"]
 ----
@@ -1096,6 +1117,7 @@ by the HA cluster.
 . No resource failure happens.
 ==========
 
+[[sec.test-migrate]]
 ==== Manually migrating ControlZone resources
 ==========
 .{testComp}
@@ -1132,6 +1154,7 @@ by the HA cluster.
 . No resource failure happens.
 ==========
 
+[[sec.test-rsc-fail]]
 ==== Testing ControlZone restart by cluster on resource failure
 ==========
 .{testComp}
@@ -1168,6 +1191,7 @@ by the HA cluster.
 . One resource failure happens.
 ==========
 
+[[sec.test-node-fail]]
 ==== Testing ControlZone takeover by cluster on node failure
 ==========
 .{testComp}
@@ -1182,6 +1206,7 @@ by the HA cluster.
 . Check the ControlZone resources and cluster.
 . Re-join fenced node (e.g. {mynode1}) to cluster.
 . Check the ControlZone resources and cluster.
+// TODO PRIO1: why is {mynode2} not reolved in this example?
 [subs="specialchars,attributes"]
 ----
 {mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
@@ -1211,7 +1236,8 @@ Once node has been rebooted, do:
 . No resource failure happens.
 ==========
 
-==== Testing ControlZone migration by cluster on NFS failure
+[[sec.test-nfs-fail]]
+==== Testing ControlZone takeover by cluster on NFS failure
 ==========
 .{testComp}
 - Network for NFS on one node
@@ -1225,7 +1251,13 @@ Once node has been rebooted, do:
 . Check the ControlZone resources and cluster.
 . Re-join fenced node (e.g. {mynode1}) to cluster.
 . Check the ControlZone resources and cluster.
-// TODO PRIO1: test procedure
+// TODO PRIO1: more test details
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p tcp -m multiport --ports 2049 -j DROP"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
 
 .{testExpect}
 . The cluster detects failed NFS.
@@ -1235,6 +1267,7 @@ Once node has been rebooted, do:
 . Some resource failures happen.
 ==========
 
+[[sec.test-split-brain]]
 ==== Testing cluster reaction on network split-brain
 ==========
 .{testComp}
@@ -1249,18 +1282,33 @@ Once node has been rebooted, do:
 . Check the ControlZone resources and cluster.
 . Re-join fenced node (e.g. {mynode1}) to cluster.
 . Check the ControlZone resources and cluster.
-// TODO PRIO1: test procedure
+// TODO PRIO1: more test details
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # grep mcastport /etc/corosync/corosync.conf
+{mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p udp -m multiport --ports 5405,5407 -j DROP"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
 
 .{testExpect}
 . The cluster detects failed corosync.
 . The cluster fences node.
 . The cluster keeps all resources on the same node.
+. The fenced node needs to be joined to the cluster.
 . No resource failure.
 ==========
 
 ////
 ==== Additional tests
 // TODO PRIO3: add basic tests
+Stop of the complete cluster.
+Parallel start of all cluster nodes.
+Isolate the SBD.
+Simulate a maintenance procedure with cluster continuously running.
+Simulate a maintenance procedure with cluster restart.
+Kill the corosync process of one cluster node.
+See manual page crm(8) for cluster crash_test.
 ////
 
 

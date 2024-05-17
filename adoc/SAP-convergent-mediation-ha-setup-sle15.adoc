@@ -25,16 +25,16 @@ document at hand.
 
 === Abstract
 
-This guide describes planning, setup, and basic testing of {sles4sap} {prodNr}
+This guide describes configuration and basic testing of {sles4sap} {prodNr}
 {prodSP} as an high availability cluster for {ConMed} (CM) ControlZone services.
 
 From the application perspective the following concept is covered:
 
-- CM ControlZone platform and UI services are running together.
+- ControlZone platform and UI services are running together.
 
-- CM ControlZone software is installed on central NFS.
+- ControlZone software is installed on central NFS.
 
-- CM ControlZone software is copied to local disks of both nodes.
+- ControlZone software is copied to local disks of both nodes.
 
 From the infrastructure perspective the following concept is covered:
 
@@ -45,7 +45,8 @@ From the infrastructure perspective the following concept is covered:
 - On-premises deployment on physical and virtual machines.
 
 Despite the above menionted focus of this setup guide, other variants can be
-implemented as well. See <<cha.overview>> below.
+implemented as well. See <<cha.overview>> below. The concept can also be used
+with newer service packs of {sles4sap} {prodNr}.
 
 NOTE: This solution is supported only in the context of {SAP} RISE
 (https://www.sap.com/products/erp/rise.html).
@@ -128,7 +129,7 @@ The related virtual IP adress is managed by the HA cluster as well.
 
 A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
 filesystem holds work directories. However, the ControlZone software is copied to
-both node´s local filesystems.
+both nodes´ local filesystems.
 
 .Two-node HA cluster and statically mounted filesystems
 image::sles4sap_cm_cluster.svg[scaledwidth=100.0%]
@@ -136,7 +137,6 @@ image::sles4sap_cm_cluster.svg[scaledwidth=100.0%]
 A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
 filesystem holds work directories. It must not be confused with the ControlZone
 application itself. Client-side write caching has to be disabled.
-
 A Filesystem resource is configured for a bind-mount of the real NFS share. This
 resource is grouped with the ControlZone platform and IP address. In case of
 filesystem failures, the cluster takes action. No mount or umount on the real NFS
@@ -149,9 +149,11 @@ image::sles4sap_cm_cz_group.svg[scaledwidth=70.0%]
 
 For the {sleha} two-node cluster described above, this guide explains how to:
 
-- Check the basics of the two-node cluster with disk-based SBD.
+- Check basic settings of the two-node HA cluster with disk-based SBD.
 
-- Configure an HA cluster for managing the CM ControlZone components platform
+- Check basic capabilities of the ControlZone components on both nodes.
+
+- Configure an HA cluster for managing the ControlZone components platform
 and UI, together with related IP address.
 
 - Perform functional tests of the HA cluster and its resources.
@@ -164,11 +166,11 @@ CM ControlZone software is covered in the document at hand.
 [[sec.prerequisites]]
 === Prerequisites
 
-For requirements of {ConMed} ControlZone, please refer to the product documentation.
-// TODO PRIO2: URL to requirements of CM ControlZone
+For requirements of {ConMed} ControlZone, please refer to the product documentation
+(https://infozone.atlassian.net/wiki/spaces/MD9/pages/4849685/System+Requirements).
 
-For requirements of {sles4sap} and {sleha}, please refer to the product documentation.
-// TODO PRIO2: URL to requirements of SLE4SAP and SLEHA  
+For requirements of {sles4sap} and {sleha}, please refer to the product documentation
+(https://documentation.suse.com/sle-ha/15-SP4/html/SLE-HA-all/article-installation.html#sec-ha-inst-quick-req).
 
 Specific requirements of the SUSE high availability solution for CM ControlZone
 are:
@@ -604,6 +606,21 @@ See also manual page crm_mon(8).
 == Checking the ControlZone setup
 
 // TODO PRIO2: content
+
+=== Checking ControlZone on central NFS share
+
+// TODO PRIO2: content
+This is needed on both nodes.
+
+[subs="specialchars,attributes"]
+----
+{myNode1}:~ #
+----
+// TODO PRIO1: above checks with mzsh
+
+=== Checking ControlZone on each node´s local disk
+
+// TODO PRIO2: content
 This is needed on both nodes.
 
 [subs="specialchars,attributes"]
@@ -1021,7 +1038,10 @@ cluster tests.
 
 - Follow the overall best practices, see <<sec.best-practice>>. 
 
-Test cases for the basic Linux cluster as well as test cases for the bare CM
+// crm_mon -1r -> do complete status of ControlZone resources and HA cluster
+// <<sec.adm-show>>
+
+Test cases for the basic HA cluster as well as test cases for the bare CM
 ControlZone components are not covered in this document. Plese refer to the
 respective product documentation for this cases.
 // TODO PRIO2: URLs to product docu for tests
@@ -1029,28 +1049,30 @@ respective product documentation for this cases.
 The following list shows common test cases for the CM ControlZone resources managed
 by the HA cluster.
 
+// TODO PRIO2: list of test cases
+
 ==== Manually restarting ControlZone resources in-place
 ==========
 .{testComp}
 - ControlZone resources
 
 .{testDescr}
-- The ControlZone resources are stopped and re-started in-place
+- The ControlZone resources are stopped and re-started in-place.
 
 .{testProc}
-. Check the ControlZone resources and cluster
-. Stop the ControlZone resources
-. Check the ControlZone resources
-. Start the ControlZone resources
-. Check the ControlZone resources and cluster
+. Check the ControlZone resources and cluster.
+. Stop the ControlZone resources.
+. Check the ControlZone resources.
+. Start the ControlZone resources.
+. Check the ControlZone resources and cluster.
 [subs="specialchars,attributes"]
 ----
-# crm_mon -1r; cs_clusterstate -i
-----
-[subs="specialchars,attributes"]
-----
-# crm resource stop grp_cz_{mySid}
 # cs_wait_for_idle -s 6; crm_mon -1r
+----
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm resource stop grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
 ----
 [subs="specialchars,attributes"]
 ----
@@ -1063,8 +1085,8 @@ by the HA cluster.
 ----
 [subs="specialchars,attributes"]
 ----
-# crm resource start grp_cz_{mySid}
-# cs_wait_for_idle -s 6; crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource start grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
 ----
 
 .{testExpect}
@@ -1080,27 +1102,27 @@ by the HA cluster.
 - ControlZone resources
 
 .{testDescr}
-- The ControlZone resources are stopped and then started on the other node
+- The ControlZone resources are stopped and then started on the other node.
 
 .{testProc}
-. Check the ControlZone resources and cluster
-. Migrate the ControlZone resources
-. Remove migration constraint
-. Check the ControlZone resources
-. Check the ControlZone resources and cluster
+. Check the ControlZone resources and cluster.
+. Migrate the ControlZone resources.
+. Remove migration constraint.
+. Check the ControlZone resources.
+. Check the ControlZone resources and cluster.
 [subs="specialchars,attributes"]
 ----
-# crm_mon -1r; cs_clusterstate -i
-----
-[subs="specialchars,attributes"]
-----
-# crm resource move grp_cz_{mySid} force
-# cs_wait_for_idle -s 6; crm_mon -1r
-# crm resource clear grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
 ----
 [subs="specialchars,attributes"]
 ----
-# cs_wait_for_idle -s 6; crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource move grp_cz_{mySid} force
+# cs_wait_for_idle -s 5; crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource clear grp_cz_{mySid}
+----
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
 ----
 
 .{testExpect}
@@ -1110,44 +1132,82 @@ by the HA cluster.
 . No resource failure happens.
 ==========
 
-==== Testing ControlZone restart by cluster on application failure
+==== Testing ControlZone restart by cluster on resource failure
 ==========
 .{testComp}
 - ControlZone resources
 
 .{testDescr}
-- The ControlZone resources are stopped and re-started on same node
+- The ControlZone resources are stopped and re-started on same node.
 
 .{testProc}
-. Check the ControlZone resources and cluster
-. Manually kill a ControlZone service
-. Check the ControlZone resources
-. Cleanup failcount
-. Check the ControlZone resources and cluster
-// TODO PRIO1: test procedure
+. Check the ControlZone resources and cluster.
+. Manually kill a ControlZone service (on e.g. {mynode1}).
+. Check the ControlZone resources.
+. Cleanup failcount.
+. Check the ControlZone resources and cluster.
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+[subs="specialchars,attributes"]
+----
+# ssh root@{mynode1} "su - {mySapAdm} \"mzsh kill platform\""
+# cs_wait_for_idle -s 5; crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource cleanup grp_cz_{mySid}
+----
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
 
 .{testExpect}
-. The cluster detects stopped resource.
+. The cluster detects faileded resource.
 . The filesystem stays mounted.
 . The cluster re-starts resources on same node.
 . One resource failure happens.
 ==========
 
-==== Testing ControlZone migration by cluster on node failure
+==== Testing ControlZone takeover by cluster on node failure
 ==========
 .{testComp}
 - Cluster node
 
 .{testDescr}
-- The ControlZone resources are stopped and re-started on same node
+- The ControlZone resources are started on other node
 
 .{testProc}
-// TODO PRIO1: test procedure
+. Check the ControlZone resources and cluster.
+. Manually kill cluster node, where resources are running (e.g. {mynode1}).
+. Check the ControlZone resources and cluster.
+. Re-join fenced node (e.g. {mynode1}) to cluster.
+. Check the ControlZone resources and cluster.
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # ssh root@{mynode1} "systemctl reboot --force"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
+Once node has been rebooted, do:
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_show_sbd_devices | grep reset
+{mynode2}:~ # cs_clear_sbd_devices --all
+{mynode2}:~ # crm cluster start --all
+----
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
 
 .{testExpect}
 . The cluster detects failed node.
 . The cluster fences failed node.
 . The cluster starts all resources on the other node.
+. The fenced node needs to be joined to the cluster.
 . No resource failure happens.
 ==========
 
@@ -1157,15 +1217,21 @@ by the HA cluster.
 - Network for NFS on one node
 
 .{testDescr}
-- The NFS share fails and the cluster moves resources to other node
+- The NFS share fails and the cluster moves resources to other node.
 
 .{testProc}
+. Check the ControlZone resources and cluster.
+. Manually block port for NFS, where resources are running (e.g. {mynode1}).
+. Check the ControlZone resources and cluster.
+. Re-join fenced node (e.g. {mynode1}) to cluster.
+. Check the ControlZone resources and cluster.
 // TODO PRIO1: test procedure
 
 .{testExpect}
 . The cluster detects failed NFS.
 . The cluster fences node.
 . The cluster starts all resources on the other node.
+. The fenced node needs to be joined to the cluster.
 . Some resource failures happen.
 ==========
 
@@ -1175,9 +1241,14 @@ by the HA cluster.
 - Network for corosync between nodes
 
 .{testDescr}
-- The network fails, node without resources gets fenced, resources keep running
+- The network fails, node without resources gets fenced, resources keep running.
 
 .{testProc}
+. Check the ControlZone resources and cluster.
+. Manually block ports for corosync.
+. Check the ControlZone resources and cluster.
+. Re-join fenced node (e.g. {mynode1}) to cluster.
+. Check the ControlZone resources and cluster.
 // TODO PRIO1: test procedure
 
 .{testExpect}
@@ -1223,6 +1294,7 @@ must never be started/stopped/moved from outside. Thus no manual actions are don
 See also the manual page SAPCMControlZone_maintenance_examples(7),
 SAPCMControlZone_basic_cluster(7) and ocf_suse_SAPCMControlZone(7).
 
+[[sec.adm-show]]
 ==== Showing status of ControlZone resources and HA cluster
 
 This  steps  should  be performed before doing anything with the cluster, and after

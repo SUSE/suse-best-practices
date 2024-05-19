@@ -124,26 +124,35 @@ details).
 
 === High availability for the {ConMed} ControlZone platform and UI
 
-The ControlZone services platform and UI are handled as active/passive resources.
-The related virtual IP adress is managed by the HA cluster as well.
-
+The HA solution for CM ControlZone is a two node active/passive cluster. 
 A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
-filesystem holds work directories. However, the ControlZone software is copied to
-both nodes´ local filesystems.
+filesystem holds work directories. Client-side write caching has to be disabled.
+The ControlZone software is installed into the central shared NFS, but is also
+copied to both nodes´ local filesystems. The HA cluster uses the central directory
+for starting/stopping the ControlZone services. However, for monitoring the local
+copies of the installation are used. 
+
+The cluster can run monitor actions even when the NFS temporarily is blocked.
+Further, software upgrade is possible without downtime (rolling upgrade).
+// TODO PRIO2: Get rid of the central software. Use central NFS for work directory only.
 
 .Two-node HA cluster and statically mounted filesystems
 image::sles4sap_cm_cluster.svg[scaledwidth=100.0%]
 
-A shared NFS filesystem is statically mounted by OS on both cluster nodes. This
-filesystem holds work directories. It must not be confused with the ControlZone
-application itself. Client-side write caching has to be disabled.
-A Filesystem resource is configured for a bind-mount of the real NFS share. This
-resource is grouped with the ControlZone platform and IP address. In case of
-filesystem failures, the cluster takes action. No mount or umount on the real NFS
-share is done.
+The ControlZone services platform and UI are handled as active/passive resources.
+The related virtual IP adress is managed by the HA cluster as well.
+A filesystem resource is configured for a bind-mount of the real NFS share. In
+case of filesystem failures, the cluster takes action. However, no mount or umount
+on the real NFS share is done.
+
+All cluster resources are organised as one resource group. This results in
+correct start/stop order as well as placement, while keeping the configuration
+simple.
 
 .ControlZone resource group
 image::sles4sap_cm_cz_group.svg[scaledwidth=70.0%]
+
+See <<cha.ha-cm>> and manual page ocf_suse_SAPCMControlZone(7) for details.
 
 === Scope of this document
 
@@ -491,6 +500,7 @@ sbd     686 root    4w   CHR 10,130      0t0  410 /dev/watchdog
 ----
 Check this on both nodes. Both nodes should use the same watchdog driver.
 Which dirver that is depends on your hardware or hypervisor.
+// TODO PRIO3: URL to sle-ha docu on watchdog mdoules
 
 ==== SBD device
 
@@ -551,11 +561,11 @@ RING ID 0
 ----
 Check this on both nodes.
 See appendix <<sec.appendix-coros>> for a `corosync.conf` example.
-See also manual page systemctl(1) and corosync-cfgtool(1).
+See also manual page systemctl(1), corosync.conf(5) and corosync-cfgtool(1).
 
 ==== systemd cluster services
 
-// TODO PRIO2: content 
+// TODO PRIO2: content
 
 [subs="specialchars,attributes"]
 ----
@@ -623,6 +633,7 @@ This is needed on both nodes.
 
 
 
+[[cha.ha-cm]] 
 == Integrating {ConMed} ControlZone with the Linux cluster
 
 // TODO PRIO2: content
@@ -783,7 +794,7 @@ before the cluster resource is activated.
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
     params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=120 on-fail=fence \
     op_params OCF_CHECK_LEVEL=20 \
     op start timeout=120 \
     op stop timeout=120 \
@@ -804,6 +815,11 @@ and nfs(5).
 A ControlZone platform resource `rsc_cz_{mySid}` is configured, handled by OS user
 `{mySapAdm}`. The local `{mzsh}` is used for monitoring, but for other actions
 the central `/usr/sap/{mySid}/bin/mzsh` is used.
+In case of ControlZone platform failure (or monitor timeout), the platform resource
+gets restarted until it gains success or migration-threshold is reached.
+If migration-threshold is reached, or if the node fails where the group is running,
+the group will be moved to the other node.
+A priority is configured for correct fencing in split-brain situations.
 
 [subs="specialchars,attributes"]
 ----
@@ -832,6 +848,10 @@ Load the file to the cluster.
 A ControlZone UI resource `rsc_ui_{mySid}` is configured, handled by OS user
 `{mySapAdm}`. The local `{mzsh}` is used for monitoring, but for other actions
 the central `/usr/sap/{mySid}/bin/mzsh` is used.
+In case of ControlZone UI failure (or monitor timeout), the UI resource gets
+restarted until it gains success or migration-threshold is reached.
+If migration-threshold is reached, or if the node fails where the group is running,
+the group will be moved to the other node.
 
 [subs="specialchars,attributes"]
 ----
@@ -857,13 +877,7 @@ Load the file to the cluster.
 # crm configure load update crm-ui.txt
 ----
 
-In case of ControlZone platform failure (or monitor timeout), the platform resource
-gets restarted until it gains success or migration-threshold is reached.
-In case of ControlZone UI failure (or monitor timeout), the UI resource gets
-restarted until it gains success or migration-threshold is reached.
-If migration-threshold is reached, or if the node fails where the group is running,
-the group will be moved to the other node.
-A priority is configured for correct fencing in split-brain situations.
+An overview on the RA SAPCMControlZone parameters are given below.
 
 // [cols="1,2", options="header"]
 [width="100%",cols="30%,70%",options="header"]
@@ -1030,7 +1044,9 @@ cluster tests.
 
 - Follow the overall best practices, see <<sec.best-practice>>. 
 
-// TODO PRIO2: crm_mon -1r -> cs_show_cluster_actions, SAPCMControlZone_maintenance_exampls(7)
+- Open an additional terminal window on an node that is expected to not get fenced.
+In that terminal, continously run `cs_show_cluster_actions` or alike.
+See manual page cs_show_cluster_actions(8) and SAPCMControlZone_maintenance_examples(7).
 
 The following list shows common test cases for the CM ControlZone resources managed
 by the HA cluster.
@@ -1039,8 +1055,10 @@ by the HA cluster.
 - <<sec.test-restart>>
 // Manually migrating ControlZone resources
 - <<sec.test-migrate>>
-// Testing ControlZone restart by cluster on resource failure
-- <<sec.test-rsc-fail>>
+// Testing ControlZone UI restart by cluster on UI failure
+- <<sec.test-ui-fail>>
+// Testing ControlZone restart by cluster on platform failure
+- <<sec.test-cz-fail>>
 // Testing ControlZone takeover by cluster on node failure
 - <<sec.test-node-fail>>
 // Testing ControlZone takeover by cluster on NFS failure
@@ -1153,18 +1171,58 @@ actions are pending.
 . No resource failure happens.
 ==========
 
-[[sec.test-rsc-fail]]
-==== Testing ControlZone restart by cluster on resource failure
+[[sec.test-ui-fail]]
+==== Testing ControlZone UI restart by cluster on UI failure
 ==========
 .{testComp}
-- ControlZone resources
+- ControlZone resources (UI)
+
+.{testDescr}
+- The ControlZone UI is re-started on same node.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
+. Manually kill ControlZone UI (on e.g. `{mynode1}`).
+. Check the ControlZone resources.
+. Cleanup failcount.
+. Check the ControlZone resources and cluster.
+
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+[subs="specialchars,attributes"]
+----
+# ssh root@{mynode1} "su - {mySapAdm} \"mzsh kill ui\""
+# cs_wait_for_idle -s 5; crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource cleanup grp_cz_{mySid}
+----
+
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster detects faileded resource.
+. The filesystem stays mounted.
+. The cluster re-starts UI on same node.
+. One resource failure happens.
+==========
+
+[[sec.test-cz-fail]]
+==== Testing ControlZone restart by cluster on platform failure
+==========
+.{testComp}
+- ControlZone resources (platform)
 
 .{testDescr}
 - The ControlZone resources are stopped and re-started on same node.
 
 .{testProc}
 . Check the ControlZone resources and cluster.
-. Manually kill a ControlZone service (on e.g. `{mynode1}`).
+. Manually kill ControlZone platform (on e.g. `{mynode1}`).
 . Check the ControlZone resources.
 . Cleanup failcount.
 . Check the ControlZone resources and cluster.
@@ -1246,10 +1304,10 @@ Once node has been rebooted, do:
 ==== Testing ControlZone takeover by cluster on NFS failure
 ==========
 .{testComp}
-- Network for NFS on one node
+- Network (for NFS)
 
 .{testDescr}
-- The NFS share fails and the cluster moves resources to other node.
+- The NFS share fails on one node and the cluster moves resources to other node.
 
 .{testProc}
 . Check the ControlZone resources and cluster.
@@ -1267,7 +1325,7 @@ Once node has been rebooted, do:
 [subs="specialchars,attributes"]
 ----
 {mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p tcp -m multiport --ports 2049 -j DROP"
-{mynode2}:~ # ssh root@{mynode1} "iptables -L"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L | grep 2049"
 {mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
 ----
 
@@ -1286,14 +1344,14 @@ Once node has been rebooted, do:
 . The cluster fences node.
 . The cluster starts all resources on the other node.
 . The fenced node needs to be joined to the cluster.
-. Some resource failures happen.
+. Resource failure happens.
 ==========
 
 [[sec.test-split-brain]]
 ==== Testing cluster reaction on network split-brain
 ==========
 .{testComp}
-- Network for corosync between nodes
+- Network (for corosync)
 
 .{testDescr}
 - The network fails, node without resources gets fenced, resources keep running.
@@ -1315,7 +1373,7 @@ Once node has been rebooted, do:
 ----
 {mynode2}:~ # grep mcastport /etc/corosync/corosync.conf
 {mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p udp -m multiport --ports 5405,5407 -j DROP"
-{mynode2}:~ # ssh root@{mynode1} "iptables -L"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L | grep -e 5405 -e 5407"
 {mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
 ----
 
@@ -1340,7 +1398,8 @@ Once node has been rebooted, do:
 ////
 ==== Additional tests
 // TODO PRIO3: add basic tests
-Stop of the complete cluster.
+Remove IP address.
+Stop the complete cluster.
 Parallel start of all cluster nodes.
 Isolate the SBD.
 Simulate a maintenance procedure with cluster continuously running.
@@ -1368,7 +1427,7 @@ test cluster before applying them on the production cluster.
 
 - Before doing anything, always check for the Linux cluster's idle status,
 left-over migration constraints, and resource failures as well as the
-ControlZone status.
+ControlZone status. See <<sec.adm-show>>.
 
 - Be patient. For detecting the overall ControlZone status, the Linux cluster
 needs a certain amount of time, depending on the ControlZone services and the
@@ -1393,6 +1452,18 @@ something has been done.
 # crm configure show | grep cli-
 # cibadmin -Q | grep fail-count
 # cs_clusterstate -i
+----
+See also manual page SAPCMControlZone_maintenance_examples(7), crm_mon(8),
+cs_clusterstate(8), cs_show_cluster_actions(8).
+
+=== Watching ControlZone resources and HA cluster
+
+This can be done during tests and maintenance procedures, to see status changes
+almost in real-time.
+
+[subs="specialchars,attributes"]
+----
+# watch -s8 cs_show_cluster_actions
 ----
 See also manual page SAPCMControlZone_maintenance_examples(7), crm_mon(8),
 cs_clusterstate(8), cs_show_cluster_actions(8).
@@ -1560,7 +1631,7 @@ node 2: {myNode2}
 primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
     params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
     fstype=nfs4 options=bind,rw,noac,sync,defaults \
-    op monitor interval=90 timeout=120 on-fail=restart \
+    op monitor interval=90 timeout=120 on-fail=fence \
     op_params OCF_CHECK_LEVEL=20 \
     op start timeout=120 interval=0 \
     op stop timeout=120 interval=0

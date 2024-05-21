@@ -291,7 +291,6 @@ nine nice steps.
 The installation should be planned properly. You should have all needed parameters
 already in place. It is good practice to first fill out the parameter sheet. 
 
-// [cols="1,2,3", options="header"]
 [width="100%",cols="25%,35%,40%",options="header"]
 .Table Collecting needed parameters
 |====
@@ -416,10 +415,11 @@ hostname `sap{mySidLc}cz`. Add those entries if they are missing.
 ----
 # grep -e {myNode1} -e {myNode2} -e {myVipNcz} /etc/hosts
 
-{myIPNode1}  {myNode1}.fjaell.se   {myNode1}
-{myIPNode2}  {myNode2}.fjaell.se   {myNode2}
-{myVipAcz}   {myVipNcz}.fjaell.se  {myVipNcz}
+{myIPNode1}  {myNode1}.fjaell.lab   {myNode1}
+{myIPNode2}  {myNode2}.fjaell.lab  {myNode2}
+{myVipAcz}   {myVipNcz}.fjaell.lab  {myVipNcz}
 ----
+
 Check this on both nodes.
 See also manual page hosts(8).
 
@@ -440,6 +440,7 @@ write caching has to be disabled in any case.
 
 ...
 ----
+
 // TODO PRIO1: above output
 Check this on both nodes.
 See also manual page mount(8), fstab(5) and nfs(5), as well as TID 20830, TID 19722.
@@ -454,6 +455,7 @@ Check if the file `/etc/passwd` contains the mzadmin user `{mySapAdm}`.
 
 {mySapAdm}:x:1001:100:{ConMed} user:/opt/cm/{mySid}:/bin/bash
 ----
+
 Check this on both nodes.
 See also manual page passwd(5).
 
@@ -468,6 +470,7 @@ See also manual page passwd(5).
 {myNode1}:~ # exit
 {myNode2}:~ # exit
 ----
+
 Check this on both nodes.
 See also manual page ssh(1) and ssh-keygen(1).
 
@@ -487,6 +490,7 @@ MS Name/IP address        Stratum Poll Reach LastRx Last sample
 ===============================================================================
 ^* long.time.ago               2   10   377   100  -1286us[-1183us] +/-   15ms
 ----
+
 Check this on both nodes.
 See also manual page chronyc(1) and chrony.conf(5).
 
@@ -515,6 +519,7 @@ crw------- 1 root root 10, 130 May 14 16:37 /dev/watchdog
 COMMAND PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
 sbd     686 root    4w   CHR 10,130      0t0  410 /dev/watchdog
 ----
+
 Check this on both nodes. Both nodes should use the same watchdog driver.
 Which dirver that is depends on your hardware or hypervisor.
 See also
@@ -558,6 +563,7 @@ Timeout (msgwait)  : 120
 
      Active: active (running) since Tue 2024-05-14 16:37:22 CEST; 13min ago
 ----
+
 Check this on both nodes.
 For more information on SBD configuration see
 https://documentation.suse.com/sle-ha/15-SP4/single-html/SLE-HA-administration/#cha-ha-storage-protect ,
@@ -578,6 +584,7 @@ RING ID 0
         id      = {myIPNode1}
         status  = ring 0 active with no faults
 ----
+
 Check this on both nodes.
 See appendix <<sec.appendix-coros>> for a `corosync.conf` example.
 See also manual page systemctl(1), corosync.conf(5) and corosync-cfgtool(1).
@@ -592,6 +599,7 @@ See also manual page systemctl(1), corosync.conf(5) and corosync-cfgtool(1).
 
  Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 17min ago
 ----
+
 Check this on both nodes.
 See also manual page systemctl(1).
 
@@ -618,6 +626,7 @@ Full List of Resources:
   * rsc_stonith_sbd     (stonith:external/sbd):  Started {myNode1}
 
 ----
+
 Check this on both nodes.
 See also manual page crm_mon(8).
 
@@ -626,29 +635,121 @@ See also manual page crm_mon(8).
 [[cha.cm-basic-check]]
 == Checking the ControlZone setup
 
-// TODO PRIO2: content
+The ControlZone needs to be tested without Linux cluster before integrating
+both. Each test needs to be done on both nodes.
 
 === Checking ControlZone on central NFS share
 
-// TODO PRIO2: content
-This is needed on both nodes.
+Check mzadmin´s environment variables MZ_HOME, JAVA_HOME, PATH and check the
+`mzsh startup/shutdown/status` functionality for MZ_HOME on central NFS.
+This is needed on both nodes. Before starting ControlZone services on one node,
+make very sure it is not running on the other node.
 
 [subs="specialchars,attributes"]
 ----
-{myNode1}:~ #
+# su - {mySapAdm}
+~ > echo $MZ_HOME $JAVA_HOME
+
+/usr/sap/{mySid} /usr/lib64/jvm/jre-17-openjdk
+
+~ > which mzsh
+
+/usr/sap/{mySid}/bin/mzsh
 ----
-// TODO PRIO1: above checks with mzsh
+
+[subs="specialchars,attributes"]
+----
+~ > echo "are you sure platform is not running on the other node?"
+
+are you sure platform is not running on the other node?
+
+~ > mzsh startup platform
+
+Starting platform...done.
+
+~ > mzsh status platform; echo $?
+
+platform is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~ > mzsh startup ui
+
+Starting ui...done.
+
+~ > mzsh status ui; echo $?
+
+ui is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~ > mzsh shutdown -f ui
+
+Shutting down ui....done.
+
+~ > mzsh status ui; echo $?
+
+ui is not running
+2
+----
+
+[subs="specialchars,attributes"]
+----
+~ > mzsh shutdown -f platform
+
+Shutting down platform......done.
+
+~ > mzsh status platform; echo $?
+
+platform is not running
+2
+----
+
+Do the above on both nodes.
 
 === Checking ControlZone on each node´s local disk
 
-// TODO PRIO2: content
+Check mzadmin´s environment variables MZ_HOME, JAVA_HOME, PATH and check the
+`mzsh status` functionality for MZ_HOME on local disk.
 This is needed on both nodes.
 
 [subs="specialchars,attributes"]
 ----
-{myNode1}:~ #
+# su - {mySapAdm}
+~ > export MZ_HOME="/opt/cm/{mySid}"
+~ > export PATH="/opt/cm/{mySid}/bin:$PATH"
+
+~ > echo $MZ_HOME $JAVA_HOME
+
+/opt/cm/{mySid} /usr/lib64/jvm/jre-17-openjdk
+
+~ > which mzsh
+
+/opt/cm/{mySid}/bin/mzsh
 ----
-// TODO PRIO1: above checks with mzsh
+
+[subs="specialchars,attributes"]
+----
+~ > mzsh status platform; echo $?
+
+platform is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~ > mzsh status ui; echo $?
+
+ui is running
+0
+----
+
+Do the above on both nodes. The ControlZone services should be running on either
+node, but not on both in parallel, of course.
 
 
 
@@ -661,7 +762,8 @@ This is needed on both nodes.
 === Preparing mzadmin user ~/.bashrc file
 
 Certain values for environment variables JAVA_HOME, MZ_HOME and MZ_PLATFORM are
-needed. The values are inherited from the RA, thru related RA_... variables.
+needed. For cluster actions, the values are inherited from the RA thru related
+RA_... variables. For manual admin actions, the values are set as default.
 This is needed on both nodes.
 
 [subs="specialchars,attributes,verbatim,quotes"]
@@ -680,7 +782,8 @@ export JAVA_HOME=${RA_JAVA_HOME:-"{mzJavah}"}
 {myNode1}:~ > ssh {myNode2} "md5sum ~/.bashrc"
 ...
 ----
-See also manual page ocf_suse_SAPCMControlZone(7).
+
+See <<tab.ra-params>> and manual page ocf_suse_SAPCMControlZone(7) for details.
 
 [[sec.ha-filsystem-monitor]]
 === Preparing the OS for NFS monitoring
@@ -693,6 +796,9 @@ This is needed on both nodes.
 {myNode1}:~ # mkdir -p /usr/sap/{mySid}/.check /usr/sap/.check_{mySid}
 {myNode1}:~ # ssh {myNode2} "mkdir -p /usr/sap/{mySid}/.check /usr/sap/.check_{mySid}"
 ----
+
+See manual page ocf_suse_SAPCMControlZone(7), ocf_heartbeat_Filesystem(7) and
+mount(8).
 
 [[sec.basic-ha-cib]]
 === Adapting the cluster basic configuration
@@ -898,7 +1004,7 @@ Load the file to the cluster.
 
 An overview on the RA SAPCMControlZone parameters are given below.
 
-// [cols="1,2", options="header"]
+[[tab.ra-params]]
 [width="100%",cols="30%,70%",options="header"]
 .Table Description of important resource agent parameters
 |===
@@ -1460,14 +1566,14 @@ actions are pending.
 === Additional tests
 
 Please define additional test cases according to your needs. Some cases you might
-want to test are listes below.
+want to test are listed below.
 
 - Remove virtual IP address.
 - Stop and re-start passive node.
 - Stop and parallel re-start of all cluster nodes.
 - Isolate the SBD.
-- Simulate a maintenance procedure with cluster continuously running.
-- Simulate a maintenance procedure with cluster restart.
+- Maintenance procedure with cluster continuously running, but application restart.
+- Maintenance procedure with cluster restart, but application running.
 - Kill the corosync process of one cluster node.
 
 See also manual page crm(8) for cluster crash_test.

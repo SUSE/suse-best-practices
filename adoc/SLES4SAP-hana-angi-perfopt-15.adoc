@@ -1,8 +1,8 @@
 :docinfo:
 
 // Load document variables
-include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15.txt[]
-include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15-param.txt[]
+include::Var_SLES4SAP-hana-angi-perfopt-15.txt[]
+include::Var_SLES4SAP-hana-angi-perfopt-15-param.txt[]
 //
 // Start of the document
 //
@@ -11,20 +11,6 @@ include::Var_SLES4SAP-hana-sr-guide-PerfOpt-15-param.txt[]
 
 [[pre.hana-sr]]
 == About this guide
-
-// TODO PRIO1: Review all lines with "TODO PRIOx:"
-// TODO PRIO1: Check all command examples + output, if they are still valid
-// TODO PRIO1: Should we add a 3 nodes cluster variant with disk less fencing?
-// TODO PRIO2: Scale-Up multi sid aka MCOS for the performance optimized scenario
-// TODO PRIO1: Scale-Up with read-enabled (scheduled for 'next' publishing)
-// TODO PRIO3: Scale-Up and Handshake takeover (scheduled for 'after next' publishing)
-// TODO PRIO3: Scale-Up and multi-target (scheduled for 'after next' publishing)
-// TODO PRIO1: Check if now the recommendation for the SAP HANA hook is clear and
-//             the explanation is well understandable
-// TODO PRIO1: Adding addendum for read-enabled
-// TODO PRIO1: Adding addendum for seamless maintenance
-// TODO PRIO1: Adding addendum for disk less SBD setup
-// TODO PRIO1: Cluster-init with more than one ring
 
 ////
    ____      __                 __           __  _
@@ -52,15 +38,6 @@ the recommended and supported operating system for {HANA}. In close
 collaboration with {SAP}, cloud service and hardware partners, {SUSE} provides two
 resource agents for customers to ensure the high availability of {HANA} system
 replications.
-
-The here described HA setup using the SAPHanaSR package has been used in the past.
-It still is supported for existing clusters.
-For deploying new HA clusters, we recommend to use the SAPHanaSR-angi package
-following 
-"{SAPHANA} System Replication Scale-Up - Performance Optimized Scenario".
-// TODO PRIO1: add URL once published
-// (https://documentation.suse.com/sbp/sap/html/SLES4SAP-hana-angi-perfopt-15).
-
 
 ==== Abstract
 
@@ -190,7 +167,7 @@ A _multi-tier_ system replication has an additional target. In the past, this th
 side must have been connected to the secondary (chain topology). With current {HANA}
 versions, the _multiple target topology_ is allowed by {sap}.
 Have a look at the scenarios and prerequisites section below or consult the
-manual pages SAPHanaSR(7) and SAPHanaSR.py(7) for details.
+manual pages SAPHanaSR(7) and susHanaSR.py(7) for details.
 // TODO PRIO3: link to section
 +
 .{HANA} System Replication Scale-Up in the Cluster - performance optimized multi-target
@@ -265,6 +242,8 @@ For the latest documentation updates, see https://documentation.suse.com/.
 You can also find numerous white-papers, best-practices, setup guides, and
 other resources at the {sles4sap} best practices Web page:
 {reslibrary}.
+There is particularly an overview on all {suse} high availability solutions for
+{saphana} and {s4hana} workloads.
 
 SUSE also publishes blog articles about {sap} and high availability.
 Join us by using the hashtag #TowardsZeroDowntime. Use the following link:
@@ -298,13 +277,13 @@ see also the blog article https://www.suse.com/c/lets-flip-the-flags-is-my-sap-h
 include::common_intro_feedback.adoc[]
 
 
-// DO NOT CHANGE SECTION ID: refer to Trento checks 61451E and 438525
+// DO NOT CHANGE SECTION ID: refer to Trento checks
 [[cha.hana-sr.scenario]]
 == Supported scenarios and prerequisites
 
-With the `SAPHanaSR` resource agent software package, we limit the support to
-scale-up (single-box to single-box) system replication with the following
-configurations and parameters:
+For the `{saphanasr}` package configure as decribed in the document at hand,
+we limit the support to scale-up (single-box to single-box) system replication
+with the following configurations and parameters:
 
 * Two-node clusters are standard. Three node clusters are fine if you install
 the resource agents also on that third node. But define in the cluster that
@@ -312,7 +291,7 @@ the resource agents also on that third node. But define in the cluster that
 node is an additional majority maker in case of cluster separation.
 * The cluster must include a valid STONITH method.
 ** Any STONITH mechanism supported for production use by {sleha} {prodnr} (like
-SBD, IPMI) is supported with SAPHanaSR.
+SBD, IPMI) is supported with {saphanasr}.
 ** This guide is focusing on the SBD fencing method as this is hardware independent.
 ** If you use disk-based SBD as the fencing mechanism, you need one or more shared
 drives. For productive environments, we recommend more than one SBD device. For
@@ -344,14 +323,13 @@ between the nodes. Review the product documentation for {sleha} about those
 recommendations.
 * Automated registration of a failed primary after takeover prerequisites need
 to be defined.
-** As a good starting configuration for projects, we recommend to switch off the automated
-registration of a failed primary. The setup `AUTOMATED_REGISTER="false"` is set as
-default. In this case, you need to register a failed primary after a takeover
+** As a good starting configuration for projects, we recommend to switch off the
+automated registration of a failed primary. The setup `AUTOMATED_REGISTER="false"`
+is set as default. In this case, you need to register a failed primary after a takeover
 manually. For re-registration, use precisely the site names that are already known
 by the cluster. Use {SAP} tools like {HANA} cockpit or _hdbnsutil_.
 ** For optimal automation, we recommend to set `AUTOMATED_REGISTER="true"`.
-* Automated start of {HANA} instances during system boot must be
-switched off.
+* Automated start of {HANA} instances during system boot must be switched off.
 * Multi-tenancy (MDC) databases are supported.
 ** Multi-tenancy databases can be used in combination with any other setup
 (performance-optimized, cost-optimized, multi-tier, multi-target and read-enabled).
@@ -374,52 +352,46 @@ fall-back HA cluster in DR case, that HA cluster needs to be in standby.
 ** The replication mode is either sync or syncmem for the controlled replication.
 Replication mode async is not supported. The operation modes delta_datashipping,
 logreplay and logreplay_readaccess are supported.
-** See also the dedicated section on requirements for SAPHanaSR.py.
-* For scale-up, the current resource agent supports {HANA} in system replication
-beginning with {HANA} version 1.0 SPS 7 patch level 70, recommended is SPS 11. With
-{HANA} 2.0 SPS04 and later multi-target system replication is possible as well. Even
-in {HANA} multi-target environments, the current resource agent manages only two sites.
-Thus only two {HANA} sites are part of the Linux cluster.
+** See also the dedicated section on requirements for susHanaSR.py.
+* The current resource agent supports {HANA} in system replication beginning with
+{HANA} version 2.0 SPS05 revision 59.04.
+Even in {HANA} multi-target environments, the current resource agent manages only
+two sites. Thus only two {HANA} sites are part of the Linux cluster.
 * Besides {HANA} you need {SAP} hostagent installed and started on your system.
 ** For SystemV style, the sapinit script needs to be active.
 ** For systemd style, the service SAP<SID>_<INO> can stay enabled.
-The systemd enabled saphostagent and instance´s sapstartsrv is supported from SAPHanaSR
-0.155 onwards. Refer to the OS documentation for the systemd version.
+The systemd enabled saphostagent and instance´s sapstartsrv is supported.
+Refer to the OS documentation for the systemd version.
 {HANA} comes with native systemd integration as default starting with version 2.0 SPS07.
 Refer to {SAP} documentation for information on other {HANA} versions.
 ** Combining systemd style hostagent with SystemV style instance is allowed.
 However, all nodes in one Linux cluster need to use the same style.
 * The RA's monitoring operations need to be active.
-* Using HA/DR provider hook for srConnectionChanged() by enabling SAPHanaSR.py is
-strongly  recommended for all scenarios. This might become mandatory in future versions.
-** Using SAPHanaSR.py is yet already mandatory for multi-tier and multi-target replication.
-** The Linux cluster needs to be up and running to allow HA/DR provider events being
-written into CIB attributes. The current {HANA} SR status might differ from CIB srHook
-attribute after cluster maintenance.
-// TODO PRIO2: update above sentence, once we ship pick-up e.g. 0.155
-* RA and srHook runtime almost completely depends on call-outs to controlled
-resources, OS and Linux cluster. The infrastructure needs to allow these call-outs
-to return in time.
-* Colocation constraints between the SAPHanaController or SAPHana RA and other
-resources are allowed only if they do not affect the RA's scoring. The location
-scoring finally depends on system replication status and must not be overruled by
-additional constraints. Thus it is not allowed to define rules forcing an SAPHanaController
-or SAPHana master to follow another resource.
+* Using HA/DR provider hook for srConnectionChanged() by enabling susHanaSR.py is
+mandatory.
+* RA and HA/DR provider hook script´s runtime almost completely depends on call-outs
+to controlled resources, OS and Linux cluster. The infrastructure needs to allow
+these call-outs to return in time.
+* Colocation constraints between the SAPHanaController RA and other resources are
+allowed only if they do not affect the RA's scoring. The location scoring finally
+depends on system replication status and must not be overruled by additional
+constraints. Thus it is not allowed to define rules forcing an SAPHanaController
+promoted clone to follow another resource.
 * Reliable access to the /hana/shared/ file system is crucial for {HANA} and the
 Linux cluster.
+// TODO PRIO2: point to SAPHanaFilesystem RA
 * {HANA} feature Secondary Time Travel is not supported.
 * The {HANA} Fast Restart feature on RAM-tmfps and {HANA} on persistent
 memory can be used, as long as they are transparent to Linux HA.
 
-// TODO PRIO3: align with manual pages SAPHanaSR(7) and SAPHanaSR.py(7)
-For the HA/DR provider hook scripts SAPHanaSR.py and susTkOver.py, the following
+// TODO PRIO3: align with manual pages SAPHanaSR(7) and susHanaSR.py(7)
+For the HA/DR provider hook scripts susHanaSR.py and susTkOver.py, the following
 requirements apply:
 
-* {HANA} 2.0 SPS05 rev.059 and later provides Python3 as well as the HA/DR provider hook
-method srConnectionChanegd() with multi-target aware parameters. {HANA} 1.0 does not
-provide them. Python 3 and multi-target aware parameters are needed for the SAPHanaSR
-scale-up package.
-* {HANA} 2.0 SPS04 or later provides the HA/DR provider hook method preTakeover().
+* {HANA} 2.0 SPS05 revision 059.04 and later provides Python3 as well as the HA/DR
+provider hook method srConnectionChanegd() with multi-target aware parameters. 
+Python 3 and multi-target aware parameters are needed for the {saphanasr} package.
+* {HANA} 2.0 SPS05 and later provides the HA/DR provider hook method preTakeover().
 // TODO PRIO1: check above version
 * The user _{refsidadm}_ needs execution permission as user root for the command
 crm_attribute.
@@ -446,7 +418,7 @@ resources prior to the registering attempt.
 * If the hook provider should be pre-compiled, the particular Python version that
 comes with {HANA} needs to be used.
 
-See also manual pages SAPHanaSR(7), SAPHanaSR.py(7), susTkOver.py(7) and
+See also manual pages SAPHanaSR(7), susHanaSR.py(7), susTkOver.py(7) and
 susChkSrv.py(7) for more details and requirements.
 
 IMPORTANT: Without a valid STONITH method, the complete cluster is unsupported
@@ -457,7 +429,7 @@ a Proof of Concept (PoC) with {SUSE}. This PoC will focus on testing the existin
 solution in your scenario. Most of the above mentioned limitations are set
 because careful testing is needed.
 
-// DO NOT CHANGE SECTION ID: refer to Trento check D028B9
+// DO NOT CHANGE SECTION ID: refer to Trento check
 [[cha.hana-sr.scope]]
 == Scope of this document
 
@@ -465,7 +437,7 @@ This document describes how to set up the cluster to control {HANA} in
 System Replication scenarios. The document focuses on the steps to integrate
 an already installed and working {HANA} with System Replication.
 In this document {sles4sap} {prodNr} {prodSP} is used. This concept can also be
-used with {sles4sap} {prodNr} SP1 or newer.
+used with {sles4sap} {prodNr} SP4 or newer.
 
 The described example setup builds an {HANA} HA cluster in two data centers in
 {saplocation1} ({sapsite1}) and in {saplocation2} ({sapsite2}), installed on two
@@ -510,7 +482,7 @@ image::SAPHanaSR-ScaleOut-Plan-Phase0.svg[scaledwidth="100%"]
 - Cluster configuration (see <<cha.s4s.configure-cluster>>)
 - Testing (see <<cha.s4s.test-cluster>>)
 
-// DO NOT CHANGE SECTION ID: refer to Trento check CAEFF1
+// DO NOT CHANGE SECTION ID: refer to Trento check
 [[cha.s4s.hana-planning]]
 == {stepPlanning}
 
@@ -529,17 +501,17 @@ access to update channels
 
 === Minimum lab requirements and prerequisites
 
-NOTE: The minimum lab requirements mentioned here are by no means SAP sizing
+NOTE: The minimum lab requirements mentioned here are by no means {SAP} sizing
 information. These data are provided only to rebuild the described cluster in a
 lab for test purposes.
 Even for tests the requirements can increase, depending on your test scenario.
-For productive systems ask your hardware vendor or use the official SAP sizing
+For productive systems ask your hardware vendor or use the official {SAP} sizing
 tools and services.
 
 NOTE: Refer to {HANA} TDI documentation for allowed storage
 configuration and file systems.
 
-Requirements with 1 SAP system replication instance per site (1 : 1) - without
+Requirements with 1 {SAP} system replication instance per site (1 : 1) - without
 a majority maker (2 node cluster):
 
 - 2 VMs with each 32GB RAM, 50GB disk space for the system
@@ -657,7 +629,7 @@ you should consider to get a well-working system in place.
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-installing-the-base-operating-system
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento check BC9DF9
+// Refer to Trento check
 ==== Installing the base operating system
 
 Depending on your infrastructure and the hardware used, you need to adapt the
@@ -675,42 +647,50 @@ that fit all requirements for {HANA} are available from the SAP notes:
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-installing-additional-software
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento checks 31BDCB, 53D33E, 82A031, DF8328
+// Refer to Trento checks 
 ==== Installing additional software
 With {sles4sap}, {SUSE} delivers special resource agents for {HANA}. With the
-pattern _sap-hana_, the resource agent for {HANA} *scale-up* is installed. For
-the *scale-out* scenario you need a special resource agent. Follow the instructions
+pattern _sap-hana_, the old-style resource agent package SAPHanaSR is installed.
+This package needs to be replaced by the new {saphanasr} package.
+Follow the instructions
 below on each node if you have installed the systems based on SAP note {sapnote15}.
 The pattern _High Availability_ summarizes all tools recommended to be installed on
 *all* nodes, including the _majority maker_.
 
+// TODO PRIO2: check pattern and package names/dependencies
 .Installing additional software for the HA cluster
 ====
-. Install the `High Availability` pattern on all nodes
+. Install the `High Availability` pattern. Do this on all nodes.
 +
 [subs="quotes,attributes"]
 ----
 {sapnode1}:~ # zypper in --type pattern ha_sles
 ----
 
-. Install the `SAPHanaSR` resource agents on all nodes
+. De-install the old-style package and install the new {saphanasr} resource agents.
+Do this on all nodes.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # zypper in SAPHanaSR SAPHanaSR-doc
+{sapnode1}:~ # rpm -e --nodeps SAPHanaSR SAPHanaSR-doc
+{sapnode1}:~ # zypper in SAPHanaSR-angi
 ----
 
 ====
 
-Optionally, the packages supportutils-plugin-ha-sap and ClusterTools2 can be
-installed. The first helps collecting data for support requests, the second
+NOTE: Do not replace the package SAPHanaSR by SAPHanaSR-angi in an already running cluster.
+Upgrading from SAPHanaSR to {saphanasr} requires a certain procedure. See manual page
+SAPHanaSR_upgrade_to_angi(7) for details.
+
+Installing the packages supportutils-plugin-ha-sap and ClusterTools2 is highly
+recommended. The first helps collecting data for support requests, the second
 simplifies common administrative tasks.
 
 For more information, see section _Installation and Basic Setup_ of the {uarr}
 {sleha} guide.
 
 
-// DO NOT CHANGE SECTION ID: refer to Trento check ABA3CA
+// DO NOT CHANGE SECTION ID: refer to Trento check
 [[cha.s4s.hana-install]]
 == {stepHANA}
 
@@ -1029,7 +1009,7 @@ Bring the systems back to the original state:
 
 * Wait until sync state is active
 
-// DO NOT CHANGE SECTION ID:  refer to Trento check 0B0F87
+// DO NOT CHANGE SECTION ID:  refer to Trento check
 [[cha.s4s.hana-hook]]
 == {stepHook}
 
@@ -1040,8 +1020,8 @@ out of sync. The hook is called by {HANA} using the HA/DR provider interface
 in point-of-time when the secondary gets out of sync. This is typically the case
 when the first commit pending is released. The hook is called by {HANA} again
 when the system replication is back. This HA/DR provider method is
-`srConnectionChanged()`, the related {SUSE} hook script is `SAPHanaSR.py`.
-The hook script SAPHanaSR.py is defacto mandatory.
+`srConnectionChanged()`, the related {SUSE} hook script is `susHanaSR.py`.
+The hook script susHanaSR.py is defacto mandatory.
 
 Another hook is called by {HANA} before an SR takeover is processed. This
 method can be used to block a manual takeover during normal cluster operation.
@@ -1055,7 +1035,7 @@ script is `susChkSrv.py`.
 
 **Procedure**
 
-. Implement the python hook script SAPHanaSR.py on both sites.
+. Implement the python hook script susHanaSR.py on both sites.
 . Implement the python hook script susTkOver.py on both sites.
 . Implement the python hook script susChkSrv.py on both sites.
 . Configure the system replication operation mode.
@@ -1066,7 +1046,7 @@ script is `susChkSrv.py`.
 // TODO PRIO2: Steps "Start" and "Test" are incomplete
 
 This will implement three {HANA} HA/DR provider hook scripts.
-The hook script SAPHanaSR.py is needs no config parameters.
+The hook script susHanaSR.py is needs no config parameters.
 The configuration for susTkOver.py normally does not need to be adapted.
 The default for parameter sustkover_timeout is set to 30 seconds and is good
 for most environments.
@@ -1082,13 +1062,13 @@ might be used for adapting the global.ini. See manual page SAPHanaSR-manageProvi
 for details.
 
 
-=== Implementing SAPHanaSR hook for srConnectionChanged
+=== Implementing susHanaSR hook for srConnectionChanged
 
-Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/SAPHanaSR.py.
+Use the hook from the {saphanasr} package /usr/share/SAPHanaSR-angi/susHanaSR.py.
 The hook must be configured on all {HANA} cluster nodes.
-In global.ini, the section `[ha_dr_provider_saphanasr]` needs to be created.
+In global.ini, the section `[ha_dr_provider_sushanasr]` needs to be created.
 The section `[trace]` might be adapted.
-Refer to the manual page SAPHanaSR.py(7) for details on this HA/DR provider hook
+Refer to the manual page susHanaSR.py(7) for details on this HA/DR provider hook
 script, see also SAPHanaSR-manageProvider(8).
 
 .Stop {HANA}
@@ -1107,20 +1087,20 @@ Best is to use the {HANA} tools for changing global.ini. Alternatively you may u
 SAPHanaSR-manageProvider, see manual page SAPHanaSR-manageProvider(8).
 
 ----
-[ha_dr_provider_saphanasr]
-provider = SAPHanaSR
-path = /usr/share/SAPHanaSR/
+[ha_dr_provider_sushanasr]
+provider = susHanaSR
+path = /usr/share/SAPHanaSR-angi/
 execution_order = 1
 
 [trace]
-ha_dr_saphanasr = info
+ha_dr_sushanasr = info
 ----
 ==========
 
 
 === Implementing susTkOver hook for preTakeover
 
-Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/susTkOver.py.
+Use the hook from the {saphanasr} package /usr/share/SAPHanaSR-angi/susTkOver.py.
 The hook must be configured on all {HANA} cluster nodes.
 In global.ini, the section `[ha_dr_provider_sustkover]` needs to be created.
 The section `[trace]` might be adapted.
@@ -1145,7 +1125,7 @@ SAPHanaSR-manageProvider, see manual page SAPHanaSR-manageProvider(8).
 ----
 [ha_dr_provider_sustkover]
 provider = susTkOver
-path = /usr/share/SAPHanaSR/
+path = /usr/share/SAPHanaSR-angi/
 execution_order = 2
 
 [trace]
@@ -1156,7 +1136,7 @@ ha_dr_sustkover = info
 
 === Implementing susChkSrv hook for srServiceStateChanged
 
-Use the hook from the SAPHanaSR package /usr/share/SAPHanaSR/susChkSrv.py.
+Use the hook from the {saphanasr} package /usr/share/SAPHanaSR-angi/susChkSrv.py.
 The hook must be configured on all {HANA} cluster nodes.
 In global.ini, the section `[ha_dr_provider_suschksrv]` needs to be created.
 The section `[trace]` might be adapted.
@@ -1181,7 +1161,7 @@ SAPHanaSR-manageProvider, see manual page SAPHanaSR-manageProvider(8).
 ----
 [ha_dr_provider_suschksrv]
 provider = susChkSrv
-path = /usr/share/SAPHanaSR/
+path = /usr/share/SAPHanaSR-angi/
 execution_order = 3
 action_on_lost=stop
 
@@ -1194,7 +1174,8 @@ ha_dr_suschksrv = info
 
 === Configuring system replication operation mode
 
-When your system is connected as an {sapHanaSR} target, you can find an entry in the _global.ini_
+When your system is connected as {HANA} system replication target, you can find an
+entry in the _global.ini_
 which defines the operation mode. Up to now there are the following modes available:
 
 * _delta_datashipping_
@@ -1223,7 +1204,7 @@ operation_mode = logreplay
 
 === Allowing {refsidadm} to access the cluster
 
-The current version of the SAPHanaSR python hook uses the command `sudo` to allow
+The current version of the susHanaSR python hook uses the command `sudo` to allow
 the _{refsidadm}_ user to access the cluster attributes.
 
 //In Linux you can use `visudo`
@@ -1245,13 +1226,13 @@ Basic sudoers entry to allow {refsidadm} to use the hooks SAPHanaSR and susTkOve
 
 // command to be allowed used in the hook:
 // "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
-// "sudo /usr/sbin/SAPHanaSR-hookHelper *"
+// "sudo /usr/bin/SAPHanaSR-hookHelper *"
 
 [subs="specialchars,attributes"]
 ----
 # SAPHanaSR-ScaleUp entries for writing srHook cluster attribute and SAPHanaSR-hookHelper
-{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_*
-{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/SAPHanaSR-hookHelper *
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_*
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/bin/SAPHanaSR-hookHelper --sid={refSID} *
 ----
 
 More specific sudoers entries to meet a high security level.
@@ -1269,11 +1250,11 @@ Replace the {refsid} by the *uppercase* SAP system ID.
 [subs="specialchars,attributes"]
 ----
 # SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
-Cmnd_Alias SOK_SITEA    = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SOK   -t crm_config -s SAPHanaSR
-Cmnd_Alias SFAIL_SITEA  = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SFAIL -t crm_config -s SAPHanaSR
-Cmnd_Alias SOK_SITEB    = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SOK   -t crm_config -s SAPHanaSR
-Cmnd_Alias SFAIL_SITEB  = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SFAIL -t crm_config -s SAPHanaSR
-Cmnd_Alias HOOK_HELPER  = /usr/sbin/SAPHanaSR-hookHelper --sid={refsid} --case=checkTakeover
+Cmnd_Alias SOK_SITEA    = /usr/bin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEA  = /usr/bin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias SOK_SITEB    = /usr/bin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEB  = /usr/bin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias HOOK_HELPER  = /usr/bin/SAPHanaSR-hookHelper --sid={refsid} --case=checkTakeover
 
 {refsidadm} ALL=(ALL) NOPASSWD: SOK_SITEA, SFAIL_SITEA, SOK_SITEB, SFAIL_SITEB, HOOK_HELPER
 ----
@@ -1296,12 +1277,12 @@ Start {HANA} as user {refsidadm}.
 As user {refsidadm} check the {HANA} tracefiles, if the HA/DR provider scripts are
 loaded and called successfully during an {HANA} event.
 
-Check for script SAPHanaSR.py, if it is loaded and initialized correctly:
+Check for script susHanaSR.py, if it is loaded and initialized correctly:
 
 ----
  ~> cdtrace
- ~> grep HADR.*load.*SAPHanaSR nameserver_*.trc
- ~> grep SAPHanaSR.init nameserver_*.trc
+ ~> grep HADR.*load.*susHanaSR nameserver_*.trc
+ ~> grep susHanaSR.init nameserver_*.trc
 ----
 
 Check for script susTkOver.py, if it is loaded and initialized correctly:
@@ -1327,29 +1308,33 @@ Check for script susChkSrv.py, if it is loaded and initialized correctly:
 After an event has been processed by the HA/DR provider script, check for the correct behaviour.
 // TODO PRIO2: point to test procedure
 
-As user {refsidadm} check the {HANA} tracefiles, if SAPHanaSR.py did successfully interact with the cluster or created a fallback file.
+As user {refsidadm} check the {HANA} tracefiles, if susHanaSR.py did successfully
+interact with the cluster or created a fallback file.
 
 ----
  ~> cdtrace
- ~> grep SAPHanaSR.srConnection.*CRM nameserver_*.trc
- ~> grep SAPHanaSR.srConnection.*fallback nameserver_*.trc
+ ~> grep susHanaSR.srConnection.*CRM nameserver_*.trc
+ ~> grep susHanaSR.srConnection.*fallback nameserver_*.trc
 ----
 
 ==== Check a preTakeover event
 
 After an event has been processed by the HA/DR provider script, check for the correct behaviour.
 
-To test script susTkOver.py with stopped cluster, procedure <<cha.s4s.testtakeover>> can be used here again. While the cluster is not set up
-at this moment the takeover will not be blocked.
+To test script susTkOver.py with stopped cluster, procedure <<cha.s4s.testtakeover>>
+can be used here again. While the cluster is not set up at this moment the takeover
+will not be blocked.
 
-As user root check the system messages, if the sudo permissions for susTkOver.py calling SAPHanaSR-hookHelper are set successfully.
+As user root check the system messages, if the sudo permissions for susTkOver.py
+calling SAPHanaSR-hookHelper are set successfully.
 
 [subs="specialchars,attributes,quotes"]
 ----
 # grep "sudo.*SAPHanaSR-hookHelper"  /var/log/messages
 ----
 
-As user {refsidadm} check the {HANA} tracefiles, if susTkOver.py did successfully blocked or permitted the takeover request.
+As user {refsidadm} check the {HANA} tracefiles, if susTkOver.py did successfully
+blocked or permitted the takeover request.
 First check for permitted takeover requests, then check for blocked takeover requests.
 
 ----
@@ -1466,7 +1451,7 @@ After your test was successful, you must implement the watchdog on all cluster m
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-setting-up-the-initial-cluster-using-ha-cluster-init
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento check 790926
+// Refer to Trento check
 ==== Setting up the initial cluster using `{slehainit}`
 
 For more detailed information about setting up a cluster, refer to the sections
@@ -1508,7 +1493,7 @@ IMPORTANT: As requested by `{slehainit}`, change the password of the user haclus
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-checking-and-adapting-the-corosync-and-sbd-configuration
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento checks 32CFC6, 7E0221, DA114A
+// Refer to Trento checks
 ==== Checking and adapting the corosync and SBD configuration
 
 //It is recommended to add a second corosync ring. If you did not start {slehainit}
@@ -1568,7 +1553,7 @@ nodelist {
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-adapting-the-sbd-configuration
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento checks 0B6DB2 and 49591F
+// Refer to Trento checks
 ===== Adapting the SBD configuration
 
 // TODO PRIO2: Should we add some information about SBD timing tunables?
@@ -1627,7 +1612,7 @@ https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-st
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-verifying-the-sbd-device
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento check 68626E
+// Refer to Trento check
 ===== Verifying the SBD device
 
 You can skip this section if you do not have any SBD devices, but make sure to
@@ -1772,7 +1757,7 @@ examples to a local file, edit the file and then load the configuration to the C
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-cluster-bootstrap-and-more
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento checks 205AF7, 373DB8, B089BE
+// Refer to Trento checks
 ==== Cluster bootstrap and more
 
 The first example defines the cluster bootstrap options, the resource
@@ -1867,12 +1852,12 @@ Prepare the changes in a text file, for example _crm-saphanatop.txt_, and load i
 # vi crm-saphanatop.txt
 # enter the following to crm-saphanatop.txt
 primitive rsc_SAPHanaTop_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
-    op monitor interval="10" timeout="600" \
-    op start interval="0" timeout="600" \
-    op stop interval="0" timeout="300" \
-    params SID="{sapsid}" InstanceNumber="{sapino}"
+    op start interval=0 timeout=600 \
+    op stop interval=0 timeout=300 \
+    op monitor interval=50 timeout=600 \
+    params SID={sapsid} InstanceNumber={sapino}
 clone cln_SAPHanaTop_{sapsid}_HDB{sapino} rsc_SAPHanaTop_{sapsid}_HDB{sapino} \
-    meta clone-node-max="1" interleave="true"
+    meta clone-node-max=1 interleave=true
 ----
 
 Additional information about all parameters can be found with the command:
@@ -1890,12 +1875,13 @@ The most important parameters here are SID and InstanceNumber, which are
 quite self explaining in the SAP context. Beside these parameters, typical
 tuneables are the timeout values or the operations (start, monitor, stop).
 
-==== SAPHana
+==== SAPHanaController
 
 This step is to define the resource needed, to control the replicated {HANA} pair.
-Edit the changes in a text file, for example _crm-saphana.txt_, and load it with the following command:
+Edit the changes in a text file, for example _crm-saphanacon.txt_, and load it
+with the following command:
 
-`crm configure load update crm-saphana.txt`
+`crm configure load update crm-saphanacon.txt`
 
 .Typical Resource Agent parameter settings for different scenarios
 [width="99%",cols="52%,16%,16%,16%",options="header",]
@@ -1936,42 +1922,46 @@ registered immediately. After this registration to the new primary, all
 data will be overwritten by the system replication.
 |=======================================================================
 
-Additional information about all parameters of the SAPHana RA can be found with
-the following command:
+Additional information about all parameters of the SAPHanaController RA can be
+found with the following command:
 
-`man ocf_suse_SAPHana`
+`man ocf_suse_SAPHanaController`
 
 [subs="attributes,quotes"]
 ----
-# vi crm-saphana.txt
-# enter the following to crm-saphana.txt
-primitive rsc_SAPHana_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
-    op start interval="0" timeout="3600" \
-    op stop interval="0" timeout="3600" \
-    op promote interval="0" timeout="3600" \
-    op monitor interval="60" role="Master" timeout="700" \
-    op monitor interval="61" role="Slave" timeout="700" \
-    params SID="{sapsid}" InstanceNumber="{sapino}" PREFER_SITE_TAKEOVER="true" \
-        DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false" \
-    meta priority="100"
-ms msl_SAPHana_{sapsid}_HDB{sapino} rsc_SAPHana_{sapsid}_HDB{sapino} \
-    meta clone-max="2" clone-node-max="1" interleave="true" maintenance=true
+# vi crm-saphanacon.txt
+# enter the following to crm-saphanacon.txt
+primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHanaController \
+    op start interval=0 timeout=3600 \
+    op stop interval=" timeout=3600 \
+    op promote interval=0 timeout=900 \
+    op demote interval=0 timeout=320 \
+    op monitor interval=60 role=Promoted timeout=700 \
+    op monitor interval=61 role=Unpromoted timeout=700 \
+    params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=true \
+        DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
+    meta priority=100
+clone mst_SAPHanacon_{sapsid}_HDB{sapino} rsc_SAPHanaCon_{sapsid}_HDB{sapino} \
+    meta clone-node-max=1 promotable=true interleave=true maintenance=true
 ----
 
 Now add the configuration to the cluster.
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # crm configure load update crm-saphana.txt
+{sapnode1}:~ # crm configure load update crm-saphanacon.txt
 ----
 
 The most important parameters here are again SID and InstanceNumber.
 Beside these parameters the timeout values for the operations (start,
 promote, monitors, stop) are typical tuneables.
 
+// TODO PRIO1: SAPHanaFilesystem RA
+
 ==== Adding a virtual IP address for the primary site
 
-The last resource to be added for SAPHanaSR is covering the virtual IP address.
+The last resource to be added is covering the virtual IP address.
+For details, see manual page ocf_heartbeat_IPaddr2(7).
 
 [subs="attributes,quotes"]
 ----
@@ -1979,8 +1969,8 @@ The last resource to be added for SAPHanaSR is covering the virtual IP address.
 # enter the following to crm-vip.txt
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
-    op monitor interval="10s" timeout="20s" \
-    params ip="{sapip1srv1}"
+    op monitor interval=10 timeout=20 \
+    params ip={sapip1srv1}
 ----
 
 Load the file to the cluster.
@@ -1990,23 +1980,24 @@ Load the file to the cluster.
 {sapnode1}:~ # crm configure load update crm-vip.txt
 ----
 
-In most on-premise installations, only the parameter _ip_ needs to be set to the virtual IP address to be presented to the client systems.
+In most on-premise installations, only the parameter _ip_ needs to be set to the
+virtual IP address to be presented to the client systems.
 Public cloud environments often need specific settings.
 
-==== Constraints for SAPHanaSR
+==== Constraints for SAPHanaSR-angi
 
 Two constraints are organizing the correct placement of the virtual IP
 address for the client database access and the start order between the
-two resource agents SAPHana and SAPHanaTopology.
+two resource agents SAPHanaController and SAPHanaTopology.
 
 [subs="attributes,quotes"]
 ----
 # vi crm-cs.txt
 # enter the following to crm-cs.txt
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: rsc_ip_{sapsid}_HDB{sapino}:Started \
-    msl_SAPHana_{sapsid}_HDB{sapino}:Master
-order ord_SAPHana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTop_{sapsid}_HDB{sapino} \
-    msl_SAPHana_{sapsid}_HDB{sapino}
+    mst_saphana_{sapsid}_HDB{sapino}:Promoted
+order ord_saphana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTop_{sapsid}_HDB{sapino} \
+    mst_SAPHanaCon_{sapsid}_HDB{sapino}
 ----
 
 Load the file to the cluster.
@@ -2023,9 +2014,9 @@ the resource operated by the cluster the maintenance must be ended by the comman
 
 [subs="attributes,quotes"]
 ----
-# crm resource refresh msl_SAPHana_{sapsid}_HDB{sapino}
+# crm resource refresh mst_SAPHanaCon_{sapsid}_HDB{sapino}
 # cs_wait_for_idle -s 5
-# crm resource maintenance msl_SAPHana_{sapsid}_HDB{sapino} off
+# crm resource maintenance mst_SAPHanaCon_{sapsid}_HDB{sapino} off
 ----
 
 The command `cs_wait_for_idle` is part of the package `ClusterTools2`.
@@ -2046,10 +2037,10 @@ address to the secondary site.
 # enter the following to crm-re.txt
 
 primitive rsc_ip_{sapsid}_HDB{sapino}_readenabled ocf:heartbeat:IPaddr2 \
-    op monitor interval="10s" timeout="20s" \
-    params ip="{sapip1srv2}"
+    op monitor interval=10 timeout=20 \
+    params ip={sapip1srv2}
 colocation col_saphana_ip_{sapsid}_HDB{sapino}_readenabled 2000: \
-    rsc_ip_{sapsid}_HDB{sapino}_readenabled:Started msl_SAPHana_{sapsid}_HDB{sapino}:Slave
+    rsc_ip_{sapsid}_HDB{sapino}_readenabled:Started mst_SAPHanaCon_{sapsid}_HDB{sapino}:Unpromoted
 ----
 
 
@@ -2122,7 +2113,7 @@ on the exit state of the preceding tests.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -2175,7 +2166,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2229,7 +2220,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -2282,7 +2273,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2350,7 +2341,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -2426,7 +2417,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2476,7 +2467,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2514,7 +2505,7 @@ recovery procedure.
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2687,7 +2678,7 @@ on the exit state of the preceding tests.
 
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode1}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
 ----
 
 .{testExpect}
@@ -2748,7 +2739,7 @@ devices and subsequently start pacemaker.
 
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHana_{sapsid}_HDB{sapino} {sapnode2}
+# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
 ----
 
 .{testExpect}
@@ -2864,7 +2855,7 @@ Full list of resources:
  stonith-sbd    (stonith:external/sbd): Started {sapnode1}
  Clone Set: cln_SAPHanaTop_{sapsid}_HDB{sapino} [rsc_SAPHanaTop_{sapsid}_HDB{sapino}]
      Started: [ {sapnode1} {sapnode2} ]
- Clone Set: msl_SAPHana_{sapsid}_HDB{sapino} [rsc_SAPHana_{sapsid}_HDB{sapino}] (promotable)
+ Clone Set: mst_SAPHanaCon_{sapsid}_HDB{sapino} [rsc_SAPHanaCon_{sapsid}_HDB{sapino}] (promotable)
      Masters: [ {sapnode1} ]
      Slaves: [ {sapnode2} ]
  rsc_ip_{sapsid}_HDB{sapino}       (ocf::heartbeat:IPaddr2):       Started {sapnode1}
@@ -2886,6 +2877,7 @@ broken when you need to move an attribute to a different storage place
 or even out of the cluster. At first _SAPHanaSR-showAttr_ is a test
 program only and should not be used for automated system monitoring.
 
+// TODO PRIO1: adapt sample output
 [subs="attributes,quotes"]
 ----
  {sapnode1}:~ # SAPHanaSR-showAttr
@@ -2896,25 +2888,24 @@ program only and should not be used for automated system monitoring.
 ----
 
 `SAPHanaSR-showAttr` also supports other output formats such as *script*. The script
-format is intended to allow running filters. The SAPHanaSR package beginning with
-version 0.153 also provides a filter engine `SAPHanaSR-filter`. In combination of
-`SAPHanaSR-showAttr` with output format script and `SAPHanaSR-filter` you can define
-effective queries:
+format is intended to allow running filters. Based on `SAPHanaSR-showAttr` output
+format script you can define effective queries:
 
+// TODO PRIO1: adapt sample output
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | \
-   SAPHanaSR-filter --search='remote'
+{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/remoteHost="
 Thu Feb  6 12:28:10 2020; Hosts/{sapnode1}/remoteHost={sapnode2}
 Thu Feb  6 12:28:10 2020; Hosts/{sapnode2}/remoteHost={sapnode1}
 ----
 
 `SAPHanaSR-replay-archive` can help to analyze the SAPHanaSR attribute values from
-`hb_report` (`crm_report`) archives. This allows post mortem analyzes.
+`crm_report` archives. This allows post mortem analyzes.
 
 In our example, the administrator killed the primary {HANA} instance using the command
 `HDB kill-9`. This happened around 9:10 pm.
 
+// TODO PRIO1: adapt sample output
 [subs="attributes,quotes"]
 ----
 {sapnode1}:~ # hb_report -f 19:00
@@ -2922,8 +2913,7 @@ INFO: {sapnode1}# The report is saved in ./hb_report-1-11-11-2019.tar.bz2
 INFO: {sapnode1}# Report timespan: 11/11/19 19:00:00 - 11/11/19 21:05:33
 INFO: {sapnode1}# Thank you for taking time to create this report.
 {sapnode1}:~ # SAPHanaSR-replay-archive --format=script \
-    ./hb_report-1-11-11-2019.tar.bz2 | \
-    SAPHanaSR-filter --search='roles' --filterDouble
+    ./hb_report-1-11-11-2019.tar.bz2 | grep "/roles="
 Mon Nov 11 20:38:01 2019; Hosts/{sapnode1}/roles=4:P:master1:master:worker:master
 Mon Nov 11 20:38:01 2019; Hosts/{sapnode2}/roles=4:S:master1:master:worker:master
 Mon Nov 11 21:11:37 2019; Hosts/{sapnode1}/roles=1:P:master1::worker:
@@ -2956,7 +2946,7 @@ to be called as Linux user _{refsidadm}_.
 overall host status: ok
 ----
 
-Following the SAP HA guideline, the SAPHana resource agent interprets the return
+Following the {SAP} HA guideline, the {SAPHana} resource agent interprets the return
 codes in the following way:
 
 .Interpretation of Return Codes
@@ -2977,6 +2967,7 @@ down by intention, this could trigger a takeover.
 
 |0 |Internal Script Error – to be ignored.
 |=======================================================================
+// TODO PRIO2: replace "to be ignored"
 
 === Maintenance
 
@@ -3023,7 +3014,7 @@ Pre-Update Tasks:: For the multi-state-resource set the maintenance mode as foll
 # crm resource maintenance <multi-state-resource>
 ----
 +
-The <multi-state-resource> in the guide at hand is `msl_SAPHana_{sapsid}_HDB{sapino}`.
+The <multi-state-resource> in the guide at hand is `mst_SAPHanaCon_{sapsid}_HDB{sapino}`.
 
 Update:: Process the {SAP} Update for both {HANA} database systems. This
 procedure is described by {SAP}.
@@ -3135,8 +3126,7 @@ can be submitted on any cluster node as user root.
 ==============================
 
 The following paragraphs explain how to use the cluster to partially automate the
-migration. For the described attribute query using `SAPHanaSR-showAttr` and
-`SAPHanaSR-filter` you need at least `SAPHanaSR` with package version 0.153.
+migration.
 
 .Moving an {HANA} primary using the Cluster Toolset
 ==============================
@@ -3155,17 +3145,14 @@ the status of the system replication is not in sync (SFAIL).
 IMPORTANT: Migration without the *force* option will cause a takeover without the
 former primary to be stopped. Only the migration with *force* option is supported.
 +
-NOTE: The crm resource command *move* was previously named *migrate*. The *migrate*
-command is still valid but already known as obsolete.
-
 * Wait until the secondary has completely taken over to be the new primary role. You
   see this using the command line tool `SAPHanaSR-showAttr`. Now check for the
   attributes "roles" for the new primary. It must start with "*4:P*".
 +
+// TODO PRIO1: adapt sample output
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | \
-   SAPHanaSR-filter --search='roles'
+{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/roles="
 Mon Jun 21 19:38:50 2021; Hosts/{sapnode1}/roles=*1:P*:master1::worker:
 Mon Jun 21 19:38:50 2021; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:master
 ----
@@ -3188,17 +3175,15 @@ in our example on node1 as user _{refsidadm}_.
 # crm resource clear <multi-state-resource>
 ----
 +
-NOTE: The crm resource command *clear* was previously named *unmigrate*. The *unmigrate*
-command is still valid but already known as obsolete.
 
 * Wait until the new secondary has started. You
   see this using the command line tool `SAPHanaSR-showAttr` and check for the
   attributes "roles" for the new primary. It must start with "*4:S*".
 +
+// TODO PRIO1: adapt sample output
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | \
-   SAPHanaSR-filter --search='roles'
+{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/roles="
 Mon Jun 21 19:38:50 2021; Hosts/{sapnode1}/roles=*4:S*:master1::worker:
 Mon Jun 21 19:38:50 2021; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:master
 ----
@@ -3284,7 +3269,7 @@ Do you wish to configure a virtual IP address (y/n)? n
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-example-cluster-configuration
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento check B3DA7E
+// Refer to Trento check
 === Example cluster configuration
 
 The following complete crm configuration is for a two-node cluster
@@ -3293,42 +3278,46 @@ and instance number {sapino}.
 Priority fencing prefers the {HANA} primary in case of split-brain.
 The virtual IP address in the example is {sapip1srv1}.
 
+// TODO PRIO1: shorter stop timeout
 [subs="attributes,quotes"]
 ----
 node {sapnode1}
 node {sapnode2}
 
-primitive rsc_SAPHanaTopology_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
-    op monitor interval=10 timeout=300 \
-    op start interval=0 timeout=300 \
-    op stop interval=0 timeout=300 \
+primitive rsc_SAPHanaTop_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
+    op start interval=0 timeout=600 \
+    op stop interval=0 timeout=600 \
+    op monitor interval=50 timeout=600 \
     params SID={sapsid} InstanceNumber={sapino}
 
-primitive rsc_SAPHana_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
-    op monitor interval=61 role=Slave timeout=700 \
+primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHana \
     op start interval=0 timeout=3600 \
     op stop interval=0 timeout=3600 \
-    op promote interval=0 timeout=3600 \
-    op monitor interval=60 role=Master timeout=700 \
+    op promote interval=0 timeout=900 \
+    op demote interval=0 timeout=320 \
+    op monitor interval=60 role=Promoted timeout=700 \
+    op monitor interval=61 role=Unpromoted timeout=700 \
     params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=true \
            DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
     meta priority=100
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
     op monitor interval=10 timeout=20 \
-    params ip="{sapip1srv1}"
+    params ip={sapip1srv1}
 
 primitive stonith-sbd stonith:external/sbd \
     params pcmk_delay_max=15
 
-ms msl_SAPHana_{sapsid}_HDB{sapino} rsc_SAPHana_{sapsid}_HDB{sapino} \
-    meta clone-max=2 clone-node-max=1 interleave=true
+clone mst_SAPHanaCon_{sapsid}_HDB{sapino} rsc_SAPHanaCon_{sapsid}_HDB{sapino} \
+    meta clone-node-max=1 promotable=true interleave=true
+
 clone cln_SAPHanaTop_{sapsid}_HDB{sapino} rsc_SAPHanaTop_{sapsid}_HDB{sapino} \
     meta clone-node-max=1 interleave=true
+
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: \
-    rsc_ip_{sapsid}_HDB{sapino}:Started msl_SAPHana_{sapsid}_HDB{sapino}:Master
-order ord_SAPHana_{sapsid}_HDB{sapino} Optional: \
-    cln_SAPHanaTop_{sapsid}_HDB{sapino} msl_SAPHana_{sapsid}_HDB{sapino}
+    rsc_ip_{sapsid}_HDB{sapino}:Started mst_SAPHanaCon_{sapsid}_HDB{sapino}:Promoted
+order ord_saphana_{sapsid}_HDB{sapino} Optional: \
+    cln_SAPHanaTop_{sapsid}_HDB{sapino} mst_SAPHanaCon_{sapsid}_HDB{sapino}
 
 property cib-bootstrap-options: \
     cluster-infrastructure=corosync \
@@ -3348,8 +3337,8 @@ op_defaults op-options \
 
 // DO NOT CHANGE AUTOGENERATED SECTION ID: id-example-for-etccorosynccorosync-conf
 // DO NOT CHANGE SECTION TITLE as this would change autogenerated section ID
-// Refer to Trento checks 00081D, 156F64, 15F7A8, 21FCA6, 24ABCB, 32CFC6, 33403D, 53D035, 6E9B82
-// Refer to Trento checks 7E0221, 822E47, 845CC9, A1244C, C620DC, D78671, DA114A, FB0E0D, BA215C
+// Refer to Trento checks
+// Refer to Trento checks
 === Example for _/etc/corosync/corosync.conf_
 
 The following file shows a typical corosync configuration with two rings.
@@ -3471,7 +3460,7 @@ For more detailed information, have a look at the documents listed below.
 
 // SUSE docu, manual pages, TIDs and blogs. SAP guides and notes.
 :leveloffset: 2
-include::SAPNotes_HANA20_15.adoc[]
+include::SAPNotes_HANA20_angi_15.adoc[]
 :leveloffset: 0
 
 === Pacemaker
@@ -3496,37 +3485,6 @@ include::common_sbp_legal_notice.adoc[]
 include::common_gfdl1.2_i.adoc[]
 
 //
-// REVISION 1.0 2017/07
-//   - Initial version (SLE12)
-// REVISION 1.1 2019/04
-//   - improved crm properties (e.g. removed quorum-policy for two node cluster)
-//   - converted from docbookxml to adoc
-//   - removed already known typos
-//   - *planned* Unicast setup
-// REVISION 1.2 2019/12
-//   - added srHook documentation
-// REVISION 1.3 2020/03
-//   - Fixed sudoers examples
-//   - srHook recommended for all clusters
-//   - srHook also mentioned in the architectural overview
-//   - Added configuration for active/active (read-enabled) setup
-//   - changed crm commands 'migrate'->'move', 'unmigrate' -> 'clear', 'cleanup' -> 'refresh'
-// REVISION 1.3.1 2020/04
-//   - fixed one smaller grammar error
-// REVISION 1.4 2022/02
-//   - updated examples, references
-//   - prepared for SAP native systemd support
-// REVISION 1.5 2022/06
-//   - susTkOver.py
-//   - corosync example with two rings
-// REVISION 1.6 2022/08
-//   - susChkSrv.py
-//   - updated examples, references
-// REVISION 1.6a 2023/04
-//   - SAP native systemd support is default for HANA 2.0 SPS07
-// REVISION 1.6b 2024/02
-//      - HANA 2.0 SPS05 rev.059 Python 3 needed
-// REVISION 1.6c 2024/03
-//	- updated references
-//	- pointer to SAPHanaSR-angi
+// REVISION 0.1 2024/04
+//   - Initial version
 //

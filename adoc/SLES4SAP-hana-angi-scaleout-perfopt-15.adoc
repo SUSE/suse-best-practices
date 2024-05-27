@@ -2288,7 +2288,7 @@ Add the configuration to the cluster.
 
 |PREFER_SITE_TAKEOVER
 |Defines whether RA should prefer to takeover to the secondary instance instead
-of restarting the failed primary locally. Set to *true* for SAPHanaSR-ScaleOut.
+of restarting the failed primary locally. Set to *true* for SAPHanaSR-angi.
 
 |AUTOMATED_REGISTER
 |Defines whether a former primary should be automatically registered to be
@@ -2480,11 +2480,11 @@ See also manual page SAPHanaSR-ScaleOut_basic_cluster(7).
 
 ==== Verifying the communication between the hook and the cluster
 
+////
+// TODO PRIO1: correct attribute name?
 Now check if the HA/DR provider could set the appropriate
 cluster attribute hana_{refsidLC}_glob_srHook:
 
-////
-// TODO PRIO1: correct attribute name?
 .Query the srHook cluster attribute
 ==========
 [subs="specialchars,attributes"]
@@ -2549,56 +2549,8 @@ SAPHanaSR_maintenance_examples(7).
 image::SAPHanaSR-ScaleOut-MultiTarget-Plan-Phase7.svg[scaledwidth="100%"]
 
 [[MultiTarget]]
-This chapter is divided into two sections. Both are optional, depending oon your needs.
-
-- The first section describes the procedure to upgrade an existing scale-out performance optimized setup into a multi-target ready setup. It applies only if you plan to upgrade an existing not multi-target aware scale-out cluster.
-
-- The second section is about configuring the 3rd site in a multi-target setup after freshly installing the whole landscape using the procedures mentioned in the document so far.  
-
-
-=== Upgrading an existing cluster of scale-out performance optimized HANA
-
-This section applies only if you plan to upgrade an existing not multi-target aware scale-out cluster into a multi-target aware one. This is not the general approach. Usually you should start with a fresh installation for {saphana} scale-out multi-target systems.
-
-==== Prerequisites for the upgrade
-
-For successful and smooth upgrade, you need the following prerequisites:
-
-* {saphana} supports multi-target system replication and HA/DR provider.
-* All cluster nodes are online in the cluster and there are no current errors in the cluster or HANA.
-* Package SAPHanaSR-ScaleOut of identical new version installed on all nodes, including majority maker.
-* Resource agents SAPHanaController and SAPHanaTopology new and identical on all nodes, including majority maker.
-* HA/DR provider hook script SAPHanaSrMultiTarget.py new and identical on all nodes, including majority maker.
-* Sufficient sudoers permission on all nodes, including majority maker.
-* Correct and identical entries for HA/DR provider in global.ini at both sites
-* During upgrade the resources SAPHanaController and SAPHanaTopology need to be set into maintenance. HANA needs to reload its HA/DR provider configuration and hook scripts.
-* The procedure has been successfully tested on a test system before applying it to the production system.
-
-The upgrade will remove the global srHook attribute. Instead it will introduce site-specific attributes. Values for srHook attributes are written only on HANA srConnectionChanged() event. So the new attribute for HANA secondary site might stay empty in case HANA is not reloaded after the upgrade. In that case the polling attribute sync_state represents HANA’s system replication status as fallback.
-
-SAPHanaSR-manageAttr will always check prerequisites before changing the CIB attribute from one common hana_<sid>_glob_srHook to site-sepcific attributes hana_<sid>_site_srHook_<SITE>. By calling “SAPHanaSR-manageAttr –check …” you can run that built-in check before trying an upgrade. 
-
-See manual pages SAPHanaSR-manageAttr(8) and SAPHanaSrMultiTarget.py(7) for details.
-
-==== Upgrade procedures
-
-At a glance the upgrade procedure looks like this:
-
-* Initially check if everything looks fine.
-* Set {sleha} cluster resources SAPHanaController and SAPHanaTopology into maintenance.
-* Install multi-target aware SAPHanaSR-ScaleOut package on all nodes.
-* Adapt sudoers permission on all nodes.
-* Replace HANA HA/DR provider configuration on both sites.
-* Check {sleha} and HANA HA/DR provider for matching defined upgrade entry state.
-* Upgrade srHook attribute from old-style to multi-target.
-* Check SUSE HA cluster for matching defined upgrade target state.
-* Set SUSE HA cluster resources SAPHanaController and SAPHanaTopology from maintenance to managed.
-* Finally check if everything looks fine.
-
-As final result of this procedure, the RAs and hook script are upgraded from old-style to multi-target. Further the SUSE HA cluster’s old-style global srHook attribute hana_<sid>_glob_srHook is replaced by site-aware attributes hana_<sid>_site_srHook_<SITE>. The new attributes might stay empty until HANA raises srConnectionChanged() events and triggers the new hook script for the first time. Further, the HANA global configuration and Linux sudoers permissions are adapted. New auxiliary SUSE HA cluster attributes are introduced
-
-For more information, read the related blog article
-https://www.suse.com/c/sap-hana-scale-out-multi-target-upgrade/ 
+This chapter is optional, depending on your needs.
+It is about configuring the 3rd site in a multi-target setup after freshly installing the whole landscape using the procedures mentioned in the document so far.  
 
 
 === Setup of third {saphana} site in a multi-target architecture
@@ -2631,6 +2583,8 @@ in the parameter sheet.
 
 ==== Check SAPHanaSR attributes for the third site
 
+// TODO PRIO1: adapt example output
+
 SAPHanaSR-showAttr shows the status of the third site which should be as below:
 
 [subs="specialchars,attributes"]
@@ -2657,11 +2611,14 @@ hanaso3 DEMOTED     2.0 2.2 online     slave:slave:worker:slave     -12200 ROT1
 hanaso0:~ #
 ----
 
+// TODO PRIO1: adapt the attributes explained below
+
 Important items in above output that may seem different from earlier hook output are:
 
 * The “Glo(bal)” section shows the global “srHook” attribute that reflects the {saphana} system replication status as reported by the HA/DR provider script. The attribute changes whenever {saphana} raises an srConnectionChanged() event (and the Linux cluster is functional). This information helps to decide whether an {saphana} takeover can be initiated in case the primary site fails. Only if the “srHook” attribute is “SOK”, the cluster will initiate a take-over. This “sync_state” attribute reflects the {saphana} system replication status as reported by the SAPHanaController RA monitor. The RA sets this attribute whenever processing a monitor or probe action. The call is {saphana}’s systemReplicationStatus.py. This happens on regular base, defined by the monitor interval, and on start/stop/promote/demote operations.
 * The “Site” section “lss” column shows {saphana}’s overall landscape status per site. The SAPHanaTopology RA monitor calls {saphana}’s landscapeHostConfiguration.py script and updates this attribute accordingly. As long as {saphana} does not report “lss”as “1”, no takeover will happen. A value of “0” indicates a fatal internal communication error that made it impossible to detect the current landscape status. The attribute “srr” indicates the detected system replication role. “P” is the abbreviation for “primary” and “S” for “secondary”. The SAPHanaTopology resource agent sets these values to allow operation in maintenance windows of {saphana}. The attribute “mns” indicates the current identified active master names server of the site.
 * In the “Hosts” section the “roles” column shows actual and configured roles for HANA on each node. Since we do not have standby nodes, actual and configured is always the same for a given host once {saphana} is running. This output reflects the entries we made in HANA’s nameserver.ini file. The SAPHanaTopology RA updates these attributes during each monitor run. The majority maker has no {saphana} roles at all. The “score” column shows what scores SAPHanaController uses for placing the roles, like primary SAP HANA master name server, primary worker and more on the right hosts. 
+
 
 
 == Testing the cluster
@@ -2862,7 +2819,7 @@ In your project, you should *do* the following:
  
 * Do *intensive* testing.
 
-* *Tune* the timeouts of operations of SAPHanaController and SAPHanaTopology.
+* *Tune* the timeouts of operations of SAPHanaController, SAPHanaTopology, SAPHanaFilesystem.
 
 * Start with SAPHanaController parameters **PREFER_SITE_TAKEOVER=true** ,
   **AUTOMATED_REGISTER=false** and **DUPLICATE_PRIMARY_TIMEOUT=7200**.
@@ -2895,7 +2852,7 @@ In your project, *avoid* the following:
 You can use the High Availability Web Konsole (HAWK), {saphana} Cockpit and
 different command line tools for cluster status requests. See manual pages
 crm_mon(8), cs_wait_for_idle(8), SAPHanaSR_maintenance_examples(7),
-SAPHanaSR-showAttr(8), SAPHanaSrMultiTarget.py(7) and susChkSrv.py(7). 
+SAPHanaSR-showAttr(8), SAPHanaSrMultiTarget.py(7) and susChkSrv.py(7).
 
 ==== HAWK – cluster status and more
 
@@ -2968,7 +2925,9 @@ Active Resources:
   * stonith-sbd (stonith:external/sbd):  Started hanamm
   * Clone Set: cln_SAPHanaTop_TST_HDB00 [rsc_SAPHanaTop_TST_HDB00]:
     * Started: [ hanaso0 hanaso1 hanaso2 hanaso3 ]
-  * Clone Set: msl_SAPHanaCon_TST_HDB00 [rsc_SAPHanaCon_TST_HDB00] (promotable):
+  * Clone Set: cln_SAPHanaFil_TST_HDB00 [rsc_SAPHanaFil_TST_HDB00]:
+    * Started: [ hanaso0 hanaso1 hanaso2 hanaso3 ]
+  * Clone Set: mst_SAPHanaCon_TST_HDB00 [rsc_SAPHanaCon_TST_HDB00] (promotable):
     * Masters: [ hanaso0 ]
     * Slaves: [ hanaso1 hanaso2 hanaso3 ]
   * rsc_ip_TST_HDB00    (ocf::heartbeat:IPaddr2):        Started hanaso0
@@ -3011,6 +2970,8 @@ The tool displays all interesting cluster attributes in three areas.
 * The **hosts** section shows the node status, the roles of the host inside the
   {saphana} database, the calculated score to get the primary master name server
   and the site the host belongs to.
+
+// TODO PRIO1: adapt example output
 
 [subs="specialchars,attributes"]
 ----

@@ -94,7 +94,7 @@
 
   <abstract>
 
-   <para>SUSE Solution Security is committed to delivering best in class software security to its
+   <para>SUSE Solution Security is committed to delivering best-in-class software security to its
     customers and to the open source community. The primary objectives are to treat software
     security as an ongoing and continual process.</para>
 
@@ -416,424 +416,407 @@
 
   </sect2>
 
-  <sect2 xml:id="sec-remote-stack-overflow-networking">
-   <title>Remote Stack Overflow in the <package>tipc</package> networking module of the Linux
-    kernel</title>
+  <sect2 xml:id="sec-rapid-reset-attack">
+   <title>CVE-2023-44487: HTTP/2 <emphasis role="bold">Rapid Reset</emphasis> attack</title>
 
    <bridgehead>Overview</bridgehead>
-   <para> The Transparent Inter Process Communication (TIPC) is an IPC mechanism designed for
-    intra-cluster communication. It represents the cluster topology using the concept of nodes and
-    the links between these nodes. A stack overflow flaw was found in the Linux kernel's TIPC
-    protocol functionality in the way a user sends a packet with malicious content where the number
-    of domain member nodes is higher than the 64 allowed. This flaw allows a remote user to crash
-    the system or possibly escalate their privileges if they have access to the TIPC network.</para>
+   <para>In August 2023, Amazon Web Services, Cloudflare and Google noticed a new type of 
+    distributed denial-of-service (DDos) attacks on their networks. These attacks had record breaking sizes, 
+    three times bigger than previous attacks.</para>
 
-   <para>As part of the monitoring framework the "Overlapping Ring Supervision Algorithm" was
-    introduced to monitor neighbouring nodes in the cluster. This also introduced a security bug
-    that could be exploited to execute a remote Denial of Service (DoS) attack on systems using TIPC
-    and FORTIFY_SOURCE enabled.</para>
+   <para>As it turned out, the problem that was exploited was not an implementation bug, but an issue 
+    inside the internal design of the HTTP/2 protocol itself. The principle of the 
+    <emphasis role="bold">Rapid Reset</emphasis> attack is quite simple.</para>
+   
+   <para>With HTTP/1.1, all requests to the server are processed serially on one connection. 
+    The client is sending a request, the server will read and process it and send a response. Then the next request is processed.
+    The newer HTTP/2 protocol allows multiple bidirectional streams via a single TCP connection. 
+    A client can therefore send several requests at the same time, which are then answered by the server. 
+    This results in a much higher utilization of each connection.</para>
+   
+   <para>The <emphasis role="bold">Rapid Reset</emphasis> attack now uses the fact that each of those 
+    inner streams can be canceled at any point in time via an RST_STREAM frame. This can be done even before 
+    data has been transmitted back to the client. The problem that arises is as follows: 
+    The request is processed by the server, and for this purposes, resources are allocated per stream. 
+    These resources must be deleted again a moment later when the RST_STREAM frame has arrived.</para>
+   
+   <para>This comes at almost no cost for the attacker, but depending on the server implementation, 
+    it can result in significant resource utilization for the victim.</para>
 
    <bridgehead>Solution</bridgehead>
-   <para>Installing the updated packages provided by SUSE is sufficient to fix the problem. Use the
-    following command to search for the specific patch:</para>
+   <para>Several upstream projects updated their code to implement or extent the mitigation mechanisms 
+    that prevent or lower the impact of those attacks. This is usually done by setting a reset rate limit.</para>
+   
+   <para>To install the respective patches, use:</para>
 
-   <screen>zypper lp -a --cve=CVE-2022-0435</screen>
-   <para>or</para>
-   <screen>zypper patch --cve=CVE-2022-0435</screen>
-
-   <para>to apply the fixes.</para>
-   <para>After a kernel update a restart is required. Unless you are using the SUSE Linux Enterprise
-    Live Patching extension, for which SUSE provides the live patch to fix this vulnerability
-    allowing you to patch the kernel without shutting down your system and reducing the need for
-    planned downtime and increasing service availability.</para>
+   <screen>zypper patch --cve=CVE-2023-44487</screen>
 
 
    <bridgehead>References</bridgehead>
 
    <itemizedlist>
     <listitem>
-     <para>SUSE TID 000020580: <link xlink:href="https://www.suse.com/support/kb/doc/?id=000020580"
-      /></para>
+     <para>SUSE Web page for CVE-2023-44487: <link
+      xlink:href="https://www.suse.com/security/cve/CVE-2023-44487.html"/></para>
     </listitem>
     <listitem>
-     <para>SUSE Web page for CVE-2022-0435 : <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-0435.html"/></para>
+     <para>Google Cloud blog article: <link xlink:href="https://cloud.google.com/blog/products/identity-security/how-it-works-the-novel-http2-rapid-reset-ddos-attack"
+     /></para>
+    </listitem>
+    <listitem>
+     <para>Cloudflare blog article: <link xlink:href="https://blog.cloudflare.com/technical-breakdown-http2-rapid-reset-ddos-attack/"
+     /></para>
+    </listitem>
+    <listitem>
+     <para>Qualys blog article: <link xlink:href="https://blog.qualys.com/vulnerabilities-threat-research/2023/10/10/cve-2023-44487-http-2-rapid-reset-attack"
+     /></para>
     </listitem>
    </itemizedlist>
 
   </sect2>
 
-  <sect2 xml:id="sec-dirty-pipe">
-   <title>Dirty Pipe</title>
+  <sect2 xml:id="sec-terrapin-attack">
+   <title>CVE-2023-48795: SSH prefix truncation attack (aka Terrapin Attack)</title>
 
    <bridgehead>Overview</bridgehead>
-   <para> On Monday, March 7th, security researcher Max Kellermann published a new software
-    vulnerability that affect users of the Linux kernel. The vulnerability, called Dirty Pipe
-    (CVE-2022-0847), impacts Linux kernels 5.8 and later, and allows local attackers to overwrite
-    files even if they had only read permissions, allowing for easy privilege escalation. The issue
-    is triggered by a combination of two bugs, one bug in Linux kernels 4.9 and newer and made
-    exploitable by the second bug introduced in Linux kernel 5.8. Our currently maintained SUSE
-    Linux Enterprise products are not affected as they ship older Linux kernels than 5.8. The
-    upcoming SUSE Linux Enterprise 15 SP4 with Linux kernel 5.14 will be already fixed before
-    shipment.</para>
+   <para> Security researchers from the Ruhr University Bochum have published a new attack on 
+    the SSH v2 protocol, which allows active person-in-the-middle attackers to impact SSH connections 
+    by removing initial encrypted SSH packets.</para>
+   
+   <para>This can lead to protocol security downgrades or similar problems. 
+   Changing SSH packages or injecting new encrypted SSH packages is not possible with this attack.</para>
+   
+   <para>Software on all SUSE Linux Enterprise versions were originally affected. 
+    The problem is inherent to the existing SSH v2 protocol, so new protocol addition(s) and enforcement 
+    of them are needed to avoid the problem.</para>
+   
+   <para>The protocol vulnerability needs to be exploited in tandem with specific SSH ciphers.     
+    The <package>chacha20-poly1305</package> SSH cipher is the one that was shown to be exploitable 
+    most easily, also other ciphers using Encrypt-Then-MAC Message Authentication Codes (MACs) might 
+    be exploitable under certain conditions.</para>
+    
+   <para><emphasis>Note</emphasis> that the ciphers themselves are not problematic. They could lead to exploitable scenarios
+   only in combination with the SSH v2 protocol weakness.</para>
+   
+   <para>Find below a list of SSH v2 implementations that are shipped by SUSE and their exploitability status:</para>
+   
+   <itemizedlist>
+    <listitem>
+     <para><package>openssh</package>: is affected in all shipping versions up to 9.5p1. 
+      All versions of SUSE Linux Enterprise Server are affected.</para>
+    </listitem>
+    <listitem>
+     <para><package>putty</package>: is affected. It is shipped via SUSE PackageHub 15.</para>
+    </listitem>
+    <listitem>
+     <para><package>libssh.org</package> (aka libssh): supports <package>chacha20-poly1305</package> 
+      since 0.8.0. SUSE Linux Enterprise Server 12 SP5 and SUSE Linux Enterprise Server 15 SP1 and newer are affected.</para>
+    </listitem>
+    <listitem>
+     <para><package>libssh2.org</package> (aka libssh2_org): does not implement the <package>chacha20-poly1305</package> 
+      cipher in the newest release 1.11.0. ETM MACs were only implemented in 1.11.0, therefor versions before 1.11.0 
+      are not affected. SUSE Linux Enterprise Server 12 SP5 and SUSE Linux Enterprise Server 15 come with version 1.11.0 and are 
+      affected by this problem.</para>
+    </listitem>
+    <listitem>
+     <para><package>jsch</package> (Java SSH): <package>chacha20-poly1305</package> was added with 
+      version 0.1.66, ETM MACs in 0.1.58. Versions from 0.1.58 to current 0.2.9 are considered affected.       
+      SUSE currently does not ship affected versions of <package>jsch</package>.</para>
+    </listitem>
+    <listitem>
+     <para><package>proftpd</package>: its <package>mod_sftp</package> module, which is shipped via 
+      SUSE PackageHub 15, is affected. It supports ETM MACs, but not <package>chacha20-poly1305</package>. 
+      The module, however, is not enabled by default.</para>
+    </listitem>
+    <listitem>
+     <para><package>golang.org/x/crypto/ssh</package>: The Golang SSH module is also affected.
+      The SSH module is used and/or included by a long list of software written in GO.s of an issue, as in scenarios 
+      relying on secure boot, like public systems.</para>
+    </listitem>
+   </itemizedlist>
+     
 
    <bridgehead>Solution</bridgehead>
-   <para>We have released fixes for the first bug for SUSE Linux Enterprise 12 SP4 and newer and
-    SUSE Linux Enterprise 15 and newer, even though they are not directly affected. To install the
-    respective patch, use </para>
+   <para>The solution is to install respective updates on server and client machines.</para>
 
-   <screen>zypper patch --cve=CVE-2022-0847</screen>
+   <para><package>openssh</package> updates were provided on December 18th. 
+    Other SSH software was also updated after backporting upstream security fixes. 
+    Note that both SSH clients and servers must be adjusted for the protocol adjustments to be effective.</para>
+   
+   <para>Mitigations like removal of ciphers can be done on either side to be effective.    
+    Bacuase rollout may take some time and not all clients are under administrative control, 
+    configuration adjustments such as removing ciphers should be made to avoid using affected ciphers
+    (see the References section below).</para>
 
    <bridgehead>References</bridgehead>
 
    <itemizedlist>
     <listitem>
-     <para>SUSE TID 000020603: <link xlink:href="https://www.suse.com/support/kb/doc/?id=000020603"
+     <para>SUSE Web page for CVE-2023-48795: <link
+      xlink:href="https://www.suse.com/security/cve/CVE-2023-48795/"/></para>
+    </listitem>
+        <listitem>
+     <para>SUSE TID 000021295: <link xlink:href="https://www.suse.com/support/kb/doc/?id=000021295"
       /></para>
     </listitem>
     <listitem>
-     <para>SUSE CVE-2022-0847 Web page: <link
-       xlink:href="https://suse.com/security/cve/CVE-2022-0847.html"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE blog article: <link
-       xlink:href="https://www.suse.com/c/suse-statement-on-dirty-pipe-attack/"/></para>
-    </listitem>
-    <listitem>
-     <para>Wep page of dirty pipe: <link xlink:href="https://dirtypipe.cm4all.com/"/></para>
+     <para>Web page: <link xlink:href="https://terrapin-attack.com/"
+     /></para>
     </listitem>
    </itemizedlist>
 
   </sect2>
 
 
-  <sect2 xml:id="sec-boothole-3">
-   <title>Boothole 3</title>
+  <sect2 xml:id="sec-tty-injection">
+   <title>TTY injection via sudo</title>
 
    <bridgehead>Overview</bridgehead>
-   <para> GRUB developers and security researchers have identified more security relevant bugs in
-    the GRUB2 and <package>shim</package> boot loaders, which could be used by local attackers to
-    circumvent the secure boot chain. This vulnerability has similar effects and considerations as
-    the original Boothole and Boothole2 issues. For regular users with their machine under full
-    control this is less of an issue as in scenarios relying on secure boot, like public
-    systems.</para>
+   <para> The Linux TTY subsystem allows pushing back keypresses into the TTY stack. 
+   This is a not well-known feature and may lead to unexpected consequences or potential attacks.
+   As an example, in cases where untrusted code using a command such as <command>sudo</command> 
+    is executed, the untrusted code could push keypresses into the TTY stack, 
+    which could then be executed after the <command>sudo</command> execution completes.</para>
+   
+   <para>While <command>sudo</command> is commonly used for transitioning to <quote>root</quote>
+    where this would not be an issue, several other <command>sudo</command> scenarios are possible where this could be used to escalate privileges.
+    The untrusted code would then be able to execute commands as <quote>root</quote> using this attack.</para>
+   
+   <para>To avoid this injection, <command>sudo</command> has the option to create a new 
+    pseudo terminal device (PTY), which is discarded after running <command>sudo</command>, 
+    and would not be affected by this keypress push back attack. However, note that this might impact 
+    terminal output or the use of interactive keys like backspace or delete.</para>
 
    <bridgehead>Solution</bridgehead>
-   <para>Boothole 3 consists of the following security vulnerabilities:</para>
-
-   <itemizedlist>
-    <listitem>
-     <para>CVE-2021-3695: A crafted PNG grayscale image may have led to out-of-bounds write in
-      heap.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2021-3696: A crafted PNG image may have led to out-of-bound write during huffman
-      table handling.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2021-3697: A crafted JPEG image could have led to buffer underflow write in the
-      heap.</para>
-    </listitem>
-   </itemizedlist>
-
-   <para>These security issues require attackers to supply crafted images to GRUB2, which is
-    unlikely in common local scenarios, but can allow bypassing the secure boot chain.</para>
-
-   <itemizedlist>
-    <listitem>
-     <para>CVE-2022-28733: Fixed net/ip to do ip fragment maths safely. If GRUB2 is loading
-      artefacts from the network, a Man-In-The-Middle attack could be used to execute code. This is
-      an uncommon scenario. </para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-28737: Fixed a buffer overflow in <package>shim</package>. </para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-28734: Fixed net/http OOB write for split HTTP headers. </para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-28735: GRUB2 verifier framework changes to avoid potential bypasses. </para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-28736: Fixed a use-after-free in chainloader command. </para>
-    </listitem>
-   </itemizedlist>
-
-   <para>SUSE is switching to a new secure boot signing key for secure boot signed artefacts. We
-    have released GRUB2 updates, with incremented SBAT revision on AMD64/Intel 64 and signed with
-    the new secure boot key to allow disabling it on IBM Z and IBM Power. SUSE also released Linux
-    kernel updates signed with the new signing key in June 2022 and following days on our regular
-     <quote>second Tuesday of the month</quote> kernel release time. In 2022 we released a new
-     <package>shim</package> version that disallows use of the previous secure boot keys and fixes a
-     <package>shim</package> security issue, with incremented SBAT version after all the previous
-    updates.</para>
+   <para>Add the line</para>
+   
+<screen>Default use_pty</screen>
+   
+   <para>to the <filename>/etc/sudoers</filename> configuration file using the <command>visudo</command> command.
+    Starting with <package>sudo</package> version 1.9.14p1, this setting is the default for new installations.</para>
 
    <bridgehead>References</bridgehead>
    <itemizedlist>
     <listitem>
-     <para>SUSE TID 000020668: <link xlink:href="https://www.suse.com/support/kb/doc/?id=000020668"
-      /></para>
-    </listitem>
-   </itemizedlist>
-
-   <para><package>grub2</package> security issues</para>
-
-   <itemizedlist>
-    <listitem>
-     <para>SUSE CVE-2022-28736 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28736"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-28735 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28735"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-28734 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28734"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-28733 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28733"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2021-3697 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2021-3697"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2021-3696 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2021-3696"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2021-3695 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2021-3695"/></para>
-    </listitem>
-   </itemizedlist>
-
-   <para>
-    <package>shim</package> security issue</para>
-   <itemizedlist>
-    <listitem>
-     <para>SUSE CVE-2022-28737 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28737"/></para>
-    </listitem>
-   </itemizedlist>
-
-  </sect2>
-
-  <sect2 xml:id="sec-dosa-mmio-register">
-   <title>Side-channel information leaks / denial of service attack against MMIO registers</title>
-
-   <bridgehead>Overview</bridgehead>
-   <para> Security researchers and Intel engineers have identified several transient execution
-    side-channel information leak attacks and one denial of service attack when accessing MMIO
-    registers.</para>
-
-   <para> Multiple flavors of these issues have been identified:</para>
-
-   <itemizedlist>
-    <listitem>
-     <para>CVE-2022-21166: Device Register Partial Write (DRPW) Some endpoint MMIO registers
-      incorrectly handle writes that are smaller than the register size. Instead of aborting the
-      write or only copying the correct subset of bytes (for example, 2 bytes for a 2-byte write),
-      more bytes than specified by the write transaction may be written to the register. On some
-      processors, this may expose stale data from the fill buffers of the core that created the
-      write transaction. This issue is mitigated using CPU Microcode and Operating System (kernel)
-      code changes.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-21127: Update to Special Register Buffer Data Sampling The RDSAND, RDSEED, SGX
-      EGET KEY instructions use the low bandwidth MMIO interface, and their content could be sampled
-      using side-channel information leak methods. This issue is being mitigated with CPU Microcode
-      updates.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-21125: Shared Buffers Data Sampling (SBDS) After propagators may have moved data
-      around the uncore and copied stale data into client core fill buffers, processors affected by
-      MFBDS can leak data from the fill buffers. This issue is mitigated using CPU Microcode and
-      Operating System (kernel) code changes.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-21123: Shared Buffers Data Read (SBDR) It is similar to Shared Buffer Data
-      Sampling (SBDS) except that the data is directly read into the architectural software-visible
-      state. This issue is mitigated using CPU Microcode and Operating System (kernel) code
-      changes.</para>
-    </listitem>
-    <listitem>
-     <para>CVE-2022-21180: Undefined MMIO Hang While not directly related to side channel
-      information leaks, overly long MMIO reads to short MMIO registers could lead to machine hangs,
-      causing a denial of service. This will be fixed by filtering out too long MMIO reads in kernel
-      / hypervisor software.</para>
-    </listitem>
-
-   </itemizedlist>
-
-   <bridgehead>Solution</bridgehead>
-   <para>An updated Intel CPU Microcode was published in the Intel IPU 2022.1 release, released by
-    SUSE in <package>ucode-intel</package> version 20220510 packages. SUSE released kernel updates
-    to mitigate the leaks. A new kernel boot command line option has been introduced, called
-     <command>mmio_stale_data</command>.</para>
-
-   <para>Configuration:</para>
-   <screen>- mmio_stale_data=off</screen>
-   <para> Mitigation is disabled.</para>
-   <screen>- mmio_stale_data=full</screen>
-   <para>Mitigation is enabled, but SMT is still enabled so information might leak on the same CPU
-    core.</para>
-   <screen>- mmio_stale_data=full,nosmt</screen>
-   <para>Mitigation is enabled, and SMT is disabled so the mitigation is complete. Note that this is
-    option is also covered by using the generic <quote>mitigations</quote> option.</para>
-
-   <bridgehead>References</bridgehead>
-
-   <itemizedlist>
-    <listitem>
-     <para>SUSE Technical Information Document (TID) 000020669:<link
-       xlink:href="https://www.suse.com/support/kb/doc/?id=000020669"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-21166 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-21166"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-21127 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-21127"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-21123 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-21123"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-21125 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-21125"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-21180 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-21180"/></para>
-    </listitem>
-    <listitem>
-     <para>Article: <link
-       xlink:href="https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/advisory-guidance/undefined-mmio-hang.html"
-      /></para>
-    </listitem>
-    <listitem>
-     <para>Article: <link
-       xlink:href="https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/processor-mmio-stale-data-vulnerabilities.html"
+     <para>SUSE TID 000021241: <link xlink:href="https://www.suse.com/support/kb/doc/?id=000021241"
       /></para>
     </listitem>
    </itemizedlist>
 
   </sect2>
 
-  <sect2 xml:id="sec-retbleed">
-   <title>RETBLEED transient execution information leak side-channel attack</title>
+  <sect2 xml:id="sec-gather-data-sampling-downfall">
+   <title>CVE-2022-40982: CPU transient information leakage from GATHER instructions 
+    aka <quote>Gather Data Sampling</quote> aka <quote>DOWNFALL</quote></title>
 
    <bridgehead>Overview</bridgehead>
-   <para> Security researchers Johannes Wikner and Kaveh Razavi from ETH Zuerich have identified a
-    new transient execution information leak caused by <quote>return</quote> CPU instructions on
-    Intel and AMD x86 systems. In certain scenarios the return instructions turn to use the indirect
-    branch predictor, which can be influenced by Branch Target Injection attacks aka Spectre-BTI.
-    This allows local attackers to execute code to leak sensitive data out of the kernel, same as
-    other Spectre like vulnerabilities.</para>
+   <para>Security researcher Daniel Moghimi has identified a transient information leakage from GATHER 
+    instructions on modern Intel CPUs (<emphasis role="bold">Skylake</emphasis> to 
+    <emphasis role="bold">Tiger Lake</emphasis> generations).</para>
+   
+   <para>This can be used to reveal secret data contained in vector registers, which can essentially 
+    be any information due to the use of these instructions in memory copy operations. 
+    This information leak can cross process and privilege boundaries.</para>
 
-   <para>Affected CPUs:</para>
+   <bridgehead>Solution</bridgehead>
+   <para>Intel has released CPU microcode to mitigate these issues. 
+    The CPU microcode is mandatory for mitigation, the mitigation is enabled by default.</para>
 
+   <para>Updated <package>ucode-intel</package> packages released by SUSE, 
+    version 20230808 or later, contain the mitigations. If there is no CPU Microcode available, 
+    the <command>avx</command> instructions can be hidden from CPUID reporting by the kernel.</para>
+   
+   <para>In addition, kernel and XEN changes are being applied to:</para>
+   
    <itemizedlist>
     <listitem>
-     <para>Intel Skylake and newer Intel x86 CPU generations</para>
+     <para>allow disabling the mitigation.</para>
     </listitem>
     <listitem>
-     <para>AMD Bulldozer (family 0x15) up to Zen 3</para>
+     <para>report affectedness of the CPU and state of the mitigation.</para>
+    </listitem>
+   </itemizedlist>
+   
+   <para>SUSE will release kernel and XEN updates.</para>
+   
+   <para><emphasis role="bold">Mitigation reporting</emphasis></para>
+   
+   <para>The mitigation state is reported via the sysfs file <filename>    
+    /sys/devices/system/cpu/vulnerabilities/gather_data_sampling</filename>.
+    The file can report the following states:</para>
+   
+   <itemizedlist>
+    <listitem>
+     <para>Not affected</para>
+     <para>This processor is not vulnerable.</para>
     </listitem>
     <listitem>
-     <para>Arm CPUs that are also vulnerable to Spectre variant 2</para>
+     <para>Vulnerable</para>
+     <para>This processor is is vulnerable and the mitigation is disabled.</para>
+    </listitem>
+    <listitem>
+     <para>Vulnerable: No microcode</para>
+     <para>This processor is is vulnerable and the microcode is missing mitigation.</para>
+    </listitem>
+    <listitem>
+     <para>Mitigation: Microcode</para>
+     <para>This processor is is vulnerable and the mitigation is in effect.</para>
+    </listitem>
+    <listitem>
+     <para>Mitigation: Microcode (locked)</para>
+     <para>This processor is is vulnerable and the mitigation is in effect and cannot be disabled.</para>
+    </listitem>
+    <listitem>
+     <para>Unknown: Dependent on hypervisor status</para>
+     <para>Running on a virtual guest processor that is affected but with no way to know 
+      if the host processor is mitigated or vulnerable. This can happen if the hypervisor does not expose 
+      necessary MSR registers to guests.</para>
     </listitem>
    </itemizedlist>
 
-   <bridgehead>Solution</bridgehead>
-   <para>Various mitigation methods have been implemented and can be selected manually or are
-    selected automatically. IBPB (Indirect Branch Prediction Barrier) can be used to flush the
-    indirect branch predictor. This has performance impact, but is the safest option. On Intel
-    Skylake the IBRS feature is used (Indirect Branch Restricted Speculation), which clears the
-    branch history buffer from lower privileged entries. Go to the <quote>References</quote>
-    paragraph for instructions on each mitigation type.</para>
+   <para>Kernel command line options:</para>    
+  <itemizedlist>
+   <listitem>
+    <para><command>gather_data_sampling=off</command></para>
+    <para>Switch off this specific mitigation (the default is <quote>on</quote>).</para>
+   </listitem>
+   <listitem>
+    <para><command>mitigations=off</command></para>
+    <para>Switch off all CPU transient execution mitigations, including the <command>gather_data_sampling</command> one.</para>
+   </listitem>
+   <listitem>
+    <para><command>clearcpuid=avx</command></para>
+    <para>This option hides the AVX instructions from CPUID flags. Therefore, existing optimized code will not use 
+     AVX instructions, or fallback to other variants, and thus not expose the vulnerability.</para>
+   </listitem>
+  </itemizedlist>
+
+   <bridgehead>Performance considerations</bridgehead>
+   
+   <para>The mitigation impacts performance of the GATHER parts of the AVX2 and AVX512 instructions, 
+    and potentially operations that are translated within the CPU to use these vector instructions 
+    (for example potentially REP MOVS, or other instruction sets like SSE).</para>
+   
+   <para>According to the technical paper linked from the Intel Product Security Center Advisory listed below, 
+    the impact might be as follows:</para>
+    <para><quote>When the mitigation is enabled, there is additional latency before results of the gather 
+     load can be consumed. Although the performance impact to most workloads is minimal, specific workloads 
+     may show performance impacts of up to 50%.</quote></para>
 
    <bridgehead>References</bridgehead>
 
    <itemizedlist>
     <listitem>
-     <para>SUSE Technical Information Document (TID) 000020693:<link
-       xlink:href="https://www.suse.com/support/kb/doc/?id=000020693"/></para>
+     <para>SUSE Web page for CVE-2022-40982: <link
+      xlink:href="https://www.suse.com/security/cve/CVE-2022-40982.html"/></para>
     </listitem>
     <listitem>
-     <para>SUSE CVE-2022-29900 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-29900"/></para>
+     <para>Downfall attacks Web page: <link xlink:href="https://downfall.page/"/></para>
     </listitem>
     <listitem>
-     <para>SUSE CVE-2022-29901 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-29901"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-28693 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-28693"/></para>
-    </listitem>
-    <listitem>
-     <para>SUSE CVE-2022-23825 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-23825"/></para>
+     <para>Intel Product Security Center Advisory INTEL-SA-00828: <link
+      xlink:href="https://www.intel.com/content/www/us/en/security-center/advisory/intel-sa-00828.html"
+      /></para>
     </listitem>
    </itemizedlist>
 
   </sect2>
 
-  <sect2 xml:id="sec-openssl3-cert">
-   <title><package>openssl 3</package> certificate parsing buffer overflow</title>
+  <sect2 xml:id="sec-blacklotus-bootkit">
+   <title>CVE-2023-24932: BlackLotus bootkit</title>
 
    <bridgehead>Overview</bridgehead>
-   <para> Security researcher <quote>Polar Bear</quote> has reported a buffer overflow in
-     <package>openssl</package> when parsing X.509 certificates. This problem could be used by
-    remote attackers to cause overflows in <package>openssl</package>-based servers parsing, for
-    example client certificates, or client overflows when parsing server certificates.</para>
-
-   <para>This problem only affects <package>openssl</package> 3.x and newer, older
-     <package>openssl</package> versions are not affected. <package>openssl</package> 3 is only
-    shipped as a secondary library starting with SUSE Linux Enterprise 15 SP4. No package currently
-    uses <package>openssl</package> 3.</para>
+   <para> A UEFI bootkit called BlackLotus has been spotted in the wild, which uses buggy secure boot binaries
+    to bypass the UEFI secure boot chain. While this component is not shipped by SUSE, to ensure the integrity 
+    of the UEFI secure boot chain, the affected components will need to be excluded from the UEFI secure boot space. 
+    Any UEFI secure boot-enabled installation could be impacted by this vulnerability.</para>
 
    <bridgehead>Solution</bridgehead>
-   <para>Patches are available for download and install for SUSE Linux Enterprise 15 SP4.</para>
+   <para>You can exclude affected components via a so-called <filename>DBX</filename> file which blocks UEFI binaries 
+    using <package>signatures/has</package>. <filename>DBX</filename> file updates can be delivered 
+    and deployed in different ways:</para> 
+   
+   <orderedlist>
+    <listitem>
+     <para>Via BIOS or Windows updates</para>
+     <para>The DBX file can be delivered via BIOS updates. In case of a dual boot system, it is delivered with Windows updates.
+      If it is installed via BIOS or Windows updates, no additional deployment on Linux is required.</para>
+    </listitem>
+    <listitem>
+     <para>Via the firmware update tool (<package>fwupd</package>)</para>
+     <para>Download the current DBX revocation list from https://uefi.org/revocationlistfile for the respective hardware platform.
+      Use the command <command>fwupdmgr install x64_DBXUpdate.bin</command> and follow the prompts.
+      This update method only works starting with SUSE Linux Enterprise 15 SP3 based products and newer.</para>
+     <para><emphasis role="bold">Note:</emphasis> This is a manual deployment and is only required 
+      if there are concerns about UEFI bootkits, as they are not a common attack scenario.</para>
+    </listitem>
+   </orderedlist>
 
    <bridgehead>References</bridgehead>
 
    <itemizedlist>
     <listitem>
-     <para>SUSE CVE-2022-3602 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-3602.html"/></para>
+     <para>SUSE Web page for CVE-2023-24932: <link
+      xlink:href="https://www.suse.com/security/cve/CVE-2023-24932.html"/></para>
     </listitem>
     <listitem>
-     <para>SUSE CVE-2022-3786 Web page: <link
-       xlink:href="https://www.suse.com/security/cve/CVE-2022-3786.html"/></para>
+     <para>Microsoft Support KB5025885:<link
+      xlink:href="https://support.microsoft.com/en-us/topic/kb5025885-how-to-manage-the-windows-boot-manager-revocations-for-secure-boot-changes-associated-with-cve-2023-24932-41a975df-beb2-40c1-99a3-b3ff139f832d"/></para>
+    </listitem>
+    <listitem>
+     <para>UEFI Revocation List File: <link xlink:href="https://uefi.org/revocationlistfile"/></para>
     </listitem>
    </itemizedlist>
+   
 
+  </sect2>
+
+  <sect2 xml:id="sec-slp-traffic-amplification">
+   <title>CVE-2023-29552: New SLP based traffic amplification attack</title>
+
+   <bridgehead>Overview</bridgehead>
+   <para> Security researchers Pedro Umbelino at Bitsight and Marco Lux at Curesec have published 
+    a new network traffic amplification attack using the Service Location Protocol (SLP, RFC 2608). 
+    This new attack allows for up to 2200x amplification, enabling very effective distributed 
+    denial of service attacks.</para>
+
+   <para>This flaw is a network protocol design flaw, a software fix is not easily possible.</para>
+
+   <bridgehead>Solution</bridgehead>
+   <para>The SLP protocol IP ports 427, both UDP and TCP, outside of your network boundary 
+    should be blocked or filtered.</para>
+
+   <bridgehead>References</bridgehead>
+
+   <itemizedlist>
+    <listitem>
+     <para>SUSE Web page for CVE-2023-29552: <link
+      xlink:href="https://www.suse.com/security/cve/CVE-2023-29552.html"/></para>
+    </listitem>
+    <listitem>
+     <para>SUSE TID 000021051: <link
+      xlink:href="https://www.suse.com/support/kb/doc/?id=000021051"/></para></listitem>
+   </itemizedlist>
+  
   </sect2>
 
  </sect1>
 
- <sect1 xml:id="sec-vulnerability-management-2022">
-  <title>Vulnerability Management in 2022</title>
+ <sect1 xml:id="sec-vulnerability-management-2023">
+  <title>Vulnerability Management in 2023</title>
 
   <para>The SUSE Solution Security team constantly monitors all the software components used in our
-   products for security issues. More and improved tools are now available for finding out zero-day
-   vulnerabilities and scanning for existing vulnerabilities. Such instruments can validate and
-   report back if the application code written is following the standard security best practices or
-   there are major gaps in potential attack vectors such as buffer overflow, denial of service or
-   unwanted elevated access. It is clear that developers are becoming more and more security-aware
-   and the quality of the code being developed has greatly improved in both quantity and quality.
-   While we notice an increasing number of important vulnerabilities, the number of critical
-   vulnerabilities is going down year over year. </para>
+   products for security issues. More and improved tools are now available to find zero-day vulnerabilities 
+   and scan for existing vulnerabilities. Such tools can check and report whether the application code written 
+   conforms to standard security best practices or whether there are major holes in potential attack vectors 
+   such as buffer overflow, denial of service, or unwanted elevated access. It is clear that developers are 
+   becoming more and more security-aware and that the quality of the code being developed has improved 
+   significantly, both in quantity and quality. While we are seeing an increasing number of important 
+   vulnerabilities, the number of critical vulnerabilities is decreasing year over year.</para>
 
 
   <table>
-   <title>Vulnerabilities with a unique CVE identified, impacting SUSE products in 2022</title>
+   <title>Vulnerabilities with a unique CVE identified, impacting SUSE products in 2023</title>
    <tgroup cols="4">
     <thead>
      <row>
@@ -845,10 +828,10 @@
     </thead>
     <tbody>
      <row>
-      <entry>100</entry>
-      <entry>637</entry>
-      <entry>436</entry>
-      <entry>15</entry>
+      <entry>123</entry>
+      <entry>597</entry>
+      <entry>387</entry>
+      <entry>9</entry>
      </row>
     </tbody>
    </tgroup>
@@ -856,7 +839,7 @@
 
 
   <table>
-   <title>Security updates and patches released to fix these vulnerabilities in 2022</title>
+   <title>Security updates and patches released to fix these vulnerabilities in 2023</title>
    <tgroup cols="4">
     <thead>
      <row>
@@ -868,10 +851,10 @@
     </thead>
     <tbody>
      <row>
-      <entry>58</entry>
-      <entry>584</entry>
-      <entry>2364</entry>
-      <entry>101</entry>
+      <entry>49</entry>
+      <entry>718</entry>
+      <entry>2137</entry>
+      <entry>37</entry>
      </row>
     </tbody>
    </tgroup>
@@ -879,13 +862,13 @@
 
 
   <figure>
-   <title>Security updates and patches released per month in 2022</title>
+   <title>Security updates and patches released per month in 2023</title>
    <mediaobject>
     <imageobject role="fo">
-     <imagedata fileref="suse-security-report-2022-statistics.png" width="90%" format="PNG"/>
+     <imagedata fileref="suse-security-report-2023-statistics.png" width="90%" format="PNG"/>
     </imageobject>
     <imageobject role="html">
-     <imagedata fileref="suse-security-report-2022-statistics.png" width="80%" format="PNG"/>
+     <imagedata fileref="suse-security-report-2023-statistics.png" width="80%" format="PNG"/>
     </imageobject>
    </mediaobject>
   </figure>
@@ -893,223 +876,129 @@
  </sect1>
 
  <sect1 xml:id="sec-secure-sw-supply-chain">
-  <title>Secure Software Supply Chain </title>
-
+  <title>Securing the software supply chain </title>
+  
   <para>Securing our software supply chain is a top priority for SUSE to protect our customers
-   security risks, known and zero-day vulnerabilities. Ensuring that no threat actor can inject
+   from security risks, known and zero-day vulnerabilities. Ensuring that no threat actor can inject
    malicious code into our build service systems is certified by industry leading security
    certifications. Our teams continually work to certify all SUSE products, and develop security
    solutions to offer our customers the highest level of trust and reliability.</para>
 
-  <para> A new industry standardization effort named Supply chain Levels for Software Artifacts
-   (SLSA ), started by Google and driven by several industry stakeholders, aims to protect the
-   integrity of the software supply chain. SLSA defines four levels of assurance, going from basic
-   requirements at level 1 to strict rules and documentation requirements at level 4. While the SLSA
-   standard is still in development, SUSE already considers it as a great representation of needs
-   for a secure product build environment. Thus we are adjusting our processes and tooling to meet
-   the requirements of the highest assurance level 4. The main controls which are covering the
-   highest assurance level 4 for our SUSE Linux Enterprise product offering include: </para>
+<sect2 xml:id="sec-proactive-code-review">
+ <title>Proactive review of code</title>
+ 
+ <para>Our skilled team of proactive security engineers regularly reviews the code we ship. 
+  We harden our products and conduct security audits on selected packages. Packages and products 
+  are continually reviewed to ensure we protect our customers' systems with the latest state of the art
+  technology. To this end, we have introduced an automation setup that notifies our team of 
+  potentially dangerous changes in existing or new packages (for example important permission changes) 
+  and triggers an audit if necessary.</para>
+ 
+ <para>Over the last year, our proactive Security team has found and assigned CVE IDs to a number 
+  of vulnerabilities which document the more important findings. Find more information on our 
+  <link xlink:href="https://security.opensuse.org/">blog page</link>.</para>
+ 
+</sect2>
 
-
-  <bridgehead>SOURCE CODE MANAGEMENT</bridgehead>
-  <para> Keeping source code integrity is the key aspect of supply chain integrity. Source code
-   integrity needs to be defended against all threats originating from insider or outsider attacks. </para>
-
+ 
+ <sect2 xml:id="sec-sbom">
+  <title>Software Bill of Materials (SBOM) available</title>
+  
+  <para>Following recent supply chain attacks and increasing security automation, software inventory 
+   management in particular is becoming increasingly important. Governments and other regulated industries 
+   now require the publication of a so-called Software Bill Of Materials (SBOM) for software products.</para>
+  
+  <para>Various SBOM formats have appeared on the market.
+   SUSE has begun releasing SBOM in the two formats most commonly used by operating system vendors: 
+   SPDX 2.0 and CycloneDX. SPDX 2.0 has even been standardized in ISO/ICE 5962:2021.</para>
+  
+  <para><emphasis role="bold">SUSE Linux Enterprise product media:</emphasis></para>
+  <para>For our product media (ISO images), the SBOM materials are available from our download Web site 
+   in both SPDX 2.0 and CycloneDX formats. The granularity of this data is currently at RPM level.</para>
+  
+    <para><emphasis role="bold">SUSE Linux Enterprise BCI container images:</emphasis></para>
+  <para>For our BCI container images, the SBOM data is delivered in the sigstore attestation blob in SPDX 2.0 format.
+   The data is supposed to be processed automatically, but manual retrieval is also possible. Due to multi-arch 
+   container manifests it is a two step operation.</para>
+   
+  <para><emphasis role="bold">Example call:</emphasis> </para>
+  <para>Use the external <package>crane</package> tool 
+   to extract the x86_64 container part, the <package>cosign</package> tool to retrieve and verify the attestation, 
+   and the <package>jq</package> tool to extract the SPDX 2.0 SBOM data.</para>
+  
+  <screen>crane digest --platform linux/amd64 registry.suse.com/suse/sle15:15.4</screen>  
+  
+  <para><emphasis role="bold">Example result:</emphasis></para>
+  
+  <screen>sha256:c8aeb5a7662c38716d303fb854c5baa2329afccb4637c0f3c7c44b971181fdbb</screen>
+  
+  <para>Then run the following on the command line:</para>
+  
+<screen>
+ cosign verify-attestation --type spdxjson –key
+ /usr/share/pki/containers/suse-container-key.pem 
+ registry.suse.com/suse/sle15@sha256:c8aeb5a7662c38716d303fb854c5baa2329afccb4637c0f3c7c44b971181fdbb | jq '.payload | @base64d | fromjson 
+ | .predicate'
+</screen>
+    
+ </sect2>
+  
+ <sect2 xml:id="sec-security-csaf-format">
+  <title>Security Information in CSAF format</title>
+  
+  <para>The Common Security Advisory Format (CSAF) is an industry-standard format for publishing 
+   security advisories in machine readable form. It is the descendant of the CVRF format and standardized 
+   by the OASIS foundation. </para>
+  
+   <para>It differs from the OVAL format, whose goal is to be able to machine-check the health of a system 
+   for security, while the CVRF and CSAF formats are intended for machine import into ticketing systems 
+   and bug trackers to respond to vulnerabilities.</para>
+  
+  <para>SUSE currently offers:</para>
+  
   <itemizedlist>
    <listitem>
-    <para><emphasis role="strong">Source threats:</emphasis> Typical source code threats include bad
-     code that introduces vulnerabilities or a compromised source control system. To address bad
-     code injection, SLSA mandates two-person reviews. To prevent source code from getting
-     compromised, SLSA mandates strong measures to secure the source control systems. </para>
+    <para>CSAF data indexed by Security Advisory in CSAF 2.0 format.</para>
    </listitem>
    <listitem>
-    <para><emphasis role="strong">Build threats </emphasis> Build threats include code commits to
-     the build that were not tracked by the source control system, a compromised build platform,
-     bypassing the CI/CD system, a compromised package repository, and injecting bad packages. Most
-     build threats are mitigated by maintaining a controlled build environment, where each build is
-     also fully encapsulated on its own, not influenceable from outside, or even reproducible. To
-     prove this to the outside, detailed provenance data can be generated, which allows for the
-     external inspection of the builds. Strong security controls ensure that the build platform is
-     not easily compromised. </para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Dependency threats</emphasis> Dependency threats come into play
-     where risky dependencies are used. SLSA addresses this kind of threat by mandating provenance
-     for all artifacts (files, Git commits, directories of files, container images, ...). That way
-     one would have an indication that this dependency was not built from the proper builder or out
-     of the designated GitHub repository. </para>
-   </listitem>
-   <listitem>
-    <para>
-     <emphasis role="strong"> Version-controlled source </emphasis> Our Open Build Service complies
-     with this requirement as it assigns numeric identifiers to commits. The commit stores
-     information about the author, the commit time, a comment describing the commit, and other
-     information. The commit also contains an identification of the source content, like the tree
-     object in git. </para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Verified revision history:</emphasis> Each commit stores
-     information about the author and commit time. It also contains a comment describing the commit
-     and other information. Identities of all actors are verifiable and use two-factor
-     authentication. </para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Revision and change history are retained indefinitely:</emphasis>
-     We retain all sources, but also any shipped binary indefinitely. A retraction of a shipped
-     update from the customer's channels does not lead to its removal from the build system.
-     Furthermore, all source references and binary shipments including bug tracker references (CVE,
-     bugzilla) are tracked by the build system for each shipment channel. </para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Two-person reviewed:</emphasis> The workflows for creating a new
-     product and delivering maintenance updates involve multiple parties, like the core code review
-     team and the maintenance or product release managers as a minimum. Furthermore, there are
-     reviews by subject matter experts and additional checks for quality assurance and legal
-     aspects. These reviews are enforced by the OBS, and a single decline rejects the entire release
-     process. </para>
+    <para>CSAF VEX data indexed by CVE in CSAF 2.0 VEX format.</para>
    </listitem>
   </itemizedlist>
-
-
-  <bridgehead>BUILDING AND BUILD SYSTEM </bridgehead>
-
-  <para> The next part of the integrity chain is the actual build process that turns sources to
-   binaries. The entire build process must be secured against any kind of unknown or outside
-   influence to avoid possible tampering with the builds. Builds must be reproducible to allow
-   verification and checking of build results. </para>
-
-  <itemizedlist>
-   <listitem>
-    <para><emphasis role="strong">Scripted build:</emphasis> This is achieved by the SUSE build
-     script also used by the Open Build Service (OBS). Even the decision to invoke a build is made
-     by OBS based on the submitted code changes or other builds.</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Build service:</emphasis> We are running our build service in a
-     dedicated build cluster within the SUSE data center</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Build as code:</emphasis> The recipe files defining the build
-     process are part of the sources of the individual packages, for example the RPM spec file, its
-     sources and patches, or image and container description files. The build environment
-     configuration (project config) is also under source control in OBS.</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Isolated and Ephemeral environment</emphasis> We are using an
-     isolated KVM instance for each build. Access to the outside is not possible (no network), only
-     the sources and binaries prepared by OBS can be used. OBS also decides which pieces of the
-     build artifacts are used. This includes running Linux kernel in the VM.</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Parameterless:</emphasis> The build happens completely decoupled
-     from any user interaction. Any parameter must be part of any source submission. No input is
-     possible during the build, which is ensured by the KVM setup. The only output during the build
-     is the build log.</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Hermetic:</emphasis> Our software builds in a KVM guest without
-     network, and everything required for the build is injected before the build instance is brought
-     up.</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Reproducible:</emphasis> Our OBS system tracks all used binaries
-     for each build and can reproduce the build environment of any released binary. The binaries
-     used are also referenced in in-toto provenance files and made available together with the
-     sources starting from SUSE Linux Enterprise 15 SP4 builds. Older builds may have missing
-     binaries because of the nature of the bootstrapping process. It is notable that the SUSE Linux
-     Enterprise 15 code base is not enforcing binary identical reproducibility yet. Instead, builds
-     are compared and known good differences are accepted (for example time stamps or build host
-     name). This validation is done by the code in the build-compare package.</para>
-   </listitem>
-  </itemizedlist>
-
-  <bridgehead>PROVENANCE</bridgehead>
-  <para>A key aspect of supply chain security is the ability to prove that a build has been
-   completed / a package built according to all SLSA4-mandated requirements. This provenance is
-   established by means of providing metadata that proves compliance to SLSA. The SLSA requirements
-   for provenance include process requirements on provenance generation and consumption, and
-   requirements on the contents of the provenance.</para>
-
-  <itemizedlist>
-   <listitem>
-    <para><emphasis role="strong">Source threats </emphasis> Available</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Source threats </emphasis> Authenticated</para>
-   </listitem>
-   <listitem>
-    <para>
-     <emphasis role="strong">Source threats </emphasis> Service-generated </para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Source threats </emphasis> Non-falsifiable</para>
-   </listitem>
-   <listitem>
-    <para><emphasis role="strong">Source threats </emphasis> Dependencies complete </para>
-   </listitem>
-  </itemizedlist>
-
-  <para> SUSE is up to a great start with its effort to attain SLSA L4 compliance, as SLSA
-   requirements partly overlap with the requirements of Common Criteria EAL4+. This means that
-   several SLSA criteria were met by SUSE's supply chain processes right from the start. The core
-   part of this is our certified and proven build and integration process which uses the Open Build
-   Service technology. Over the past few months, SUSE has been working on improving and tightening
-   processes and technologies to be able to claim full SLSA L4 compliance. </para>
-
-  <para>For more information on our compliance with the Google SLSA Level 4 requirements, visit:
-    <link xlink:href="https://documentation.suse.com/sbp/server-linux/html/SBP-SLSA4/index.html"/>
-  </para>
-
- </sect1>
-
- <sect1 xml:id="sec-sigstore">
-  <title>Adopting Sigstore for our Supply Chain Security </title>
-
-  <para> Sigstore is a recent initiative to enhance signing and cryptographic verification of open
-   source deliveries. SUSE has adopted additional "cosign" style signing for its published container
-   images including Base Container Images (BCI) containers. SUSE also started uploading cryptographic
-   signatures to the global "rekor" transparency log for its containers and product repositories in
-   February 2022. SUSE Linux Enterprise Base Container Images (SLE BCI) offer a platform for
-   creating SUSE Linux Enterprise Server-based custom container images and containerized
-   applications that can be distributed freely. SLE BCIs feature the same predictable enterprise
-   lifecycle as SUSE Linux Enterprise Server. The SLE_BCI 15 SP3 and SP4 repository (which is a
-   subset of the SUSE Linux Enterprise repository) gives SLE BCIs access to 4000 packages available
-   for the AMD64/Intel 64, AArch64, PowerPC, and IBM Z architectures. The packages in the repository
-   have undergone quality assurance and security audits by SUSE. The container images are
-   FIPS-compliant when running on a host in FIPS mode. In addition to that, SUSE can provide
-   official support for SLE BCIs through SUSE subscription plans. </para>
-
-  <bridgehead>Security</bridgehead>
-  <para>Each package in the <emphasis role="italic">SLE_BCI</emphasis> repository undergoes security
-   audits, and SLE BCIs benefit from the same mechanism of dealing with CVEs as SUSE Linux
-   Enterprise Server. All discovered and fixed vulnerabilities are announced via e-mail, the
-   dedicated CVE pages, and as OVAL and CVRF data. To ensure a secure supply chain, all container
-   images are signed with Notary v1, Podman’s GPG signatures, and Sigstore Cosign. We have also
-   implemented support for cosign signatures on a rekor server, so you can also check BCI container
-   images against rekor, the immutable tamper resistant ledger. All cosign signatures of containers
-   and generated update repositories (GPG) are uploaded to the Linux Foundation’s rekor transparency
-   log. </para>
-
-  <bridgehead>Stability</bridgehead>
-  <para>Since SLE BCIs are based on SUSE Linux Enterprise Server, they feature the same level of
-   stability and quality assurance. Similar to SUSE Linux Enterprise Server, SLE BCIs receive
-   maintenance updates that provide bug fixes, improvements, and security patches. Tooling and
-   integration SLE BCIs are designed to provide drop-in replacements for popular container images
-   available on hub.docker.com. You can use the general-purpose SLE BCIs and the tools they put at
-   your disposal to create custom container images, while the language stack SLE BCIs provide a
-   foundation and the required tooling for building containerized applications.</para>
-
-  <bridgehead>Redistribution</bridgehead>
-  <para>SUSE Linux Enterprise Base Container Images are covered by a permissive EULA that allows you
-   to redistribute custom container images based on such a SLE BCI. </para>
-
- </sect1>
+  
+  <para>SUSE has started generating CSAF data for SUSE security update notifications 
+  and CVEs in February 2023, including all previous security advisories and CVEs.</para>
+  
+  <para>The CSAF 2.0 security advisory data can be downloaded 
+   <link xlink:href="https://ftp.suse.com/pub/projects/security/csaf/">from the SUSE ftp site</link>.</para>
+  <para>The CSAF 2.0 VEX data indexed by CVE can be downloaded 
+   <link xlink:href="https://ftp.suse.com/pub/projects/security/csaf-vex/">from this SUSE ftp site</link>.</para>
+  <para>The data is available under the Creative Commons license, with attribution CC-BY-4.0. 
+   The CSAF format is a verbose and simple JSON format, so it can be hooked into other tools pretty 
+   easily even without additional libraries.</para>
+  
+  <para>A <link xlink:href="https://oasis-open.github.io/csaf-documentation/tools.html">list of reference tools</link> 
+   is also provided by OASIS.</para>
+    
+ </sect2> 
+  
+  <sect2 xml:id="sec-osv-data">
+   <title>Open Source Vulnerabilities (OSV) data</title>
+   
+   <para>OSV is a Google-based vulnerability database and triage infrastructure for open source projects 
+   aimed at helping both open source maintainers and consumers of open source. </para>
+   
+   <para>SUSE is publishing regularly updated OSV data, which is available in beta status on 
+    <link xlink:href="https://ftp.suse.com/pub/projects/security/osv/"></link>.</para>
+      
+  </sect2>
+  </sect1>
 
  <sect1 xml:id="sec-securing-product-portfolio">
   <title>Securing Our Product Portfolio</title>
-
+  
+  <para></para>
   <para>
-   <emphasis role="bold"> January 25th 2022</emphasis>
+   <emphasis role="bold"> January 17th 2023</emphasis>
   </para>
   <para>The Defense Information Systems Agency (DISA) has released the Security Content Automation
    Protocol (SCAP) for the SUSE Linux Enterprise Server 15 Security Technical Implementation Guide

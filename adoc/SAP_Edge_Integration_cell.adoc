@@ -19,7 +19,7 @@
 // TODO
 // How many nodes?
 // What Hardware?
-// 
+// Describe SELinux
 
 = {eic} on SUSE
 
@@ -115,6 +115,81 @@ include::SAP-EIC-PostgreSQL.adoc[]
 == Installing {eic}
 
 include::SAP-EIC.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Appendix
+
+=== Using self signed certificates
+
+In this chapter we will explain how to create self signed certificates and how to make them available within Kubernetes.
+
+==== Create the self signed certificates
+
+CAUTION: It is discouraged to use self signed certifcates for production environments.
+
+As a first step, you need to create a certificate authority (further called CA) with its key and certificate.
+In the excerpt below you can find an example how create such with a passpharse of your choice:
+----
+$ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.crt -passout pass:<ca-passphrase> -subj "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+This gives you the *rootCA.key* and the *rootCA.crt*.
+For the server certificate, a certificate signing request (further called CSR) is needed.
+The given excerpt show how to create such a CSR:
+----
+$ openssl req -newkey rsa:2048 -keyout domain.key -out domain.csr -passout pass:<csr-passphrase> -subj  "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+Before you can sing the CSR, you'll need to add the DNS names of your Kuberntes Services to the CSR.
+Therefore create a file with the content below and replace the *<servicename>* and *<namespace>* with the name of your Kubernetes service and the namespace this is placed in:
+ 
+----
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = <servicename>.<namespace>.svc.cluster.local
+DNS.2 = <AltService>.<AltNamespace>.svc.cluster.local
+----
+
+You can now use the previously created rootCA.key and rootCA.crt with the extension file to sign the CSR.
+The example below shows how to do that by passing the extension file (here named *domain.ext*):
+----
+$ openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in domain.csr -out server.pem -days 365 -CAcreateserial -extfile domain.ext -passin pass:<ca-passphrase>
+----
+
+This creates a file called *server.pem* which is your certificate to be used for your application.
+
+
+Your *domain.key* is at this point still encrypted, but the application will need an uncrypted server key.
+To decrypt, run the given command, which will create the *server.key*
+----
+$ openssl rsa -passin pass:<csr-passphrase> -in domain.key -out server.key
+----
+
+Some applications (like Redis) require a full certificate chain to operate.
+To get a full certificate chain, concat the generated *server.pem* with the *rooCA.crt* like below:
+
+----
+$ cat server.pem rootCA.crt > chained.pem
+----
+
+Afterwards you should have the files called server.pem, server.key and chained.pem which can be used for your applications like Redis or PostgresSQL.
+
+
+==== Upload certificates to Kubernetes
+
+To use certificate files in Kubernetes, you need to store them as so called *secrets*.
+An example how to upload your certificates to Kubernetes is shown in the given excerpt:
+ 
+----
+$ kubectl -n <namespace> create secret generic <certName> --from-file=./root.pem --from-file=./server.pem --from-file=./server.key
+----
+
+NOTE: Most applications are expecting to have the secret to be used in the same namespace as the application.
 
 
 ++++

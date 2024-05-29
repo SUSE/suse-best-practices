@@ -1,54 +1,130 @@
-:postgres: PostgreSQL
-:pg: CloudNativePG
-:redis: Redis
-
+:pg: PostgreSQL
 
 IMPORTANT::
-SUSE does not offer database support for {postgres}.
-To get support, turn to 
+SUSE does not offer database support for {pg} on Kubernetes.
+To get support, go to 
 link:https://www.postgresql.org/support/ [The PostgreSQL Global Development Group]
 
 
 IMPORTANT::
-In this guide we'll describe one variant of installing {postgres}.
-There are other possible ways to setup {postgres} which are not focussed in this guide. It is also possible to install {postgres} as a single instance on top of the operation system.
-We will focus on installing {postgres} into a kubernetes cluster, because we also need a {redis} database and we will put them together into one cluster. 
+In this guide we'll describe one variant of installing {pg}.
+There are other possible ways to setup {pg} which are not focussed in this guide. It is also possible to install {pg} as a single instance on top of the operation system.
+We will focus on installing {pg} into a kubernetes cluster, because we also need a {redis} database and we will put them together into one cluster. 
 
-=== Deploying {postgres}
-In our scenario we will use the {pg} Operator to deploy the {postgres} database via Helm Chart.  
+=== Deploying {pg}
+Even though {pg} is available for deployment using the {rancher} Apps, we recommend to use the {rac}.
+The {pg} chart can be found at https://apps.rancher.io/applications/postgresql .
 
-==== Adding Helm Chart Repository
-First we need to add the helm chart repository for the {pg} Operator.
+==== Creating an imagePullSecret
+To make the ressources be available to roll out, you'll need to create a imagePullSecret.
+In this guide we'll use the name application-collection for it.
+
+===== Creating a imagePullSecret using kubectl
+
+Using kubectl to create the imagePullSecret is quite easy.
+Get your username and your access token for the {rac}.
+Then run:
 ----
-$ helm repo add cnpg http://cloudnative-pg.github.io/charts
+$ kubectl create secret docker-registry application-collection --docker-server=dp.apps.rancher.io --docker-username=<yourUser> --docker-password=<yourPassword>
 ----
 
-==== Deploy {pg} Operator
-We will deploy the {pg} Operator Helm Chart with the defaults vaules.
+===== Creating an imagePullSecret using {rancher}
+
+You can also create an imagePullSecret using {rancher}.
+Therefore open {rancher} and enter your cluster.
+
+Navigate to *Storage* -> *Secrets* as shown below:
+
+image::EIC-Secrets-Menu.png[title=Secrets Menu,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Select the *Create* button in the upper right corner.
+
+image::EIC-Secrets-Overview.png[title=Secrets Overview,scaledwidth=99%]
+
+A selection screen will be shown asking you to choose the Secret type. Select *Registry* as shown here:
+
+image::EIC-Secrets-Types.png[title=Secrets Type Selection,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Enter a name like application-collection for the Secret. For the text field *Registry Domain Name*, enter dp.apps.rancher.io .
+Enter your username and password and hit the *Create* button on the bottom right side.
+
+image::EIC-Secret-Create.png[title=Secrets Creation Step,scaledwidth=99%]
+
+==== Deploy the chart
+
+{rancher} instances prior to version 2.9 can not integrate the {rac}. Thus you need to use the console and Helm.
+The easiest way to do so is to use the built-in shell in {rancher}. To access it, navigate to your cluster and click on *Kubectl Shell* as shown below:
+
+image::EIC-Rancher-Kubectl-Button.png[title=Rancher Shell Access,scaledwidth=99%]
+
+A shell will open as in the given picture:
+
+image::EIC-Rancher-Kubectl-Shell.png[title=Rancher Shell Overview,scaledwidth=99%]
+
+
+You will need to login to the {rac} which can be done like:
 ----
-helm upgrade --install cnpg --namespace cnpg-system --create-namespace cnpg/cloudnative-pg
+$ helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
 ----
 
-==== Deply {postgres} Database
-After the Helm Chart is deployed we can start to create the database. But first we need to create a values.yaml file to confige some settings. 
-
-Create a values.yaml file with your favorite editor and post the following parameter into it.
+To download the helm chart execute:
 ----
-type: postgresql
-mode: standalone
-cluster:
-  instances: 3
-  imageName: "ghcr.io/cloudnative-pg/postgresql:15"
-  storage:
-    size: 50Gi
-backups:
+$ helm pull oci://dp.apps.rancher.io/charts/postgres --untar
+----
+
+Now we need switch to the postgres directory and change some parameter in the *values.yaml*.
+----
+global:
+  # -- Global override for the storage class
+  storageClassName: ""
+  # -- Global override for container image registry pull secrets
+  imagePullSecrets: application-catalog
+----
+
+----
+images:
+  postgresql:
+    # -- Image name to use for the PostgreSQL container
+    repository: dp.apps.rancher.io/containers/postgresql
+    # -- Image tag to use for the PostgreSQL container
+    tag: "15.7"
+----
+
+----
+auth:
+  # -- PostgreSQL username for the superuser
+  postgresUsername: postgres
+  # -- PostgreSQL password for the superuser
+  postgresPassword: "test1234"
+  # -- Replication username
+  replicationUsername: replication
+  # -- Replication password
+  replicationPassword: "test1234"
+----
+
+----
+tls:
+  # -- Enable SSL/TLS
   enabled: false
-pooler:
-  enabled: true
-  instances: 3
+  # -- Name of the secret containing the PostgreSQL certificates
+  existingSecret: ""
+  # -- Whether or with what priority a secure SSL TCP/IP connection will be negotiated with the server. Valid values: prefer (default), disable, allow, require, verify-ca, verify-full
+  sslMode: ""
+  # -- Certificate filename in the secret (will be ignored if empty)
+  certFilename: ""
+  # -- Certificate key filename in the secret (will be ignored if empty)
+  keyFilename: ""
+  # -- CA certificate filename in the secret (will be ignored if empty)
+  caCertFilename: ""
+  # -- Certificate revocation list filename in the secret (will be ignored if empty)
+  crlFilename: ""
 ----
 
-Now we can create the database with installing the Helm Chart.
-----
-helm upgrade --install cnpg --namespace cnpg-database --create-namespace --values.yaml cnpg/cluster
-----

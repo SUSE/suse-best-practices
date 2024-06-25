@@ -15,19 +15,55 @@ Please make sure to have a range of IP addresses available for configuring {meta
 
 ===== Preparations
 
-On your RKE2 cluster edit the kube-proxy configmap:
+// On your RKE2 cluster edit the kube-proxy configmap:
+// ----
+// # kubectl edit configmap -n kube-system kube-proxy
+// ----
+//
+// set ipvs strictarp to true:
+// ----
+// apiVersion: kubeproxy.config.k8s.io/v1alpha1
+// kind: KubeProxyConfiguration
+// mode: "ipvs"
+// ipvs:
+//  strictARP: true
+// ----
+
+First make sure that the kernel modules for ip_vs are loaded correctly at boot time:
+
+Create on each cluster node the file 
+
 ----
-# kubectl edit configmap -n kube-system kube-proxy
+/etc/modules.load.d/ip_vs.conf
 ----
 
-set ipvs strictarp to true:
+Add entries for the kernel modules:
 ----
-apiVersion: kubeproxy.config.k8s.io/v1alpha1
-kind: KubeProxyConfiguration
-mode: "ipvs"
-ipvs:
-  strictARP: true
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
 ----
+
+Reboot the nodes and check that the kernel modules are loaded successfully:
+----
+lsmod | grep ip_vs
+----
+
+Next step will be enabling strictarp mode for ipvs in kube-proxy:
+
+Add the following to the /etc/rancher/rke2/config.yaml on each node
+
+----
+kube-proxy-arg:
+  - proxy-mode=ipvs
+  - ipvs-strict-arp=true
+
+----
+
+Re-start your RKE2 cluster.
+
+
 
 ===== Installation of {metallb}
 

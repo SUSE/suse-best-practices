@@ -4,12 +4,93 @@
 
 === Preparation
 
-==== Installing Helm
+In order to have an high available {rancher} setup, you'll need a load balancer for you  {rancher} nodes.
+In this chapter we'll describe how to set up a custom load balancer using haproxy. If you already have a load balancer, you can facilitate that to make {rancher} high available.
 
-The easiest option to install Helm is to run:
+If you do not plan to set up a high available {rancher} cluster, you can skip this chapter.
+
+==== Install haproxy based load balancer
+
+Setup a virtual machine or bare metal server with {sles} and the HA Extension or use {sles4sap}. Install the haproxy package.
+
 ----
-# curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# zypper in haproxy
 ----
+
+Create the configuration for haproxy.
+Here follows an example configuration file for haproxy, please adapt for the actual environment.
+----
+# cat <<EOF > /etc/haproxy/haproxy.cfg 
+global
+  log /dev/log daemon
+  maxconn 32768
+  chroot /var/lib/haproxy
+  user haproxy
+  group haproxy
+  daemon
+  tune.bufsize 32768
+  tune.ssl.default-dh-param 2048
+  ssl-default-bind-ciphers ALL:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK:!RC4:!ADH:!LOW@STRENGTH
+
+defaults
+  log     global
+  mode    tcp
+  option  log-health-checks
+  option  log-separate-errors
+  option  dontlog-normal
+  option  dontlognull
+  option  tcplog
+  retries 3
+  option  redispatch
+  maxconn 10000
+  timeout connect     5s
+  timeout client     50s
+  timeout server    450s
+
+listen stats
+  bind 0.0.0.0:80
+  bind :::80 v6only
+  stats enable
+  stats uri     /
+  stats refresh 5s
+
+# access the kubernetes api
+frontend kubeapi
+  bind *:6443
+  mode tcp
+  default_backend kubeapibackend
+
+# address to register new nodes
+frontend rke2server
+  bind *:9345
+  mode tcp
+  default_backend rke2serverbackend
+
+backend kubeapibackend
+  balance roundrobin
+  server mynode1 192.168.122.20:6443 check
+  server mynode2 192.168.122.30:6443 check
+  server mynode3 192.168.122.40:6443 check
+
+
+backend rke2serverbackend
+  balance roundrobin
+  server mynode1 192.168.122.20:9345 check
+EOF 
+----
+
+Check the configuration file:
+----
+# haproxy -f /path/to/your/haproxy.conf -c
+----
+
+Enable and start the haproxy load balancer:
+----
+# systemctl enable haproxy
+# systemctl start haproxy
+----
+
+Do not forget to restart or reload haproxy if there were changes to the haproxy config file.
 
 
 ==== Installing RKE2
@@ -19,7 +100,34 @@ To install RKE2, the script provided at https://get.rke2.io can be used as follo
 # curl -sfL https://get.rke2.io | sh -
 ----
 
-After the script finished, start the RKE2 components and run:
+For HA setups it is necessary to create RKE2 cluster configuration files in advance.
+On the first master node:
+----
+# mkdir -p /etc/rancher/rke2
+# cat <<EOF > /etc/rancher/rke2/config.yaml
+token: 'your cluster token'
+tls-san:
+  - FQDN of fixed registration address on load balancer
+  - other hostname
+  - IP v4 address
+EOF
+----
+
+Create configuration files for additional cluster nodes:
+----
+# cat <EOF>> /etc/rancher/rke2/config.yaml
+server: https://"FQDN of registration address":9345
+token: 'your cluster token'
+tls-san:
+  - FQDN of fixed registration address on load balancer
+  - other hostname
+  - IP v4 address
+  
+EOF
+----
+
+
+Now it is time to enable and start the RKE2 components and run on each cluster node:
 ----
 # systemctl enable rke2-server --now
 ----
@@ -35,13 +143,34 @@ For convenience, the `kubectl` binary can be added to the *$PATH* and the given 
 # export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 ----
 
+++++
+<?pdfpagebreak?>
+++++
+
+
+==== Installing Helm
+
+In order to install {rancher} and some of its required components, you'll need to use Helm.
+
+The easiest option to install Helm is to run:
+----
+# curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+----
+
+==== Installing cert-manager
+
+----
+$ helm repo add jetstack https://charts.jetstack.io
+$ helm repo update
+$ helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set installCRDs=true
+----
 
 === Installing {rancher}
 
 To install {rancher}, you need to add the related Helm repository.
 To achieve that, use the following command:
 ----
-$ helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+$ helm repo add rancher https://charts.rancher.com/server-charts/prime
 ----
 
 As a next step, create the cattle-system namespace in Kubernetes as follows:
@@ -51,7 +180,7 @@ $ kubectl create namespace cattle-system
 
 The Kubernetes cluster is now ready for the installation of {rancher}:
 ----
-$ helm install rancher rancher-stable/rancher \
+$ helm install rancher rancher/rancher \
     --namespace cattle-system \
     --set hostname=<your.domain.com> \
     --set replicas=3
@@ -64,4 +193,3 @@ $ kubectl -n cattle-system rollout status deploy/rancher
 
 When the deployment is done, you can access the {rancher} cluster at https://<your.domain.com>[]. 
 Here you will also find a description about how to log in for the first time.
-

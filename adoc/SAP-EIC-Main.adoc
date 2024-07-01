@@ -1,0 +1,299 @@
+:docinfo:
+
+:sles: SUSE Linux Enterprise Server
+:sles4sap: SUSE Linux Enterprise Server for SAP Applications
+:slem: SUSE Linux Enterprise Micro
+:slem_version: 5.4
+:sles_version: 15 SP5
+:lh: Longhorn
+:rancher: Rancher Prime
+:harvester: Harvester
+:rke: Rancher Kubernetes Engine 2
+:eic: SAP Edge Integration Cell
+:elm: SAP Edge Lifecycle Management
+:rac: Rancher Application Collection
+:redis: Redis
+:sis: SAP Integration Suite
+:pg: PostgreSQL
+:metallb: MetalLB
+
+
+= {eic} on SUSE
+
+== Introduction
+
+This guide describes how to prepare your infrastructure for the installation of {eic} on {rke} using {rancher}.
+It will guide you through the steps of:
+
+* Installing {rancher}
+* Setup {rke} clusters
+* Deploy mandatory components for {eic}
+// * Deploying {eic} into your {rke}
+
+NOTE: This guide does not contain information about sizing your landscapes. Please refer to 
+https://help.sap.com/docs/integration-suite?locale=en-US and look for the "Edge Integration Cell Sizing Guide".
+
+== Preparations
+
+* Get subscriptions for:
+** {slem} {slem_version}
+** {rancher}
+** {lh}
+
+* Check the storage requirements.
+
+* Create a or get access to a private container registry.
+
+* Get an SAP S-user to access software and documentation by SAP.
+
+* Read the relevant SAP documentation:
+
+** https://me.sap.com/notes/3247839[Release Note for SAP Edge Integration Cell]
+
+** https://me.sap.com/notes/2946788[Release Note for SAP ELM Bridge]  
+
+** https://help.sap.com/docs/integration-suite/sap-integration-suite/setting-up-and-managing-edge-integration-cell[Installation Guide at help.sap.com]  
+
+
+== Installing {slem} {slem_version}
+There are several ways to install {slem} {slem_version}. We will use in our Best Practice Guide the installation method via the graphical installer. Further installation routines can be found in the https://documentation.suse.com/sle-micro/5.4/html/SLE-Micro-all/book-deployment-slemicro.html[Deployment Guide].
+
+include::SAP-EIC-SLEMicro.adoc[SLEMicro]
+
+++++
+<?pdfpagebreak?>
+++++
+
+//TODO check dependencies of other doc files to adjust header hierarchy
+include::SAPDI3-Rancher.adoc[Rancher]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing RKE2 using {rancher}
+include::SAP-Rancher-RKE2-Installation.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+include::SAPDI3-Longhorn.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing {metallb} and databases
+
+In this chapter we'll give an example how to setup {metallb}, {redis} and {pg}.
+
+NOTE: Please note, that this might differ from the deployment you'll need for your infrastructure and use-cases.
+
+=== Login to {rac}
+
+{rancher} instances prior to version 2.9 can not integrate the {rac}. Thus you need to use the console and Helm.
+The easiest way to do so is to use the built-in shell in {rancher}. To access it, navigate to your cluster and click on *Kubectl Shell* as shown below:
+
+image::EIC-Rancher-Kubectl-Button.png[title=Rancher Shell Access,scaledwidth=99%]
+
+A shell will open as in the given picture:
+
+image::EIC-Rancher-Kubectl-Shell.png[title=Rancher Shell Overview,scaledwidth=99%]
+
+
+You will need to login to the {rac} which can be done like:
+----
+$ helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
+----
+
+
+[#imagePullSecret]
+=== Creating an imagePullSecret
+To make the ressources be available to roll out, you'll need to create a imagePullSecret.
+In this guide we'll use the name application-collection for it.
+
+==== Creating a imagePullSecret using kubectl
+
+Using kubectl to create the imagePullSecret is quite easy.
+Get your username and your access token for the {rac}.
+Then run:
+----
+$ kubectl create secret docker-registry application-collection --docker-server=dp.apps.rancher.io --docker-username=<yourUser> --docker-password=<yourPassword>
+----
+
+==== Creating an imagePullSecret using {rancher}
+
+You can also create an imagePullSecret using {rancher}.
+Therefore open {rancher} and enter your cluster.
+
+Navigate to *Storage* -> *Secrets* as shown below:
+
+image::EIC-Secrets-Menu.png[title=Secrets Menu,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Select the *Create* button in the upper right corner.
+
+image::EIC-Secrets-Overview.png[title=Secrets Overview,scaledwidth=99%]
+
+A selection screen will be shown asking you to choose the Secret type. Select *Registry* as shown here:
+
+image::EIC-Secrets-Types.png[title=Secrets Type Selection,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Enter a name like application-collection for the Secret. For the text field *Registry Domain Name*, enter dp.apps.rancher.io .
+Enter your username and password and hit the *Create* button on the bottom right side.
+
+image::EIC-Secret-Create.png[title=Secrets Creation Step,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Installing {metallb}
+
+This chapter is to guide you through the installation and configuration of {metallb} on your Kubernetes cluster used for the {eic}.
+
+include::SAP-EIC-Metallb.adoc[Metallb]
+++++
+<?pdfpagebreak?>
+++++
+
+=== Installing {redis}
+
+// https://help.sap.com/docs/integration-suite/sap-integration-suite/prepare-your-kubernetes-cluster#redis-data-store-requirements
+
+Before deploying {redis}, make sure that the requirements described in
+https://me.sap.com/notes/3247839
+are met.
+
+Furthermore make sure to get an understanding of what grade of persistence you want to achieve for your {redis} cluster.
+To get more information about persistence in {redis}, have a look at
+https://redis.io/docs/management/persistence/ .
+
+
+include::SAP-EIC-Redis.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Installing {pg}
+
+// https://help.sap.com/docs/integration-suite/sap-integration-suite/prepare-your-kubernetes-cluster#postgresql-database-requirements
+
+Before deploying {pg}, make sure that the requirements described in
+https://me.sap.com/notes/3247839 are met.
+
+include::SAP-EIC-PostgreSQL.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing {eic}
+
+// include::SAP-EIC.adoc[]
+At this point, you should be able to deploy {eic}.
+Please follow the instructions at https://help.sap.com/docs/integration-suite/sap-integration-suite/setting-up-and-managing-edge-integration-cell
+to install {eic} in your prepared environments.
+
+++++
+<?pdfpagebreak?>
+++++
+
+[#Appendix]
+== Appendix
+
+=== Using self signed certificates
+
+In this chapter we will explain how to create self signed certificates and how to make them available within Kubernetes.
+
+==== Create the self signed certificates
+
+CAUTION: It is discouraged to use self signed certifcates for production environments.
+
+As a first step, you need to create a certificate authority (further called CA) with its key and certificate.
+In the excerpt below you can find an example how create such with a passpharse of your choice:
+----
+$ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.crt -passout pass:<ca-passphrase> -subj "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+This gives you the *rootCA.key* and the *rootCA.crt*.
+For the server certificate, a certificate signing request (further called CSR) is needed.
+The given excerpt show how to create such a CSR:
+----
+$ openssl req -newkey rsa:2048 -keyout domain.key -out domain.csr -passout pass:<csr-passphrase> -subj  "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+Before you can sing the CSR, you'll need to add the DNS names of your Kuberntes Services to the CSR.
+Therefore create a file with the content below and replace the *<servicename>* and *<namespace>* with the name of your Kubernetes service and the namespace this is placed in:
+ 
+----
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = <servicename>.<namespace>.svc.cluster.local
+DNS.2 = <AltService>.<AltNamespace>.svc.cluster.local
+----
+
+You can now use the previously created rootCA.key and rootCA.crt with the extension file to sign the CSR.
+The example below shows how to do that by passing the extension file (here named *domain.ext*):
+----
+$ openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in domain.csr -out server.pem -days 365 -CAcreateserial -extfile domain.ext -passin pass:<ca-passphrase>
+----
+
+This creates a file called *server.pem* which is your certificate to be used for your application.
+
+
+Your *domain.key* is at this point still encrypted, but the application will need an uncrypted server key.
+To decrypt, run the given command, which will create the *server.key*
+----
+$ openssl rsa -passin pass:<csr-passphrase> -in domain.key -out server.key
+----
+
+Some applications (like Redis) require a full certificate chain to operate.
+To get a full certificate chain, concat the generated *server.pem* with the *rooCA.crt* like below:
+
+----
+$ cat server.pem rootCA.crt > chained.pem
+----
+
+Afterwards you should have the files called server.pem, server.key and chained.pem which can be used for your applications like Redis or PostgresSQL.
+
+
+==== Upload certificates to Kubernetes
+
+To use certificate files in Kubernetes, you need to store them as so called *secrets*.
+An example how to upload your certificates to Kubernetes is shown in the given excerpt:
+ 
+----
+$ kubectl -n <namespace> create secret generic <certName> --from-file=./root.pem --from-file=./server.pem --from-file=./server.key
+----
+
+NOTE: Most applications are expecting to have the secret to be used in the same namespace as the application.
+
+
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

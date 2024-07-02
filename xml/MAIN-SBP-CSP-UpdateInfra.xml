@@ -12,8 +12,8 @@
   <title>SUSE Update Infrastructure</title>
   <subtitle>Setup Guide for Cloud Service Providers</subtitle>
   <!--  <orgname>SUSE Best Practices</orgname>-->
-  <productname>SUSE Linux Enterprise Server 15 SP3, Repository Mirroring Tool</productname>
-  <!-- <productnumber>15 SP3</productnumber>-->
+  <productname>SUSE Linux Enterprise Server 15 SP3 or later, Repository Mirroring Tool</productname>
+  <!-- <productnumber>15 SP3 or later</productnumber>-->
 
   <dm:docmanager xmlns:dm="urn:x-suse:ns:docmanager">
    <dm:bugtracker>
@@ -39,22 +39,22 @@
   <meta name="description">Describes the setup of the recommended infrastructure for providing 
       SUSE Linux Enterprise Server as on-demand offerings in a cloud environment.</meta>
   <meta name="productname">
-     <productname version="15 SP3">SLES</productname>
+     <productname version="15 SP5">SLES</productname>
      <productname version="">RMT</productname>
   </meta>
 
-  <meta name="published">2021-09-14</meta>
+<!--  <meta name="published">2021-09-14</meta>-->
   <meta name="platform">SUSE Linux Enterprise Server</meta>
   <meta name="platform">Repository Mirroring Tool</meta>
 
   <authorgroup>
    <author>
     <personname>
-     <firstname>Bryan</firstname>
-     <surname>Morriss</surname>
+     <firstname>Dominic</firstname>
+     <surname>Geevarghese</surname>
     </personname>
     <affiliation>
-     <jobtitle>MSP Cloud Architect</jobtitle>
+     <jobtitle>MSP Solution Architect</jobtitle>
      <orgname>SUSE</orgname>
     </affiliation>
    </author>
@@ -87,7 +87,22 @@
    </mediaobject>
   </cover>
 
-  <date>2021-09-14</date>
+  <date>2024-06-12</date>
+  
+  <!--  <revhistory xml:id="rh-art-sbp-csp-update-infra">
+   <revision>
+   <date>2024-06-12</date>
+   <revdescription>
+   <para> </para>
+   </revdescription>
+   </revision>
+   <revision>
+   <date>2021-09-14</date>
+   <revdescription>
+   <para> </para>
+   </revdescription>
+   </revision>
+   </revhistory>-->
 
   <abstract>
    <para> This guide describes the setup of the recommended infrastructure for offering &sls;
@@ -184,8 +199,9 @@
 
    <note>
     <title>Optional component</title>
-    <para> The Region Server is an <emphasis>optional</emphasis> component. We advise the
-     implementation of an automatic RMT server selection mechanism. This enables automatic
+    <para> The Region Server is an <emphasis>optional</emphasis> component. We advise the 
+     implementation of an automatic RMT server selection mechanism if you decided 
+     <emphasis role="strong">NOT</emphasis> to deploy a Region Server. This enables automatic
      registration, giving end customers a <quote>launch and use</quote> experience, without the need
      to manually enter or select a registration server. </para>
     <para> If a cloud provider chooses not to deploy the Region Server it is not possible to use the
@@ -891,34 +907,39 @@ sudo chown -R _rmt:nginx /var/lib/rmt/public/repo
       client, whether the client is authorized to access the repositories. The implementation must
       support the <emphasis role="strong">instance_valid</emphasis> method. The following example
       provides guidance for the implementation of the verification plugin. </para>
-     <!-- Used https://github.com/SUSE/rmt/blob/7cb9c50a2cd76f477163c475ac2e7155615154ee/engines/instance_verification/lib/instance_verification/providers/example.rb -->
+     <!-- Used https://github.com/SUSE/rmt/blob/master/engines/instance_verification/lib/instance_verification/providers/example.rb -->
+     
      <screen>
 class InstanceVerification::Providers::Example &lt; InstanceVerification::ProviderBase
-                # Unique identifier for SLES sent by client instance
-    SLES_PRODUCT_IDENTIFIER = 1234_SUSE_SLES.freeze
+    # Unique identifier for SLES sent by client instance
+    SLES_PRODUCT_IDENTIFIER = '1234_SUSE_SLES'.freeze
     # Unique identifier for SLES For SAP sent by client instance
-    SLES4SAP_PRODUCT_IDENTIFIER = 6789_SUSE_SAP.freeze
-
+    SLES4SAP_PRODUCT_IDENTIFIER = '6789_SUSE_SAP'.freeze
+    
     def instance_valid?
-                # Extract the instance identifier from the instance data sent by the client
-                    instance_product_id = validate_instance_data(@instance_data)
-        return true if (@product_hash[:identifier].downcase == 'sles' &amp;&amp; instance_product_id == SLES_PRODUCT_IDENTIFIER)
-        return true if (@product_hash[:identifier].downcase == 'sles_sap' &amp;&amp; instance_product_id == SLES4SAP_PRODUCT_IDENTIFIER)
+        # Extract the instance identifier from the instance data sent by the client
+        instance_product_id = validate_instance_data(@instance_data)
+        return true if (@product_hash[:identifier].ccasecmp('sles').zero? &amp;&amp; instance_product_id == SLES_PRODUCT_IDENTIFIER)
+        return true if (@product_hash[:identifier].casecmp('sles_sap').zero? &amp;&amp; instance_product_id == SLES4SAP_PRODUCT_IDENTIFIER)
 
         raise InstanceVerification::Exception, 'Product/instance type mismatch'
     end
 
-    def validate_instance_data(instance_data)
-                # The instance data format is determined by the client implementation and needs to
+    def validate_instance_data(_instance_data)
+        # The instance data format is determined by the client implementation and needs to
         # be processed here accordingly. Ideally the data is signed in a way such that it can
         # be independently verified here to not have been tampered with in flight or injected
         # into the stream. The AWS implementation of the Instance Identity Document is one possible
         # implementation route. In this example it is assumed the instance data is json and
         # contains instance_product_id
-        JSON.parse(instance_product_id)
-          end
-end
+
+        return '1234_SUSE_SLES' if @product_hash[:identifier].casecmp('sles').zero?
+
+        return '6789_SUSE_SAP' if @product_hash[:identifier].casecmp('sles_sap').zero?
+
+    end
                                         </screen>
+ 
      <para> In addition to the custom verification module described above, the
        <package>rmt-server-pubcloud</package> package implements generic instance verification
       applicable to CSPs deployments. Product upgrade from SUSE Linux Enterprise Server to SUSE
@@ -1170,19 +1191,19 @@ genRegionServerCert -c US -d ' ' -l ' ' -o ' ' -s ' ' --host 192.168.100.8
     </step>
     <step>
      <para> Modify <filename>/etc/apache2/vhosts.d/regionsrv_vhost.conf</filename>. </para>
-     <para> Change <option>SUBSTITUTE_WITH_CLOUD_SPECIFC_NAME</option> in the
-       <option>ServerName</option> option so that it matches the fully-qualified host name used in
+     <para> Replace the text <option>SUBSTITUTE_WITH_CLOUD_SPECIFC_NAME</option> in the
+       <option>ServerName</option> option by a fully-qualified host name used in
       the <command>genRegionServerCert</command>. </para>
-     <para> Change the following section so that it matches what is below. </para>
-     <screen>
-                                                &lt;Directory /srv/www/regionService&gt;
-                                                        WSGIProcessGroup regionInfo
-                                                        WSGIApplicationGroup %{GLOBAL}
-                                                        &lt;RequireAll&gt;
-                                                                        Require all granted
-                                                        &lt;/RequireAll&gt;
-                                                &lt;/Directory&gt;
-                                        </screen>
+     
+     <para>Modify the code accordingly, so that you see something similar to the below: </para>
+     
+<screen>
+       Listen 443
+                                                
+       &lt;VirtualHost *:443&gt;
+       ServerName SUBSTITUTE_WITH_CLOUD_SPECIFC_NAME
+       SSLEngine on
+</screen>
     </step>
     <step>
      <para> Enable and restart the Region Server service. </para>
@@ -1241,7 +1262,7 @@ systemctl restart apache2.service
        <command>genRegionServerCert</command> command. Files must be in <filename>pem</filename>
       format and end with the .pem extension. Further the names must match the names set in the
       configuration file. The files need to be placed in the
-       <filename>/var/lib/regionService/certs/</filename> directory. </para>
+       <filename>/usr/lib/regionService/certs/</filename> directory. </para>
     </listitem>
     <listitem>
      <para> The configuration file for the client is <filename>/etc/regionserverclnt.cfg</filename>.

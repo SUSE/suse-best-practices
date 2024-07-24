@@ -167,38 +167,49 @@ Per default {slem} runs a timer for *transactional-update* in the background whi
 ifdef::metallb[]
 // Needed due to Github issue: https://github.com/rancher/rke2/issues/3710
 [#metal-slem]
-=== Preparation for {metallb}
 
-If you want to use {metallb} as a Kubernetes Load Balancer, you need to make sure that the kernel modules for ip_vs are loaded correctly on boot time.
-To do so, create and populate the file */etc/modules-load.d/ip_vs.conf* on each cluster node as followed:
+=== Preparation for {lh}
+For {lh} we need to do some preparation steps. First we need to install addional packages on all worker nodes. Then we will attach a second disk to the worker nodes, create a filesystem ontop of it and mount it to the longhorn default location. 
 
-[source, shell]
+We will install open-iscsi as a requirement for longhorn and Logical Volume Management for adding a filesystem to longhorn.
 ----
-# cat <<EOF > /etc/modules-load.d/ip_vs.conf
-ip_vs
-ip_vs_rr
-ip_vs_wrr
-ip_vs_sh 
-EOF
+transactional-update pkg install open-iscsi lvm2 
 ----
-endif::[]
 
+After the needed packages are installed we will create with the Logical Volume Management a new logical volume. 
 
-// To do so, create a file on each cluster node named:
+First we want to create a new physical volume. In our case the second disk is called vdb and we use this as longhorn volume.
+----
+pvcreate /dev/vdb
+----
 
-// ----
-// /etc/modules-load.d/ip_vs.conf
-// ----
+After the physical volume is created we create a volume group called vgdata
+----
+vgcreate vgdata /dev/vdb
+----
 
-// Now, you need to add the entries for the related kernel modules:
-// ----
-// ip_vs
-// ip_vs_rr
-// ip_vs_wrr
-// ip_vs_sh
-// ----
+Now we cann create the logical volume and we will use 100% of the disk. 
+----
+lvcreate -n lvlonghorn -l100%FREE vgdata
+----
 
-// Reboot the nodes and check that the kernel modules are loaded successfully:
-// ----
-// # lsmod | grep ip_vs
-// ----
+We will create the XFS filesystem on the logical volume. You don't need to create a partion on top of it.
+----
+mkfs.xfs /dev/vgdata/lvlonghorn
+----
+
+Before we can mount the device we need to create the directory structure.
+----
+mkdir -p /var/lib/longhorn
+----
+
+That the mount of the filesystem is persistent we add an entry into the fstab
+----
+echo -e "/dev/vgdata/lvlonghorn /var/lib/longhorn xfs defaults 0 0" >> /etc/fstab
+----
+
+Now we can mount the filesystem
+----
+mount -a
+----
+

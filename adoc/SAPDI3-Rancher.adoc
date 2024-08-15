@@ -17,6 +17,91 @@ Setup a virtual machine or bare metal server with {sles} and the HA Extension or
 
 Create the configuration for haproxy.
 Here follows an example configuration file for haproxy, please adapt for the actual environment.
+
+ifdef::slem[]
+----
+# cat <<EOF > /etc/haproxy/haproxy.cfg 
+global
+        log /dev/log    local0
+        log /dev/log    local1 notice
+        chroot /var/lib/haproxy
+        # stats socket /run/haproxy/admin.sock mode 660 level admin
+        stats timeout 30s
+        user haproxy
+        group haproxy
+        daemon
+
+        # general hardlimit for the process of connections to handle, this is separate to backend/listen
+        # Added in 'global' AND 'defaults'!!! - global affects only system limits (ulimit/maxsock) and defaults affects only listen/backend-limits - hez
+        maxconn 400000
+
+        # Default SSL material locations
+        ca-base /etc/ssl/certs
+        crt-base /etc/ssl/private
+
+        tune.ssl.default-dh-param 2048
+
+        # Default ciphers to use on SSL-enabled listening sockets.
+        # For more information, see ciphers(1SSL). This list is from:
+        #  https://hynek.me/articles/hardening-your-web-servers-ssl-ciphers/
+        ssl-default-bind-ciphers ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:                            !DSS
+        ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+        mode tcp
+        log     global
+        option  tcplog
+        option  redispatch
+        option  tcpka
+        option  dontlognull
+        retries 2
+        timeout connect 5s
+        timeout client  5s
+        timeout server  5s
+        timeout tunnel  86400s
+        maxconn 400000
+
+listen stats
+        bind *:9000
+        mode http
+        stats hide-version
+        stats uri /stats
+
+listen rancher_apiserver
+        bind my_lb_address:6443
+        option httpchk GET /healthz
+        http-check expect status 401
+        server mynode1 mynode1.domain.local:6443 check check-ssl verify none
+        server mynode2 mynode2.domain.local:6443 check check-ssl verify none
+        server mynode3 mynode3.domain.local:6443 check check-ssl verify none
+listen rancher_register
+        bind my_lb_address:9345
+        option httpchk GET /ping
+        http-check expect status 200
+        server mynode1 mynode1.domain.local:9345 check check-ssl verify none
+        server mynode2 mynode2.domain.local:9345 check check-ssl verify none
+        server mynode3 mynode3.domain.local:9345 check check-ssl verify none
+
+listen rancher_ingress80
+        bind my_lb_address:80
+        option httpchk GET /
+        http-check expect status 404
+        server mynode1 mynode1.domain.local:80 check
+        server mynode2 mynode2.domain.local:80 check
+        server mynode3 mynode3.domain.local:80 check
+
+listen rancher_ingress443
+        bind my_lb_address:443
+        option httpchk GET /
+        http-check expect status 404
+        server mynode1 mynode1.domain.local:443 check check-ssl verify none
+        server mynode2 mynode2.domain.local:443 check check-ssl verify none
+        server mynode3 mynode3.domain.local:443 check check-ssl verify none
+EOF 
+----
+endif::[]
+
+ifndef::slem[]
 ----
 # cat <<EOF > /etc/haproxy/haproxy.cfg 
 global
@@ -76,7 +161,7 @@ backend rke2serverbackend
   server mynode1 192.168.122.20:9345 check
 EOF 
 ----
-
+endif::[]
 Check the configuration file:
 ----
 # haproxy -f /path/to/your/haproxy.conf -c

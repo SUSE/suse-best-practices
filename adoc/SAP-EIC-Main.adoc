@@ -18,9 +18,14 @@
 :elm: SAP Edge Lifecycle Management
 :rac: Rancher Application Collection
 :redis: Redis
+:redis_version: 7.2.5
 :sis: SAP Integration Suite
 :pg: PostgreSQL
+:pg_version: 15.7
 :metallb: MetalLB
+:metallb_version: 0.14.7 
+:cm: cert-manager
+:cm_version: 1.15.2
 
 
 = {eic} on SUSE
@@ -51,14 +56,15 @@ There are several versions for the different used software components available.
 [cols="1,1"]
 |===
 |Product | Version
-|SUSE Linux Enterprise Micro | 5.5
-|Rancher Kubernetes Engine | 1.28     
-|Rancher Prime | 2.8.5
-|Longhorn | 1.6
-|cert-manager | 1.15
-|MetalLB | 0.14.7 
-|PostgresSQL | 15.7
-|Redis | 7.2.5
+
+|{slem} | {slem_version}
+|{rke} | 1.28     
+|{rancher} | {rancher_version}
+|{lh} | {lh_version}
+|{cm} | {cm_version}
+|{metallb} | {metallb_version} 
+|{pg} | {pg_version}
+|{redis} | {redis_version}
 |===
 
 
@@ -259,7 +265,7 @@ to install {eic} in your prepared environments.
 == Appendix
 
 include::SAP-EIC-ImagePullSecrets.adoc[leveloffset=+2]
-
+include::SAP-EIC-LoginRegistryApplicationCollection.adoc[leveloffset=+2]
 ++++
 <?pdfpagebreak?>
 ++++
@@ -267,7 +273,7 @@ include::SAP-EIC-ImagePullSecrets.adoc[leveloffset=+2]
 [#selfSignedCertificates]
 === Using self-signed certificates
 
-In this chapter we will explain how to create self-signed certificates and how to make them available within Kubernetes.
+In this chapter we will explain how to create self-signed certificates and how to make them available within Kubernetes. We will describe to possible solutions to do this. You can create everything on the operation system layer or you also can use cert-manager in your downstream cluster.
 
 ==== Creating self-signed certificates
 
@@ -332,8 +338,83 @@ For an example of uploading your certificates to Kubernetes, see the following e
 $ kubectl -n <namespace> create secret generic <certName> --from-file=./root.pem --from-file=./server.pem --from-file=./server.key
 ----
 
-NOTE: Most applications are expecting to have the secret to be used in the same namespace as the application.
+NOTE: All applications are expecting to have the secret to be used in the same namespace as the application.
 
+==== Using cert-manager
+cert-manager needs to be available in your Downstream Cluster. To install cert-manager in your downstream cluster you can use the same installation steps which are described in the Rancher Prime installation.
+First we need to create a selfsigned-issuer.yaml file:
+
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+----
+
+Then we create the a Certificate Ressource for the CA calles my-ca-cert.yaml:
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-ca-cert
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: <cluster-name>.cluster.local
+  secretName: my-ca-secret
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - "<cluster-name>.cluster.local"
+  - "*.<cluster-name>.cluster.local"
+
+----
+For creating a ClusterIssuer using the Generated CA we create the my-ca-issuer.yaml file
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: my-ca-issuer
+spec:
+  ca:
+    secretName: my-ca-secret
+----
+The last ressource which we need to create is the certificate itself. This certificate is signed by our created CA. You can name the yaml file application-name-certificate.yaml
+[source,yaml]
+----
+kind: Certificate
+metadata:
+  name: <application-name>
+  namespace: <application namespace> // need to be created manually. 
+spec:
+  dnsNames:
+    - <application-name>.cluster.local
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: my-ca-issuer
+  secretName: <application-name>
+  usages:
+    - digital signature
+    - key encipherment
+----
+
+Apply the yaml file to your kubernetes cluster.
+[source, bash]
+----
+$ kubectl apply -f selfsigned-issuer.yaml
+$ kubectl apply -f my-ca-cert.yaml
+$ kubectl apply -f my-ca-issuer.yaml
+$ kubectl apply -f application-name-certificate.yaml
+----
+
+When you deploy your applications via HELM Charts you can use the generated certificate. In the Kubernetes Secret Certificate are 3 files stored. The tls.crt, tls.key and ca.crt which you cann use in the values.yaml file of your application.
 
 ++++
 <?pdfpagebreak?>

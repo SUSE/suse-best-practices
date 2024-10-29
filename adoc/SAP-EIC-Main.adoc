@@ -1,5 +1,5 @@
 :docinfo:
-
+//test
 // defining article ID
 [#art-sap-eic-slemicro54]
 
@@ -8,18 +8,24 @@
 :slem: SUSE Linux Enterprise Micro
 :slem_version: 5.4
 :sles_version: 15 SP5
+:sle_ha: SUSE Linux Enterprise High Availability Extension
 :lh: Longhorn
 :lh_version: 1.5.5
 :rancher: Rancher Prime
 :rancher_version: 2.8.3
 :rke: Rancher Kubernetes Engine 2
-:eic: SAP Edge Integration Cell
+:eic: Edge Integration Cell
 :elm: SAP Edge Lifecycle Management
 :rac: Rancher Application Collection
 :redis: Redis
+:redis_version: 7.2.5
 :sis: SAP Integration Suite
 :pg: PostgreSQL
+:pg_version: 15.7
 :metallb: MetalLB
+:metallb_version: 0.14.7 
+:cm: cert-manager
+:cm_version: 1.15.2
 
 
 = {eic} on SUSE
@@ -37,6 +43,36 @@ It will guide you through the steps of:
 NOTE: This guide does not contain information about sizing your landscapes. Visit 
 https://help.sap.com/docs/integration-suite?locale=en-US and search for the "Edge Integration Cell Sizing Guide".
 
+NOTE: In this guide, we use $ and # for shell commands, where # means that the command needs to be executed as a root user and
+$ means that the command can be run by any user.
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Supported and used versions
+
+The support matrix below shows which versions of the given software we'll use in this guide.
+
+[cols="1,1"]
+|===
+|Product | Version
+
+|{slem} | {slem_version}
+|{rke} | 1.28     
+|{rancher} | {rancher_version}
+|{lh} | {lh_version}
+|{cm} | {cm_version}
+|{metallb} | {metallb_version} 
+|{pg} | {pg_version}
+|{redis} | {redis_version}
+|===
+
+IMPORTANT: If you want to use different versions of {slem}, {rancher}, {rke} or {lh}, make sure to check the support matrix for the related solutions you want to use:
+https://www.suse.com/suse-rancher/support-matrix/all-supported-versions/ +
+For {redis} and {pg}, make sure to pick versions compatible to {eic}, which can be found in https://me.sap.com/notes/3247839 . +
+Other versions of {metallb} or {cm} can be used but may have not been tested. 
+
 ++++
 <?pdfpagebreak?>
 ++++
@@ -44,14 +80,12 @@ https://help.sap.com/docs/integration-suite?locale=en-US and search for the "Edg
 == Prerequisites
 
 * Get subscriptions for:
-** {slem} {slem_version}
-** {rancher} {rancher_version}
-** {lh} {lh_version}
+** {slem} 
+** {rancher} 
+** {lh}
+** {sle_ha} *
 
-IMPORTANT: If you want to use versions of {slem}, {rancher}, {rke} or {lh} other than those listed here, 
-be sure to check the support matrix for the specific solutions you plan to use. See
-https://www.suse.com/suse-rancher/support-matrix/all-supported-versions/.
-
++++*+++ Only needed if you want to set up {rancher} in a high availability setup.
 
 Additionally,
 
@@ -73,9 +107,35 @@ Additionally,
 <?pdfpagebreak?>
 ++++
 
+== Landscape Overview
+
+To run {eic} in a production-ready and supported way, you need to set up multiple Kubernetes clusters and their nodes.
+Those comprise a Kubernetes cluster where you will install {rancher} to set up and manage the production and non-production clusters.
+For this {rancher} cluster, we recommend using three Kubernetes nodes and a load balancer.
+
+The {eic} will need to run in a dedicated Kubernetes cluster.
+For an HA setup of this cluster, we recommend using three Kubernetes control planes and three Kubernetes worker nodes.
+
+For a graphical overview of what is needed, take a look at the landscape overview:
+
+image::SAP-EIC-Architecture.svg[scaledwidth=99%,opts=inline,Embedded]
+
+* The dark blue rectangles represent Kubernetes clusters.
+* The olive rectangles represent Kubernetes nodes that hold the roles of Control Plane and Worker combined.
+* The green rectangles represent Kubernetes Control Plane nodes.
+* The orange rectangles represent Kubernetes Worker nodes.
+
+We will use this graphic overview in the guide to illustrate what the next step is and what it is for.
+
+
+Starting with installing the operating system of each machine or Kubernetes node, we will walk you through all the steps you need to take to get a fully set-up Kubernetes landscape for deploying {eic}.
+
+++++
+<?pdfpagebreak?>
+++++
+
 == Installing {slem} {slem_version}
-There are several ways to install {slem} {slem_version}. For this best practice guide, we use the installation method via graphical installer. 
-Further installation routines can be found in the https://documentation.suse.com/sle-micro/5.4/html/SLE-Micro-all/book-deployment-slemicro.html[Deployment Guide for SUSE Linux Enterprise Micro 5.4].
+There are several ways to install {slem} {slem_version}. For this best practice guide, we use the installation method via graphical installer. But in cloud-native deployments it is highly recommended to use Infrastructur- as-Code technologies to fully automate the deployment and lifecycle processes. 
 
 include::SAP-EIC-SLEMicro.adoc[SLEMicro]
 
@@ -83,7 +143,14 @@ include::SAP-EIC-SLEMicro.adoc[SLEMicro]
 <?pdfpagebreak?>
 ++++
 
-//TODO check dependencies of other doc files to adjust header hierarchy
+== Installing {rancher}
+
+By now you should have installed the operating system on every Kubernetes node.
+You are now ready to install a {rancher} cluster.
+Taking a look again on the landscape overview, this means, we will now cover how to set up the upper part of the given graphic:
+
+image::SAP-EIC-Architecture-Rancher.svg[scaledwidth=99%,opts=inline,Embedded]
+
 include::SAPDI3-Rancher.adoc[Rancher]
 
 ++++
@@ -91,6 +158,19 @@ include::SAPDI3-Rancher.adoc[Rancher]
 ++++
 
 == Installing RKE2 using {rancher}
+
+After having installed the {rancher} cluster, we can now make use this one to create the {rke} clusters for {eic}.
+SAP recommends to set up not only a production landscape, but to have  QA / Dev systems for {eic}. Both can be set up the same way using {rancher}.
+How to do this is covered in this chapter.
+Looking at the landscape overview again, we will now deal with setting up the lower part of the given graphic:
+
+image::SAP-EIC-Architecture-RKE2.svg[scaledwidth=99%,opts=inline,Embedded]
+
+++++
+<?pdfpagebreak?>
+++++
+
+
 include::SAP-Rancher-RKE2-Installation.adoc[]
 
 ++++
@@ -111,7 +191,7 @@ NOTE: Keep in mind that the descriptions and instructions below might differ fro
 
 === Logging in to {rac}
 
-{rancher} instances prior to version 2.9 cannot integrate the {rac}. Therefore, you need to use the console and Helm.
+To access the {rac} you need to login. Therefore, you can use the console and Helm client.
 The easiest way to do so is to use the built-in shell in {rancher}. To access it, navigate to your cluster and click *Kubectl Shell* as shown below:
 
 image::EIC-Rancher-Kubectl-Button.png[title=Rancher Shell Access,scaledwidth=99%]
@@ -123,53 +203,10 @@ image::EIC-Rancher-Kubectl-Shell.png[title=Rancher Shell Overview,scaledwidth=99
 
 You must log in to {rac}. This can be done as follows:
 
+[source, bash]
 ----
 $ helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
 ----
-
-
-[#imagePullSecret]
-=== Creating an imagePullSecret
-
-To make the resources available for deployment, you need to create an imagePullSecret.
-In this guide we use the name _application-collection_ for it.
-
-==== Creating an imagePullSecret using kubectl
-
-Using `kubectl` to create the imagePullSecret is quite easy.
-Get your user name and your access token for the {rac}.
-Then run:
-
-----
-$ kubectl create secret docker-registry application-collection --docker-server=dp.apps.rancher.io --docker-username=<yourUser> --docker-password=<yourPassword>
-----
-
-==== Creating an imagePullSecret using {rancher}
-
-You can also create an imagePullSecret using {rancher}.
-Therefore, open {rancher} and enter your cluster.
-
-Navigate to *Storage* -> *Secrets* as shown below:
-
-image::EIC-Secrets-Menu.png[title=Secrets Menu,scaledwidth=99%]
-
-++++
-<?pdfpagebreak?>
-++++
-
-Click *Create* in the top right corner.
-
-image::EIC-Secrets-Overview.png[title=Secrets Overview,scaledwidth=99%]
-
-A window will appear asking you to select the Secret type. Select *Registry* as shown here:
-
-image::EIC-Secrets-Types.png[title=Secrets Type Selection,scaledwidth=99%]
-
-
-Enter a name such as _application-collection_ for the Secret. In the text box *Registry Domain Name*, enter _dp.apps.rancher.io_.
-Enter your user name and password and click the *Create* button at the bottom right.
-
-image::EIC-Secret-Create.png[title=Secrets Creation Step,scaledwidth=99%]
 
 ++++
 <?pdfpagebreak?>
@@ -179,7 +216,7 @@ image::EIC-Secret-Create.png[title=Secrets Creation Step,scaledwidth=99%]
 
 This chapter is intended to guide you through installing and configuring {metallb} on your Kubernetes cluster used for {eic}.
 
-include::SAP-EIC-Metallb.adoc[Metallb]
+include::SAP-EIC-Metallb.adoc[Metallb, leveloffset=2]
 ++++
 <?pdfpagebreak?>
 ++++
@@ -196,7 +233,7 @@ For more information about persistence in {redis}, see
 https://redis.io/docs/management/persistence/.
 
 
-include::SAP-EIC-Redis.adoc[]
+include::SAP-EIC-Redis.adoc[leveloffset=2]
 
 ++++
 <?pdfpagebreak?>
@@ -209,7 +246,7 @@ include::SAP-EIC-Redis.adoc[]
 Before deploying {pg}, ensure that the requirements described at
 https://me.sap.com/notes/3247839 are met.
 
-include::SAP-EIC-PostgreSQL.adoc[]
+include::SAP-EIC-PostgreSQL.adoc[leveloffset=2]
 
 ++++
 <?pdfpagebreak?>
@@ -229,9 +266,16 @@ to install {eic} in your prepared environments.
 [#Appendix]
 == Appendix
 
+include::SAP-EIC-ImagePullSecrets.adoc[leveloffset=+2]
+++++
+<?pdfpagebreak?>
+++++
+include::SAP-EIC-LoginRegistryApplicationCollection.adoc[leveloffset=+2]
+
+[#selfSignedCertificates]
 === Using self-signed certificates
 
-In this chapter we will explain how to create self-signed certificates and how to make them available within Kubernetes.
+In this chapter we will explain how to create self-signed certificates and how to make them available within Kubernetes. We will describe two possible solutions to do this. You can create everything on the operation system layer or you also can use cert-manager in your downstream cluster.
 
 ==== Creating self-signed certificates
 
@@ -239,6 +283,8 @@ WARNING: We strongly advise against using self-signed certificates in production
 
 The first step is to create a certificate authority (hereinafter referred to as CA) with a key and certificate.
 The following excerpt provides an example of how to create one with a passphrase of your choice:
+
+[source, bash]
 ----
 $ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.crt -passout pass:<ca-passphrase> -subj "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
 ----
@@ -246,13 +292,16 @@ $ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out 
 This will give you the files `rootCA.key` and `rootCA.crt`.
 The server certificate requires a certificate signing request (hereinafter referred to as CSR).
 The following excerpt shows how to create such a CSR:
+
+[source, bash]
 ----
 $ openssl req -newkey rsa:2048 -keyout domain.key -out domain.csr -passout pass:<csr-passphrase> -subj  "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
 ----
 
 Before you can sign the CSR, you need to add the DNS names of your Kuberntes Services to the CSR.
 Therefore, create a file with the content below and replace the *<servicename>* and *<namespace>* with the name of your Kubernetes service and the namespace in which it is placed:
- 
+
+[source, bash]
 ----
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
@@ -264,6 +313,7 @@ DNS.2 = <AltService>.<AltNamespace>.svc.cluster.local
 
 You can now use the previously created files _rootCA.key_ and _rootCA.crt_ with the extension file to sign the CSR.
 The example below shows how to do that by passing the extension file (here called _domain.ext_):
+[source, bash]
 ----
 $ openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in domain.csr -out server.pem -days 365 -CAcreateserial -extfile domain.ext -passin pass:<ca-passphrase>
 ----
@@ -273,6 +323,7 @@ This creates a file called _server.pem_ which is your certificate to be used for
 
 Your _domain.key_ is still encrypted at this point, but the application requires an unencrypted server key.
 To decrypt, run the given command which will create the _server.key_.
+[source, bash]
 ----
 $ openssl rsa -passin pass:<csr-passphrase> -in domain.key -out server.key
 ----
@@ -280,6 +331,7 @@ $ openssl rsa -passin pass:<csr-passphrase> -in domain.key -out server.key
 Some applications (like Redis) require a full certificate chain to operate.
 To get a full certificate chain, link the generated file _server.pem_ with the file _rootCA.crt_ as follows:
 
+[source, bash]
 ----
 $ cat server.pem rootCA.crt > chained.pem
 ----
@@ -291,19 +343,97 @@ You should then have the files _server.pem_, _server.key_ and _chained.pem_ that
 
 To use certificate files in Kubernetes, you need to save them as so-called *Secrets*.
 For an example of uploading your certificates to Kubernetes, see the following excerpt:
- 
+
+[source, bash]
 ----
 $ kubectl -n <namespace> create secret generic <certName> --from-file=./root.pem --from-file=./server.pem --from-file=./server.key
 ----
 
-NOTE: Most applications are expecting to have the secret to be used in the same namespace as the application.
+NOTE: All applications are expecting to have the secret to be used in the same namespace as the application.
 
+==== Using cert-manager
+`cert-manager` needs to be available in your Downstream Cluster. To install `cert-manager` in your downstream cluster, you can use the same installation steps that are described in the Rancher Prime installation section.
+First,  create a _selfsigned-issuer.yaml_ file:
+
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+----
+
+Then create a Certificate Ressource for the CA called _my-ca-cert.yaml_:
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-ca-cert
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: <cluster-name>.cluster.local
+  secretName: my-ca-secret
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - "<cluster-name>.cluster.local"
+  - "*.<cluster-name>.cluster.local"
+
+----
+For creating a _ClusterIssuer_ using the Generated CA,  create the _my-ca-issuer.yaml_ file:
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: my-ca-issuer
+spec:
+  ca:
+    secretName: my-ca-secret
+----
+The last ressource you need to create is the certificate itself. This certificate is signed by your created CA. You can name the yaml file _application-name-certificate.yaml_.
+[source,yaml]
+----
+kind: Certificate
+metadata:
+  name: <application-name>
+  namespace: <application namespace> // need to be created manually. 
+spec:
+  dnsNames:
+    - <application-name>.cluster.local
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: my-ca-issuer
+  secretName: <application-name>
+  usages:
+    - digital signature
+    - key encipherment
+----
+
+Apply the yaml file to your kubernetes cluster.
+[source, bash]
+----
+$ kubectl apply -f selfsigned-issuer.yaml
+$ kubectl apply -f my-ca-cert.yaml
+$ kubectl apply -f my-ca-issuer.yaml
+$ kubectl apply -f application-name-certificate.yaml
+----
+
+When you deploy your applications via Helm Charts, you can use the generated certificate. 
+In the Kubernetes Secret Certificate, three files are stored. These are the file _tls.crt_, _tls.key_ and _ca.crt_ which you cann use in the _values.yaml_ file of your application.
 
 ++++
 <?pdfpagebreak?>
 ++++
 
 :leveloffset: 0
+
 // Standard SUSE Best Practices includes
 == Legal notice
 include::common_sbp_legal_notice.adoc[]

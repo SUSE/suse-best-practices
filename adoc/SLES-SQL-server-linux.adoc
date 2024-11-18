@@ -1,0 +1,932 @@
+:docinfo:
+
+// = {title}
+= Microsoft SQL Server on SUSE Linux Enterprise Server
+// SUSE Linux Enterprise Server 15 SP6+, SQL Server 2022
+// :author: Bernd Schubert, Gereon Vey
+:revnumber: 0.0.2
+:toc2:
+:toc-title: Microsoft SQL Server on SUSE Linux Enterprise Server
+:toclevels: 4
+
+:sles: SUSE Linux Enterprise Server
+:sqls: SQL Server
+== Motivation
+
+=== Background
+
+Since Microsoft released {sqls} for Linux in 2017 footnote:[https://cloudblogs.microsoft.com/sqlserver/2017/10/02/sql-server-2017-on-windows-linux-and-docker-is-now-generally-available], 
+the feature gap footnote:[https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2022?view=sql-server-ver16&viewFallbackFrom=sql-server-linux-ver16] for SQL Server between 
+Windows and Linux has been closing quickly with each update. Aside from some niche features 
+footnotte:[https://learn.microsoft.com/en-us/sql/sql-server/what-s-new-in-sql-server-2022?view=sql-server-ver16&viewFallbackFrom=sql-server-linux-ver16], 
+it's now extremely viable to consider running {sqls} workloads on Linux, with the 2022 release footnote:[https://learn.microsoft.com/en-us/sql/sql-server/sql-server-2022-release-notes?view=sql-server-ver16&preserve-view=true].
+
+=== Audience
+
+This guide is intended for {sqls} DBAs, Developers, and DevOps/SRE engineers who are familiar with SQL Server on Windows and are looking 
+to migrate to Linux. Operators who are adding a {sqls} requirement into a primarily Linux environment may prefer tools that run only on Linux servers for consistency and simplicity. 
+Another reason may be lower negotiated pricing for Linux subscriptions to replace existing {sqls} on Windows machines.
+
+=== Scope
+
+The guide covers a basic installation of {sqls} on {sles} including the OS tuning specific for {sqls}
+It is meant to be agnostic of underlying infrastructure excepting the nuance of registering your server discussed in <<server_registration>>.
+
+
+== Installation
+
+At first the manual installation for a standalone {sqls} is described by starting at <<man_inst>>.
+The automated installation based on Ansible is decribed in<<ansi_inst>>.
+
+[id="man_inst"]
+=== System requirements
+SQL Server has the following system requirements for Linux:
+
+* 2 GHz CPU with 2 cores
+* x64-compatible only
+* 2 GB¹ RAM
+* XFS or Ext4 file system for the SQL DB files
+** other file systems, such as BTRFS, aren't support
+* 6 GB disk space (not including data)
+* swap space >= 2 GB 
+
+¹ 2 GB is the minimum required memory to start SQL Server on Linux, which accommodates system threads and internal processes. You must take this amount into consideration when setting *max server memory* and *MemoryLimitMB*.
+If you use Network File System (NFS) remote shares in production, note the following support requirements:
+* Use NFS version 4.2 or higher. Older versions of NFS don't support required features, such as fallocate and sparse file creation, common to modern file systems.
+* Locate only the /var/opt/mssql directories on the NFS mount. Other files, such as the SQL Server system binaries, aren't supported.
+
+
+[id="server_registration"]
+=== Server registration
+
+To gain access to SUSE repositories, you first need to register your server with `SUSEConnect`. If you are launching an On-Demand (or Pay-As-You-Go) 
+instance and not a BYOS (Bring Your Own Subscription) instance at a public cloud provider, skip this step.
+
+[source,bash]
+----
+sudo SUSEConnect --regcode ${REGISTRATION_CODE} --email ${EMAIL_ADDRESS}
+----
+
+
+Alternatively, if you have access to a
+
+* SUSE https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[RMT] (Repository Mirroring Tool) 
+* or https://documentation.suse.com/suma/5.0/[SUSE Manager] 
+* or https://scc.suse.com/[SCC] (SUSE Customer Center)
+
+server you want to use, use the `--url` option instead.
+
+[source,bash]
+----
+sudo SUSEConnect --url ${REGISTRATION_SERVER_URL}
+----
+
+More information about registering can be found in the https://documentation.suse.com/sles/15-SP6/single-html/SLES-deployment/#sec-yast-install-scc-registration[{sles} 15 SP6 Deployment Guide].
+
+
+=== Repositories
+Configure repositories for installation and upgrade of {sqls} 2022 on Linux.
+To verify packages from Microsoft’s {sqls} repositories, first add their package signing key:
+
+[source,bash]
+----
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+----
+
+Then add the repository.
+
+[source,bash]
+----
+sudo zypper ar https://packages.microsoft.com/config/sles/15/mssql-server-2022.repo
+sudo zypper ar https://packages.microsoft.com/config/sles/15/prod.repo
+sudo zypper --gpg-auto-import-keys refresh
+sudo zypper ref 
+----
+
+The `mysql-server` package requires `gdb` from the development tools module (which in turn needs desktop applications module):
+
+[source,bash]
+----
+sudo SUSEConnect -p sle-module-desktop-applications/15.6/x86_64
+sudo SUSEConnect -p sle-module-development-tools/15.6/x86_64
+----
+
+Optional: the sle-ha module is needed for a High Availability (HA) setup:
+
+[source,bash]
+----
+sudo SUSEConnect -p sle-ha/15.6/x86_64
+----
+
+=== Package
+
+To install the {sqls} package non-interactively and add-ons, run the following command:
+
+[source,bash]
+----
+sudo zypper install -y  mssql-server mssql-tools18 unixODBC-devel glibc-locale-base sqlcmd
+----
+
+[id="ansi_inst"]
+=== Automated Deployment with Ansible
+
+
+== Configuration
+
+=== Initial configuration
+
+This section is covering the OS modification, the NIC configuration, the recommanded storage setup and the {sqls} configuration.
+
+==== OS configuration (CPU, Kernel, Memory)
+
+*CPU/sysctl/disk/memory setting*
+{sles} contains a `TuneD` profile for mssql (within the `tuned` package), but it's not according to the {sqls} best practices guide. The next steps describe and line out the changes recommended for {sqls}.
+Using TuneD it automatically configures CPU frequency governor, ENERGY_PERF_BIAS, and min_perf_pct settings appropriately due to the `throughput-performance` profile being used as base for the `mssql profile`. 
+C-States parameter must be configured manually. The disk readahead section is also covered by including the file `throughput-performance`, please check the settings if they are equal and skip them if not needed.
+
+Create a mssql profile
+[source,bash]
+----
+mkdir /etc/tuned/mssql
+cat >/etc/tuned/mssql/tuned.conf <<EOF
+[main]
+summary=Optimize for Microsoft SQL Server
+include=throughput-performance
+ 
+[cpu]
+force_latency = 5
+ 
+[vm]
+transparent_hugepages = always
+ 
+[sysctl]
+vm.swappiness = 1
+vm.dirty_background_ratio = 3
+vm.dirty_ratio = 80
+vm.dirty_expire_centisecs = 500
+vm.dirty_writeback_centisecs = 100
+vm.max_map_count = 1600000
+net.core.rmem_default = 262144
+net.core.rmem_max = 4194304
+net.core.wmem_default = 262144
+net.core.wmem_max = 1048576
+kernel.numa_balancing = 0
+[disk]
+# Comma separated list of devices, all devices if commented out.
+# devices = md125,md126,md127
+readahead = 4096
+EOF
+ 
+chmod +x /etc/tuned/mssql/tuned.conf
+----
+Alternative settings are:
+# For multi-instance SQL deployments, use
+transparent_hugepages = madvise
+# Multi-instance only. Can be configured by TuneD profile Set host variable
+mssql_is_multi_instance: true
+
+Depending on the infrastructure it might be necessary that the CPU setting must be disabled (e.g. log message: `cpu0: 'energy_perf_bias' = 'None', expected 'performance'`). 
+This can be achieved by copying the source file `throughput-performance` and modifying it. Comment the line `energy_perf_bias=performance`, this will avoid error messages (like mentioned before) if `TuneD` is started and can't set this parameter.
+[source,bash]
+----
+mkdir /etc/tuned/throughput-performance
+cp /usr/lib/tuned/throughput-performance/tuned.conf /etc/tuned/throughput-performance/tuned.conf
+
+vi /etc/tuned/throughput-performance/tuned.conf
+...
+[cpu]
+governor=performance
+# energy_perf_bias=performance
+min_perf_pct=100
+...
+----
+IMPORTANT: The last step to make the changes persistent is to disable the sysctl rerun after TuneD has modified the system, otherwise sysctl reverted settings to a value that is not expected from the config above.  Disable the reapply_sysctl by changing the 1 to a 0.
+
+[source,bash]
+----
+vi /etc/tuned/tuned-main.conf
+...
+# Whether to reapply sysctl from the e.g /etc/sysctl.conf, /etc/sysctl.d, ...
+# If enabled these sysctls will be re-appliead after Tuned sysctls are
+# applied, i.e. Tuned sysctls will not override system sysctls.
+reapply_sysctl = 0
+#reapply_sysctl = 1
+...
+----
+
+Load and verify the new profile. Checking the log file might uncover settings with are not executed or have failed.
+
+[source,bash]
+----
+tuned-adm profile mssql
+tuned-adm active
+tuned-adm verify
+cat /var/log/tuned/tuned.log
+----
+
+*Intel CPU C-state*
+Adapting the Intel C-state setting by appending intel_idle.max_cstate and processor.max_cstate to the kernel command line. The appropriate BIOS settings are essential.
+
+[source,bash]
+----
+vi /etc/default/grub
+...
+GRUB_CMDLINE_LINUX_DEFAULT=".... intel_idle.max_cstate=1 processor.max_cstate=1"
+----
+
+Update the bootloader and reboot the system.
+(To avoid multiple reboot's a final reboot can be scheduled at this point <<final_reboot>>)
+
+[source,bash]
+----
+update-bootloader --refresh
+reboot
+----
+
+After the reboot verify the setting is persistent.
+[source,bash]
+----
+cat /proc/cmdline
+----
+
+*Tunning storage IO*
+INFO: As multipath I/O is often used for {sqls} deployments, configure the device mapper (DM) multi-queue target to use the blk-mq infrastructure, by enabling the dm_mod.use_blk_mq=y kernel boot option. The default value is n (disabled). This setting, when the underlying SCSI devices are using blk-mq, reduces locking overhead at the DM layer. For more information on how to configure multipath I/O, can be found at https://documentation.suse.com/sles/15-SP6/single-html/SLES-storage/#cha-multipath or https://www.suse.com/support/kb/doc/?id=000021020
+
+SCHEDULER is one of bfq, none, kyber, or mq-deadline. DEVICE is the block device (sda for example). For permanent I/O scheduler change (reboot persistent) for a particular device, copy `/usr/lib/udev/rules.d/60-io-scheduler.rules` to `/etc/udev/rules.d/60-io-scheduler.rules`, and edit the copied file to suit the needs.
+Unchanged file:
+[source,bash]
+----
+...
+# 1. BFQ scheduler for single-queue HDD
+ATTR{queue/rotational}!="0", TEST!="%S%p/mq/1", ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+ 
+# 2. BFQ scheduler for every HDD, including "real" multiqueue
+# ATTR{queue/rotational}!="0", ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+ 
+# 3. For "real" multiqueue devices, the kernel defaults to no IO scheduling
+# Uncomment this (and select your scheduler) if you need an IO scheduler for them
+# TEST=="%S%p/mq/1", ATTR{queue/scheduler}="kyber", GOTO="scheduler_end"
+ 
+# 4. BFQ scheduler for every device (uncomment if you need ionice or blk-cgroup features)
+# ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+ 
+# 5. mq-deadline is the kernel default for devices with just one hardware queue
+# ATTR{queue/scheduler}="mq-deadline"
+----
+
+The example above shows option 1 uncommented. Depending on the disk type choose between option 1 to 5 or add a personal one.
+[source,bash]
+----
+...
+### new entry
+ATTR{queue/scheduler}="kyber"
+...
+----
+
+Activate the setting during runtime and check the configuration for all devices starting with `sd`.
+[source,bash]
+----
+udevadm control --reload
+udevadm trigger
+cat /sys/block/sd?/queue/scheduler
+----
+
+==== Network configuration
+The network setting depend on the used NIC hardware. Some of the following configuration changes maybe can't be made or have different possible values as shown.
+In the following step the execution as root user is described. If the root access is not possible the `sudo` command must be added in front of each command.
+
+*Configuring network port buffer size* 
+In the example below, the NIC is named eth1, which is an Intel-based NIC. 
+For Intel based NIC, the recommended buffer size is 4 KB (4096). The value to use here depends on the maximum values recommended for each NIC type and vendor.
+Make the `ethtool` option persistent by adding them to the ifcfg file for each interface (last line).
+
+[source,bash]
+----
+vi /etc/sysconfig/network/ifcfg-eth1
+IPADDR='192.168.1.11/24'
+BOOTPROTO='static'
+STARTMODE='auto'
+ZONE=internal
+ETHTOOL_OPTIONS='-G iface rx 4096 tx 4096'
+----
+
+Restart the NIC and validate the setting or do all the changes in once and restart the network later.
+[id="nic-restart"]
+[source,bash]
+----
+ifdown eth1
+ 
+ifup eth1
+ 
+ethtool -?? eth1
+----
+
+For the concrete example it looks like this:
+[source,bash]
+----
+ethtool -g eth1
+...
+Current hardware settings:
+RX:         4096
+RX Mini:        n/a
+RX Jumbo:       n/a
+TX:         4096
+...
+----
+
+Enable the network port buffer temporarily using the command below and check the settings.
+[source,bash]
+----
+ethtool -G eth1 rx 4096 tx 4096
+ethtool -g eth1
+----
+
+*Enable jumbo frames* 
+Before enabling jumbo frames, verify that all the network switches, routers, and anything else essential in the network packet path between the clients and the {sqls} support jumbo frames. 
+Add a line in the ifcfg file and set the MTU size.
+[source,bash]
+----
+vi /etc/sysconfig/network/ifcfg-eth1
+...
+MTU=9000
+...
+----
+Restart your NIC e.g. <<nic-restart>> and validate the setting.
+[source,bash]
+----
+ip addr |grep 'mtu 9'
+----
+
+Enable jumbo frames temporarily using the command `ip`.
+[source,bash]
+----
+ip link set eth1 mtu 9000
+ip addr |grep 'mtu 9'
+----
+
+If your {sqls} is running to this point in time, than the {sqls} needs to be configured for jumbo frames as well.
+After jumbo frames are enabled, connect to SQL Server and change the network packet size to 8060 using `sp_configure` as shown.
+(How to connet to the database? [login_db])
+
+Jumbo frames:
+[source,sql]
+----
+EXEC sp_configure 'network packet size', '8060';
+GO
+RECONFIGURE WITH OVERRIDE;
+GO
+----
+
+*Setting the port for adaptive RX/TX IRQ coalescing*
+Meaning interrupt delivery is adjusted to improve latency when the packet rate is low and improve throughput when the packet rate is high. 
+This setting might not be available across all the different network infrastructures, so review the existing network infrastructure and confirm that this is supported. 
+The example below is for the NIC named eth1, which is an Intel-based NIC.
+[source,bash]
+----
+vi /etc/sysconfig/network/ifcfg-eth1
+...
+ETHTOOL_OPTIONS_rx='-C iface adaptive-rx on adaptive-tx on'
+----
+
+Restart the NIC <<nic-restart>> and validate the settings.
+[source,bash]
+----
+ethtool -c eth1
+----
+
+Enable the RX/TX IRQ coalescing temporarily using the command `ethtool`.
+[source,bash]
+----
+ethtool -C eth1 adaptive-rx on adaptive-tx on
+ethtool -c eth1
+----
+
+*It is recommended receive-side scaling (RSS) is enabled and by default, combining the RX and TX side of RSS queues*
+There have been specific scenarios, when working with Microsoft Support, where disabling RSS has improved the performance as well. 
+Test this setting in test environments before applying it on production environments. The following example is for Intel NICs.
+[source,bash]
+----
+vi /etc/sysconfig/network/ifcfg-eth1
+...
+ETHTOOL_OPTIONS_com='-L iface combined 8'
+----
+
+Restart the NIC <<nic-restart>> and validate the settings.
+[source,bash]
+----
+ethtool -l eth1
+----
+
+Enable combining the RX and TX side of RSS queues temporarily using the command `ethtool` and verify the setting.
+[source,bash]
+----
+ethtool -L eth1 combined 8
+ethtool -l eth1
+----
+
+==== Firewall configuration
+
+The connection to the {sqls} needs two ports opened in the firewall.
+* 135/tcp  MSDTC
+* 1433/tcp {sqls}
+
+optional:
+* 9100/tcp Prometheus node_exporter
+* 9664/tcp ha_cluster_exporter
+[source,bash]
+----
+firewall-cmd --permanent --add-port=135/tcp  --add-port=1433/tcp && firewall-cmd --reload
+----
+
+Check the configuration.
+----
+firewall-cmd --list-ports
+----
+
+==== Storage configuration
+
+Use storage subsystem with appropriate IOPS, throughput, and redundancy. Based on the Microsoft {sqls} recommendation splitting the storage into 5 parts is the best approach.
+
+* OS + swap (mount point / and /swap)
+* data (mount point /data)
+* transaction log (mount point /log)
+* tempdb (mount point /tempdb)
+
+The default filesystem for OS will be btrfs all others will have xfs. Based on the database sizing the required disk must be provided. The example will decribe a Linux Software RAID based setup.
+The disk `sdb - sdh` are the partitions from the NVME storage underneath. The command `lsblk` helps to find the right partition name to build a reasonable RAID setup later and avoid having all partitions 
+from only one NVME in the same RAID configuration.
+
+INFO: The following chapter is done as `root` user, if this is not possible the `sudo` must be put in front of each command.
+
+Creating the database storage RAID:
+[source,bash]
+----
+# For Data volume, using 4 devices, in RAID 5 configuration with 8KB stripes
+mdadm --create --verbose /dev/md0 --level=raid5 --chunk=8K --raid-devices=4 /dev/sdb /dev/sdc /dev/sdd /dev/sde
+ 
+# For Log volume, using 2 devices in RAID 10 configuration with 64KB stripes
+mdadm --create --verbose /dev/md1 --level=raid10 --chunk=64K --raid-devices=2 /dev/sdg /dev/sdf
+ 
+# For tempdb volume, using 2 devices in RAID 0 configuration with 64KB stripes
+mdadm --create --verbose /dev/md2 --level=raid0 --chunk=64K --raid-devices=2 /dev/sdi /dev/sdh
+----
+
+The ext4 and XFS filesystem is supported, therefore formatting the volumes with XFS (case sensitive).
+[source,bash]
+----
+mkfs.xfs /dev/md0 -f -n version=ci -L datavolume
+mkfs.xfs /dev/md1 -f -n version=ci -L logvolume
+mkfs.xfs /dev/md2 -f -n version=ci -L tempdb
+----
+
+Use the `noatime` attribute with any filesystem that stores {sqls} data and log files. Creating the mount point: 
+
+[source,bash]
+----
+mkdir -p /data/masterdata /log/masterlog /tempdb
+----
+
+Mounting the disks during boot requires an entry in the `/etc/fstab`. The `blkid` helps to find the right `UUID` for each disk.
+
+[source,bash]
+----
+blkid |grep md
+
+vi /etc/fstab
+...
+UUID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /data xfs rw,attr2,noatime 0 0
+UUID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /log xfs rw,attr2,noatime 0 0
+UUID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /tempdb xfs rw,attr2,noatime 0 0
+
+mount -a
+----
+
+Prepare filesystem permission for the dedicated storage partition:
+
+[source,bash]
+----
+chown -R mssql.mssql /data /tempdb /log
+----
+
+Check the disk are mounted and have the right permissions:
+
+[source,bash]
+----
+df -hT
+ls -l /
+----
+
+
+[id="final_reboot"]
+INFO: This would be a good point in time to reboot your system to activate all the configuration changes and settings before the {sqls} is started the first time. This would also help to check if all settings made before are reboot persistent.
+
+[source,bash]
+----
+reboot
+----
+
+==== {sqls} configuration
+To configure and start SQL Server, `mssql-conf` can be used to accept the EULA, set the {sqls} Edition, and the SA password.
+
+Add `mssql-tools18` to your `PATH` environment variable in a bash shell:
+[source,bash]
+----
+vi ~/.bashrc
+echo 'export PATH="$PATH:/opt/mssql-tools18/bin"' >> ~/.bash_profile
+source ~/.bash_profile
+----
+
+
+[source,bash]
+----
+
+----
+
+[source,bash]
+----
+
+----
+
+
+Then, to configure and start `msql-server` (`mssql-conf` starts the `msql-server` immediately after configuring),
+run the following command:
+
+[source,bash]
+----
+sudo ACCEPT_EULA='Y' MSSQL_SA_PASSWORD=Suselove12 MSSQL_PID='Developer' mssql-conf --noprompt setup
+----
+
+* `ACCEPT_EULA` accepts the SQL Server EULA
+* `MSQL_SA_PASSWORD` sets the SA user password. Ensure password requirements as outlined in <<password_requirements>> are followed.
+* `MSQL_PID` sets the SQL Server edition, acceptable values are:
+** Evaluation
+** Developer
+** Express
+** Web
+** Standard
+** Enterprise
+** Product key formatted as +#####-#####-#####-#####-#####+
+* The `noprompt` option configures SQL Server non-interactively
+
+WARNING: It is recommended to change the SA password later with `mssql-conf set-sa-password` 
+or disable the history prior to configuring SQL Server with `set +o history`, and re-enabling it afterward with `set -o history` (Bash).
+
+SQL Server should be started at this point. You can verify this with `netcat`. 
+SQL Server listens for connections on port `1433` by default:
+
+[source,bash]
+----
+sudo zypper install --no-confirm netcat
+nc -vz localhost 1433
+----
+
+For further configuration, use `mssql-conf` to set additional parameters. Changes will take effect after a restart:
+
+[source,bash]
+----
+sudo mssql-conf set ${parameter}
+sudo systemctl restart mssql-server
+----
+
+Available `mssql-conf` options are described in https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf[Configure SQL Server on Linux with the mssql-conf tool].
+
+An alternative way to configure SQL Server is using the `/var/opt/mssql/mssql.conf` file. 
+Settings are stored in the https://en.wikipedia.org/wiki/INI_file[INI] format.
+
+A sample `mssql.conf` file is shown below. Edit the `mssql.conf` file and restart `mssql-server` to apply changes.
+
+[source,ini]
+----
+[EULA]
+accepteula = Y
+
+[filelocation]
+defaultdatadir = /var/opt/mssql/data/
+defaultdumpdir = /var/opt/mssql/data/
+defaultlogdir = /var/opt/mssql/data/
+
+[network]
+tcpport = 1433
+
+[sqlagent]
+enabled = true
+----
+
+== High Avaibility Setup
+
+
+== Tools
+
+Now that SQL Server is running, you can query it. The `mssql-tools` package includes `sqlcmd`, which is a shell to query SQL Server. 
+Install it similarly to the `mssql-server` package.
+
+Add the repository:
+
+[source,bash]
+----
+sudo zypper addrepo --refresh --check https://packages.microsoft.com/config/sles/12/prod.repo
+----
+
+Install the `mssql-tools` package:
+
+[source,bash]
+----
+sudo ACCEPT_EULA=Y zypper install --no-confirm mssql-tools
+----
+
+You can add the tools to your `PATH` like you did for `mssql-conf`:
+[source,bash]
+----
+echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+source ~/.bashrc
+----
+
+Alternatively, you can symlink `sqlcmd` to `/usr/local/bin/` since it is a binary:
+
+[source,bash]
+----
+sudo ln --symbolic /opt/mssql-tools/bin/sqlcmd /usr/local/bin/sqlcmd
+----
+
+Then start `sqlcmd` and input a query. The `-S` option designates the server. The `-U` option specifies the user. 
+Available options can be found at https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver15#syntax[sqlcmd Utility Syntax]. 
+
+
+[source,bash]
+----
+sudo sqlcmd -S localhost -U SA
+----
+
+[source,sql]
+----
+SELECT name from sys.databases
+GO
+
+name
+master
+tempdb
+model
+msdb
+TestDB
+----
+
+
+`GO` is required here to execute the previous statements.
+
+To exit `sqlcmd`, input `quit`:
+
+
+[source,sql]
+----
+quit
+----
+
+
+The full `sqlcmd` documentation can be found at https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver16[sqlcmd Utility].
+
+
+== Administration
+
+=== `systemd`
+
+The `mssql-server` package installs and configures SQL Server as a https://systemd.io/[`systemd`] service. 
+`systemd` provides a framework for managing services, mounts, and system states. 
+You can find more details about `systemd` unit files at https://www.freedesktop.org/software/systemd/man/systemd.unit.html[systemd.unit — Unit configuration]. 
+To control the `mssql-server` service, use `systemctl` to retrieve the `status`, `start`, `stop`, `restart`, `enable`, and `disable` the service.
+
+* Display `mssql-server` status as root user:
+[source,bash]
+----
+systemctl status mssql-server.service 
+● mssql-server.service - Microsoft SQL Server Database Engine
+     Loaded: loaded (/usr/lib/systemd/system/mssql-server.service; enabled; preset: disabled)
+     Active: active (running) since Mon 2024-11-11 11:05:43 CET; 1 week 0 days ago
+       Docs: https://docs.microsoft.com/en-us/sql/linux
+   Main PID: 23061 (sqlservr)
+      Tasks: 195
+        CPU: 3h 18min 15.202s
+     CGroup: /system.slice/mssql-server.service
+             ├─23061 /opt/mssql/bin/sqlservr
+             └─23066 /opt/mssql/bin/sqlservr
+
+Nov 11 11:05:58 mssql sqlservr[23066]: [75B blob data]
+Nov 11 11:05:58 mssql sqlservr[23066]: [96B blob data]
+Nov 11 11:05:58 mssql sqlservr[23066]: [100B blob data]
+Nov 11 11:05:58 mssql sqlservr[23066]: [71B blob data]
+Nov 11 11:05:58 mssql sqlservr[23066]: [124B blob data]
+Nov 11 11:05:59 mssql sqlservr[23066]: [157B blob data]
+Nov 11 11:05:59 mssql sqlservr[23066]: [193B blob data]
+Nov 11 11:05:59 mssql sqlservr[23066]: [155B blob data]
+Nov 11 11:05:59 mssql sqlservr[23066]: [204B blob data]
+Nov 11 12:05:49 mssql sqlservr[23066]: [97B blob data]
+----
+
+* Start `mssql-server` as root user:
+[source,bash]
+----
+systemctl start mssql-server
+----
+
+* Stop `mssql-server` as root user:
+[source,bash]
+----
+systemctl stop mssql-server
+----
+
+* Restart `mssql-server` as root user:
+
+[source,bash]
+----
+systemctl restart mssql-server
+----
+
+* Enable `mssql-server` to start on boot (`mssql-server` is enabled by default on installation):
+[source,bash]
+----
+systemctl enable mssql-server
+
+Created symlink from /etc/systemd/system/multi-user.target.wants/mssql-server.service to /usr/lib/systemd/system/mssql-server.service.
+----
+
+* Disable `mssql-server` to present starting on boot:
+[source,bash]
+----
+systemctl disable mssql-server
+
+Removed symlink /etc/systemd/system/multi-user.target.wants/mssql-server.service.
+----
+
+* Check if the network port is active as root user:
+[source,bash]
+----
+ss -tulpan |grep 1433
+----
+
+=== Logs
+
+For troubleshooting, the logs and crash dumps are written to `/var/opt/mssql/log` by default. 
+Notable logs are the *errorlogs* (+errorlog*+), *trace logs* (+*.trc+), *sqlagent logs* (+sqlagent*+), 
+and the *extended events logs* (*.xel). Core dumps are written with the `.tar.gz2` extension and SQL dumps with the `.mdmp` extension. 
+To view these resources, you need `root` or the `mssql` user access.
+
+[source,bash]
+----
+ls /var/opt/mssql/log
+HkEngineEventFile_0_132574672188100000.xel	errorlog	errorlog.4	log_20.trc	sqlagent.2  		system_health_0_132574672201000000.xel
+HkEngineEventFile_0_132574672310500000.xel	errorlog.1	health.log	log_21.trc	sqlagent.3		system_health_0_132574672319150000.xel
+HkEngineEventFile_0_132575629019340000.xel	errorlog.2	log_18.trc	log_22.trc	sqlagent.out		system_health_0_132575629028000000.xel
+HkEngineEventFile_0_132575645400520000.xel	errorlog.3	log_19.trc	sqlagent.1	sqlagentstartup.log	system_health_0_132575645408320000.xel
+----
+
+=== Loading sample data
+
+Microsoft has provided some https://github.com/microsoft/sql-server-samples[sample databases] 
+you can use to seed your `mssql-server` instance with some data. 
+
+Here is an example of loading our SQL server instance with the sample database `WideWorldImporters`.
+
+Download the `WideWorldImporters` database:
+
+[source,bash]
+----
+curl --location https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak \
+    --output /tmp/WideWorldImporters-Full.bak
+----
+
+Restore full backup into `mssql-server` with `sqlcmd` while updating paths for the data, userdata, transaction log, and in-memory data:
+
+[source,sql]
+----
+sqlcmd -S localhost \
+    -U sa \
+    -P Suselove12 \
+    -Q "RESTORE DATABASE WideWorldImporters \
+        FROM DISK ='/tmp/WideWorldImporters-Full.bak' WITH \
+        MOVE 'WWI_Primary' TO '/var/opt/mssql/data/WideWorldImporters.mdf', \
+        MOVE 'WWI_UserData' TO '/var/opt/mssql/data/WideWorldImporters_UserData.ndf', \
+        MOVE 'WWI_Log' TO '/var/opt/mssql/data/WideWorldImporters.ldf', \
+        MOVE 'WWI_InMemory_Data_1' TO '/var/opt/mssql/data/WideWorldImporters_InMemory_Data_1'"
+
+Processed 1464 pages for database 'WideWorldImporters', file 'WWI_Primary' on file 1.
+Processed 53096 pages for database 'WideWorldImporters', file 'WWI_UserData' on file 1.
+Processed 33 pages for database 'WideWorldImporters', file 'WWI_Log' on file 1.
+Processed 3862 pages for database 'WideWorldImporters', file 'WWI_InMemory_Data_1' on file 1.
+Converting database 'WideWorldImporters' from version 852 to the current version 904.
+Database 'WideWorldImporters' running the upgrade step from version 852 to version 853.
+Database 'WideWorldImporters' running the upgrade step from version 853 to version 854.
+...
+Database 'WideWorldImporters' running the upgrade step from version 902 to version 903.
+Database 'WideWorldImporters' running the upgrade step from version 903 to version 904.
+RESTORE DATABASE successfully processed 58455 pages in 37.388 seconds (12.214 MB/sec).
+----
+
+When loaded, project ten table names from the `WideWorldImporters` database to test it out:
+
+[source,sql]
+----
+sqlcmd -S localhost \
+    -U sa \
+    -P Suselove12 \
+    -Q "SELECT TOP(10) table_name FROM \
+        WideWorldImporters.information_schema.tables \
+        WHERE table_type = 'BASE TABLE'"
+
+table_name
+--------------------------------------------------------------------------------------------------------------------------------
+
+Colors
+Colors_Archive
+OrderLines
+PackageTypes
+PackageTypes_Archive
+StockGroups
+StockItemStockGroups
+StockGroups_Archive
+StateProvinces
+CustomerTransactions
+
+(10 rows affected)
+----
+
+== Summary
+
+Businesses around the world look to SUSE to help them simplify and optimize their IT environments, 
+modernize their applications and infrastructure, and accelerate innovation on-premises, in the cloud, and at the edge. 
+With {sles} support for Microsoft SQL Server, businesses can streamline their IT landscape and operations 
+without changing their preferred enterprise database management system.
+
+At this point, you should have a rudimentary understanding of how to install SQL Server on {sles}, 
+install SQL Server tools, query SQL Server and perform basic administration. 
+To stay up to date on the latest SQL Server on Linux features bookmark https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-release-notes-2019?view=sql-server-ver15[Release notes for SQL Server 2019 on Linux].
+
+
+== Appendix
+TODO: 90 days password expire
+[id="password_requirements"]
+=== SQL Server password requirements
+
+SQL Server passwords must be between 8 and 128 (inclusive), cannot contain Unicode control characters `[Ll, Lu, Nd, Cc]` 
+and must contain at least three of the following:
+
+* Uppercase letters
+* Lowercase letters
+* Numbers
+* Symbols from the set ``(`~!@#$%^&*_-+=|\\{}[]:;\"'<>,.?)/``
+
+=== Virtual machines and dynamic memory
+
+If you're running SQL Server on Linux in a virtual machine, make sure you select options to fix the amount of memory reserved for the virtual machine. Don't use features like Hyper-V Dynamic Memory.
+The feature for KVM is called memballoon and can be set to none in the VM configuration. The default is virtio.
+[source,bash]
+----
+virsh edit --domain mssql
+...
+   <memballoon model='none'>
+      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
+    </memballoon>
+...
+----
+
+The VM must be powered off to activate the changes. A reboot is not enough. 
+* before
+[source,bash]
+----
+lspci |grep balloon
+
+05:00.0 Unclassified device [00ff]: Red Hat, Inc. Virtio 1.0 memory balloon (rev 01)
+----
+
+* after
+[source,bash]
+----
+lspci |grep balloon
+----
+
+=== References
+
+* https://documentation.suse.com/sles/15-SP6/[SUSE Linux Enterprise Server 15 SP6]
+* https://documentation.suse.com/suma/5.0/[SUSE Manager 5.0 Documentation]
+* https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[Repository Mirroring Tool Guide]
+* https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-setup?view=sql-server-ver16[Installation guidance for SQL Server on Linux]
+* https://docs.microsoft.com/en-us/sql/linux/quickstart-install-connect-suse?view=sql-server-ver16[Quickstart: Install SQL Server and create a database on SUSE Linux Enterprise Server]
+* https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-configure-mssql-conf?view=sql-server-ver16[Configure SQL Server on Linux with the mssql-conf tool]
+* https://docs.microsoft.com/en-us/sql/tools/sqlcmd-utility?view=sql-server-ver16[sqlcmd Utility]
+* https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-security-overview?view=sql-server-ver16[Security limitations for SQL Server on Linux]
+* https://learn.microsoft.com/en-us/sql/samples/sql-samples-where-are?view=sql-server-ver16[SQL DB samples]
+** https://github.com/microsoft/sql-server-samples[sql-server-samples] 
+
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+// include::common_gfdl1.2_i.adoc[]
+
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

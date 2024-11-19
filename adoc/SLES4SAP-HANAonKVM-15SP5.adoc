@@ -126,6 +126,23 @@ _Guest:_ {sles4sapAbbr} 15 SP4 onwards
 _Size:_ One VM per socket (max. 4 VMs per host)
 |
 no
+
+|
+{sapphirerapids}
+|
+_Hypervisor:_ {sles4sapAbbr} 15 SP5 
+
+_Guest:_ {sles4sapAbbr} 15 SP5 onwards 
+
+_Size:_ max. 2 sockets footnote:max2sockets[Maximum 2 sockets using Intel standard chipsets on a single system board], 4 TiB RAM
+|
+_Hypervisor:_ {sles4sapAbbr} 15 SP5 
+
+_Guest:_ {sles4sapAbbr} 15 SP5 onwards 
+
+_Size:_ One VM per socket (max. 2 VMs per host)
+|
+no
 |===
 
 Check the following SAP Notes for the latest details of supported SAP HANA on KVM scenarios:
@@ -202,6 +219,8 @@ The relevant memory-to-core ratio required to size a VM can be easily calculated
 
 | {cascadelake} | OLTP | 6 TiB / 6144 GiB | 4 | 28 | 54.86 GiB/core
 | {cascadelake} | OLAP | 3 TiB / 3072 GiB | 4 | 28 | 27.43 GiB/core
+| {sapphirerapids} | OLTP | 4 TiB / 4096 GiB | 2 | 56 | 36.57 GiB/core
+| {sapphirerapids} | OLAP | 4 TiB / 4096 GiB | 2 | 56 | 36.57 GiB/core
 |===
 
 From your memory requirement, calculate the RAM size the VM needs to be compliant with the appropriate memory-to-core ratio defined by SAP.
@@ -241,9 +260,9 @@ The hypervisor must be configured according to the *SUSE Best Practices for SAP
           HANA on KVM" ({sles4sap} {slesProdVersion}) guide at hand. In addition, it must fulfill the following minimal requirements:
 
 * {sles4sap} {slesProdVersion} ("Unlimited Virtual Machines" subscription)
-** kernel (Only major version 5.14, minimum package version 5.4.21.150400.24.46)
-** libvirt (Only major version 8.0, minimum package version 8.0.0-150400.7.3.1)
-** qemu (Only major version 6.2, minimum package version 6.2.0-150400.37.11.1)
+** kernel (Only major version 5.14, minimum package version 5.4.21.150500.55.52)
+** libvirt (Only major version 9.0, minimum package version 9.0.0-150500.6.23.1)
+** qemu (Only major version 7.1, minimum package version 7.1.0-150500.49.21.1)
 
 // (Hypervisor) root@kvmclx2:~ # uname -a
 // Linux kvmclx2 5.14.21-150400.24.46-default #1 SMP PREEMPT_DYNAMIC Thu Feb 9 08:38:18 UTC 2023 (2d95137) x86_64 x86_64 x86_64 GNU/Linux
@@ -271,9 +290,9 @@ Use SAP HANA certified servers and storage as per SAP HANA Hardware Directory at
 
 The guest VM must:
 
-* run {sles} or {sles4sap} 15 SP4 or later.
-* be a {sles} supported VM guest as per Section 7.4 "Supported guest operating systems" of the https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#book-virtualization[SUSE Virtualization Guide].
-* comply with KVM limits as per https://documentation.suse.com/sles/15-SP4/single-html/SLES-virtualization/#virt-hypervisors-limits["SUSE Linux Enterprise Server 15 SP4 Hypervisor Limits"].
+* run {sles} or {sles4sap} 15 SP5 or later.
+* be a {sles} supported VM guest as per Section 7.4 "Supported guest operating systems" of the https://documentation.suse.com/sles/15-SP5/html/SLES-all/book-virtualization.html[SUSE Virtualization Guide].
+* comply with KVM limits as per https://documentation.suse.com/sles/15-SP5/single-html/SLES-virtualization/#virt-hypervisors-limits["SUSE Linux Enterprise Server 15 SP5 Hypervisor Limits"].
 * fulfill the SAP HANA Hardware and Cloud Measurent Tools (HCMT) storage KPI's as per {launchpadnotes}2493172[SAP Note 2493172 "SAP HANA Hardware and Cloud Measurement Tools"]. 
   Refer to <<_sec_storage>> for storage configuration details.
 * be configured according to the *SUSE Best Practices for SAP HANA on KVM* ({sles4sap} {slesProdVersion}) document at hand.
@@ -549,7 +568,8 @@ To edit the boot options for the Linux kernel, perform the following steps:
 +
 
 ----
-intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor mmio_stale_data=off tsx=off
+// intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor mmio_stale_data=off tsx=off
+intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=3698 numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor
 ----
 +
 
@@ -569,16 +589,16 @@ reboot
 
 [[_sec_technical_explanation_of_the_above_described_configuration_settings]]
 ==== Technical explanation of the configuration settings
-
-*Hardware vulnerabilities mitigations*
-----
-mitigations=auto kvm.nx_huge_pages=off tsx=off
-----
-Recently, a class of side channel attacks exploiting the branch prediction and the speculative execution capabilities of modern CPUs appeared.
-On an affected CPU, these problems cannot be fixed, but their effect and their actual exploitability can be mitigated in software.
-However, this sometimes has a non-negligible impact on the performance.
-
-To achieve the best possible security, the software mitigations for these vulnerabilities are being enabled (`mitigations=auto`) with the exceptions of those that deal with "Machine Check Error Avoidance on Page Size Change" (CVE-2018-12207, also known as "iTLB Multiht") and "TSX asynchronous abort" (CVE-2019-11135).
+// 
+// *Hardware vulnerabilities mitigations*
+// ----
+// mitigations=auto kvm.nx_huge_pages=off tsx=off
+// ----
+// Recently, a class of side channel attacks exploiting the branch prediction and the speculative execution capabilities of modern CPUs appeared.
+// On an affected CPU, these problems cannot be fixed, but their effect and their actual exploitability can be mitigated in software.
+// However, this sometimes has a non-negligible impact on the performance.
+// 
+// To achieve the best possible security, the software mitigations for these vulnerabilities are being enabled (`mitigations=auto`) with the exceptions of those that deal with "Machine Check Error Avoidance on Page Size Change" (CVE-2018-12207, also known as "iTLB Multiht") and "TSX asynchronous abort" (CVE-2019-11135).
 
 *Automatic NUMA balancing*
 ----
@@ -638,12 +658,12 @@ On top of that, `iommu=pt` makes sure that you set up the devices for the best p
 ----
 Interrupt remapping allows the kernel to overwrite the interrupt remapping tables created by the BIOS or UEFI Firmware. This ensures that certain interrupts from peripheral devices are routed to a certain CPU. With the 'no_x2apic_optout' you make sure that this feature is always enabled.
 
-*Processor MMIO Stale Data Vulnerabilities*
-----
-mmio_stale_data=off
-----
-Processor MMIO Stale Data Vulnerabilities are a set of vulnerabilities that can expose data to attackers in a very limited scope of environments. Processors of the type {cascadelake} are not affected by this vulnerability. Therefore, it is unnecessary to mitigate it in the environment at hand. For more information, refer to the https://www.intel.com/content/www/us/en/developer/topic-technology/software-security-guidance/processors-affected-consolidated-product-cpu-model.html[Intel Guidance for Security Issues on Intel Processors] and to the indicated https://docs.kernel.org/6.2/admin-guide/hw-vuln/processor_mmio_stale_data.html[Article in the official documentation of the Linux Kernel].
-
+// *Processor MMIO Stale Data Vulnerabilities*
+// ----
+// mmio_stale_data=off
+// ----
+// Processor MMIO Stale Data Vulnerabilities are a set of vulnerabilities that can expose data to attackers in a very limited scope of environments. Processors of the type {cascadelake} are not affected by this vulnerability. Therefore, it is unnecessary to mitigate it in the environment at hand. For more information, refer to the https://www.intel.com/content/www/us/en/developer/topic-technology/software-security-guidance/processors-affected-consolidated-product-cpu-model.html[Intel Guidance for Security Issues on Intel Processors] and to the indicated https://docs.kernel.org/6.2/admin-guide/hw-vuln/processor_mmio_stale_data.html[Article in the official documentation of the Linux Kernel].
+// 
 
 [[_sec_guest_vm_xml_configuration]]
 == Configuring the guest VM

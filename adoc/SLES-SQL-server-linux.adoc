@@ -117,7 +117,6 @@ Then add the repository.
 sudo zypper ar https://packages.microsoft.com/config/sles/15/mssql-server-2022.repo
 sudo zypper ar https://packages.microsoft.com/config/sles/15/prod.repo
 sudo zypper --gpg-auto-import-keys refresh
-sudo zypper ref 
 ----
 
 The `mysql-server` package requires `gdb` from the development tools module (which in turn needs desktop applications module):
@@ -141,7 +140,7 @@ To install the {sqls} package non-interactively and add-ons, run the following c
 
 [source,shell]
 ----
-sudo zypper install -y  mssql-server mssql-tools18 unixODBC-devel glibc-locale-base sqlcmd
+sudo ACCEPT_EULA=Y zypper install -y  mssql-server mssql-tools18 unixODBC-devel glibc-locale-base sqlcmd tuned
 ----
 
 [id="ansi_inst"]
@@ -165,7 +164,7 @@ C-States parameter must be configured manually. The disk readahead section is al
 .Create a mssql profile
 [source,shell]
 ----
-mkdir /etc/tuned/mssql
+mkdir -p /etc/tuned/mssql
 cat >/etc/tuned/mssql/tuned.conf <<EOF
 [main]
 summary=Optimize for Microsoft SQL Server
@@ -212,7 +211,7 @@ This can be achieved by copying the source file `throughput-performance` and mod
 
 [source,shell]
 ----
-mkdir /etc/tuned/throughput-performance
+mkdir -p /etc/tuned/throughput-performance
 cp /usr/lib/tuned/throughput-performance/tuned.conf /etc/tuned/throughput-performance/tuned.conf
 
 vi /etc/tuned/throughput-performance/tuned.conf
@@ -283,6 +282,12 @@ INFO: As multipath I/O is often used for {sqls} deployments, configure the devic
 
 SCHEDULER is one of bfq, none, kyber, or mq-deadline. DEVICE is the block device (sda for example). For permanent I/O scheduler change (reboot persistent) for a particular device, copy `/usr/lib/udev/rules.d/60-io-scheduler.rules` to `/etc/udev/rules.d/60-io-scheduler.rules`, and edit the copied file to suit the needs.
 
+.Copy `60-io-scheduler.rules`
+[source,shell]
+----
+cp /usr/lib/udev/rules.d/60-io-scheduler.rules /etc/udev/rules.d/60-io-scheduler.rules
+----
+
 .Unchanged file
 [source,shell]
 ----
@@ -305,15 +310,33 @@ ATTR{queue/rotational}!="0", TEST!="%S%p/mq/1", ATTR{queue/scheduler}="bfq", GOT
 ----
 
 The example above shows option 1 uncommented. Depending on the disk type choose between option 1 to 5 or add a personal one.
+The old default must be deactivated by comment the line with a `#`.
+
+.new setting
 [source,shell]
 ----
 ...
+# 1. BFQ scheduler for single-queue HDD
+# ATTR{queue/rotational}!="0", TEST!="%S%p/mq/1", ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+ 
+# 2. BFQ scheduler for every HDD, including "real" multiqueue
+# ATTR{queue/rotational}!="0", ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+
+# 3. For "real" multiqueue devices, the kernel defaults to no IO scheduling
+# Uncomment this (and select your scheduler) if you need an IO scheduler for them
+# TEST=="%S%p/mq/1", ATTR{queue/scheduler}="kyber", GOTO="scheduler_end"
+
+# 4. BFQ scheduler for every device (uncomment if you need ionice or blk-cgroup features)
+# ATTR{queue/scheduler}="bfq", GOTO="scheduler_end"
+
+# 5. mq-deadline is the kernel default for devices with just one hardware queue
+# ATTR{queue/scheduler}="mq-deadline"
 ### new entry
 ATTR{queue/scheduler}="kyber"
-...
 ----
 
 Activate the setting during runtime and check the configuration for all devices starting with `sd`.
+.udevadm usage
 [source,shell]
 ----
 udevadm control --reload
@@ -332,6 +355,31 @@ In the example below, the NIC is named eth1, which is an Intel-based NIC.
 For Intel based NIC, the recommended buffer size is 4 KB (4096). The value to use here depends on the maximum values recommended for each NIC type and vendor.
 Make the `ethtool` option persistent by adding them to the ifcfg file for each interface (last line).
 
+.read the current setting
+[source,shell]
+----
+ethtool -g eth1
+Ring parameters for eth1:
+Pre-set maximums:
+RX:			4096
+RX Mini:		n/a
+RX Jumbo:		n/a
+TX:			4096
+TX push buff len:	n/a
+Current hardware settings:
+RX:			256
+RX Mini:		n/a
+RX Jumbo:		n/a
+TX:			256
+RX Buf Len:		n/a
+CQE Size:		n/a
+TX Push:		off
+RX Push:		off
+TX push buff len:	n/a
+TCP data split:		n/a
+----
+
+.set the new values
 [source,shell]
 ----
 vi /etc/sysconfig/network/ifcfg-eth1
@@ -344,6 +392,7 @@ ETHTOOL_OPTIONS='-G iface rx 4096 tx 4096'
 
 Restart the NIC and validate the setting or do all the changes in once and restart the network later.
 [id="nic-restart"]
+.NIC restart
 [source,shell]
 ----
 ifdown eth1
@@ -403,7 +452,8 @@ If your {sqls} is running to this point in time, than the {sqls} needs to be con
 After jumbo frames are enabled, connect to SQL Server and change the network packet size to 8060 using `sp_configure` as shown.
 (How to connet to the database? <<login_db>>)
 
-Jumbo frames for {sqls}:
+[id="sql-jumbo"]
+.Jumbo frames for {sqls}
 [source,sql]
 ----
 EXEC sp_configure 'network packet size', '8060';
@@ -559,11 +609,10 @@ df -hT
 ls -l /
 ----
 
-
-[id="final_reboot"]
-
 INFO: This would be a good point in time to reboot your system to activate all the configuration changes and settings before the {sqls} is started the first time. This would also help to check if all settings made before are reboot persistent.
 
+[id="final_reboot"]
+.server reboot
 [source,shell]
 ----
 reboot
@@ -716,6 +765,9 @@ FROM sys.master_files
 WHERE database_id = DB_ID('tempdb');
 GO
 ----
+
+INFO: If this is the first time the database is up and running enable the jumbo frames for the {sqls} if needed.
+<<sql-jumbo>>
 
 Change the location of each file by using `ALTER DATABASE`.
 [source,sql]

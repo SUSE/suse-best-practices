@@ -238,6 +238,13 @@ reapply_sysctl = 0
 ...
 ----
 
+Starting `TuneD` and activate the start during reboot.
+
+[source,shell]
+----
+systemctl enable --now tuned
+----
+
 Load and verify the new profile. Checking the log file will show settings with are not executed or have failed.
 
 [source,shell]
@@ -576,7 +583,7 @@ Use the `noatime` attribute with any filesystem that stores {sqls} data and log 
 
 [source,shell]
 ----
-mkdir -p /data/masterdata /log/masterlog /tempdb
+mkdir -p /data /log /tempdb
 ----
 
 Mounting the disks during boot requires an entry in the `/etc/fstab`. The `blkid` helps to find the right `UUID` for each disk.
@@ -592,6 +599,12 @@ UUID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /log xfs rw,attr2,noatime 0 0
 UUID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /tempdb xfs rw,attr2,noatime 0 0
 
 mount -a
+----
+
+.creating subdirectories for the {sqls}
+[source,shell]
+----
+mkdir -p /data/masterdata /log/masterlog 
 ----
 
 Prepare filesystem permission for the dedicated storage partition:
@@ -664,7 +677,9 @@ The following options are use to do a simple setup for a host with 1TB RAM.
 /opt/mssql/bin/mssql-conf set filelocation.masterdatafile /data/masterdata/master.mdf
 /opt/mssql/bin/mssql-conf set filelocation.masterlogfile /log/masterlog/mastlog.ldf
 /opt/mssql/bin/mssql-conf set network.rpcport 135
-# using 950000MB of 1048576MB available RAM for MSSQL DB instead of 80% default, example for 1TB
+/opt/mssql/bin/mssql-conf set control.writethrough 1
+/opt/mssql/bin/mssql-conf set control.alternatewritethrough 0
+# e.g. using 950GB of 1048576MB available RAM for MSSQL DB instead of 80% default, example for 1TB
 /opt/mssql/bin/mssql-conf set memory.memorylimitmb 950000
 ----
 
@@ -753,10 +768,9 @@ By default, a new installation of SQL Server on Linux creates multiple tempdb da
 One of our preparation steps for the storage part was having a dedicated RAID set for the tempdb files. This setting can only be modified from inside the {sqls}.
 The following example moves `tempdb` from its current default location on the disk to another disk location. Because tempdb is re-created each time the 
 MSSQLSERVER service is started, you do not have to physically move the data and log files. The files are created when the service is restarted. 
-Until the service is restarted, tempdb continues to function in its existing location.
-Determine the logical file names of the tempdb database and their current location on disk.
+Until the service is restarted, tempdb continues to function in its existing location. Determine the logical file names of the tempdb database and their current location on disk.
 
-
+.check the current location and decided if a move is required or not
 [source,sql]
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd
@@ -769,7 +783,9 @@ GO
 INFO: If this is the first time the database is up and running enable the jumbo frames for the {sqls} if needed.
 <<sql-jumbo>>
 
-Change the location of each file by using `ALTER DATABASE`.
+If all the preparation are made in the right order the `/tempdb` directory should already be in use and set as default location. In that situation the next step can be skipped.
+
+.Change the location of each file by using `ALTER DATABASE`
 [source,sql]
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd
@@ -793,6 +809,7 @@ GO
 ----
 
 Stop and restart the instance of {sqls}.
+
 .Verify the file change
 [source,sql]
 ----
@@ -802,7 +819,6 @@ FROM sys.master_files
 WHERE database_id = DB_ID('tempdb');
 GO
 ----
-
 
 [source,shell]
 ----
@@ -851,9 +867,6 @@ defaultdatadir = /data
 defaultlogdir = /log
 masterdatafile = /data/masterdata/master.mdf
 masterlogfile = /log/masterlog/mastlog.ldf
-
-[hadr]
-hadrenabled = 1
 
 [network]
 rpcport = 135
@@ -997,6 +1010,14 @@ systemctl disable mssql-server
 
 Removed symlink /etc/systemd/system/multi-user.target.wants/mssql-server.service.
 ----
+
+.Check the `journalctl` log for `mssql-server.service`
+[source,shell]
+----
+journalctl -fu mssql-server.service
+----
+
+The parameter `-f` is to follow the log entries. If a static non updates list is preferred just use `journalctl -u mssql-server.service` 
 
 .Check if the network port is active as root user
 [source,shell]

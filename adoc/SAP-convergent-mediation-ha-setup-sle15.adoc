@@ -1,0 +1,1946 @@
+:docinfo:
+
+:localdate:
+
+// defining article ID
+[#art-sap-convergent-mediation-ha-setup-sle15]
+
+// Document Variables
+:slesProdVersion: 15
+//
+
+= SAP Convergent Mediation ControlZone High Availability Cluster: Setup Guide
+// TODO PRIO1: _SAP_ Convergent Mediation ControlZone ? 
+
+// Revision {Revision} from {docdate}
+// Standard SUSE includes
+// include::common_copyright_gfdl.adoc[]
+// :toc:
+include::Var_SAP-convergent-mediation.adoc[]
+//
+
+
+
+== About this guide
+
+The following sections focus on background information and purpose of this document.
+
+=== Abstract
+
+This guide describes configuration and basic testing of {sles4sap} {prodNr}
+{prodSP} as a high availability cluster for {ConMed} (CM) ControlZone services.
+
+From an application perspective, the following concept is covered:
+
+- ControlZone platform and UI services are running together.
+
+- ControlZone software is installed on central NFS.
+
+- ControlZone software is copied to local disks of both nodes.
+
+From an infrastructure perspective, the following concept is covered:
+
+- Two-node cluster with disk-based SBD fencing
+
+- Central NFS share statically mounted on both nodes
+
+- On-premises deployment on physical and virtual machines
+
+Despite the above menionted focus of this setup guide, other variants can be
+implemented as well. See <<cha.overview>> below. The concept can also be used
+with newer service packs of {sles4sap} {prodNr}.
+
+NOTE: This solution is supported only in the context of {SAP} RISE
+(https://www.sap.com/products/erp/rise.html).
+
+[[sec.resources]]
+=== Additional documentation and resources
+
+Several chapters in this document contain links to additional documentation resources
+which are available either in the system or on the Internet.
+
+For the latest product documentation updates, see: 
+
+https://documentation.suse.com/
+
+More whitepapers, guides and best practices documents referring to {SLES} and {SAP}
+can be found and downloaded at the SUSE Best Practices Web page:
+
+https://documentation.suse.com/sbp/sap/
+
+Here you can access guides for {SAPHANA} system replication automation and High Availability
+(HA) scenarios for {SAPNw} and {s4hana}.
+
+Find an overview of high availability solutions supported by {sles4sap} here:
+
+https://documentation.suse.com/sles-sap/sap-ha-support/html/sap-ha-support/article-sap-ha-support.html
+
+Finally, there are manual pages shipped with the product.
+
+// Standard SUSE includes
+=== Feedback
+include::common_intro_feedback.adoc[]
+
+
+[[cha.overview]]
+== Overview
+
+// TODO PRIO1: content
+// {ConMed} (CM)
+
+The CM ControlZone platform is responsible for providing services to other instances.
+Several platform containers may exist in a CM system, for high availability,
+but only one is active at a time. The CM ControlZone UI is used to query, edit, import,
+and export data.
+
+{sles4sap} is optimized in various ways for {SAP} applications. Particularly, it contains
+the {sleha} cluster and specfic HA resource agents.
+
+From the application perspective the following variants are covered:
+
+- ControlZone platform service running alone
+
+- ControlZone platform and UI services running together
+
+- ControlZone binaries stored and started on central NFS (not recommended)
+
+- ControlZone binaries copied to and started from local disks
+
+- Java VM stored and started on central NFS (not recommended)
+
+- Java VM started from local disks
+
+From the infrastructure perspective the following variants are covered:
+
+- Two-node cluster with disk-based SBD fencing
+
+- Three-node cluster with disk-based or diskless SBD fencing, not explained in detail
+here
+
+- Other fencing is possible, but not explained here
+
+- File system managed by the cluster - either on shared storage or NFS, not explained
+in detail here
+
+- On-premises deployment on physical and virtual machines
+
+- Public cloud deployment (usually needs additional documentation on cloud specific
+details)
+
+=== High availability for the {ConMed} ControlZone platform and UI
+
+The HA solution for CM ControlZone is a two-node active/passive cluster. 
+A shared NFS file system is statically mounted by the operating system on both cluster nodes.
+This file system holds work directories. Client-side write caching needs to be disabled.
+The ControlZone software is installed into the central shared NFS, but is also
+copied to both nodes´ local file systems. The HA cluster uses the central directory
+for starting/stopping the ControlZone services. However, for monitoring the local
+copies of the installation are used. 
+
+The cluster can run monitor actions even when the NFS temporarily is blocked.
+Further, software upgrade is possible without downtime (rolling upgrade).
+// TODO PRIO2: Get rid of the central software. Use central NFS for work directory only.
+
+.Two-node HA cluster and statically mounted file systems
+image::sles4sap_cm_cluster.svg[scaledwidth=100.0%]
+
+The ControlZone services platform and UI are handled as active/passive resources.
+The related virtual IP adress is managed by the HA cluster as well.
+A file system resource is configured for a bind-mount of the real NFS share. In
+case of file system failures, the cluster takes action. However, no mount or umount
+on the real NFS share is done.
+
+All cluster resources are organized as one resource group. This results in
+a correct start/stop order and placement, while keeping the configuration
+simple.
+
+.ControlZone resource group
+image::sles4sap_cm_cz_group.svg[scaledwidth=70.0%]
+
+See <<cha.ha-cm>> and manual page ocf_suse_SAPCMControlZone(7) for details.
+
+=== Scope of this document
+
+For the {sleha} two-node cluster described above, this guide explains how to:
+
+- check basic settings of the two-node HA cluster with disk-based SBD.
+
+- check basic capabilities of the ControlZone components on both nodes.
+
+- configure an HA cluster for managing the ControlZone components platform
+and UI, together with related IP address.
+
+- perform functional tests of the HA cluster and its resources.
+
+- perform basic administrative tasks on the cluster resources. 
+
+NOTE: Neither installation of the basic {sleha} cluster, nor installation of the
+CM ControlZone software is covered in the document at hand.
+
+Consult the {sleha} product documentation at 
+https://documentation.suse.com/sle-ha/15-SP4/single-html/SLE-HA-administration/#part-install for installation instructions. 
+
+For Convergent Mediation installation instructions, refer to the respective
+product documentation at 
+https://infozone.atlassian.net/wiki/spaces/MD9/pages/4849683/Installation+Instructions. 
+
+
+[[sec.prerequisites]]
+=== Prerequisites
+
+For requirements of {ConMed} ControlZone, refer to the product documentation
+at https://infozone.atlassian.net/wiki/spaces/MD9/pages/4849685/System+Requirements.
+
+For requirements of {sles4sap} and {sleha}, refer to the product documentation
+at https://documentation.suse.com/sle-ha/15-SP4/html/SLE-HA-all/article-installation.html#sec-ha-inst-quick-req.
+
+Specific requirements of the SUSE high availability solution for CM ControlZone
+are as follows:
+
+- This solution is supported only in the context of {SAP} RISE.
+
+- {ConMed} ControlZone version 9.0.1.1  or higher is installed and configured on
+both cluster nodes. If the software is installed into a shared NFS file system, the
+binaries are copied into both cluster nodes´ local file systems. Finally the local
+configuration needs to be adjusted. Refer to {ConMed} documentation for details.
+
+- CM ControlZone is configured identically on both cluster nodes. User, path
+names and environment settings are the same.
+
+- There is only *one* ControlZone instance per Linux cluster. Accordingly, there is
+only one platform service and one UI service per cluster.
+
+- The platform and UI are installed into the same MZ_HOME.
+
+- Linux shell of the mzadmin user is `/bin/bash`.
+
+- The mzadmin´s `~/.bashrc` inherits MZ_HOME, JAVA_HOME and MZ_PLATFORM
+from SAPCMControlZone RA. These variables need to be set as described in the RA´s
+documentation, that is the manual page ocf_suse_SAPCMControlZone(7).
+
+- When called by the resource agent, `mzsh` connnects to CM ControlZone services
+via network. The service´s virtual host name or virtual IP address managed by the
+cluster should not be used when called by RA monitor actions.
+
+- Technical  users and groups are defined locally in the Linux system. If users are
+resolved by remote service, local caching is neccessary. `Substitute user` (su) to
+the mzadmin needs to work reliable and without customized actions or messages.
+
+- Name resolution for host names and virtual host names is crucial. Host names of
+cluster nodes and services are resolved locally in the Linux system.
+
+- Strict time synchronization between the cluster nodes, for example NTP, is required.
+All nodes of a cluster have configured the same timezone.
+
+- Needed NFS shares (for example `/usr/sap/<SID>`) are mounted statically or by automounter.
+No client-side write caching is happening. File locking should be configured for application
+needs.
+
+- The RA monitoring operations need to be active.
+
+- RA runtime almost completely depends on call-outs to controlled resources, operating system,
+and Linux cluster. The infrastructure needs to allow these call-outs to return in time.
+
+- The ControlZone application is not started/stopped by the operating system.
+Thus, there is no SystemV, systemd or cron job.
+
+- As long as the ControlZone application is managed by the Linux cluster, the
+application is not started/stopped/moved from outside. Thus, no manual actions are
+done. The Linux cluster does not prevent from administrative mistakes.
+However, if the Linux cluster detects the application is running on both sites in
+parallel, both are stopped and one of them is restarted.
+
+- The interface for the RA to the ControlZone services is the command `mzsh`. Ideally,
+`mzsh` should be accessed on the cluster nodes´ local file systems.
+`mzsh` is called with the arguments `startup -f`, `shutdown` and `status`. Its return
+code and output is interpreted by the RA. Thus, the command and its output need
+to be stable. The mzsh shall not be customized. Particularly environment
+variables set thru `~/.bashrc` must not be changed.
+
+- `mzsh` is called on the active node with a defined interval for regular resource
+monitor operations. It also is called on the active or passive node in certain situations.
+Those calls might run in parallel.
+
+=== The setup procedure at a glance
+ 
+For a better understanding and overview, the installation and setup is divided into
+nine steps.
+
+// - Collecting information
+- <<sec.information>>
+// - Checking the operating system basic setup 
+- <<sec.os-basic-check>>
+// - Checking the HA cluster basic setup 
+- <<sec.ha-basic-check>>
+// - Checking the ControlZone setup
+- <<cha.cm-basic-check>>
+// - Preparing mzadmin user´s ~./bahsrc
+- <<sec.ha-bashrc>>
+// - Preparing the OS for NFS monitoring
+- <<sec.ha-filsystem-monitor>>
+// - Adapting the cluster basic configuration
+- <<sec.basic-ha-cib>>
+// - Configuring the ControlZone cluster resources
+- <<sec.cm-ha-cib>>
+// - Testing the HA cluster
+- <<sec.testing>>
+
+
+== Checking the operating system and the HA cluster basic setup
+
+// TODO PRIO2: content
+
+[[sec.information]]
+=== Collecting information
+
+The installation should be planned properly. You should have all required parameters
+already in place. It is good practice to first fill out the parameter sheet. 
+
+[width="100%",cols="25%,35%,40%",options="header"]
+.Table Collecting needed parameters
+|====
+|Parameter
+|Example
+|Value
+
+| NFS server and share
+| `{myNFSSrv}:/s/{mySid}/cm`
+|
+
+| NFS mount options
+| `vers=4,rw,noac,sync,default`
+|
+
+| central MZ_HOME
+| `/usr/sap/{mySid}`
+|
+
+| local MZ_HOME
+| `{mzhome}`
+|
+
+| MZ_PLATFORM
+| `{mzPlatf}`
+| `{mzPlatf}`
+
+| JAVA_HOME
+| `{mzJavah}`
+|
+
+| node1 hostname
+| `{myNode1}`
+|
+
+| node2 hostname
+| `{myNode2}`
+|
+
+| node1 IP addr 
+| `{myIPNode1}`
+|
+
+| node2 IP addr
+| `{myIPNode2}`
+|
+
+| SID
+| `{mySid}`
+|
+
+| mzadmin user
+| `{mySapAdm}`
+|
+
+| virtual IP addr
+| `{myVipAcz}`
+|
+
+| virtual hostname
+| `{myVipNcz}`
+|
+
+|====
+
+[[sec.os-basic-check]]
+=== Checking the operating system basic setup 
+
+// TODO PRIO2: content ... on both nodes
+
+==== Java virtual machine
+
+// TODO PRIO2: content
+See https://infozone.atlassian.net/wiki/spaces/MD9/pages/4849685/System+Requirements
+for supported Java VMs.  
+
+[subs="attributes"]
+----
+# zypper se java-17-openjdk
+
+S | Name                     | Summary                            | Type
+--+--------------------------+------------------------------------+--------
+i | java-17-openjdk          | OpenJDK 17 Runtime Environment     | package
+  | java-17-openjdk-demo     | OpenJDK 17 Demos                   | package
+  | java-17-openjdk-devel    | OpenJDK 17 Development Environment | package
+  | java-17-openjdk-headless | OpenJDK 17 Runtime Environment     | package
+----
+
+Check this on both nodes.
+
+==== HA software and tools
+
+// TODO PRIO2: content
+
+[subs="attributes"]
+----
+# zypper se --type pattern ha_sles
+
+S  | Name    | Summary           | Type
+---+---------+-------------------+--------
+i  | ha_sles | High Availability | pattern
+----
+
+[subs="attributes"]
+----
+# zypper se ClusterTools2
+
+S | Name                     | Summary                            | Type
+--+--------------------------+------------------------------------+--------
+i | ClusterTools2            | Tools for cluster management       | package
+----
+
+Check this on both nodes.
+
+==== IP addresses and virtual names
+
+Check if the file `/etc/hosts` contains at least the address resolution for
+both cluster nodes `{myNode1}`, `{myNode1}`, and the ControlZone virtual
+host name `sap{mySidLc}cz`. Add these entries if they are missing.
+
+[subs="attributes"]
+----
+# grep -e {myNode1} -e {myNode2} -e {myVipNcz} /etc/hosts
+
+{myIPNode1}  {myNode1}.fjaell.lab   {myNode1}
+{myIPNode2}  {myNode2}.fjaell.lab  {myNode2}
+{myVipAcz}   {myVipNcz}.fjaell.lab  {myVipNcz}
+----
+
+Check this on both nodes.
+See also manual page hosts(8).
+
+==== Mount points and NFS shares
+
+Check if the file `/etc/fstab` contains the central NFS share MZ_HOME.
+The file system is statically mounted on all nodes of the cluster.
+The correct mount options depend on the NFS server. However, client-side
+write caching needs to be disabled in any case.
+
+[subs="attributes"]
+----
+# grep "/usr/sap/{mySid}" /etc/fstab
+
+{myNFSSrv}:/s/{mySid}/cz /usr/sap/{mySid} nfs4 rw,noac,sync,default 0 0
+
+# mount | grep "/usr/sap/{mySid}"
+
+...
+----
+
+// TODO PRIO1: above output
+Check this on both nodes.
+See also manual page mount(8), fstab(5) and nfs(5), and TID 20830, TID 19722.
+
+==== Linux user and group number scheme
+
+Check if the file `/etc/passwd` contains the mzadmin user `{mySapAdm}`.
+
+[subs="attributes"]
+----
+# grep {mySapAdm} /etc/passwd
+
+{mySapAdm}:x:1001:100:{ConMed} user:/opt/cm/{mySid}:/bin/bash
+----
+
+Check this on both nodes.
+See also manual page passwd(5).
+
+==== Password-free SSH login
+
+// TODO PRIO2: content
+
+[subs="attributes"]
+----
+{myNode1}:~ # ssh {myNode2}
+{myNode2}:~ # ssh {myNode1}
+{myNode1}:~ # exit
+{myNode2}:~ # exit
+----
+
+Check this on both nodes.
+See also manual page ssh(1) and ssh-keygen(1).
+
+==== Time synchronization
+
+// TODO PRIO2: content 
+
+[subs="attributes"]
+----
+#  systemctl status chronyd | grep Active
+
+     Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 6min ago
+
+# chronyc sources
+
+MS Name/IP address        Stratum Poll Reach LastRx Last sample          
+===============================================================================
+^* long.time.ago               2   10   377   100  -1286us[-1183us] +/-   15ms
+----
+
+Check this on both nodes.
+See also manual page chronyc(1) and chrony.conf(5).
+
+[[sec.ha-basic-check]]
+=== Checking HA cluster basic setup 
+
+// TODO PRIO2: content
+
+==== Watchdog
+
+Check if the *watchdog* module is loaded correctly.
+
+[subs="specialchars,attributes"]
+----
+# lsmod | grep -e dog -e wdt
+
+iTCO_wdt               16384  1
+iTCO_vendor_support    16384  1 iTCO_wdt
+
+# ls -l /dev/watchdog
+
+crw------- 1 root root 10, 130 May 14 16:37 /dev/watchdog
+
+# lsof dev/watchdog
+
+COMMAND PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+sbd     686 root    4w   CHR 10,130      0t0  410 /dev/watchdog
+----
+
+Check this on both nodes. Both nodes should use the same watchdog driver.
+Which driver that is depends on your hardware or hypervisor. For more information, see
+https://documentation.suse.com/sle-ha/15-SP4/single-html/SLE-HA-administration/#sec-ha-storage-protect-watchdog.
+
+==== SBD device
+
+It is a good practice to check if the SBD device can be accessed from both nodes
+and contains valid records. Only one SBD device is used in this example. For
+production, three devices should always be used.
+
+[subs="specialchars,attributes"]
+----
+# egrep -v "(^#|^$)" /etc/sysconfig/sbd
+
+SBD_PACEMAKER=yes
+SBD_STARTMODE="clean"
+SBD_WATCHDOG_DEV="/dev/watchdog"
+SBD_WATCHDOG_TIMEOUT="20"
+SBD_TIMEOUT_ACTION="flush,reboot"
+SBD_MOVE_TO_ROOT_CGROUP="auto"
+SBD_OPTS=""
+SBD_DEVICE="{myDevPartSbd}"
+
+# cs_show_sbd_devices
+
+==Dumping header on disk {myDevPartSbd}
+Header version     : 2.1
+UUID               : 0f4ea13e-fab8-4147-b9b2-3cdcfff07f86
+Number of slots    : 255
+Sector size        : 512
+Timeout (watchdog) : 20
+Timeout (allocate) : 2
+Timeout (loop)     : 1
+Timeout (msgwait)  : 120
+==Header on disk {myDevPartSbd} is dumped
+0     {myNode1}      clear
+0     {myNode2}      clear
+
+# systemctl status sbd | grep Active
+
+     Active: active (running) since Tue 2024-05-14 16:37:22 CEST; 13min ago
+----
+
+Check this on both nodes. For more information on SBD configuration, see:
+
+* https://documentation.suse.com/sle-ha/15-SP4/single-html/SLE-HA-administration/#cha-ha-storage-protect 
+
+* TID 7016880 and TID 7008216
+
+* manual page sbd(8), stonith_sbd(7), and cs_show_sbd_devices(8)
+
+==== Corosync cluster communication
+
+// TODO PRIO2: content 
+
+[subs="specialchars,attributes"]
+----
+{myNode1}:~ # corosync-cfgtool -s
+
+Printing ring status.
+Local node ID 2
+RING ID 0
+        id      = {myIPNode1}
+        status  = ring 0 active with no faults
+----
+
+Check this on both nodes.
+See appendix <<sec.appendix-coros>> for a `corosync.conf` example.
+See also manual page systemctl(1), corosync.conf(5) and corosync-cfgtool(1).
+
+==== `systemd` cluster services
+
+// TODO PRIO2: content
+
+[subs="specialchars,attributes"]
+----
+# systemctl status pacemaker | grep Active
+
+ Active: active (running) since Tue 2024-05-14 16:37:28 CEST; 17min ago
+----
+
+Check this on both nodes.
+See also manual page systemctl(1).
+
+==== Basic Linux cluster configuration
+
+// TODO PRIO2: content
+
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+
+Cluster Summary:
+  * Stack: corosync
+  * Current DC: {myNode1} (version 2.1.2+20211124...) - partition with quorum
+  * Last updated: Tue May 14 17:03:30 2024
+  * Last change:  Mon Apr 22 15:00:58 2024 by root via cibadmin on {myNode2}
+  * 2 nodes configured
+  * 1 resource instances configured
+
+Node List:
+  * Online: [ {myNode1} {myNode2} ]
+
+Full List of Resources:
+  * rsc_stonith_sbd     (stonith:external/sbd):  Started {myNode1}
+
+----
+
+Check this on both nodes.
+See also manual page crm_mon(8).
+
+
+[[cha.cm-basic-check]]
+== Checking the ControlZone setup
+
+The ControlZone needs to be tested without the Linux cluster before integrating
+both. Each test needs to be done on both nodes.
+
+=== Checking ControlZone on central NFS share
+
+Check the mzadmin´s environment variables MZ_HOME, JAVA_HOME, PATH. Then check the
+`mzsh startup/shutdown/status` functionality for MZ_HOME on central NFS.
+This is needed on both nodes. Before starting the ControlZone services on one node,
+ensure they are not running on the other node.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm}
+~> echo $MZ_HOME $JAVA_HOME
+
+/usr/sap/{mySid} /usr/lib64/jvm/jre-17-openjdk
+
+~> which mzsh
+
+/usr/sap/{mySid}/bin/mzsh
+----
+
+[subs="specialchars,attributes"]
+----
+~> echo "are you sure platform is not running on the other node?"
+
+are you sure platform is not running on the other node?
+
+~> mzsh startup -f platform
+
+Starting platform...done.
+
+~> mzsh status platform; echo $?
+
+platform is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~> mzsh startup -f ui
+
+Starting ui...done.
+
+~> mzsh status ui; echo $?
+
+ui is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~> mzsh shutdown ui
+
+Shutting down ui....done.
+
+~> mzsh status ui; echo $?
+
+ui is not running
+2
+----
+
+[subs="specialchars,attributes"]
+----
+~> mzsh shutdown platform
+
+Shutting down platform......done.
+
+~> mzsh status platform; echo $?
+
+platform is not running
+2
+----
+
+Perform the above steps on both nodes.
+
+=== Checking ControlZone on each node´s local disk
+
+Check the mzadmin´s environment variables MZ_HOME, JAVA_HOME, PATH. Then check the
+`mzsh status` functionality for MZ_HOME on the local disk.
+This is needed on both nodes.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm}
+~> export MZ_HOME="/opt/cm/{mySid}"
+~> export PATH="/opt/cm/{mySid}/bin:$PATH"
+
+~> echo $MZ_HOME $JAVA_HOME
+
+/opt/cm/{mySid} /usr/lib64/jvm/jre-17-openjdk
+
+~> which mzsh
+
+/opt/cm/{mySid}/bin/mzsh
+----
+
+[subs="specialchars,attributes"]
+----
+~> mzsh status platform; echo $?
+
+platform is running
+0
+----
+
+[subs="specialchars,attributes"]
+----
+~> mzsh status ui; echo $?
+
+ui is running
+0
+----
+
+Perform the above steps on both nodes. The ControlZone services should be running
+on either node, but not on both in parallel.
+
+
+[[cha.ha-cm]] 
+== Integrating {ConMed} ControlZone with the Linux cluster
+
+// TODO PRIO2: content
+
+[[sec.ha-bashrc]]
+=== Preparing mzadmin user ~/.bashrc file
+
+For the environment variables JAVA_HOME, MZ_HOME and MZ_PLATFORM, certain values
+are required. For cluster actions, the values are inherited from the RA through
+related RA_... variables. For manual admin actions, the values are set as default.
+This is needed on both nodes.
+
+[subs="specialchars,attributes,verbatim,quotes"]
+----
+{myNode1}:~# su - {mySapAdm}
+{myNode1}:~> vi ~/.bashrc
+ 
+# MZ_PLATFORM, MZ_HOME, JAVA_HOME are set by HA RA
+export MZ_PLATFORM=${RA_MZ_PLATFORM:-"{mzPlatf}"}
+export MZ_HOME=${RA_MZ_HOME:-"/usr/sap/{mySid}"}
+export JAVA_HOME=${RA_JAVA_HOME:-"{mzJavah}"}
+
+{myNode1}:~> scp ~/.bashrc {myNode2}:~/
+{myNode1}:~> md5sum ~/.bashrc
+...
+{myNode1}:~> ssh {myNode2} "md5sum ~/.bashrc"
+...
+----
+
+See <<tab.ra-params>> and manual page ocf_suse_SAPCMControlZone(7) for details.
+
+[[sec.ha-filsystem-monitor]]
+=== Preparing the operating system for NFS monitoring
+
+// TODO PRIO2: content
+This is needed on both nodes.
+
+[subs="specialchars,attributes"]
+----
+{myNode1}:~ # mkdir -p /usr/sap/{mySid}/.check /usr/sap/.check_{mySid}
+{myNode1}:~ # ssh {myNode2} "mkdir -p /usr/sap/{mySid}/.check /usr/sap/.check_{mySid}"
+----
+
+See manual page ocf_suse_SAPCMControlZone(7), ocf_heartbeat_Filesystem(7) and
+mount(8).
+
+[[sec.basic-ha-cib]]
+=== Adapting the cluster basic configuration
+
+// TODO PRIO2: content
+All  steps to load the configuration into the Cluster Information Base (CIB) only need
+to be performed on one node.
+
+==== Adapting cluster bootstrap options and resource defaults
+
+The first example defines the cluster bootstrap options, the resource and operation
+defaults. The STONITH timeout value should be greater than 1.2 times the SBD on-disk msgwait
+timeout value. The priority fencing delay value should be at least twice the SBD CIB pcmk_delay_max value.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-cib.txt
+
+# enter the below to crm-cib.txt
+property cib-bootstrap-options: \
+    have-watchdog=true \
+    cluster-infrastructure=corosync \
+    cluster-name=hacluster \
+    dc-deadtime=20 \
+    stonith-enabled=true \
+    stonith-timeout=150 \
+    priority-fencing-delay=30 \
+    stonith-action=reboot
+rsc_defaults rsc-options: \
+    resource-stickiness=1 \
+    migration-threshold=3 \
+    failure-timeout=86400
+op_defaults op-options: \
+    timeout=120 \
+    record-pending=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-cib.txt
+----
+See also manual page crm(8), sbd(8) and SAPCMControlZone_basic_cluster(7).
+
+==== Adapting SBD STONITH resource
+
+The next configuration step defines a disk-based SBD STONITH resource.
+Timing is adapted for priority fencing.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-sbd.txt
+
+# enter the below to crm-sbd.txt
+primitive rsc_stonith_sbd stonith:external/sbd \
+    params pcmk_delay_max=15
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-sbd.txt
+----
+See also manual pages crm(8), sbd(8), stonith_sbd(7), and SAPCMControlZone_basic_cluster(7). 
+
+[[sec.cm-ha-cib]]
+=== Configuring ControlZone cluster resources
+
+// TODO PRIO2: content
+
+==== Virtual IP address resource
+
+Next, configure an IP adress resource `rsc_ip_{mySid}`.
+In the event of an IP address failure (or monitor timeout), the IP address resource is
+restarted until it is successful or the migration threshold is reached.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-ip.txt
+
+# enter the below to crm-ip.txt
+primitive rsc_ip_{mySid} ocf:heartbeat:IPaddr2 \
+    op monitor interval=60 timeout=20 on-fail=restart \
+    params ip={myVipAcz} \
+    meta maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-ip.txt 
+----
+See also manual page crm(8) and ocf_heartbeat_IPAddr2(7).
+
+==== File system resource (only monitoring)
+
+A shared file system might be statically mounted by the operating system on both cluster nodes.
+This file system holds work directories. It must not be confused with the
+ControlZone application itself. Client-side write caching needs to be disabled.
+
+A file system resource `rsc_fs_{mySid}` is configured for a bind-mount of the real
+NFS share. This resource is grouped with the ControlZone platform and IP address. In the event
+of a file system failures, the node gets fenced. No mount or umount on the real NFS share is done.
+An example for the real NFS share is `/usr/sap/{mySid}/.check` , an example for the
+bind-mount is `/usr/sap/.check_{mySid}` . Both mount points need to be created
+before the cluster resource is activated.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-fs.txt
+
+# enter the below to crm-fs.txt
+primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
+    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
+    fstype=nfs4 options=bind,rw,noac,sync,defaults \
+    op monitor interval=90 timeout=120 on-fail=fence \
+    op_params OCF_CHECK_LEVEL=20 \
+    op start timeout=120 \
+    op stop timeout=120 \
+    meta maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-fs.txt 
+----
+See also manual page crm(8), SAPCMControlZone_basic_cluster(7), ocf_heartbeat_Filesystem(7)
+and nfs(5).
+
+==== SAP Convergent Mediation ControlZone platform and UI resources
+
+A ControlZone platform resource `rsc_cz_{mySid}` is configured, handled by the operating system user
+`{mySapAdm}`. The local `{mzsh}` is used for monitoring, but for other actions,
+the central `/usr/sap/{mySid}/bin/mzsh` is used.
+In the event of a ControlZone platform failure (or monitor timeout), the platform resource
+is restarted until it is successful or the migration threshold is reached.
+If the migration threshold is reached, or if the node where the group is running fails,
+the group will be moved to the other node.
+A priority is configured for correct fencing in split-brain situations.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-cz.txt
+
+# enter the below to crm-cz.txt
+primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
+    params SERVICE=platform USER={mySapAdm} \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
+    MZHOME={mzhome}/;/usr/sap/{mySid}/ \
+    MZPLATFORM={mzPlatf} \
+    JAVAHOME={mzJavah} \
+    op monitor interval=90 timeout=150 on-fail=restart \
+    op start timeout=300 \
+    op stop timeout=300 \
+    meta priority=100 maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-cz.txt
+----
+
+A ControlZone UI resource `rsc_ui_{mySid}` is configured, handled by the operating system user
+`{mySapAdm}`. The local `{mzsh}` is used for monitoring, but for other actions
+the central `/usr/sap/{mySid}/bin/mzsh` is used.
+In the event of a ControlZone UI failure (or monitor timeout), the UI resource is
+restarted until it is successful or the migration threshold is reached.
+If the migration threshold is reached, or if the node where the group is running fails,
+the group will be moved to the other node.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-ui.txt
+
+# enter the below to crm-ui.txt
+primitive rsc_ui_{mySid} ocf:suse:SAPCMControlZone \
+    params SERVICE=ui USER={mySapAdm} \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
+    MZHOME={mzhome}/;/usr/sap/{mySid}/ \
+    MZPLATFORM={mzPlatf} \
+    JAVAHOME={mzJavah} \
+    op monitor interval=90 timeout=150 on-fail=restart \
+    op start timeout=300 \
+    op stop timeout=300 \
+    meta maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-ui.txt
+----
+
+Find an overview on the RA SAPCMControlZone parameters below:
+
+[[tab.ra-params]]
+[width="100%",cols="30%,70%",options="header"]
+.Table Description of important resource agent parameters
+|===
+|Name
+|Description
+
+|USER
+|OS user who calls mzsh, owner of $MZ_HOME (might be different from $HOME).
+Optional. Unique, string. Default value: "mzadmin".
+
+|SERVICE
+|The ControlZone service to be managed by the resource agent.
+Optional. Unique, [ platform \| ui ]. Default value: "platform".
+
+|MZSHELL
+|Path to mzsh. Could be one or two full paths. If one path is given, that path
+is used for all actions. In case two paths are given, the first one is used for
+monitor actions, the second one is used for start/stop actions. If two paths are
+given, the first needs to be on local disk, the second needs to be on the central
+NFS share with the original CM ControlZone installation. Two paths are separated
+by a semicolon (;). The mzsh contains settings that need to be consistent with
+MZ_PLATFORM, MZ_HOME, JAVA_HOME. Refer to Convergent Mediation product
+documentation for details.
+Optional. Unique, string. Default value: "/opt/cm/bin/mzsh".
+
+|MZHOME
+|Path to CM ControlZone installation directory, owned by the mzadmin user.
+Could be one or two full paths. If one path is given, that path is used for all 
+actions. In case two paths are given, the first one is used for monitor actions,
+the second one is used for start/stop actions. If two paths are given, the
+first needs to be on local disk, the second needs to be on the central NFS share
+with the original CM ControlZone installation. See also JAVAHOME. Two paths are 
+separated by semicolon (;).
+Optional. Unique, string. Default value: "/opt/cm/".
+
+|MZPLATFORM
+|URL used by mzsh for connecting to CM ControlZone services.
+Could be one or two URLs. If one URL is given, that URL is used for all actions.
+In case two URLs are given, the first one is used for monitor and stop actions,
+the second one is used for start actions. Two URLs are separated by semicolon
+(;). Should usually not be changed. The service´s virtual host name or virtual IP
+address managed by the cluster must never be used for RA monitor actions.
+Optional. Unique, string. Default value: "http://localhost:9000".
+
+|JAVAHOME
+|Path to Java virtual machine used for CM ControlZone.
+Could be one or two full paths. If one path is given, that path is used for all
+actions. In case two paths are given, the first one is used for monitor actions,
+the second one is used for start/stop actions. If two paths are given, the
+first needs to be on local disk, the second needs to be on the central NFS share
+with the original CM ControlZone installation. See also MZHOME. Two paths are
+separated by semicolon (;).
+Optional. Unique, string. Default value: "/usr/lib64/jvm/jre-17-openjdk".
+
+|===
+
+See also manual page crm(8) and ocf_suse_SAPCMControlZone(7).
+
+==== CM ControlZone resource group
+
+ControlZone platform and UI resources `rsc_cz_{mySid}` and `rsc_ui_{mySid}` are grouped
+with file system `rsc_fs_{mySid}` and IP address resource `rsc_ip_{mySid}` into group
+`grp_cz_{mySid}`. The file system starts first, then comes the platform. The IP address starts before
+the UI. The resource group might run on either node, but never in parallel.
+If the file system resource is restarted, all resources of the group will restart as
+well. If the platform or IP adress resource is restarted, the UI resource will
+restart as well.
+
+[subs="specialchars,attributes"]
+----
+# vi crm-grp.txt
+
+# enter the below to crm-grp.txt 
+group grp_cz_{mySid} rsc_fs_{mySid} rsc_cz_{mySid} rsc_ip_{mySid} rsc_ui_{mySid} \
+    meta maintenance=true
+----
+
+Load the file to the cluster.
+
+[subs="specialchars,attributes"]
+----
+# crm configure load update crm-grp.txt
+----
+
+=== Activating the cluster resources
+
+// TODO PRIO2: content
+
+[subs="specialchars,attributes"]
+----
+# crm resource refresh grp_cz_{mySid}
+...
+
+# crm resource maintenance grp_cz_{mySid} off
+----
+
+=== Checking the cluster resource configuration
+
+// TODO PRIO2: content
+
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+
+Cluster Summary:
+  * Stack: corosync
+  * Current DC: {myNode1} (version 2.1.2+20211124...) - partition with quorum
+  * Last updated: Tue May 14 17:03:30 2024
+  * Last change:  Mon Apr 22 15:00:58 2024 by root via cibadmin on {myNode2}
+  * 2 nodes configured
+  * 5 resource instances configured
+
+Node List:
+  * Online: [ {myNode1} {myNode2} ]
+
+Full List of Resources:
+  * rsc_stonith_sbd     (stonith:external/sbd):  Started {myNode1}
+  * Resource Group: grp_cz_{mySid}:
+    * rsc_fs_{mySid} (ocf::heartbeat:Filesystem):    Started {myNode2}
+    * rsc_cz_{mySid} (ocf::suse:SAPCMControlZone):   Started {myNode2}
+    * rsc_ip_{mySid} (ocf::heartbeat:IPaddr2):       Started {myNode2}
+    * rsc_ui_{mySid} (ocf::suse:SAPCMControlZone):   Started {myNode2}
+----
+
+Congratulations!
+
+The HA cluster is up and running, controlling the ControlZone resources.
+It is now advisable to create a backup of the cluster configuration.
+
+[subs="specialchars,attributes,verbatim,quotes"]
+----
+FIRSTIME=$(date +%s)
+# crm configure show > crm-all-$\{FIRSTIME\}.txt
+
+# cat crm-all-$\{FIRSTIME\}.txt
+...
+
+# crm_report
+...
+----
+
+See the appendix <<sec.appendix-crm>> for a complete CIB example. 
+
+[[sec.testing]]
+=== Testing the HA cluster
+
+As with any HA cluster, testing is crucial. Ensure that all test cases derived
+from customer expectations are executed and passed. Otherwise, the project is likely
+to fail in production.
+
+- Set up a test cluster for testing configuration changes and administrative
+procedures before applying them on the production cluster.
+
+- Carefully define, perform, and document tests for all scenarios that should be
+covered, and do the same for all maintenance procedures.
+
+- Before performing full cluster testing, test the ControlZone features without the Linux cluster.
+
+- Test basic Linux cluster features without ControlZone before perforing full cluster testing.
+
+- Follow general best practices, see <<sec.best-practice>>. 
+
+- Open an additional terminal window on a node that is expected to not be fenced.
+In that terminal, continously run `cs_show_cluster_actions` or similar.
+See manual page cs_show_cluster_actions(8) and SAPCMControlZone_maintenance_examples(7).
+
+The following list shows common test cases for the CM ControlZone resources managed
+by the HA cluster.
+
+// Manually restarting ControlZone resources in-place
+- <<sec.test-restart>>
+// Manually migrating ControlZone resources
+- <<sec.test-migrate>>
+// Testing ControlZone UI restart by cluster on UI failure
+- <<sec.test-ui-fail>>
+// Testing ControlZone restart by cluster on platform failure
+- <<sec.test-cz-fail>>
+// Testing ControlZone takeover by cluster on node failure
+- <<sec.test-node-fail>>
+// Testing ControlZone takeover by cluster on NFS failure
+- <<sec.test-nfs-fail>>
+// Testing cluster reaction on network split-brain
+- <<sec.test-split-brain>>
+
+This is not a complete list. Define additional test cases according to your
+needs. Some examples are listed in <<sec.test-additional>>.
+Do not forget to perform every test on each node.
+
+NOTE: Tests for the basic HA cluster and tests for bare CM ControlZone
+components are not covered in this document. Information about these tests 
+can be found in the relevant product documentation.
+
+// TODO PRIO2: URLs to product docu for tests
+
+Unless otherwise stated, the test prerequisites are always that 
+
+* both cluster nodes are booted and connected to the cluster.
+* SBD and corosync are fine.
+* NFS and local disks are fine. 
+* the ControlZone resources are all running.
+* no fail counts or migration constraints are in the CIB.
+* the cluster is idle, no actions are pending.
+
+[[sec.test-restart]]
+==== Manually restarting ControlZone resources in-place
+==========
+.{testComp}
+- ControlZone resources
+
+.{testDescr}
+- The ControlZone resources are stopped and restarted in-place.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Stop the ControlZone resources.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm resource stop grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Check the ControlZone resources.
++
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+...
+# mount | grep "/usr/sap/{mySid}"
+...
+# df -h /usr/sap/{mySid}
+...
+----
++
+. Start the ControlZone resources.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm resource start grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster gracefully stops all resources.
+. The file system stays mounted.
+. The cluster starts all resources.
+. No resource failure happens.
+==========
+
+[[sec.test-migrate]]
+==== Manually migrating ControlZone resources
+==========
+.{testComp}
+- ControlZone resources
+
+.{testDescr}
+- The ControlZone resources are stopped and then started on the other node.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Migrate the ControlZone resources.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm resource move grp_cz_{mySid} force
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Remove migration constraint.
++
+[subs="specialchars,attributes"]
+----
+# crm resource clear grp_cz_{mySid}
+# crm configure show | grep cli-
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster gracefully stops all resources.
+. The file system stays mounted.
+. The cluster starts all resources on the other node.
+. No resource failure happens.
+==========
+
+[[sec.test-ui-fail]]
+==== Testing ControlZone UI restart by cluster on UI failure
+==========
+.{testComp}
+- ControlZone resources (UI)
+
+.{testDescr}
+- The ControlZone UI is restarted on same node.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Manually kill ControlZone UI (on, for example, `{mynode1}`).
++
+
+[subs="specialchars,attributes"]
+----
+# ssh root@{mynode1} "su - {mySapAdm} \"mzsh kill ui\""
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Clean up fail count.
++
+[subs="specialchars,attributes"]
+----
+# crm resource cleanup grp_cz_{mySid}
+# cibadmin -Q | grep fail-count
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster detects failed resources.
+. The file system stays mounted.
+. The cluster restarts the UI on the same node.
+. One resource failure happens.
+==========
+
+[[sec.test-cz-fail]]
+==== Testing ControlZone restart by cluster on platform failure
+==========
+.{testComp}
+- ControlZone resources (platform)
+
+.{testDescr}
+- The ControlZone resources are stopped and restarted on same node.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Manually kill ControlZone platform (on, for example, `{mynode1}`).
++
+[subs="specialchars,attributes"]
+----
+# ssh root@{mynode1} "su - {mySapAdm} \"mzsh kill platform\""
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Clean up fail count.
++
+[subs="specialchars,attributes"]
+----
+# crm resource cleanup grp_cz_{mySid}
+# cibadmin -Q | grep fail-count
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster detects faileded resources.
+. The file system stays mounted.
+. The cluster restarts resources on the same node.
+. One resource failure happens.
+==========
+
+[[sec.test-node-fail]]
+==== Testing ControlZone takeover by cluster on node failure
+==========
+.{testComp}
+- Cluster node
+
+.{testDescr}
+- The ControlZone resources are started on other node
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Manually kill cluster node, where resources are running (for example `{mynode1}`).
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # ssh root@{mynode1} "systemctl reboot --force"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Rejoin fenced node (for example `{mynode1}`) to cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_show_sbd_devices | grep reset
+{mynode2}:~ # cs_clear_sbd_devices --all
+{mynode2}:~ # crm cluster start --all
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+.{testExpect}
+. The cluster detects a failed node.
+. The cluster fences a failed node.
+. The cluster starts all resources on the other node.
+. The fenced node needs to be connected to the cluster.
+. No resource failure happens.
+==========
+
+[[sec.test-nfs-fail]]
+==== Testing ControlZone takeover by cluster on NFS failure
+==========
+.{testComp}
+- Network (for NFS)
+
+.{testDescr}
+- The NFS share fails on one node and the cluster moves resources to other node.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Manually block port for NFS, where resources are running (for example `{mynode1}`).
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p tcp -m multiport --ports 2049 -j DROP"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L | grep 2049"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Rejoin fenced node (for example `{mynode1}`) to cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_show_sbd_devices | grep reset
+{mynode2}:~ # cs_clear_sbd_devices --all
+{mynode2}:~ # crm cluster start --all
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+// TODO PRIO1: more test details
+
+.{testExpect}
+. The cluster detects failed NFS.
+. The cluster fences the node.
+. The cluster starts all resources on the other node.
+. The fenced node needs to be connected to the cluster.
+. Resource failure happens.
+==========
+
+[[sec.test-split-brain]]
+==== Testing cluster reaction on network split-brain
+==========
+.{testComp}
+- Network (for Corosync)
+
+.{testDescr}
+- The network fails, node without resources gets fenced, resources keep running.
+
+.{testProc}
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Manually block ports for Corosync.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # grep mcastport /etc/corosync/corosync.conf
+{mynode2}:~ # ssh root@{mynode1} "iptables -I INPUT -p udp -m multiport --ports 5405,5407 -j DROP"
+{mynode2}:~ # ssh root@{mynode1} "iptables -L | grep -e 5405 -e 5407"
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
++
+. Rejoin fenced node (for example `{mynode1}`) to cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_show_sbd_devices | grep reset
+{mynode2}:~ # cs_clear_sbd_devices --all
+{mynode2}:~ # crm cluster start --all
+----
++
+. Check the ControlZone resources and cluster.
++
+[subs="specialchars,attributes"]
+----
+{mynode2}:~ # cs_wait_for_idle -s 5; crm_mon -1r
+----
+
+// TODO PRIO1: more test details
+
+.{testExpect}
+. The cluster detects failed Corosync.
+. The cluster fences the node.
+. The cluster keeps all resources on the same node.
+. The fenced node needs to be connected to the cluster.
+. No resource failure happens.
+==========
+
+[[sec.test-additional]]
+=== Additional tests
+
+Define additional test cases according to your needs. Some test cases you should test are listed below.
+
+- Remove virtual IP address.
+- Stop and restart passive node.
+- Stop and restart in parallel all cluster nodes.
+- Isolate the SBD.
+- Maintenance procedure with cluster is continuously running, but application restarts.
+- Maintenance procedure with cluster restarts, but application is running.
+- Kill the Corosync process of one cluster node.
+
+See also manual page crm(8) for cluster crash_test.
+
+
+
+== Administration
+
+HA clusters are complex, and the CM ControlZone is also complex.
+Deploying and running HA clusters for CM ControlZonen needs preparation, caution and
+care. Fortunately, most of the pitfalls and many best practices are already
+known. This chapter describes general administrative tasks.
+
+[[sec.best-practice]]
+=== Dos and don'ts
+
+The following basic rules will help you avoid known issues: 
+
+- Carefully test all configuration changes and administrative procedures on the
+test cluster before applying them to the production cluster.
+
+- Before taking any action, always check the Linux cluster's idle status,
+remaining migration constraints, and resource failures, plus the
+ControlZone status. See <<sec.adm-show>>.
+
+- Be patient. The Linux cluster requires a certain amount of time to detect 
+the overall status of the ControlZone, depending on the ControlZone services 
+and the configured intervals and timeouts.
+
+- As long as the ControlZone components are managed by the Linux cluster, they
+may never be started/stopped/moved from outside. This means that no manual
+intervention is required.
+
+See also the manual page SAPCMControlZone_maintenance_examples(7),
+SAPCMControlZone_basic_cluster(7), and ocf_suse_SAPCMControlZone(7).
+
+[[sec.adm-show]]
+=== Showing status of ControlZone resources and HA cluster
+
+Perform the following steps each time before and after you do any work on the cluster.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+----
+See also manual page SAPCMControlZone_maintenance_examples(7), crm_mon(8),
+cs_clusterstate(8), and cs_show_cluster_actions(8).
+
+=== Watching ControlZone resources and HA cluster
+
+During testing and maintenance, you can run the following command to view 
+near real-time status changes.
+
+[subs="specialchars,attributes"]
+----
+# watch -s8 cs_show_cluster_actions
+----
+See also manual page SAPCMControlZone_maintenance_examples(7), crm_mon(8),
+cs_clusterstate(8), and cs_show_cluster_actions(8).
+
+=== Starting the ControlZone resources
+
+Use the cluster for starting the resources.
+
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource start grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+See also manual page SAPCMControlZone_maintenance_examples(7), crm(8).
+
+=== Stopping the ControlZone resources
+
+Use the cluster for stopping the resources.
+
+[subs="specialchars,attributes"]
+----
+# crm_mon -1r
+# cs_wait_for_idle -s 5; crm resource stop grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
+----
+See also manual page SAPCMControlZone_maintenance_examples(7), crm(8).
+
+=== Migrating the ControlZone resources
+
+To migrate the ControlZone resources to another node, the following steps are performed 
+(see commands below):
+ControlZone application and Linux cluster are initially checked for a clean and idle state.
+The ControlZone resources are moved to the other node. 
+The associated location rule will be removed after the takeover took place. Finally, ControlZone 
+application and HA cluster are again checked for a clean and idle state.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+
+# crm resource move grp_cz_{mySid} force
+# cs_wait_for_idle -s 5; crm_mon -1r
+# crm resource clear grp_cz_{mySid}
+
+# cs_wait_for_idle -s 5; crm_mon -1r
+# crm configure show | grep cli-
+# su - {mySapAdm} -c "mzsh status"
+----
+See also manual page SAPCMControlZone_maintenance_examples(7). 
+
+=== Example for generic maintenance procedure
+
+Find below a generic procedure, mainly for maintenance of the ControlZone components. 
+The resources are temporarily removed from cluster control. The Linux cluster remains active.
+
+The individual steps are carried out as follows (see commands below):
+ControlZone application and HA cluster are initially checked for a clean and idle state.
+The ControlZone resource group is set to maintenance mode. This is required to enable manual 
+actions on the resources. After the manual actions are completed, the resource group is placed 
+back under cluster control. It is neccessary to wait for the completion of each step and to check the results. 
+Finally, ControlZone application and HA cluster are again checked for a clean and idle state.
+
+[subs="specialchars,attributes"]
+----
+# su - {mySapAdm} -c "mzsh status"
+# crm_mon -1r
+# crm configure show | grep cli-
+# cibadmin -Q | grep fail-count
+# cs_clusterstate -i
+# crm resource maintenance grp_cz_{mySid}
+
+# echo "PLEASE DO MAINTENANCE NOW"
+
+# crm resource refresh grp_cz_{mySid}
+# cs_wait_for_idle -s 5; crm_mon -1r
+# crm resource maintenance grp_cz_{mySid} off
+# cs_wait_for_idle -s 5; crm_mon -1r
+# su - {mySapAdm} -c "mzsh status"
+----
+See also manual page SAPCMControlZone_maintenance_examples(7). 
+
+=== Showing resource agent log messages
+
+Failed RA actions on a node are displayed in the current message file.
+
+[subs="specialchars,attributes"]
+----
+# grep "SAPCMControlZone.*rc=[1-7,9]" /var/log/messages
+----
+See also manual page ocf_suse_SAPCMControlZone(7).
+
+=== Cleaning up resource fail count
+
+Cleaning up resource fail count can be done after the cluster has recovered the resource from a failure.
+
+[subs="specialchars,attributes"]
+----
+# crm resource cleanup grp_cz_{mySid}
+# cibadmin -Q | grep fail-count
+----
+See also manual page ocf_suse_SAPCMControlZone(7) and
+SAPCMControlZone_maintenance_examples(7).
+
+
+
+[[cha.references]]
+== References
+
+For more information, see the documents listed below.
+
+=== Pacemaker
+- Pacemaker documentation online:
+https://clusterlabs.org/pacemaker/doc/
+
+:leveloffset: 2
+include::SAPNotes-convergent-mediation.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+////
+############################
+#
+# APPENDIX
+#
+############################
+////
+
+:leveloffset: 0
+[[cha.appendix]]
+== Appendix
+
+=== The mzadmin user´s ~/.bashrc file
+
+Find below a typical mzadmin user´s ~/.bashrc file. 
+
+[subs="specialchars,attributes,verbatim,quotes"]
+----
+{myNode1}:~ # su - {mySapAdm} -c "cat ~./bashrc"
+
+# MZ_PLATFORM, MZ_HOME, JAVA_HOME are set by HA RA
+export MZ_PLATFORM=${RA_MZ_PLATFORM:-"{mzPlatf}"}
+export MZ_HOME=${RA_MZ_HOME:-"/usr/sap/{mySid}"}
+export JAVA_HOME=${RA_JAVA_HOME:-"{mzJavah}"}
+----
+
+[[sec.appendix-crm]]
+=== CRM configuration for a typical setup
+
+Find below a typical CRM configuration for a CM ControlZone instance,
+with a dummy file system, platform and UI services and related IP address.
+
+[subs="specialchars,attributes"]
+----
+{myNode1}:~ # crm configure show 
+
+node 1: {myNode1}
+node 2: {myNode2}
+#
+primitive rsc_fs_{mySid} ocf:heartbeat:Filesystem \
+    params device=/usr/sap/{mySid}/.check directory=/usr/sap/.check_{mySid} \
+    fstype=nfs4 options=bind,rw,noac,sync,defaults \
+    op monitor interval=90 timeout=120 on-fail=fence \
+    op_params OCF_CHECK_LEVEL=20 \
+    op start timeout=120 interval=0 \
+    op stop timeout=120 interval=0
+#
+primitive rsc_cz_{mySid} ocf:suse:SAPCMControlZone \
+    params SERVICE=platform USER={mySapAdm} \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
+    MZHOME={mzhome}/;/usr/sap/{mySid}/ \
+    MZPLATFORM={mzPlatf} \
+    JAVAHOME={mzJavah} \
+    op monitor interval=90 timeout=150 on-fail=restart \
+    op start timeout=300 interval=0 \
+    op stop timeout=300 interval=0 \
+    meta priority=100
+#
+primitive rsc_ui_{mySid} ocf:suse:SAPCMControlZone \
+    params SERVICE=ui USER={mySapAdm} \
+    MZSHELL={mzsh};/usr/sap/{mySid}/bin/mzsh \
+    MZHOME={mzhome}/;/usr/sap/{mySid}/ \
+    MZPLATFORM={mzPlatf} \
+    JAVAHOME={mzJavah} \
+    op monitor interval=90 timeout=150 on-fail=restart \
+    op start timeout=300 interval=0 \
+    op stop timeout=300 interval=0
+#
+primitive rsc_ip_{mySid} IPaddr2 \
+    params ip={myVipAcz} \
+    op monitor interval=60 timeout=20 on-fail=restart
+#
+primitive rsc_stonith_sbd stonith:external/sbd \
+    params pcmk_delay_max=15
+#
+group grp_cz_{mySid} rsc_fs_{mySid} rsc_cz_{mySid} rsc_ip_{mySid} rsc_ui_{mySid}
+#
+property cib-bootstrap-options: \
+    have-watchdog=true \
+    dc-version="2.1.2+20211124.ada5c3b36-150400.2.43-2.1.2+20211124.ada5c3b36" \
+    cluster-infrastructure=corosync \
+    cluster-name=hacluster \
+    dc-deadtime=20 \
+    stonith-enabled=true \
+    stonith-timeout=150 \
+    stonith-action=reboot \
+    last-lrm-refresh=1704707877 \
+    priority-fencing-delay=30
+rsc_defaults rsc-options: \
+    resource-stickiness=1 \
+    migration-threshold=3 \
+    failure-timeout=86400
+op_defaults op-options: \
+    timeout=120 \
+    record-pending=true
+#
+----
+
+[[sec.appendix-coros]]
+=== Corosync configuration of the two-node cluster
+
+Find below the Corosync configuration for one Corosync ring. Ideally two rings would be used.
+
+[subs="specialchars,attributes"]
+----
+{myNode1}:~ # cat /etc/corosync/corosync.conf
+
+# Read the corosync.conf.5 manual page
+totem {
+    version: 2
+    secauth: on
+    crypto_hash: sha1
+    crypto_cipher: aes256
+    cluster_name: hacluster
+    clear_node_high_bit: yes
+    token: 5000
+    token_retransmits_before_loss_const: 10
+    join: 60
+    consensus: 6000
+    max_messages: 20
+    interface {
+        ringnumber: 0
+        mcastport: 5405
+        ttl: 1
+    }
+    transport: udpu
+}
+
+logging {
+    fileline: off
+    to_stderr: no
+    to_logfile: no
+    logfile: /var/log/cluster/corosync.log
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: QUORUM
+        debug: off
+    }
+}
+
+nodelist {
+    node {
+        ring0_addr: {myIPNode1}
+        nodeid: 1
+    }
+    node {
+        ring0_addr: {myIPNode2}
+        nodeid: 2
+    }
+}
+
+quorum {
+    # Enable and configure quorum subsystem (default: off)
+    # see also corosync.conf.5 and votequorum.5
+    provider: corosync_votequorum
+    expected_votes: 2
+    two_node: 1
+}
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]
+
+//
+// REVISION 0.1 2024/01
+// REVISION 0.2 2024/05
+//

@@ -1,0 +1,82 @@
+:pg: PostgreSQL
+:redis: Redis
+
+
+IMPORTANT::
+SUSE does *not* offer database support for {pg} on Kubernetes.
+To get support, go to link:https://www.postgresql.org/support/[The PostgreSQL Global Development Group].
+
+
+IMPORTANT::
+The instructions below describe only one variant of installing {pg}.
+There are other possible ways to set up {pg} which are not covered in this guide. 
+It is also possible to install {pg} as a single instance on the operating system.
+We will focus on installing {pg} in a Kubernetes cluster as we also need a {redis} database and we will clustering that together.
+
+== Deploying {pg}
+Even though {pg} is available for deployment using the {rancher} Apps, we recommend to use the {rac}.
+The {pg} chart can be found at https://apps.rancher.io/applications/postgresql.
+
+== Creating Secret for {rac}
+First, create a namespace and the *imagePullSecret* for installing the {pg} database onto the cluster.
+[source, bash]
+----
+$ kubectl create namespace postgresql
+----
+
+[#pgIPS]
+How to create the *imagePullSecret* is described in the Section xref:SAP-EIC-ImagePullSecrets.adoc#imagePullSecret[].
+
+=== Create Secret with certificates
+Second, create the Kubernetes secret with the certificates. You will find an example how to do this in the xref:SAP-EIC-Main.adoc#selfSignedCertificates[].
+
+=== Installing the application
+[#pgLIR]
+Before you can install the application, you need to log in to the registry. You can find the instruction in xref:SAP-EIC-LoginRegistryApplicationCollection.adoc#LoginApplicationCollection[]
+
+Create a file *values.yaml* which holds some configurations for the {pg} Helm chart.
+The configuration may look like:
+[source, yaml]
+----
+global:
+  # -- Global override for container image registry pull secrets
+  imagePullSecrets: ["application-collection"]
+images:
+  postgresql:
+    # -- Image name to use for the PostgreSQL container
+    repository: dp.apps.rancher.io/containers/postgresql
+    # -- Image tag to use for the PostgreSQL container
+    tag: "15.7"
+auth:
+  # -- PostgreSQL username for the superuser
+  postgresUsername: postgres
+  # -- PostgreSQL password for the superuser
+  postgresPassword: "<your_password>"
+  # -- Replication username
+  replicationUsername: replication
+  # -- Replication password
+  replicationPassword: "<your_password>"
+tls:
+  # -- Enable SSL/TLS
+  enabled: false
+  # -- Name of the secret containing the PostgreSQL certificates
+  existingSecret: "postgresqlcert"
+  # -- Whether or with what priority a secure SSL TCP/IP connection will be negotiated with the server. Valid values: prefer (default), disable, allow, require, verify-ca, verify-full
+  sslMode: "verify-full"
+  # -- Certificate filename in the secret (will be ignored if empty)
+  certFilename: "server.pem"
+  # -- Certificate key filename in the secret (will be ignored if empty)
+  keyFilename: "server.key"
+  # -- CA certificate filename in the secret (will be ignored if empty)
+  caCertFilename: "root.pem"
+persistentVolumeClaimRetentionPolicy:
+  whenDeleted: Delete
+----
+
+To install the application, run:
+[source, bash]
+----
+$ helm install postgres oci://dp.apps.rancher.io/charts/postgres -f values.yaml --namespace=postgres
+----
+
+

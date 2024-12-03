@@ -4,6 +4,9 @@
 include::Var_SLES4SAP-hana-sr-guide-CostOpt-15.txt[]
 include::Var_SLES4SAP-hana-sr-guide-CostOpt-15-param.txt[]
 
+// defining article ID
+[#art-sap-hana-srguide-costopt15]
+
 // Start of the document
 
 = {SAPHANA} System Replication Scale-Up - Cost Optimized Scenario
@@ -77,10 +80,17 @@ From the infrastructure perspective, the following variants are covered:
 - Public cloud deployment (usually needs additional documentation focusing on the cloud specific implementation details)
 
 Deployment automation simplifies roll-out. There are several options available,
-particularly on public cloud platfoms (for example https://www.suse.com/c/automating-the-sap-hana-high-availability-cluster-deployment-for-microsoft-azure/).
+particularly on public cloud platfoms.
 Ask your public cloud provider or your SUSE contact for details.
 
 See <<cha.hana-sr.scenario>> for details.
+
+NOTE: In this guide the software package SAPHanaSR is used. This package has been
+obsoleted by SAPHanaSR-angi. Thus new deployment should be done with SAPHanaSR-angi
+only.
+// TODO PRIO1: following the setup guide at https://documentation.suse.com/sbp/sap-15/html/SLES4SAP-hana-angi-perfopt-15/index.html .
+For upgrading existing clusters to SAPHanaSR-angi, please
+read the blog article https://www.suse.com/c/how-to-upgrade-to-saphanasr-angi/ .
 
 ==== Scale-up versus scale-out
 
@@ -168,7 +178,7 @@ As already explained, the secondary {HANA} database must run with memory resourc
 restrictions. The HA/DR provider needs to remove these memory restrictions when a
 takeover occurs. This is why multi SID (also MCOS) must not be used in this scenario.
 
-* *Multi-tier* (_A => B -> C_) and *Multi-target* (_B <= A => C_).
+* *Multi-tier* ([A => B] -> C) and *Multi-target* ([B <= A] -> C).
 +
 .{HANA} System Replication Scale-Up in the Cluster - performance optimized chain
 image::SAPHanaSR-ScaleUP-Chain.svg[scaledwidth=100.0%]
@@ -383,6 +393,8 @@ _{refsidadm}_ is not allowed to terminate the processes of the other tenant user
 scenario. Hence, only one replicating database pair and one non-replicating database
 in the same cluster as described in this guide are supported for the cost-optimized
 scenario.
+* No manual actions must be performed on the {HANA} database while it is controlled
+by the Linux cluster. All administrative actions need to be aligned with the cluster.
 
 The {SLES4SAP} versions are:
 
@@ -394,9 +406,9 @@ The {SLES4SAP} versions are:
 For the HA/DR provider hook scripts SAPHanaSR.py and susCostOpt.py, the following
 requirements apply:
 
-* {HANA} 2.0 SPS04 or later provides the HA/DR provider hook method
-srConnectionChanegd() with multi-target aware parameters. {sap} HANA 1.0 does not
-provide them. The multi-target aware parameters are needed for the SAPHanaSR
+* {HANA} 2.0 SPS05 rev.059 and later provides Python3 as well as the HA/DR provider hook
+method srConnectionChanegd() with multi-target aware parameters. {sap} HANA 1.0 does not
+provide them. Python 3 and multi-target aware parameters are needed for the SAPHanaSR
 scale-up package.
 * {HANA} 2.0 SPS04 or later provides the HA/DR provider hook method postTakeover().
 // TODO PRIO1: check above version
@@ -1987,7 +1999,7 @@ primitive rsc_SAPHanaTopology_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
     op start interval="0" timeout="600" \
     op stop interval="0" timeout="300" \
     params SID="{sapsid}" InstanceNumber="{sapino}"
-clone cln_SAPHanaTopology_{sapsid}_HDB{sapino} rsc_SAPHanaTopology_{sapsid}_HDB{sapino} \
+clone cln_SAPHanaTop_{sapsid}_HDB{sapino} rsc_SAPHanaTop_{sapsid}_HDB{sapino} \
     meta clone-node-max="1" interleave="true"
 ----
 
@@ -2126,7 +2138,7 @@ two resource agents SAPHana and SAPHanaTopology.
 # enter the following to crm-cs.txt
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 3000: rsc_ip_{sapsid}_HDB{sapino}:Started \
     msl_SAPHana_{sapsid}_HDB{sapino}:Master
-order ord_SAPHana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTopology_{sapsid}_HDB{sapino} \
+order ord_SAPHana_{sapsid}_HDB{sapino} Optional: cln_SAPHanaTop_{sapsid}_HDB{sapino} \
     msl_SAPHana_{sapsid}_HDB{sapino}
 ----
 
@@ -3042,7 +3054,8 @@ manually re-registering a site.
 rules mentioned in this setup guide are allowed. For public cloud refer to the
 cloud specific documentation.
 * Using {SAP} tools for attempting start/stop/takeover actions on a database
-while the cluster is in charge of managing that database.
+while the cluster is in charge of managing that database. Same for unregistering/disabling
+system replication.
 
 IMPORTANT: As "migrating" or "moving" resources in crm-shell, HAWK or other
 tools would add client-prefer location rules, support is limited to maintenance
@@ -3105,7 +3118,7 @@ tells `crm_mon` to output the status once instead of periodically.
 //
 //  rsc_stonith_sbd    (stonith:external/sbd): Started {sapnode1}
 //  rsc_SAPInst_{sapnpsid}_HDB{sapnpino}      (ocf::heartbeat:SAPInstance):   Started {sapnode2}
-//  Clone Set: cln_SAPHanaTopology_{sapsid}_HDB{sapino} [rsc_SAPHanaTopology_{sapsid}_HDB{sapino}]
+//  Clone Set: cln_SAPHanaTop_{sapsid}_HDB{sapino} [rsc_SAPHanaTop_{sapsid}_HDB{sapino}]
 //      Started: [ {sapnode1} {sapnode2} ]
 //  Master/Slave Set: msl_SAPHana_{sapsid}_HDB{sapino} [rsc_SAPHana_{sapsid}_HDB{sapino}]
 //      Masters: [ {sapnode1} ]
@@ -3127,7 +3140,7 @@ Node List:
 Full List of Resources:
   * rsc_SAP_{sapnpsid}_HDB{sapnpino}	(ocf::heartbeat:SAPInstance):	 Started {sapnode2}
   * stonith-sbd	(stonith:external/sbd):	 Started {sapnode1}
-  * Clone Set: cln_SAPHanaTopology_{sapsid}_HDB{sapino} [rsc_SAPHanaTopology_{sapsid}_HDB{sapino}]:
+  * Clone Set: cln_SAPHanaTop_{sapsid}_HDB{sapino} [rsc_SAPHanaTop_{sapsid}_HDB{sapino}]:
     * Started: [ {sapnode1} {sapnode2} ]
   * Clone Set: msl_SAPHana_{sapsid}_HDB{sapino} [rsc_SAPHana_{sapsid}_HDB{sapino}] (promotable):
     * Masters: [ {sapnode1} ]
@@ -3337,7 +3350,7 @@ cluster node.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource maintenance <multi-state-resource-name>
+# crm resource maintenance <multi-state-resource>
 ----
 
 // TODO PRIO2: Check -sr_takeover with 'handshake'
@@ -3389,7 +3402,7 @@ cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource refresh <multi-state-resource-name>
+# crm resource refresh <multi-state-resource>
 ----
 +
 * Set the multi-state resource to the status managed again. The command
@@ -3397,7 +3410,7 @@ can be submitted on any cluster node as user root.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource maintenance <multi-state-resource-name> off
+# crm resource maintenance <multi-state-resource> off
 ----
 ==============================
 
@@ -3411,7 +3424,7 @@ migration. For the described attribute query using `SAPHanaSR-showAttr` and
 +
 [subs="attributes,specialchars,quotes"]
 ----
-# crm resource move <multi-state-resource-name> *force*
+# crm resource move <multi-state-resource> *force*
 ----
 +
 Because of the "move away" (*force*) rule, the cluster will *stop* the
@@ -3452,7 +3465,7 @@ in our example on node1 as user _{refsidadm}_.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource clear <multi-state-resource-name>
+# crm resource clear <multi-state-resource>
 ----
 +
 NOTE: The crm resource command *clear* was previously named *unmigrate*. The *unmigrate*
@@ -3518,7 +3531,7 @@ preload_column_tables = false
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource move <multi-state-resource-name> force
+# crm resource move <multi-state-resource> force
 ----
 
 * Wait until the cluster has finished the transition and is idle.
@@ -3526,7 +3539,7 @@ Then remove the migration constraint from CIB.
 +
 [subs="specialchars,attributes,quotes"]
 ----
-# crm resource clear <multi-state-resource-name>
+# crm resource clear <multi-state-resource>
 ----
 ==============================
 
@@ -3699,7 +3712,7 @@ primitive stonith-sbd stonith:external/sbd \
 ms msl_SAPHana_{sapsid}_HDB{sapino} rsc_SAPHana_{sapsid}_HDB{sapino} \
     meta clone-max=2 clone-node-max=1 interleave=true
 
-clone cln_SAPHanaTopology_{sapsid}_HDB{sapino} rsc_SAPHanaTopology_{sapsid}_HDB{sapino} \
+clone cln_SAPHanaTop_{sapsid}_HDB{sapino} rsc_SAPHanaTop_{sapsid}_HDB{sapino} \
     meta clone-node-max=1 interleave=true
 
 location loc_{sapnpsid}_never_on_{sapnode1} rsc_SAP_{sapnpsid}_HDB{sapnpino} -inf: {sapnode1}
@@ -3714,7 +3727,7 @@ colocation col_saphana_ip_{sapsid}_HDB{sapino} 3000: \
     rsc_ip_{sapsid}_HDB{sapino}:Started msl_SAPHana_{sapsid}_HDB{sapino}:Master
 
 order ord_SAPHana_{sapsid}_HDB{sapino} Optional: \
-    cln_SAPHanaTopology_{sapsid}_HDB{sapino} msl_SAPHana_{sapsid}_HDB{sapino}
+    cln_SAPHanaTop_{sapsid}_HDB{sapino} msl_SAPHana_{sapsid}_HDB{sapino}
 
 property cib-bootstrap-options: \
     cluster-infrastructure=corosync \
@@ -3970,4 +3983,8 @@ include::common_gfdl1.2_i.adoc[]
 //   - susCostOpt.py from SAPHanaSR replaced custom script {haDrCostOptMem}
 // REVISION 1.6 2023/04
 //   - SAP native systemd support is default for HANA 2.0 SPS07
+// REVISION 1.6b 2024/02
+//   - HANA 2.0 SPS05 rev.059 Python 3 needed
+// REVISION 1.6c 2024/09
+//   - requirements, dos and don´ts
 //

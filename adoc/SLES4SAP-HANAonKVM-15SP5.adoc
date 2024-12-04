@@ -758,6 +758,8 @@ Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> of the document
 ** each NUMA cell of the guest VM has 56 vCPUs.
 ** the distances between the cells are identical to those of the physical hardware (as per the output of  the command `numactl --hardware`).
 
+The examples below show configurationsnipets for full size single-vm layouts on a 4-node system containing {cascadelake} CPU's (first example) and on a 2-node system containing {sapphirerapids} CPU's (second example).
+
 ----
 <domain type='kvm'>
   <!-- ... -->
@@ -805,6 +807,33 @@ Also refer to <<_sec_memory_backing>> and <<_sec_memory_sizing>> of the document
 </domain>
 ----
 
+----
+<domain type='kvm'>
+  <!-- ... -->
+  <cpu mode='host-passthrough' check='none' migratable='on'>
+    <topology sockets='2' dies='1' cores='56' threads='2'/>
+    <cache mode='passthrough'/>
+    <feature policy='require' name='rdtscp'/>
+    <feature policy='require' name='x2apic'/>
+    <numa>
+      <cell id='0' cpus='0-111' memory='1938817024' unit='KiB'>
+        <distances>
+          <sibling id='0' value='10'/>
+          <sibling id='1' value='21'/>
+        </distances>
+      </cell>
+      <cell id='1' cpus='112-223' memory='1938817024' unit='KiB'>
+        <distances>
+          <sibling id='0' value='21'/>
+          <sibling id='1' value='10'/>
+        </distances>
+      </cell>
+    </numa>
+  </cpu>
+  <!-- ... -->
+</domain>
+----
+
 It is also necessary to pin virtual CPUs to physical CPUs. This limits the overhead caused by virtual CPUs being moved around physical CPUs by the host scheduler.
 Similarly, the memory for each NUMA cell of the guest VM must be allocated only on the corresponding host NUMA node.
 
@@ -824,7 +853,9 @@ Make sure to take note of the following configuration components:
 * The `cputune` element contains the attributes describing the mappings of vCPUs to physical CPUs.
 * The `numatune` element contains the attributes to describe the distribution of RAM across the virtual NUMA nodes (CPU sockets).
 ** The `mode` attribute should be set to `strict`.
-** The appropriate number of nodes should be entered in the `nodeset` and `memnode` attributes. In this example, there are 4 sockets, therefore the values are `nodeset=0-3` and `cellid` 0 to 3.
+** The appropriate number of nodes should be entered in the `nodeset` and `memnode` attributes. In the first example, there are 4 sockets, therefore the values are `nodeset=0-3` and `cellid` 0 to 3.
+
+The examples below show configurationsnipets for full size single-vm layouts on a 4-node system containing {cascadelake} CPU's (first example) and on a 2-node system containing {sapphirerapids} CPU's (second example).
 
 ----
 <domain type='kvm'>
@@ -860,6 +891,38 @@ Make sure to take note of the following configuration components:
   <!-- ... -->
 </domain>
 ----
+----
+<domain type='kvm'>
+  <vcpu placement='static'>224</vcpu>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='0,112'/>
+    <vcpupin vcpu='1' cpuset='0,112'/>
+    <vcpupin vcpu='2' cpuset='1,113'/>
+    <vcpupin vcpu='3' cpuset='1,113'/>
+    <vcpupin vcpu='4' cpuset='2,114'/>
+    <vcpupin vcpu='5' cpuset='2,114'/>
+    <vcpupin vcpu='6' cpuset='3,115'/>
+    <vcpupin vcpu='7' cpuset='3,115'/>
+    <vcpupin vcpu='8' cpuset='4,116'/>
+    <vcpupin vcpu='9' cpuset='4,116'/>
+    <vcpupin vcpu='10' cpuset='5,117'/>
+    <vcpupin vcpu='11' cpuset='5,117'/>
+    <!-- output abbreviated -->
+    <vcpupin vcpu='218' cpuset='109,221'/>
+    <vcpupin vcpu='219' cpuset='109,221'/>
+    <vcpupin vcpu='220' cpuset='110,222'/>
+    <vcpupin vcpu='221' cpuset='110,222'/>
+    <vcpupin vcpu='222' cpuset='111,223'/>
+    <vcpupin vcpu='223' cpuset='111,223'/>
+  </cputune>
+  <numatune>
+    <memnode cellid='0' mode='strict' nodeset='0'/>
+    <memnode cellid='1' mode='strict' nodeset='1'/>
+  </numatune>
+  <!-- ... -->
+</domain>
+----
+
 
 The following script generates a section of the domain configuration according to the described specifications:
 
@@ -1077,9 +1140,11 @@ To edit the boot options for the Linux kernel, do the following:
 +
 
 ----
-mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 numa_balancing=disable tsx=off mmio_stale_data=off
+intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 numa_balancing=disable mitigations=auto skew_tick=1
 ----
 +
+//CSL: mitigations=auto kvm.nx_huge_pages=off intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 numa_balancing=disable tsx=off mmio_stale_data=off
+
 
 A detailed explanation of these parameters has been given in <<_sec_technical_explanation_of_the_above_described_configuration_settings>>.
 

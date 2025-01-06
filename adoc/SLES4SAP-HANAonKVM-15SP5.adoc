@@ -136,11 +136,7 @@ _Guest:_ {sles4sapAbbr} 15 SP5 onwards
 
 _Size:_ max. 2 sockets footnote:max2sockets[Maximum 2 sockets using Intel standard chipsets on a single system board], 4 TiB RAM
 |
-_Hypervisor:_ {sles4sapAbbr} 15 SP5 
-
-_Guest:_ {sles4sapAbbr} 15 SP5 onwards 
-
-_Size:_ One VM per socket (max. 2 VMs per host)
+no
 |
 no
 |===
@@ -148,7 +144,7 @@ no
 Check the following SAP Notes for the latest details of supported SAP HANA on KVM scenarios:
 
 * {launchPadNotes}2284516[SAP Note 2284516 - "SAP HANA virtualized on SUSE Linux Enterprise Hypervisors"]
-* {launchPadNotes}3366235[SAP Note 3366235 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP4"]
+* {launchPadNotes}3538596[SAP Note 3538596 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP5"]
 
 [[_sec_sizing]]
 === Sizing
@@ -567,8 +563,9 @@ To edit the boot options for the Linux kernel, perform the following steps:
 . Edit [path]_/etc/default/grub_ and add the following boot options to the line *GRUB_CMDLINE_LINUX_DEFAULT* (a detailed explanation of these options will follow).
 +
 
-----
 // intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=<number of hugepages> numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor mmio_stale_data=off tsx=off
+
+----
 intremap=no_x2apic_optout intel_idle.max_cstate=0 processor.max_cstate=0 intel_iommu=on iommu=pt transparent_hugepage=never default_hugepagesz=1GB hugepagesz=1GB hugepages=3698 numa_balancing=disable kvm_intel.ple_gap=0 kvm_intel.ple_window=0 mitigations=auto kvm.nx_huge_pages=off security=apparmor
 ----
 +
@@ -705,25 +702,25 @@ All the NUMA cells should also have the same number of huge pages assigned to th
 
 Therefore, the number of huge pages needs to be dividable by the number of NUMA cells.
 
-For example, if the host has 6339943304 KiB (that is, 6 TiB) of memory and you want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pages:
+For example, if the host has 4294967296 KiB (that is, 4 TiB) of memory on two NUMA cells and you want to leave 91.75% of it to the hypervisor (see <<_sec_memory_sizing>>), and there are 4 NUMA cells, each NUMA cell will have the following number of huge pages:
 
-* (6339943304 * (91.75/100)) / 1048576 / 4 = 1386
+* (4294967296 * (91.75/100)) / 1048576 / 2 = 1879
 
 This means that, in total, there needs to be the following number of huge pages:
 
-* 1386 * 4 = 5544
+* 1879 * 2 = 3758
 
-Such number must be passed to the host kernel command line parameter on boot (that is `hugepages=5544`, see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
+Such number must be passed to the host kernel command line parameter on boot (that is `hugepages=3758`, see <<_sec_technical_explanation_of_the_above_described_configuration_settings>>).
 
-Both the total amount of memory the guest VM should use and the fact that such memory must come from 1 GiB huge pages need to be specified in the guest VM configuration file.
+Both the total amount of memory the guest VM should use and the fact that such memory must come from 1 GiB huge pages need to be specified in the guest VM configuration file. This means that the total available memory is the total of all configured 1GiB sized hugepages on the host (in KiB).
 
 You must also ensure that the `memory` and the `currentMemory` element have the same value. This is to disable memory ballooning, which, if enabled, would cause unacceptable latency:
 
 ----
 <domain type='kvm'>
   <!-- ... -->
-  <memory unit='KiB'>5813305344</memory>
-  <currentMemory unit='KiB'>5813305344</currentMemory>
+  <memory unit='KiB'>3940548608</memory>
+  <currentMemory unit='KiB'>3940548608</currentMemory>
   <memoryBacking>
     <hugepages>
       <page size='1048576' unit='KiB'/>
@@ -746,7 +743,7 @@ The memory unit can be set to GiB to ease the memory computations.
 It is important to map the host topology into the guest VM, as described below.
 This allows HANA to spread its own workload threads across many virtual CPUs and NUMA nodes.
 
-For example, for a 4-socket system, with 28 cores per socket and hyperthreading enabled, the virtual CPU configuration for a single VM will also have 4 sockets, 28 cores, 2 threads. In a multi-VM scenario it is also imperative that the hosts NUMA topology is maped to the VMs. Two VMs on a 4-socket systems would both reflect the NUMA topology of two of the hosts NUMA nodes/sockets. Four VMs on a 4-socket system would reflect the NUMA topology of a single NUMA node/socket.
+For example, for a 2-socket system, with 56 cores per socket and hyperthreading enabled, the virtual CPU configuration for a single VM will also have 2 sockets, 56 cores, 2 threads. In a multi-VM scenario it is also imperative that the hosts NUMA topology is maped to the VMs. Two VMs on a 4-socket systems would both reflect the NUMA topology of two of the hosts NUMA nodes/sockets. Four VMs on a 4-socket system would reflect the NUMA topology of a single NUMA node/socket.
 
 Always make sure that, in the guest VM configuration file:
 
@@ -1391,43 +1388,28 @@ The actual XML configuration must be based on your respective hardware configura
 Points of interest in this example (refer to the detailed sections of the *SUSE Best Practices for SAP HANA on KVM* ({sles4sap} {slesProdVersion}) document at hand for a full explanation):
 
 * Memory
-** The hypervisor has 6 TiB RAM (or 6144 GiB), of which 5544 GiB have been allocated as 1 GB huge pages and therefore 5544 GiB is the max VM size in this case
-** 5544 GiB = 5813305344 KiB
-** In the `numa` section memory is split evenly over the 4 NUMA nodes (CPU sockets)
+** The hypervisor has 4 TiB RAM (or 4096 GiB), of which 3698 GiB have been allocated as 1 GB huge pages and therefore 3698 GiB is the max VM size in this case
+** 3698 GiB = 3877634048 KiB
+** In the `numa` section memory is split evenly over the 2 NUMA nodes (CPU sockets)
 * CPU pinning
 ** Note the alternating CPU pinning on the hypervisor, see <<_sec_vcpu_and_vnuma_topology>> for details
-** Note the topology of the guest VM mirrors the one of the hypervisor (4x28 CPU cores)
-* Network I/O
-** Virtual functions of the physical network interface card have been added as PCI devices
-* Storage I/O
-** A single SAN HBA is passed through to the VM as `hostdev` device (one for each function/port)
-** See <<_sec_storage>> for details
+** Note the topology of the guest VM mirrors the one of the hypervisor (2x56 CPU cores)
 * `qemu:commandline` elements to describe CPU attributes, for details see <<_sec_global_vcpu_configuration>>
 
-
-The following VM definition is an example for a VM configured to consume a 4-socket server with 3 TiB of main memory. It is taken from our actual validation machine.
+The following VM definition is an example for a VM configured to consume a 2-socket server with 4 TiB of main memory. It is taken from one of our machines that we use for development and testing.
 Note that this file is abridged for clarity; the cut is denoted by a `[...]` mark. 
 
 ----
-# cat /etc/libvirt/qemu/SUSEKVM.xml
-!--
-WARNING: THIS IS AN AUTO-GENERATED FILE. CHANGES TO IT ARE LIKELY TO BE
-OVERWRITTEN AND LOST. Changes to this xml configuration should be made using:
-  virsh edit SUSEKVM
-or other application using the `libvirt` API.
---
-
-<domain type='kvm'>
-  <name>kvmvm11</name>
-  <uuid>f529e0b0-93cc-4e83-87dc-65cb9922336d</uuid>
-  <description>kvmvm11</description>
+<domain type='kvm' id='12'>
+  <name>vm90</name>
+  <uuid>8ee268ac-59f5-445d-9309-ec398e3abc68</uuid>
   <metadata>
     <libosinfo:libosinfo xmlns:libosinfo="http://libosinfo.org/xmlns/libvirt/domain/1.0">
-      <libosinfo:os id="http://suse.com/sle/15.4"/>
+      <libosinfo:os id="http://suse.com/sle/15.5"/>
     </libosinfo:libosinfo>
   </metadata>
-  <memory unit='KiB'>5813305344</memory>
-  <currentMemory unit='KiB'>5813305344</currentMemory>
+  <memory unit='KiB'>3877634048</memory>
+  <currentMemory unit='KiB'>3877634048</currentMemory>
   <memoryBacking>
     <hugepages>
       <page size='1048576' unit='KiB'/>
@@ -1664,14 +1646,12 @@ or other application using the `libvirt` API.
   <numatune>
     <memnode cellid='0' mode='strict' nodeset='0'/>
     <memnode cellid='1' mode='strict' nodeset='1'/>
-    <memnode cellid='2' mode='strict' nodeset='2'/>
-    <memnode cellid='3' mode='strict' nodeset='3'/>
   </numatune>
   <resource>
     <partition>/machine</partition>
   </resource>
   <os>
-    <type arch='x86_64' machine='pc-q35-6.2'>hvm</type>
+    <type arch='x86_64' machine='pc-q35-7.1'>hvm</type>
     <boot dev='hd'/>
   </os>
   <features>
@@ -1684,41 +1664,20 @@ or other application using the `libvirt` API.
     <vmport state='off'/>
   </features>
   <cpu mode='host-passthrough' check='none' migratable='on'>
-    <topology sockets='4' dies='1' cores='28' threads='2'/>
+    <topology sockets='2' dies='1' cores='56' threads='2'/>
     <feature policy='require' name='rdtscp'/>
-    <feature policy='require' name='invtsc'/>
     <feature policy='require' name='x2apic'/>
     <numa>
-      <cell id='0' cpus='0-55' memory='1453326336' unit='KiB'>
+      <cell id='0' cpus='0-111' memory='1938817024' unit='KiB'>
         <distances>
           <sibling id='0' value='10'/>
           <sibling id='1' value='21'/>
-          <sibling id='2' value='21'/>
-          <sibling id='3' value='21'/>
         </distances>
       </cell>
-      <cell id='1' cpus='56-111' memory='1453326336' unit='KiB'>
+      <cell id='1' cpus='112-223' memory='1938817024' unit='KiB'>
         <distances>
           <sibling id='0' value='21'/>
           <sibling id='1' value='10'/>
-          <sibling id='2' value='21'/>
-          <sibling id='3' value='21'/>
-        </distances>
-      </cell>
-      <cell id='2' cpus='112-167' memory='1453326336' unit='KiB'>
-        <distances>
-          <sibling id='0' value='21'/>
-          <sibling id='1' value='21'/>
-          <sibling id='2' value='10'/>
-          <sibling id='3' value='21'/>
-        </distances>
-      </cell>
-      <cell id='3' cpus='168-223' memory='1453326336' unit='KiB'>
-        <distances>
-          <sibling id='0' value='21'/>
-          <sibling id='1' value='21'/>
-          <sibling id='2' value='21'/>
-          <sibling id='3' value='10'/>
         </distances>
       </cell>
     </numa>
@@ -1737,170 +1696,210 @@ or other application using the `libvirt` API.
   </pm>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <disk type='block' device='disk'>
-      <driver name='qemu' type='raw' cache='none' io='native'/>
-      <source dev='/dev/disk/by-id/wwn-0x600000e00d29000000293db000520000'/>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='/var/lib/libvirt/images/vm90.root.img' index='4'/>
+      <backingStore/>
       <target dev='vda' bus='virtio'/>
+      <alias name='virtio-disk0'/>
       <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
     </disk>
     <disk type='file' device='disk'>
       <driver name='qemu' type='raw'/>
-      <source file='/dev/shm/vhostmd0'/>
+      <source file='/dev/shm/vhostmd0' index='3'/>
+      <backingStore/>
       <target dev='vdx' bus='virtio'/>
       <readonly/>
-      <address type='pci' domain='0x0000' bus='0x0b' slot='0x00' function='0x0'/>
+      <alias name='virtio-disk23'/>
+      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+      <alias name='sata0-0-0'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+    <disk type='block' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source dev='/dev/mapper/3600000e00d3200000032ae3400030000' index='1'/>
+      <backingStore/>
+      <target dev='sdc' bus='scsi'/>
+      <alias name='scsi0-0-2'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='2'/>
     </disk>
     <controller type='usb' index='0' model='qemu-xhci' ports='15'>
+      <alias name='usb'/>
       <address type='pci' domain='0x0000' bus='0x02' slot='0x00' function='0x0'/>
     </controller>
-    <controller type='sata' index='0'>
-      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    <controller type='pci' index='0' model='pcie-root'>
+      <alias name='pcie.0'/>
     </controller>
-    <controller type='pci' index='0' model='pcie-root'/>
     <controller type='pci' index='1' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='1' port='0x10'/>
+      <alias name='pci.1'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x0' multifunction='on'/>
     </controller>
     <controller type='pci' index='2' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='2' port='0x11'/>
+      <alias name='pci.2'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x1'/>
     </controller>
     <controller type='pci' index='3' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='3' port='0x12'/>
+      <alias name='pci.3'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x2'/>
     </controller>
     <controller type='pci' index='4' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='4' port='0x13'/>
+      <alias name='pci.4'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x3'/>
     </controller>
     <controller type='pci' index='5' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='5' port='0x14'/>
+      <alias name='pci.5'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x4'/>
     </controller>
     <controller type='pci' index='6' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='6' port='0x15'/>
+      <alias name='pci.6'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x5'/>
     </controller>
     <controller type='pci' index='7' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='7' port='0x16'/>
+      <alias name='pci.7'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x6'/>
     </controller>
     <controller type='pci' index='8' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='8' port='0x17'/>
+      <alias name='pci.8'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x02' function='0x7'/>
     </controller>
     <controller type='pci' index='9' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='9' port='0x18'/>
+      <alias name='pci.9'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0' multifunction='on'/>
     </controller>
     <controller type='pci' index='10' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='10' port='0x19'/>
+      <alias name='pci.10'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x1'/>
     </controller>
     <controller type='pci' index='11' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='11' port='0x1a'/>
+      <alias name='pci.11'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x2'/>
     </controller>
     <controller type='pci' index='12' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='12' port='0x1b'/>
+      <alias name='pci.12'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x3'/>
     </controller>
     <controller type='pci' index='13' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='13' port='0x1c'/>
+      <alias name='pci.13'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x4'/>
     </controller>
     <controller type='pci' index='14' model='pcie-root-port'>
       <model name='pcie-root-port'/>
       <target chassis='14' port='0x1d'/>
+      <alias name='pci.14'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x5'/>
     </controller>
+    <controller type='pci' index='15' model='pcie-root-port'>
+      <model name='pcie-root-port'/>
+      <target chassis='15' port='0x1e'/>
+      <alias name='pci.15'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x6'/>
+    </controller>
+    <controller type='pci' index='16' model='pcie-to-pci-bridge'>
+      <model name='pcie-pci-bridge'/>
+      <alias name='pci.16'/>
+      <address type='pci' domain='0x0000' bus='0x08' slot='0x00' function='0x0'/>
+    </controller>
+    <controller type='sata' index='0'>
+      <alias name='ide'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x1f' function='0x2'/>
+    </controller>
     <controller type='virtio-serial' index='0'>
+      <alias name='virtio-serial0'/>
       <address type='pci' domain='0x0000' bus='0x03' slot='0x00' function='0x0'/>
     </controller>
-    <interface type='direct'>
-      <mac address='0c:fd:37:92:dc:99'/>
-      <source dev='eth11' mode='vepa'/>
+    <controller type='scsi' index='0' model='lsilogic'>
+      <alias name='scsi0'/>
+      <address type='pci' domain='0x0000' bus='0x10' slot='0x01' function='0x0'/>
+    </controller>
+    <interface type='bridge'>
+      <mac address='52:54:00:a3:de:03'/>
+      <source bridge='br0'/>
+      <target dev='vnet11'/>
       <model type='virtio'/>
+      <alias name='net0'/>
       <address type='pci' domain='0x0000' bus='0x01' slot='0x00' function='0x0'/>
     </interface>
-    <interface type='hostdev' managed='yes'>
-      <mac address='52:54:00:7f:12:fb'/>
-      <driver name='vfio'/>
-      <source>
-        <address type='pci' domain='0x0000' bus='0x17' slot='0x02' function='0x0'/>
-      </source>
-      <address type='pci' domain='0x0000' bus='0x0c' slot='0x00' function='0x0'/>
-    </interface>
     <serial type='pty'>
+      <source path='/dev/pts/1'/>
       <target type='isa-serial' port='0'>
         <model name='isa-serial'/>
       </target>
+      <alias name='serial0'/>
     </serial>
-    <console type='pty'>
+    <console type='pty' tty='/dev/pts/1'>
+      <source path='/dev/pts/1'/>
       <target type='serial' port='0'/>
+      <alias name='serial0'/>
+    </console>
+    <console type='pty'>
+      <source path='/dev/pts/2'/>
+      <target type='virtio' port='1'/>
+      <alias name='console1'/>
     </console>
     <channel type='unix'>
-      <target type='virtio' name='org.qemu.guest_agent.0'/>
+      <source mode='bind' path='/var/lib/libvirt/qemu/channel/target/domain-12-vm90/org.qemu.guest_agent.0'/>
+      <target type='virtio' name='org.qemu.guest_agent.0' state='connected'/>
+      <alias name='channel0'/>
       <address type='virtio-serial' controller='0' bus='0' port='1'/>
     </channel>
-    <channel type='spicevmc'>
-      <target type='virtio' name='com.redhat.spice.0'/>
-      <address type='virtio-serial' controller='0' bus='0' port='2'/>
-    </channel>
     <input type='tablet' bus='usb'>
+      <alias name='input0'/>
       <address type='usb' bus='0' port='1'/>
     </input>
-    <input type='mouse' bus='ps2'/>
-    <input type='keyboard' bus='ps2'/>
-    <graphics type='spice' autoport='yes'>
-      <listen type='address'/>
-      <image compression='off'/>
+    <input type='mouse' bus='ps2'>
+      <alias name='input1'/>
+    </input>
+    <input type='keyboard' bus='ps2'>
+      <alias name='input2'/>
+    </input>
+    <graphics type='vnc' port='5973' autoport='no' listen='0.0.0.0' keymap='de'>
+      <listen type='address' address='0.0.0.0'/>
     </graphics>
-    <sound model='ich9'>
-      <address type='pci' domain='0x0000' bus='0x00' slot='0x1b' function='0x0'/>
-    </sound>
+    <audio id='1' type='none'/>
     <video>
-      <model type='qxl' ram='65536' vram='65536' vgamem='16384' heads='1' primary='yes'/>
+      <model type='virtio' heads='1' primary='yes'/>
+      <alias name='video0'/>
       <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x0'/>
     </video>
-    <!-- SAN 2-port HBA passthrough configuration -->
-    <hostdev mode='subsystem' type='pci' managed='yes'>
-      <source>
-        <address domain='0x0000' bus='0x85' slot='0x00' function='0x0'/>
-      </source>
-      <address type='pci' domain='0x0000' bus='0x0d' slot='0x00' function='0x0'/>
-    </hostdev>
-    <hostdev mode='subsystem' type='pci' managed='yes'>
-      <source>
-        <address domain='0x0000' bus='0x85' slot='0x00' function='0x1'/>
-      </source>
-      <address type='pci' domain='0x0000' bus='0x0e' slot='0x00' function='0x0'/>
-    </hostdev>
-    <redirdev bus='usb' type='spicevmc'>
-      <address type='usb' bus='0' port='2'/>
-    </redirdev>
-    <redirdev bus='usb' type='spicevmc'>
-      <address type='usb' bus='0' port='3'/>
-    </redirdev>
     <memballoon model='virtio'>
-      <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
+      <alias name='balloon0'/>
+      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
     </memballoon>
     <rng model='virtio'>
       <backend model='random'>/dev/urandom</backend>
-      <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
+      <alias name='rng0'/>
+      <address type='pci' domain='0x0000' bus='0x07' slot='0x00' function='0x0'/>
     </rng>
   </devices>
 </domain>
@@ -1913,8 +1912,8 @@ or other application using the `libvirt` API.
 === Resources
 
 * https://documentation.suse.com/sbp-supported.html[SUSE Best Practices]
-* https://documentation.suse.com/sles/15-SP2/html/SLES-all/book-virt.html[SUSE Virtualization Guide for SUSE Linux Enterprise Server 15]
-* {launchpadnotes}3120786[SAP Note 3120786 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP2"]
+* https://documentation.suse.com/sles/15-SP5/html/SLES-all/article-virtualization-best-practices.html[SUSE Virtualization Guide for SUSE Linux Enterprise Server 15 SP5]
+* {launchPadNotes}3538596[SAP Note 3538596 - "SAP HANA on SUSE KVM Virtualization with SLES 15 SP5"]
 * {launchPadNotes}2284516[SAP Note 2284516 - "SAP HANA virtualized on SUSE Linux Enterprise Hypervisors"]
 * {launchPadNotes}1944799[SAP Note 1944799 - "SAP HANA Guidelines for SLES Operating System Installation"]
 * {launchPadNotes}2684254[SAP Note 2684254 - "SAP HANA DB: Recommended OS settings for SLES 15 / SLES for SAP"] 

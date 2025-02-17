@@ -12,8 +12,6 @@
 :sles: SUSE Linux Enterprise Server
 :sqls: SQL Server
 
-image:sqlserver.svg[SQL Server,400,400]
-
 == Motivation
 
 === Background
@@ -47,11 +45,14 @@ Another reason may be lower negotiated pricing for Linux subscriptions to replac
 The guide covers a basic installation of {sqls} on {sles} including the OS tuning specific for {sqls}
 It is meant to be agnostic of underlying infrastructure excepting the nuance of registering your server discussed in <<server_registration>> <<Server registration>>.
 
+=== Important notice
+
+include::SLES-SQL-support.adoc[tags=mvs-general;mvs-sql]
 
 == Installation
 
 At first the manual installation for a standalone {sqls} is described by starting at <<man_inst>>.
-The automated installation based on Ansible is decribed in<<ansi_inst>>.
+//The automated installation based on Ansible is decribed in<<ansi_inst>>.
 
 [id="man_inst"]
 === System requirements
@@ -87,8 +88,8 @@ sudo SUSEConnect --regcode ${REGISTRATION_CODE} --email ${EMAIL_ADDRESS}
 Alternatively, if you have access to a
 
 * SUSE https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[RMT] (Repository Mirroring Tool) 
-* or https://documentation.suse.com/suma/5.0/[SUSE Manager] 
-* or https://scc.suse.com/[SCC] (SUSE Customer Center)
+* or https://www.suse.com/products/multi-linux-manager[SUSE Multi-Linux Manager] 
+* or https://scc.suse.com[SCC] (SUSE Customer Center)
 
 server you want to use, use the `--url` option instead.
 
@@ -143,9 +144,10 @@ To install the {sqls} package non-interactively and add-ons, run the following c
 sudo ACCEPT_EULA=Y zypper install -y  mssql-server mssql-tools18 unixODBC-devel glibc-locale-base sqlcmd tuned
 ----
 
+////
 [id="ansi_inst"]
 === Automated Deployment with Ansible
-
+////
 
 == Configuration
 
@@ -553,8 +555,37 @@ Use storage subsystem with appropriate IOPS, throughput, and redundancy. Based o
 * tempdb (mount point /tempdb)
 
 The default filesystem for OS will be btrfs all others will have xfs. Based on the database sizing the required disk must be provided. The example will decribe a Linux Software RAID based setup.
-The disk `sdb - sdh` are the partitions from the NVME storage underneath. The command `lsblk` helps to find the right partition name to build a reasonable RAID setup later and avoid having all partitions 
+The disk `sdb - sdi` are the partitions from the NVME storage underneath. The command `lsblk` helps to find the right partition name to build a reasonable RAID setup later and avoid having all partitions 
 from only one NVME in the same RAID configuration.
+
+.Example for `lsblk`
+[source,shell]
+----
+# lsblk
+NAME   MAJ:MIN RM SIZE RO TYPE MOUNTPOINTS
+sda      8:0    0  50G  0 disk 
+├─sda1   8:1    0   8M  0 part 
+├─sda2   8:2    0  48G  0 part /var
+│                              /opt
+│                              /home
+│                              /srv
+│                              /root
+│                              /usr/local
+│                              /tmp
+│                              /boot/grub2/x86_64-efi
+│                              /boot/grub2/i386-pc
+│                              /.snapshots
+│                              /
+└─sda3   8:3    0   2G  0 part [SWAP]
+sdb      8:16   0  10G  0 disk 
+sdc      8:32   0  10G  0 disk 
+sdd      8:48   0  10G  0 disk 
+sde      8:64   0  10G  0 disk 
+sdf      8:80   0  11G  0 disk 
+sdg      8:96   0  11G  0 disk 
+sdh      8:112  0  12G  0 disk 
+sdi      8:128  0  12G  0 disk 
+----
 
 INFO: The following chapter is done as `root` user, if this is not possible the `sudo` must be put in front of each command.
 
@@ -710,7 +741,10 @@ MSSQL_MEMORY_LIMIT_MB='<some value here>' ACCEPT_EULA='Y' MSSQL_PID='Developer' 
 WARNING: It is recommended to change the SA password later with `mssql-conf set-sa-password` 
 or disable the history prior to configuring SQL Server with `set +o history`, and re-enabling it afterward with `set -o history` (Bash).
 
-If specifying a `product key`, it must be in the form of #####-#####-#####-#####-#####, where '#' is a number or a letter.
+:hash: #
+:hash5: #####
+
+If specifying a `product key`, it must be in the form of `{hash5}`-`{hash5}`-`{hash5}`-`{hash5}`-`{hash5}`, where `{hash}` is a number or a letter in summary 25.
 
 - {sqls} should be started at this point. You can verify this with `systemctl status mssql-server.service`. 
 - {sqls} listens for connections on port `1433` by default, that's a second option to verify the {sqls} is up and running.
@@ -753,7 +787,7 @@ tcp   LISTEN 0      128                                 *:1433                  
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd -Q "SELECT @@VERSION" 2>/dev/null
                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------
 Microsoft SQL Server 2022 (RTM-CU15-GDR) (KB5046059) - 16.0.4150.1 (X64) 
 	Sep 25 2024 17:34:41 
 	Copyright (C) 2022 Microsoft Corporation
@@ -770,7 +804,9 @@ The following example moves `tempdb` from its current default location on the di
 MSSQLSERVER service is started, you do not have to physically move the data and log files. The files are created when the service is restarted. 
 Until the service is restarted, tempdb continues to function in its existing location. Determine the logical file names of the tempdb database and their current location on disk.
 
-.check the current location and decided if a move is required or not with `sqlcmd -S <hostname> -U SA -P <password>`
+.Check the current location with `sqlcmd -S <hostname> -U SA -P <password>`
+
+(decide if a move is required or not) 
 [source,sql]
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd
@@ -964,7 +1000,7 @@ zypper install <name given before>.rpm
 azuredatastudio
 ----
 
-image:azure-data-studio.png[Azure Data Studio,480,360,scaledwidth=90%]
+image:azure-data-studio.png[Azure Data Studio,480,360,float="right",align="center"]
 
 With `Create a connection` the {sqls} can added. A popup window is asking for the required parameter. The connection can be established to a single node or the virtual IP of a cluster setup.
 
@@ -1173,7 +1209,9 @@ To stay up to date on the latest SQL Server on Linux features bookmark https://d
 [id="password_requirements"]
 === SQL Server password requirements
 
-Password complexity policies are designed to deter brute force attacks by increasing the number of possible passwords. When password complexity policy is enforced, new passwords must meet the following guidelines:
+Password complexity policies are designed to deter brute force attacks by increasing the number of possible passwords. 
+When password complexity policy is enforced, new passwords must meet the following guidelines:
+
 * The password doesn't contain the account name of the user.
 * The password is at least eight characters long.
 * The password contains characters from three of the following four categories:
@@ -1187,6 +1225,7 @@ Passwords can be up to 128 characters long. Use passwords that are as long and c
 === Security limitations for SQL Server on Linux
 
 SQL Server on Linux currently has the following limitations:
+
 * A standard password policy is provided. `MUST_CHANGE` is the only option you might configure. The `CHECK_POLICY` option isn't supported.
 * Extensible Key Management isn't supported.
 * SQL Server authentication mode can't be disabled.
@@ -1237,7 +1276,7 @@ lspci |grep balloon
 === References
 
 * https://documentation.suse.com/sles/15-SP6/[SUSE Linux Enterprise Server 15 SP6]
-* https://documentation.suse.com/suma/5.0/[SUSE Manager 5.0 Documentation]
+* https://www.suse.com/products/multi-linux-manager[SUSE Multi-Linux Manager]
 * https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[Repository Mirroring Tool Guide]
 * https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-setup?view=sql-server-ver16[Installation guidance for SQL Server on Linux]
 * https://docs.microsoft.com/en-us/sql/linux/quickstart-install-connect-suse?view=sql-server-ver16[Quickstart: Install SQL Server and create a database on SUSE Linux Enterprise Server]

@@ -15,8 +15,6 @@
 :sles: SUSE Linux Enterprise Server
 :sqls: SQL Server
 
-image:sqlserver.svg[SQL Server,400,400]
-
 == Motivation
 
 === Background
@@ -51,10 +49,15 @@ Another reason may be lower negotiated pricing for Linux subscriptions to replac
 The guide covers a basic installation of {sqls} on {sles} including the OS tuning specific for {sqls}.
 It is meant to be agnostic of underlying infrastructure excepting the nuance of registering your server discussed in <<server_registration>> <<Server registration>>.
 
+=== Important notice
+
+include::SLES-SQL-support.adoc[tags=mvs-general;mvs-sql]
+
 == Installation
 
-At first, the manual installation for a stand-alone {sqls} is described by starting in <<man_inst>>.
-The automated installation based on Ansible is decribed in<<ansi_inst>>.
+At first the manual installation for a standalone {sqls} is described by starting at <<man_inst>>.
+
+// The automated installation based on Ansible is described in<<ansi_inst>>.
 
 [id="man_inst"]
 === System requirements
@@ -82,17 +85,18 @@ The automated installation based on Ansible is decribed in<<ansi_inst>>.
 To gain access to SUSE repositories, you first need to register your server with `SUSEConnect`. If you are launching an On-Demand (or Pay-As-You-Go) 
 instance and not a BYOS (Bring Your Own Subscription) instance at a public cloud provider, skip this step.
 
+Usage of SUSE SCC if you have Internet access.
+
+* SUSE https://scc.suse.com[SCC] (SUSE Customer Center)
+
 [source,shell]
 ----
 sudo SUSEConnect --regcode ${REGISTRATION_CODE} --email ${EMAIL_ADDRESS}
 ----
 
-
 Alternatively, if you have access to a
 
 * SUSE https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[RMT] (Repository Mirroring Tool) 
-* or https://documentation.suse.com/suma/5.0/[SUSE Manager] 
-* or https://scc.suse.com/[SCC] (SUSE Customer Center)
 
 server you want to use, use the `--url` option instead.
 
@@ -100,6 +104,11 @@ server you want to use, use the `--url` option instead.
 ----
 sudo SUSEConnect --url ${REGISTRATION_SERVER_URL}
 ----
+
+The registration procedure for SUSE Multi-Linux Manager client's are different.
+
+* SUSE https://www.suse.com/products/multi-linux-manager[Multi-Linux Manager] (former known as SUMA)
+** https://documentation.suse.com/suma/5.0/en/suse-manager/client-configuration/registration-overview.html[Client Registration]
 
 More information about registering can be found in the https://documentation.suse.com/sles/15-SP6/single-html/SLES-deployment/#sec-yast-install-scc-registration[{sles} 15 SP6 Deployment Guide].
 
@@ -147,10 +156,10 @@ To install the {sqls} package non-interactively, and the add-ons, run the follow
 sudo ACCEPT_EULA=Y zypper install -y  mssql-server mssql-tools18 unixODBC-devel glibc-locale-base sqlcmd tuned
 ----
 
-
+////
 [id="ansi_inst"]
-// === Automated Deployment with Ansible
-
+=== Automated Deployment with Ansible
+////
 
 == Configuration
 
@@ -161,12 +170,10 @@ This section is covering the OS modification, the NIC configuration, the recomme
 ==== OS configuration (CPU, Kernel, Memory)
 
 [discrete]
-==== CPU/sysctl/disk/memory setting
-{sles} contains a `TuneD` profile for mssql (within the `tuned` package), but it does not align with the {sqls} best practices guide. The next steps outline and describe the changes recommended for {sqls}.
-Using TuneD it automatically configures CPU frequency governor, ENERGY_PERF_BIAS, and min_perf_pct settings appropriately because of the `throughput-performance` profile being used as base for the `mssql profile`. 
-C-States parameter must be configured manually. The disk readahead section is also covered by including the file `throughput-performance`, check the settings if they are equal and skip them if not needed.
-
-Create an mssql profile:
+==== CPU | sysctl | disk | memory setting
+{sles} contains a `TuneD` profile for mssql (within the `tuned` package), but it's not according to the {sqls} best practices guide. The next steps describe and line out the changes recommended for {sqls}.
+Using TuneD it automatically configures CPU frequency governor, ENERGY_PERF_BIAS, and min_perf_pct settings appropriately due to the `throughput-performance` profile being used as base for the `mssql profile`. 
+C-States parameter must be configured manually. The disk readahead section is also covered by including the file `throughput-performance`, please check the settings if they are equal and skip them if not needed.
 
 [source,shell]
 ----
@@ -213,9 +220,11 @@ transparent_hugepages = madvise
 mssql_is_multi_instance: true
 ----
 
-Depending on the infrastructure it might be necessary that the CPU setting is disabled (for example log message: `cpu0: 'energy_perf_bias' = 'None', expected 'performance'`). 
-This can be achieved by copying the source file `throughput-performance` and modifying it. Comment the line `energy_perf_bias=performance`. This will avoid error messages (like mentioned before) if `TuneD` is started and cannot set this parameter.
+Depending on the infrastructure it might be necessary that the CPU setting must be disabled (e.g. log message: `cpu0: 'energy_perf_bias' = 'None', expected 'performance'`). 
 
+This can be achieved by copying the source file `throughput-performance` and modifying it. 
+
+Comment the line `energy_perf_bias=performance`, this will avoid error messages (like mentioned before) if `TuneD` is started and can't set this parameter.
 [source,shell]
 ----
 mkdir -p /etc/tuned/throughput-performance
@@ -324,7 +333,7 @@ ATTR{queue/rotational}!="0", TEST!="%S%p/mq/1", ATTR{queue/scheduler}="bfq", GOT
 # ATTR{queue/scheduler}="mq-deadline"
 ----
 
-The example above shows option 1 uncommented. Depending on the disk type choose between option 1 to 5 or add a personal one.
+The example above shows option 1 uncommented. Depending on the disk type, choose between option 1 to 5 or add a personal one.
 The old default must be deactivated by comment the line with a `#`.
 
 New setting:
@@ -556,8 +565,7 @@ Optional:
 firewall-cmd --permanent --add-port=135/tcp  --add-port=1433/tcp && firewall-cmd --reload
 ----
 
-Check the configuration:
-
+Check the configuration
 [source,shell]
 ----
 firewall-cmd --list-ports
@@ -572,9 +580,38 @@ Use storage subsystem with appropriate IOPS, throughput, and redundancy. Based o
 * transaction log (mount point /log)
 * tempdb (mount point /tempdb)
 
-The default file system for the OS is Btrfs, all others use XFS. Based on the database sizing the required disk must be provided. The example will decribe a Linux Software RAID based setup.
-The disks `sdb - sdh` are the partitions from the NVME storage underneath. The command `lsblk` helps to find the right partition name to build a reasonable RAID setup later and avoid having all partitions 
-from one NVME only in the same RAID configuration.
+The default filesystem for OS will be btrfs all others will have xfs. Based on the database sizing the required disk must be provided. The example will describe a Linux Software RAID based setup.
+The disks `sdb - sdi` are the partitions from the NVME storage underneath. The command `lsblk` helps to find the right partition name to build a reasonable RAID setup later and avoid having all partitions 
+from only one NVME in the same RAID configuration.
+
+.Example for `lsblk`
+[source,shell]
+----
+# lsblk
+NAME   MAJ:MIN RM SIZE RO TYPE MOUNTPOINTS
+sda      8:0    0  50G  0 disk 
+├─sda1   8:1    0   8M  0 part 
+├─sda2   8:2    0  48G  0 part /var
+│                              /opt
+│                              /home
+│                              /srv
+│                              /root
+│                              /usr/local
+│                              /tmp
+│                              /boot/grub2/x86_64-efi
+│                              /boot/grub2/i386-pc
+│                              /.snapshots
+│                              /
+└─sda3   8:3    0   2G  0 part [SWAP]
+sdb      8:16   0  10G  0 disk 
+sdc      8:32   0  10G  0 disk 
+sdd      8:48   0  10G  0 disk 
+sde      8:64   0  10G  0 disk 
+sdf      8:80   0  11G  0 disk 
+sdg      8:96   0  11G  0 disk 
+sdh      8:112  0  12G  0 disk 
+sdi      8:128  0  12G  0 disk 
+----
 
 INFO: The following chapter is done as `root` user, if this is not possible the `sudo` must be put in front of each command.
 
@@ -734,10 +771,13 @@ MSSQL_MEMORY_LIMIT_MB='<some value here>' ACCEPT_EULA='Y' MSSQL_PID='Developer' 
 WARNING: It is recommended to change the SA password later with `mssql-conf set-sa-password` 
 or disable the history prior to configuring SQL Server with `set +o history`, and re-enabling it afterward with `set -o history` (Bash).
 
-If specifying a *product key*, it must be in the form of #####-#####-#####-#####-#####, where '#' is a number or a letter.
+:hash: #
+:hash5: #####
+
+If you specify a `product key`, it must be in the format of `{hash5}`-`{hash5}`-`{hash5}`-`{hash5}`-`{hash5}`, where `{hash}` is a number or a letter in summary 25.
 
 - {sqls} should be started at this point. You can verify this with `systemctl status mssql-server.service`. 
-- {sqls} listens for connections on port `1433` by default, that is a second option to verify the {sqls} is up and running.
+- By default, {sqls} listens for connections on port `1433`, providing a second method to verify the {sqls} is up and running.
 - {sqls} should be accessible with `sqlcmd`. 
 
 *systemd* check:
@@ -780,7 +820,7 @@ tcp   LISTEN 0      128                                 *:1433                  
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd -Q "SELECT @@VERSION" 2>/dev/null
                                                                                                                                                                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------
 Microsoft SQL Server 2022 (RTM-CU15-GDR) (KB5046059) - 16.0.4150.1 (X64) 
 	Sep 25 2024 17:34:41 
 	Copyright (C) 2022 Microsoft Corporation
@@ -792,14 +832,15 @@ Microsoft SQL Server 2022 (RTM-CU15-GDR) (KB5046059) - 16.0.4150.1 (X64)
 [discrete]
 ==== Moving `tempdb` files to a dedicate storage area
 
-By default, a new installation of SQL Server on Linux creates multiple tempdb data files, based on the number of logical cores (with up to eight data files).
-One of our preparation steps for the storage part was having a dedicated RAID set for the tempdb files. This setting can only be modified from inside the {sqls}.
-The following example moves `tempdb` from its current default location on the disk to another disk location. Because tempdb is re-created each time the 
+By default, a new installation of SQL Server on Linux creates multiple `tempdb` data files, based on the number of logical cores (with up to eight data files).
+One of our preparation steps for the storage component involved setting up a dedicated RAID array for the `tempdb` files. This setting can only be modified from inside the {sqls}.
+The following example moves `tempdb` from its current default location on the disk to another disk location. Because `tempdb` is re-created each time the 
 MSSQLSERVER service is started, you do not need to physically move the data and log files. The files are created when the service is restarted. 
-Until the service is restarted, tempdb continues to function in its existing location. Determine the logical file names of the tempdb database and their current location on disk.
+Until the service is restarted, `tempdb` continues to function in its existing location. Determine the logical file names of the `tempdb` database and their current location on the disk.
 
-Check the current location and decided if a move is required or not with `sqlcmd -S <hostname> -U SA -P <password>`:
+.Check the current location with `sqlcmd -S <hostname> -U SA -P <password>`
 
+(decide if a move is required or not) 
 [source,sql]
 ----
 sqlcmd -S mssql -U SA -P Strong\!Passw0rd
@@ -993,7 +1034,7 @@ To start Azure Data Studio run the command on your shell:
 azuredatastudio
 ----
 
-image:azure-data-studio.png[Azure Data Studio,480,360,scaledwidth=90%]
+image:azure-data-studio.png[Azure Data Studio,480,360,float="right",align="center"]
 
 With `Create a connection` the {sqls} can be added. A pop-up window is asking for the required parameter. The connection can be established to a single node or the virtual IP of a cluster setup.
 
@@ -1202,7 +1243,9 @@ To stay up to date on the latest SQL Server on Linux features, bookmark https://
 [id="password_requirements"]
 === SQL Server password requirements
 
-Password complexity policies are designed to deter brute force attacks by increasing the number of possible passwords. When password complexity policy is enforced, new passwords must meet the following guidelines:
+Password complexity policies are designed to thwart brute-force attacks by expanding the range of potential password combinations.
+When the password complexity policy is enforced, new passwords must adhere to the following guidelines:
+
 * The password does not contain the account name of the user.
 * The password is at least eight characters long.
 * The password contains characters from three of the following four categories:
@@ -1216,19 +1259,20 @@ Passwords can be up to 128 characters long. Use passwords that are as long and c
 === Security limitations of SQL Server on Linux
 
 SQL Server on Linux currently has the following limitations:
+
 * A standard password policy is provided. `MUST_CHANGE` is the only option you might configure. The `CHECK_POLICY` option is not supported.
 * Extensible Key Management is not supported.
 * SQL Server authentication mode cannot be disabled.
 * Password expiration is hard-coded to 90 days if you use SQL Server authentication.
 * Using keys stored in the Azure Key Vault is not supported.
-* SQL Server generates its own self-signed certificate for encrypting connections. SQL Server can be configured to use a user provided certificate for TLS.
+* SQL Server generates its own self-signed certificate for encrypting connections. SQL Server can be configured to use a user-provided certificate for TLS.
 
 Find more detailed information at https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-security-overview?view=sql-server-ver16
 and at https://learn.microsoft.com/en-us/sql/t-sql/statements/alter-login-transact-sql?view=sql-server-ver16.
 
-=== Disabling the sa account as a best practice
+=== Disabling the `sa account` as a best practice
 
-Follow the instruction from Microsoft:
+Follow the instructions from Microsoft:
 https://learn.microsoft.com/en-us/sql/linux/quickstart-install-connect-suse?view=sql-server-linux-ver16#disable-the-sa-account-as-a-best-practice[Disable SA user]
 
 === Virtual machines and dynamic memory
@@ -1266,7 +1310,7 @@ lspci |grep balloon
 === References
 
 * https://documentation.suse.com/sles/15-SP6/[SUSE Linux Enterprise Server 15 SP6]
-* https://documentation.suse.com/suma/5.0/[SUSE Manager 5.0 Documentation]
+* https://www.suse.com/products/multi-linux-manager[SUSE Multi-Linux Manager]
 * https://documentation.suse.com/sles/15-SP6/single-html/SLES-rmt/#book-rmt[Repository Mirroring Tool Guide]
 * https://docs.microsoft.com/en-us/sql/linux/sql-server-linux-setup?view=sql-server-ver16[Installation guidance for SQL Server on Linux]
 * https://docs.microsoft.com/en-us/sql/linux/quickstart-install-connect-suse?view=sql-server-ver16[Quickstart: Install SQL Server and create a database on SUSE Linux Enterprise Server]

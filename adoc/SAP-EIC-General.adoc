@@ -1,0 +1,186 @@
+== Do not import the whole document at once!!!
+
+# tag::disclaimer-EIC-sizing[]
+NOTE: This guide does not contain information about sizing your landscapes. Visit 
+https://help.sap.com/docs/integration-suite?locale=en-US and search for the "Edge Integration Cell Sizing Guide".
+
+# end::disclaimer-EIC-sizing[]
+
+
+
+# tag::disclaimer-annotation[]
+NOTE: In this guide, we use $ and # for shell commands, where # means that the command needs to be executed as a root user and
+$ means that the command can be run by any user.
+
+# end::disclaimer-annotation[]
+
+
+# tag::disclaimer-production-versions[]
+IMPORTANT: If you want to use different versions of {slem}, {rancher}, {rke} or {lh}, make sure to check the support matrix for the related solutions you want to use:
+https://www.suse.com/suse-rancher/support-matrix/all-supported-versions/ +
+For {redis} and {pg}, make sure to pick versions compatible to {eic}, which can be found in https://me.sap.com/notes/3247839 . +
+Other versions of {metallb} or {cm} can be used but may have not been tested. 
+
+# end::disclaimer-production-versions[]
+
+
+
+# tag::self-signed-certificates[]
+
+[#selfSignedCertificates]
+==== Creating self-signed certificates
+
+WARNING: We strongly advise against using self-signed certificates in production environments.
+
+The first step is to create a certificate authority (hereinafter referred to as CA) with a key and certificate.
+The following excerpt provides an example of how to create one with a passphrase of your choice:
+
+[source, bash]
+----
+$ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out rootCA.crt -passout pass:<ca-passphrase> -subj "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+This will give you the files `rootCA.key` and `rootCA.crt`.
+The server certificate requires a certificate signing request (hereinafter referred to as CSR).
+The following excerpt shows how to create such a CSR:
+
+[source, bash]
+----
+$ openssl req -newkey rsa:2048 -keyout domain.key -out domain.csr -passout pass:<csr-passphrase> -subj  "/C=DE/ST=BW/L=Nuremberg/O=SUSE"
+----
+
+Before you can sign the CSR, you need to add the DNS names of your Kuberntes Services to the CSR.
+Therefore, create a file with the content below and replace the *<servicename>* and *<namespace>* with the name of your Kubernetes service and the namespace in which it is placed:
+
+[source, bash]
+----
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = <servicename>.<namespace>.svc.cluster.local
+DNS.2 = <AltService>.<AltNamespace>.svc.cluster.local
+----
+
+You can now use the previously created files _rootCA.key_ and _rootCA.crt_ with the extension file to sign the CSR.
+The example below shows how to do that by passing the extension file (here called _domain.ext_):
+[source, bash]
+----
+$ openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in domain.csr -out server.pem -days 365 -CAcreateserial -extfile domain.ext -passin pass:<ca-passphrase>
+----
+
+This creates a file called _server.pem_ which is your certificate to be used for your application.
+
+
+Your _domain.key_ is still encrypted at this point, but the application requires an unencrypted server key.
+To decrypt, run the given command which will create the _server.key_.
+[source, bash]
+----
+$ openssl rsa -passin pass:<csr-passphrase> -in domain.key -out server.key
+----
+
+Some applications (like Redis) require a full certificate chain to operate.
+To get a full certificate chain, link the generated file _server.pem_ with the file _rootCA.crt_ as follows:
+
+[source, bash]
+----
+$ cat server.pem rootCA.crt > chained.pem
+----
+
+# end::self-signed-certificates[]
+
+
+# tag::k8s-upload-certificates[]
+
+To use certificate files in Kubernetes, you need to save them as so-called *Secrets*.
+For an example of uploading your certificates to Kubernetes, see the following excerpt:
+
+[source, bash]
+----
+$ kubectl -n <namespace> create secret generic <certName> --from-file=./root.pem --from-file=./server.pem --from-file=./server.key
+----
+
+NOTE: All applications are expecting to have the secret to be used in the same namespace as the application.
+
+# end::k8s-upload-certificates[]
+
+
+# tag::use-cert-manager[]
+
+`cert-manager` needs to be available in your Downstream Cluster. To install `cert-manager` in your downstream cluster, you can use the same installation steps that are described in the Rancher Prime installation section.
+First,  create a _selfsigned-issuer.yaml_ file:
+
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+----
+
+Then create a Certificate Ressource for the CA called _my-ca-cert.yaml_:
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-ca-cert
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: <cluster-name>.cluster.local
+  secretName: my-ca-secret
+  issuerRef:
+    name: selfsigned-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - "<cluster-name>.cluster.local"
+  - "*.<cluster-name>.cluster.local"
+
+----
+For creating a _ClusterIssuer_ using the Generated CA,  create the _my-ca-issuer.yaml_ file:
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: my-ca-issuer
+spec:
+  ca:
+    secretName: my-ca-secret
+----
+The last ressource you need to create is the certificate itself. This certificate is signed by your created CA. You can name the yaml file _application-name-certificate.yaml_.
+[source,yaml]
+----
+kind: Certificate
+metadata:
+  name: <application-name>
+  namespace: <application namespace> // need to be created manually. 
+spec:
+  dnsNames:
+    - <application-name>.cluster.local
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: my-ca-issuer
+  secretName: <application-name>
+  usages:
+    - digital signature
+    - key encipherment
+----
+
+Apply the yaml file to your kubernetes cluster.
+[source, bash]
+----
+$ kubectl apply -f selfsigned-issuer.yaml
+$ kubectl apply -f my-ca-cert.yaml
+$ kubectl apply -f my-ca-issuer.yaml
+$ kubectl apply -f application-name-certificate.yaml
+----
+
+When you deploy your applications via Helm Charts, you can use the generated certificate. 
+In the Kubernetes Secret Certificate, three files are stored. These are the file _tls.crt_, _tls.key_ and _ca.crt_ which you cann use in the _values.yaml_ file of your application.
+
+# end::use-cert-manager[]

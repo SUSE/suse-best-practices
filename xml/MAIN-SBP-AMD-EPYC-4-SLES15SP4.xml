@@ -1863,7 +1863,7 @@ epyc:~ # perf script
       <sect3 xml:id="sec-allocating-resources-hostos-kvm">
         <title>Reserving CPUs and memory for the host on KVM</title>
 
-        <para> When using KVM, sparing, for example, 12 cores (i.e., one full core for each CCX) and 64 GB of RAM for the host OS is
+        <para> When using KVM, sparing, for example, 24 cores (i.e., one full core for each CCX on both NUMA nodes) and 64 GB of RAM for the host OS is
           done by stopping creating VMs when the total number of vCPUs of all VMs has reached 336
           (as each core has 2 threads) or when the total cumulative amount of allocated RAM has
           reached 690 GB. </para>
@@ -1883,9 +1883,9 @@ epyc:~ # perf script
           the following additional parameters on the hypervisor boot command line (for example, by
           editing <filename>/etc/defaults/grub</filename>, and then updating the boot loader): </para>
 
-        <screen>dom0_mem=65536M,max:65536M dom0_max_vcpus=24</screen>
+        <screen>dom0_mem=65536M,max:65536M dom0_max_vcpus=48</screen>
 
-        <para> The number of vCPUs is 24 because we want Dom0 to have 12 physical cores, and the AMD
+        <para> The number of vCPUs is 24 because we want Dom0 to have 24 physical cores, and the AMD
           EPYC 9004 Series Processor has Symmetric multithreading (SMT). 65536M memory (that is 64
           GB) is specified both as current and as maximum value, to prevent Dom0 from using
           ballooning (see <link
@@ -2050,16 +2050,14 @@ epyc:~ # perf script
           xlink:href="https://libvirt.org/kbase/launch_security_sev.html#Host"> Libvirt
           documentation: Enabling SEV on the host</link>. </para>
 
-<!-- DOUBLE CHECK THE NUMBERS FROM THE EXPERIMENTS
       <para> It should be noted that, at least as far as the workload analyzed in this document,
         enabling SEV-ES on the host has not caused any noticeable performance degradation. In fact,
         running CPU and memory intensive workloads, both on the host and in VMs, with or without the
         parameters above added to the host kernel boot command line, resulted in indistinguishable
-        results. Therefore, enabling SEV at the host level can be considered safe, from the point of
-        view of not hurting performance of VMs and workloads that will not enable VM memory
-        encryption. Of course, this applies to when SEV is enabled for the host and is
+        results. Therefore, enabling SEV-ES at the host level can be considered safe, from the point of
+        view of not hurting performance of VMs and workloads that will not take advantage of VM memory
+        encryption. Of course, this applies to when SEV-ES is enabled for the host and is
           <emphasis>not</emphasis> used for encrypting VMs. </para>
--->
 
       <para>What happens when SEV-ES is used for encrypting VMs' memory will be described later in the
         guide.</para>
@@ -2134,9 +2132,50 @@ epyc:~ # perf script
         only from the specified (set of) NUMA node(s) specified in <parameter>nodeset</parameter>. A
         cell is, in fact, a virtual NUMA node, with <parameter>cellid</parameter> being its ID and
           <parameter>nodeset</parameter> telling exactly from what host physical NUMA node(s) the
-        memory for this virtual node should be allocated. A NUMA-unaware VMs can still include this
+        memory for this virtual node should be allocated.</para>
+
+      <para>The correctness of this kind of tuning can be verified checking on which NUMA node(s)
+        the memory of the QEMU processes representing the VMs have been allocated on, by using the
+        <parameter>numastat</parameter> tool (on the host) like this:</para>
+
+      <screen>
+host:~ # numastat -p qemu-system-x86_64
+Per-node process memory usage (in MBs) for PID 53153 (qemu-system-x86)
+                           Node 0          Node 1           Total
+                  --------------- --------------- ---------------
+Huge                    344064.00       344064.00       688128.00
+Heap                         0.00          150.57          150.57
+Stack                        0.00            0.13            0.13
+Private                    149.59         4522.84         4672.43
+----------------  --------------- --------------- ---------------
+Total                   344213.59       348737.54       692951.12
+      </screen>
+
+      <para>In fact, we see that there is only 1 QEMU process (as there is only
+        1 VM running) and its memory footprint has been equally split between the
+        two NUMA nodes.</para>
+
+      <para>A NUMA-unaware VMs can still include this
         element in its configuration file. It will have only one
-          <parameter>&lt;memnode></parameter> element. </para>
+          <parameter>&lt;memnode></parameter> element, and the output of
+        <parameter>numastat</parameter> will look like this:</para>
+
+      <screen>
+deandre:/abuild/:[0]# numastat -p qemu-system-x86_64
+Per-node process memory usage (in MBs)
+PID                               Node 0          Node 1           Total
+-----------------------  --------------- --------------- ---------------
+184717 (qemu-system-x86)       346040.98           19.30       346060.28
+184980 (qemu-system-x86)           19.50       346227.04       346246.54
+-----------------------  --------------- --------------- ---------------
+Total                          346060.48       346246.34       692306.82
+      </screen>
+
+      <para>In this case there are 2 VMs running and their memory have been
+        pretty much entirely allocated on a single NUMA node: <parameter>Node 0</parameter>
+        for the VM associated to the QEMU process with PID <parameter>184717</parameter>,
+        and <parameter>Node 1</parameter> for the other one.
+      </para>
 
       <para>Placement of vCPUs happens via the <parameter>&lt;cputune></parameter> element, as
         in the example below:</para>
@@ -2277,14 +2316,15 @@ node   0
         <title>Placement of four to twentyfour medium-size VMs</title>
 
         <para> Following the same principles, we can <quote>split</quote> each node in 2, and have 4
-          VMs with 96 vCPUs and up to 168 GB of RAM each.
-          Or, maybe, have 12 VMs with 32 vCPUs and 56 GB RAM each.
-          And even 24 VMs, with 16 vCPUs and 28 GB RAM.</para>
+          VMs with 96 vCPUs and up to 168 GB of RAM each. It is also feasible to have 6 VMs with
+          64 vCPUs and up to 112 GB of RAM each, 12 VMs with 32 vCPUs and 56 GB RAM, or even
+          24 VMs, all with 16 vCPUs and 28 GB RAM.</para>
 
-        <para>In the first case, each VM will span 6 host dies. In the second, 2.
+        <para>In the first case, each VM will span 6 host dies. In the third and in the second,
+          to 4 and 2 dies.
           In the third one, each VM will be pinned to 1 die.</para>
 
-        <para> In both cases, VMs will not need to (and must not) be put across the host NUMA nodes
+        <para> In all these cases, VMs do not need to be placed across the host NUMA nodes
           boundary, and hence they do not need to be NUMA-aware. They still benefit from having a
           virtual topology, in terms of cores, threads and dies which matches the resource they are
           using. You will find more details about this in following sections. </para>
@@ -2306,7 +2346,9 @@ node   0
           This may or may not be a problem, but there is no way around it, as soon as more VMs than the number of available dies are necessary.
           The performance impact of such sharing should be tolerable, in most cases, for these configurations, but this needs to be assessed with tests and benchmarks.
           If that is not the case, then the recommendation is to not go above 24 VMs.
-          More clever (but also more complex) tuning strategies can be designed, but they would require further a-priori knowledge of, for instance, what is the workload and/or the load profile of the various VMs, which may not be available as an information.</para>
+          More clever (but also more complex) tuning strategies can be designed, but they would require further a-priori knowledge of
+          the workload and/or the load profile of the various VMs, which may not be always available (or can change during the lifecycle
+          of the VMs).</para>
 
         <note>
           <title>Hundreds of VMs with limited RAM size and disk sapce</title>
@@ -2384,10 +2426,9 @@ node   0
         impose on the system is always 100%, creating even 1 vCPUs more than the host has pCPUs
         can be considered a misconfiguration. </para>
 
-      <para> When under oversubscription, exclusive 1-to-1 vCPU to pCPU assignment may not the best
-        approach. However, we need to trust the hypervisor scheduler to handle the situation well
-        (which is very likely what will happen). What can be done, though, is to provide the
-        hypervisor scheduler with some <quote>suggestions</quote>, if we have enough knowledge about
+      <para> When oversubscription is necessary, exclusive 1-to-1 vCPU to pCPU assignment may not the best
+        approach and we need to trust the hypervisor scheduler to handle the situation well. What can be done, though, is providing such
+        scheduler at least with some <quote>suggestions</quote>, if we have enough knowledge about
         the workload. For example, we can try to help the scheduler avoiding that all the VMs
         running CPU intensive workloads end on the same nodes, or avoiding cross-node VM migrations
         happening too frequently. </para>
@@ -2518,9 +2559,6 @@ Caches (sum of all):
         <para>Both the CPU topology and the cache layout, as seen from inside of the VM, are completely wrong, and can affect performance of applications running inside the VM.
           In fact, not only the sizes of the various cache levels are wrong. It is also the information about which CPUs share what caches that is completely misconfigured, as shown also here: </para>
 
-        <para>Of course, now it is the <parameter>Model name:</parameter> that is not completely correct.
-          But both the CPU and caches layout is much more in line with what we wanted to achieve by tuning the VM configuration (remember that the VM has 288 vCPUs).</para>
-
         <screen>
 vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index0/shared_cpu_list
 0
@@ -2565,12 +2603,14 @@ Caches (sum of all):
 ...
         </screen>
 
-        <para> Now it is the cache sizes that are slightly off, with regard to the host value. And
+        <para>Of course, now it is the <parameter>Model name:</parameter> that is not completely correct.
+          But both the CPU and caches layout is much more in line with what we wanted to achieve by tuning the VM configuration (remember that the VM has 288 vCPUs).</para>
+
+        <para>In fact, even if the cache sizes that are slightly off, with regard to the host value. And
           this is because they are the values taken from previous generation AMD EPYC Processors
           architecture characteristics. But the cache topology and cache level sharing among vCPUs
-          are now closer to the host ones (not perfectly, as <parameter>index3</parameter> should
-          report <parameter>0-15</parameter>). This is far more important for achieving performance
-          inside the VM that matches the one of the host. This is shown here: </para>
+          are now correct (as shown below). And this is far more important for achieving good performance
+          inside the VM. </para>
 
         <screen>
 vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index0/shared_cpu_list
@@ -2583,20 +2623,11 @@ vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 0-15
         </screen>
 
-        <para>Related to this, on SUSE Linux Enterprise Server 15 SP4 it would be possible to use
-          the <parameter>haltpoll</parameter> CPU-Idle governor, inside the VM. This is an
-          optimization meant at reducing the number of context switches between the VM and the host
-          (also known as VMExits), when doing static resource partitioning of the host itself.
-          For that reason, it would be something that we recommend using, the only problem being that it can be enabled only if the CPU model used is <parameter>host-passthrough</parameter>.</para>
-
-        <para>We therefore recommend to not use it in a SUSE Linux Enterprise Server 15 SP4 VM
-          running on an AMD EPYC 9004 Series Processors, until the inaccurate vCPU topology problem when using <parameter>host-passthrough</parameter> is resolved.</para>
-
         <para>Note that, in order to achieve the outcome shown above, it is very important to use the following CPU topology description string, in the VM configuration:</para>
 
         <screen>&lt;topology sockets="2" dies="9" cores="8" threads="2"/></screen>
 
-        <para>In particular, do not omit the <parameter>dies="9"</parameter> element, as that is what enables the VM to see its vCPUs grouped in dies, from the point of view of cache layer sharing.
+        <para>In particular, do not omit the <parameter>dies="9"</parameter> element, as that is what enables the VM to see its vCPUs grouped in dies.
           In fact, using something like this <parameter>&lt;topology sockets="2" cores="72" threads="2"/></parameter> would result in a correct CPU topology, but the representation of the cache layout would still be inaccurate, such as:</para>
 
         <screen>
@@ -2664,6 +2695,16 @@ vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index2/shared_cpu_list
 vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
 0-15
         </screen>
+
+        <para>Finally, on SUSE Linux Enterprise Server 15 SP4 it is possible to select
+          the <parameter>haltpoll</parameter> CPU-Idle governor, inside the VM, even if we are using <parameter>model='host-model'</parameter>
+          (although, it would will be only partially effective, as it would require <parameter>model='host-passthourgh'</parameter>
+          in order for the VM to be able to exploit its full potential).
+          This is an optimization meant at reducing the number of context switches between the VM and the host
+          (also known as VMExits), when doing static resource partitioning of the host itself.
+          For that reason, it is something that we recommend using. Beware, however, that the actual benefit it
+          will provide highly depends on the workload running inside of the VM.</para>
+
       </sect3>
 
 
@@ -2673,7 +2714,7 @@ vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
         <para> Memory wise, the VMs need to be told to use the Huge Pages that were reserved for
           them. To effectively use 1 GB huge pages, the amount of memory each VM is given must be a
           multiple of 1 GB. Also, KSM should be disabled and we also must ensure that VMs' memory is
-          never going to be swapped out. This is all achieved as follows: </para>
+          never going to be swapped out. This is all achieved as follows:</para>
 
         <screen>
 &lt;memory unit='KiB'>704643072&lt;/memory>
@@ -2683,6 +2724,23 @@ vm1:~ # cat /sys/devices/system/cpu/cpu0/cache/index3/shared_cpu_list
   &lt;/hugepages>
   &lt;nosharepages/>
 &lt;/memoryBacking>
+        </screen>
+
+        <para>In order to verify that the appropriate type of memory is being used by the VMs,
+          one can check the content of <parameter>/proc/meminfo</parameter>, with the VMs running,
+          and observe that all the pre-allocated Huge Pages are actually occupied.</para>
+
+        <screen>
+host:~ # cat /proc/meminfo | grep Huge
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+FileHugePages:         0 kB
+HugePages_Total:     672
+HugePages_Free:        0
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:    1048576 kB
+Hugetlb:        704643072 kB
         </screen>
 
         <note>
@@ -2778,10 +2836,16 @@ dmesg |grep SEV
       </screen>
 
       <para> Note that on SUSE Linux Enterprise Server 15 SP4, an SEV-enabled VM can use 1 GB Huge
-        Pages memory, preallocated at boot time, the same as when SEV is not enabled as they are
-        allocated during boot.</para>
+        Pages memory, preallocated at boot time..</para>
 
-      <para>Once inside of the VM, this is how one can check whether the memory and the state are being encrypted with SEV-ES:</para>
+      <para>Once inside of the VM, this is how one can check whether the memory and the state are being encrypted only with SEV:</para>
+
+      <screen>
+dmesg | grep SEV
+[    0.069436] AMD Memory Encryption Features active: SEV
+      </screen>
+
+      <para>Or if we are also fully encrypting the VM state with SEV-ES:</para>
 
       <screen>
 dmesg | grep SEV
@@ -2794,12 +2858,12 @@ dmesg | grep SEV
           <parameter>iommu</parameter> element, in the <parameter>&lt;device></parameter>
         section of the VM configuration. Since that element was necessary for having more than 255
         vCPUs in the VM, all the experiments conducted with SEV enabled have been done in VMs with
-        at most 224 vCPUs.</para>
+        at most 192 vCPUs.</para>
 
     </sect2>
 
   </sect1>
-<!--
+
   <sect1 xml:id="sec-virtualization-test-workload-stream">
     <title>Test VM workload: STREAM</title>
 
@@ -2810,49 +2874,71 @@ dmesg | grep SEV
       <title>Test scenario: One large VM</title>
 
       <para><xref linkend="fig-stream-bm-vm"/> shows the bandwidth achieved by STREAM when the
-        benchmark is built in single thread mode (single) or parallelized with OpenMP
-        (omp-llcs-spread). For both cases, we compare the results achieved on the host (BM) and
-        inside one VM (VM). </para>
+        benchmark is built in single thread mode ('single') or parallelized with OpenMP
+        ('ompenmp'). For both cases, we compare the results achieved on the host ('BM') and
+        inside one VM ('VM'). </para>
 
 
       <figure xml:id="fig-stream-bm-vm">
         <title>STREAM Bandwidth - Bare metal compared with one VM</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-bm-1vm.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-bm-1vm.png" width="80%" format="SVG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-bm-1vm.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-bm-1vm.png" width="80%" format="SVG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para> As the VM has approximately the same dimension and topology of the host, the same
-        STREAM configuration parameters used in <xref linkend="sec-workload-stream"/>, are used also
-        here. </para>
+      <para>The single thread results are basically identical between baremetal (blue rectangles) and inside of the VM (orange rectangles), for
+        all the operations (<parameter>Copy</parameter>, <parameter>Scale</parameter>, <parameter>Add</parameter> and
+        <parameter>Triadd</parameter>) of the benchmark.
+      </para>
 
-      <para> We can clearly see how proper tuning allows a VM running on an AMD EPYC 7003 Series
-        Processor server to achieve a memory bandwidth performance within 1% of the one of the host. </para>
+      <para> About the parallel case, remember that the VM is slightly "smaller"" than the host, in terms of number of CPUs. Therefore,
+        we cannot run the parallel version of STREAM with as many thread as on the host. In fact, a very good result is reached, on the host, with twice as many threads as there are
+        Least Level Caches (LLCs), i.e., 48. If we do the same inside of the VM, there it means 36 threads.
+        We can see, however, that the performance reached inside of the VM, even with 36 threads (dark red rectangles, ~616 GBytes/sec for the <parameter>Copy</parameter> operation)
+        is close enough to the values achieved on the host with 48 threads (yellow rectangles, ~640 GBytes/sec for the <parameter>Copy</parameter> operation).
+        For completeness, we also run the benchmark on the host with 36 threads (green rectangles, ~605 Gbytes/sec for the <parameter>Copy</parameter> operation); and as we
+        could have expectd, the results of such baremetal runs and of the VM runs are very close.</para>
 
-      <para><xref linkend="fig-stream-single-1vm-model"/> and <xref linkend="fig-stream-bm-vm"/>
-        show the effect of using different CPU models for the virtual machine. While with single
-        threaded STREAM it seems that CPU model is not a really important parameter, the OpenMP run
-        clearly show how the using the host-passthrough dramatically decreases the performance. </para>
+      <para> This clearly shows how proper tuning allows a single VM running on an AMD EPYC 7004 Series
+        Processor server to achieve a memory bandwidth performance that basically matches the one that we can reach directly on the host. </para>
 
-      <para>This seems counter-intuitive, as using host-passthrough and enabling the
-          <parameter>haltpoll</parameter> governor inside the guest is meant to provide the absolute
-        best performance when doing static host resource partitioning, as we are doing here.
-        However, we know that in our case this is because of the inaccurate cache hierarchy exposed
-        to the VM that this causes. </para>
+      <note>
+        <para>Inside of the VM, the STREAM benchmark was configured almost identically to what has been
+         shown already in <xref linkend="sec-workload-stream"/>. </para>
+      </note>
+
+      <para><xref linkend="fig-stream-single-1vm-model"/> and <xref linkend="fig-stream-omp-1vm-model"/>
+        show the effect of using different CPU models for the virtual machine. We see that, as long as
+        a single thread is used, the CPU model choosen for the VM is completely irrelevant.</para>
+
+      <para>On the other hand, the OpenMP run clearly shows some problems when the <parameter>host-passthrough</parameter> CPU model
+        is selected. In fact, since using that model builds a VM with only 2 LLCs (and also to other problems with the cache topology),
+        running STREAM with twice as many threads as there are LLCs in the system, results in the benchmark spawning only 4 of them (yellow and green rectangles).
+        And this, of course, dramatically reduces the performance. We can also see that, if we instead manually set the number of threads
+        to the value that we know to be the best for this VM (i.e., 36, dark red and cyan rectangles) performance are restored to how good
+        we know things can be from <xref linkend="fig-stream-bm-vm"/> (and from the <parameter>cpumodel</parameter> results, i.e. the blue and orange rectangles).</para>
+
+      <para>Actually, the cyan rectangles represent the absolute best result (~620 GBytes/sec for the <parameter>Copy</parameter> operation), probably thanks to the fact that the CPUIdle
+        <parameter>haltpoll</parameter> governor is the most effective when coupled with <parameter>cpupassthrough</parameter>. However, the orange rectangles follow very closely
+        (~614 Gbytes/sec for the <parameter>Copy</parameter> operation). And it is probably not worthwhile to tolerate a completely inaccurate cache hierarchy inside of the VM,
+        for such a small gain. In fact, sticking to <parameter>cpupassthrough</parameter> would likely mean having to manually tweak most applications, and this could be
+        much more complicated it has been here for the STREAM benchmark or, sometimes, even impossible. For this reason, this document recommends <parameter>cpumodel</parameter>
+        as the best compromise between convenience and absolute best performance.
+      </para>
 
       <figure xml:id="fig-stream-single-1vm-model">
         <title>STREAM Bandwidth - Single thread in one VM with different CPU models</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-single-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-1vm-model.png" width="80%" format="SVG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-single-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-1vm-model.png" width="80%" format="SVG"/>
           </imageobject>
         </mediaobject>
       </figure>
@@ -2861,21 +2947,22 @@ dmesg | grep SEV
         <title>STREAM Bandwidth - OpenMP in one VM with different CPU models</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-omp-llcs-spread-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-omp-1vm-model.png" width="80%" format="SVG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-omp-llcs-spread-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-omp-1vm-model.png" width="80%" format="SVG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>This confirms the need to always run benchmarks for assessing the performance of the
+      <para>This situation also confirms the need to always run benchmarks for assessing the performance of the
         relevant workloads, on a given platform. In fact, because of specific characteristics of
         some components of the virtualization stack available in SUSE Linux Enterprise Server 15
-        SP2, the <parameter>EPYC</parameter> CPU model (host-model) is preferable to what it would
-        have appeared to be the most obvious choice, which is the
-          <parameter>host-passthrough</parameter>. CPU model with <parameter>haltpoll</parameter>
-        governor enabled inside the guest.</para>
+        SP4, the <parameter>EPYC-Milan</parameter> (or, equivalently, the <parameter>host-model</parameter>) CPU model
+        might be preferable to what it would have appeared to be the most obvious choice (<parameter>host-passthrough</parameter>).</para>
+
+      <para>Finally, about the CPUIdle <parameter>haltpoll</parameter> governor, it is recommended to enable and make use of it,
+        although for STREAM (and we can guess also for other, similar, memory intensive benchmarks) it introduces no significant performance difference.</para>
 
     </sect2>
 
@@ -2883,84 +2970,117 @@ dmesg | grep SEV
       <title>Test scenario: Multiple VMs</title>
 
       <para>
-        <xref linkend="sec-virt-test-stream-sev"/> shows what happens when two or four large VMs are
-        used, both with the recommended tuning applied (performance of 1 VM is also displayed, for
-        reference). The graph reports the average memory bandwidth achieved in each experiments,
-        considering all the VMs involved. For example, the light blue bar (4 VMS) is relative to an
-        experiment where four VMs were used and represents the average of the four different memory
-        bandwidth values, one for each of the VMs. </para>
+        <xref linkend="fig-stream-single-vms-avg"/> and <xref linkend="fig-stream-single-vms-sum"/> show what happens when 1, 2, 4, 6, 12 or 24 VMs are used.
+        The former reports the average bandwidth achieved in each experiments, considering all the VMs involved. For example, the yellow blue bar (4 VMS) is relative to an
+        experiment where 4 VMs were concurrently running the STREAM benchmark (in single thread mode) and represents the average of the 4 different memory bandwidth values,
+        one for each of such VMs.
+        The latter shows something similar, but the bars represents the cumulative STREAM bandwidth achieved in each experiments, considering all the VMs involved.
+        For example, the cyan bar (24 VMs) is relative to an experiment where 24 VMs were concurrently running the STREAM benchmark (in single thread mode) and represents the sum
+        of the 24 different memory bandwidth values, one of each of such VMs.
+      </para>
 
-      <figure xml:id="fig-stream-omp-llcs-spread-vms-avgstd">
-        <title>STREAM Bandwidth - OpenMP, per-VM average when using multiple VMs</title>
+      <figure xml:id="fig-stream-single-vms-avg">
+        <title>STREAM Bandwidth - Single, average of the bandwidth achieved among all VMs of each group</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-omp-llcs-spread-vms-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-vms-avg.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-omp-llcs-spread-vms-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-vms-avg.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para>We can see that performance scales down in a close to linear fashion, with the increase
-        of the number of VMs involved (although, not perfectly linear for all the type of STREAM
-        operations). </para>
+      <figure xml:id="fig-stream-single-vms-sum">
+        <title>STREAM Bandwidth - Single, sum of the bandwidth achieved within all VMs of each group</title>
+        <mediaobject>
+          <imageobject role="fo">
+            <imagedata fileref="EPYC4-stream-single-vms-sum.svg" width="80%" format="PNG"/>
+          </imageobject>
+          <imageobject role="html">
+            <imagedata fileref="EPYC4-stream-single-vms-sum.svg" width="80%" format="PNG"/>
+          </imageobject>
+        </mediaobject>
+      </figure>
+
+      <para>We see in <xref linkend="fig-stream-single-vms-avg"/> how the single STREAM bandwidth stays basically flat until (and including when) 6 VMs are used.
+        Then it starts to decline a bit, as more VMs are packed on the NUMA nodes and, hence, compete for the bandwith of the memory controllers. However,
+         <xref linkend="fig-stream-single-vms-sum"/> reminds us how the total bandwidth achieved, if we consider all the VMs involved in each experiments, actually goes up,
+        until it reaches the same level that we know (e.g., from <xref linkend="fig-stream-bm-vm"/>) it can touch.
+      </para>
+
+      <para><xref linkend="fig-stream-omp-vms-avg"/> and <xref linkend="fig-stream-omp-vms-sum"/> show the same, but when the parallel (via OpenMP) version of STREAM
+        is run, inside of each VM of each experiment.</para>
+
+      <figure xml:id="fig-stream-omp-vms-avg">
+        <title>STREAM Bandwidth - OpenMP, average of the bandwidth achieved among all VMs of each group</title>
+        <mediaobject>
+          <imageobject role="fo">
+            <imagedata fileref="EPYC4-stream-omp-vms-avg.svg" width="80%" format="PNG"/>
+          </imageobject>
+          <imageobject role="html">
+            <imagedata fileref="EPYC4-stream-omp-vms-avg.svg" width="80%" format="PNG"/>
+          </imageobject>
+        </mediaobject>
+      </figure>
+
+      <figure xml:id="fig-stream-omp-vms-sum">
+        <title>STREAM Bandwidth - OpenMP, sum of the bandwidth achieved within all VMs of each group</title>
+        <mediaobject>
+          <imageobject role="fo">
+            <imagedata fileref="EPYC4-stream-omp-vms-sum.svg" width="80%" format="PNG"/>
+          </imageobject>
+          <imageobject role="html">
+            <imagedata fileref="EPYC4-stream-omp-vms-sum.svg" width="80%" format="PNG"/>
+          </imageobject>
+        </mediaobject>
+      </figure>
+
+      <para>In <xref linkend="fig-stream-omp-vms-avg"/> we see that performance scales down in a close to linear fashion with the increase
+        of the number of VMs involved (although, not perfectly linearly for all the type of STREAM operations).
+        At the same time, <xref linkend="fig-stream-omp-vms-sum"/> shows how the total cumulative bandwidth of each experiments stays high,
+        as one would expect. Actually, it even seems that using many small VMs may make it possible to even better exploit the large memory bandwidth
+        provided by the memory controllers of the EPYC 9004 processors, as compared to what happens when few large VMs are running.
+      </para>
 
     </sect2>
 
     <sect2 xml:id="sec-virt-test-stream-sev">
       <title>Test scenario: Secure Encrypted Virtualization</title>
 
-      <para>The goal for this test was evaluating the impact on the performance of SEV, on a memory
+      <para>The goal for this test was evaluating the impact on the performance of encrypting the VMs with SEV and with SEV-ES, when running a memory
         intensive workload like STREAM.</para>
 
-      <para> We can evaluate that looking at the results of running single threaded and parallelized
-        STREAM in one VM (in <xref linkend="fig-stream-1vms-sev-avg"/>), in two VMs (in <xref
-          linkend="fig-stream-2vms-sev-avg"/>) and in four VMs *in <xref
-          linkend="fig-stream-4vms-sev-avg"/>) running concurrently, both when SEV is disabled
-        (no-SEV) and when it is enabled (SEV). They again report the average of the bandwidth values
-        of each VM that was running in the particular experiment. </para>
+      <para>Considering the case when 2 VMs are concurrently running on the host and are executing the STREAM benchmark, <xref linkend="fig-stream-single-sev"/>
+        shows the average bandwidth of the single thread execution of the benchmark in both such VMs when memory is not encrypted (blue bars), when memory is
+        encrypted with SEV (orange bar) and with both memory and state are encrypted with SEV-ES (yellow bar).</para>
 
-      <figure xml:id="fig-stream-1vms-sev-avg">
-        <title>STREAM Bandwidth - Single and OpenMP, with and without SEV in 1 VM</title>
+      <figure xml:id="fig-stream-single-sev">
+        <title>STREAM Bandwidth - Single, average bandwidth in 2 VMs when unencrypted, encrypted with SEV and with SEV-ES</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-1vms-sev-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-sev-avg.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-1vms-sev-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-single-sev-avg.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <figure xml:id="fig-stream-2vms-sev-avg">
-        <title>STREAM Bandwidth - Single and OpenMP, with and without SEV in 2 VMs</title>
+      <figure xml:id="fig-stream-openmp-sev">
+        <title>STREAM Bandwidth - OpenMP, average bandwidth in 2 VMs when unencrypted, encrypted with SEV and with SEV-ES</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="stream-2vms-sev-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-openmp-sev-avg.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="stream-2vms-sev-avg.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-stream-openmp-sev-avg.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <figure xml:id="fig-stream-4vms-sev-avg">
-        <title>NAS Completion Time - Baremetal and in one VM, different configurations</title>
-        <mediaobject>
-          <imageobject role="fo">
-            <imagedata fileref="stream-4vms-sev-avg.png" width="80%" format="PNG"/>
-          </imageobject>
-          <imageobject role="html">
-            <imagedata fileref="stream-4vms-sev-avg.png" width="80%" format="PNG"/>
-          </imageobject>
-        </mediaobject>
-      </figure>
-
-      <para>It is quite evident that enabling SEV has only a very limited impact on the performance
-        for this workload, which is within 2% and 4% for most of the experiments. Even in the case
-        where the overhead is the highest (OpenMP Stream run inside 4 VMs), the performance decrease
-        is limited to around 6%.</para>
+      <para>It is quite evident how both SEV and SEV-ES are have only a very limited impact on the performance
+        for this workload. In fact, even when SEV-ES is employed, the drop in performance is limited to ~2%.</para>
 
     </sect2>
 
@@ -2969,92 +3089,88 @@ dmesg | grep SEV
   <sect1 xml:id="sec-virtualization-test-workload-npb">
     <title>Test VM workload: NPB</title>
 
-    <para>To match the experimental evaluation done on bare-metal, NPB base workloads have also been
+    <para>Trying to mach the experimental evaluation done on bare-metal, NPB base workloads have also been
       considered.</para>
 
     <sect2 xml:id="sec-virt-test-npb-onevm">
       <title>Test scenario: One large VM</title>
 
       <para><xref linkend="fig-nas-bm-1vm"/> shows the results of running the various NPB workloads
-        on the host in the default (BM default), tuned (BM tuned) and selective (BM selective)
-        configurations, compared with the exact same done inside one VM (VM default, VM tuned, VM
-        selective).</para>
+        on the host and in one VMs. In both cases, the tuning introduced above was applied (in the latter case, of course, inside of the VM itself).</para>
 
       <figure xml:id="fig-nas-bm-1vm">
-        <title>NAS Completion Time - Baremetal and in one VM with different configurations</title>
+        <title>NAS Completion Time - Baremetal and in one VM</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="nas-bm-1vm.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-bm-1vm.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="nas-bm-1vm.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-bm-1vm.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <para> This makes pretty evident that, with proper tuning, also CPU bound workload running
-        inside a VM can achieve host-level performance. </para>
+      <para> The VM appears slightly solwer than the host, but this should have been
+        expected, considering that the VM can only have 288 CPUs. </para>
 
-      <para><xref linkend="fig-nas-selective-1vm-model"/> shows the impact of selecting a specific
-        CPU model for the VM (only the results for the selective configuration are reported). We see
-        that this aspect seems to play a smaller role for this benchmark, as compared to how it
-        changed the performance for STREAM. In any case, even for CPU bound workloads like NAS, the
-        EPYC model is the one to be preferred.</para>
+    </sect2>
 
-      <figure xml:id="fig-nas-selective-1vm-model">
-        <title>NAS Completion Time - Selective configuration in one VM, varying the CPU
-          model</title>
+    <sect2 xml:id="sec-virt-test-npb-multivm">
+      <title>Test scenario: Two to twelve VMs</title>
+
+      <para><xref linkend="fig-nas-bm-multivm"/> depicts the same as <xref linkend="fig-nas-bm-1vm"/>,
+        but for a few more cases, in terms of number of concurrently running VMs.
+      </para>
+
+      <figure xml:id="fig-nas-bm-multivm">
+        <title>NAS Completion Time - Baremetal and 2 to 12 VMs</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="nas-selective-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-bm-12vm.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="nas-selective-1vm-model.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-bm-12vm.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
+
+      <para> We can see how the slowdown is almost always linear with the number of the VMs, which
+        makes sense considering that when we increase the number of VMs, each one of them can also
+        have fewer CPUs (the only exceptions being <parameter>lu.D</parameter> and --but only to some extent
+        <parameter>sp.D</parameter>)-- especially with 12 VMs).
+        This testifies the effectivens of the suggested tuning measures, when it comes
+        to guerantee a good level of isolation of multiple concurrently running VMs, on the EPYC 9004 processors. </para>
 
     </sect2>
 
     <sect2 xml:id="sec-virt-test-npb-sev">
-      <title>Test scenario: Multiple VMs with Secure Encrypted Virtualization</title>
+      <title>Test scenario: Two VMs with Secure Encrypted Virtualization</title>
 
       <para>Similarly to what has been done with STREAM, we evaluate here the overhead introduced by
-        SEV for CPU on the NPB workloads and we do that while running it inside two (in <xref
-          linkend="fig-nas-tuned-2vms-sev"/>) and in four (<xref linkend="fig-nas-tuned-4vms-sev"/>)
-        VMs, with both SEV off and on.</para>
+        SEV and SEV-ES, this time for CPU-bound workloads, and we do that by running the NPB benchmarks it inside two VMs concurrently
+        that are all either unencrypted, encrypted with SEV or encrypted with SEV-ES (<xref linkend="fig-nas-tuned-2vms-sev"/>).</para>
 
       <figure xml:id="fig-nas-tuned-2vms-sev">
         <title>NAS Completion Time - Tuned configuration in 2 VM, with and without SEV</title>
         <mediaobject>
           <imageobject role="fo">
-            <imagedata fileref="nas-tuned-2vms-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-2vms-sev.svg" width="80%" format="PNG"/>
           </imageobject>
           <imageobject role="html">
-            <imagedata fileref="nas-tuned-2vms-sev.png" width="80%" format="PNG"/>
+            <imagedata fileref="EPYC4-nas-2vms-sev.svg" width="80%" format="PNG"/>
           </imageobject>
         </mediaobject>
       </figure>
 
-      <figure xml:id="fig-nas-tuned-4vms-sev">
-        <title>NAS Completion Time - Tuned configuration in 4 VM, with and without SEV</title>
-        <mediaobject>
-          <imageobject role="fo">
-            <imagedata fileref="nas-tuned-4vms-sev.png" width="80%" format="PNG"/>
-          </imageobject>
-          <imageobject role="html">
-            <imagedata fileref="nas-tuned-4vms-sev.png" width="80%" format="PNG"/>
-          </imageobject>
-        </mediaobject>
-      </figure>
-
-      <para>Results are again pretty good, as the performance penalty because of SEV, on a CPU intensive
-        benchmark like NPB, is nearly non-existent (it is less than 0.5%).</para>
+      <para>As for the memory-intensive case the overhead introduced by either of the Confidential Computing
+        technologies is found to be limited. In fact, the worst case is reached in the SEV-ES case
+        (as it could have be expected), during the <parameter>bt.D</parameter> benchmark, but is well
+        within 5% of the unencrypted run.
+      </para>
 
     </sect2>
 
   </sect1>
--->
 
   <sect1 xml:id="sec-resources">
     <title>Resources</title>

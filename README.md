@@ -47,7 +47,7 @@ Thank you for contributing to this repo. Please adhere to the following guidelin
 
 To contribute to the documentation, you need to write DocBook.
 
-* You can learn about DocBook syntax at http://docbook.org/tdg5/en/html .
+* You can learn about DocBook syntax at http://docbook.org/tdg5/en/html.
 * SUSE documents are generally built with DAPS (package `daps`) and the
   SUSE XSL Stylesheets (package `suse-xsl-stylesheets`). Ideally, you should
   get these from the repository `Documentation:Tools`. However, slightly
@@ -89,7 +89,7 @@ Learn more at https://opensuse.github.io/daps
 | DC-CaaSP3-DataHub2 | ext | Container | https://documentation.suse.com/suse-caasp/4.0/, https://documentation.suse.com/sles-sap-12/, https://documentation.suse.com/sles-sap-15/ |
 | DC-SAP_HA740_SetupGuide_AWS | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
 | DC-SAP_NW740_SLE12_SetupGuide | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
-|D C-SAP_NW740_SLE15_SetupGuide | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
+| DC-SAP_NW740_SLE15_SetupGuide | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
 | DC-SAP_S4HA10_SetupGuide-SLE12 | ext | SAP | https://documentation.suse.com/sles-sap-12/ |
 | DC-SAP_S4HA10_SetupGuide-SLE15 | ext | SAP | https://documentation.suse.com/sles-sap-15/ |
 | DC-SBP-AMD-EPYC-2-SLES15SP1 | ext | ELS | https://documentation.suse.com/sles-15/ |

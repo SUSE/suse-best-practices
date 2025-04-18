@@ -1,0 +1,192 @@
+# tag::rancher-haproxy-preps[]
+=== Preparation
+To have a highly available {rancher} setup, you need a load balancer for your {rancher} nodes.
+If you already have a load balancer, you can use that to make {rancher} highly available.
+
+If you do not plan to set up a highly available {rancher} cluster, you can skip this section.
+
+# end::rancher-haproxy-preps[]
+
+# tag::rancher-haproxy-install[]
+
+==== Installing a `haproxy`-based load balancer
+
+This section describes how to set up a custom load balancer using `haproxy`.
+
+Set up a virtual machine or a bare metal server with {sles} and SUSE Linux Enterprise High Availability or use {sles4sap}. 
+Install the `haproxy` package.
+
+[source, bash]
+----
+$ zypper in haproxy
+----
+
+Create the configuration for `haproxy`.
+Find an example configuration file for `haproxy` below and adapt for the actual environment.
+
+ifdef::eic[]
+[source, bash]
+----
+# cat <<EOF > /etc/haproxy/haproxy.cfg 
+global
+        log /dev/log    local0
+        log /dev/log    local1 notice
+        chroot /var/lib/haproxy
+        # stats socket /run/haproxy/admin.sock mode 660 level admin
+        stats timeout 30s
+        user haproxy
+        group haproxy
+        daemon
+
+        # general hardlimit for the process of connections to handle, this is separate to backend/listen
+        # Added in 'global' AND 'defaults'!!! - global affects only system limits (ulimit/maxsock) and defaults affects only listen/backend-limits - hez
+        maxconn 400000
+
+        # Default SSL material locations
+        ca-base /etc/ssl/certs
+        crt-base /etc/ssl/private
+
+        tune.ssl.default-dh-param 2048
+
+        # Default ciphers to use on SSL-enabled listening sockets.
+        # For more information, see ciphers(1SSL). This list is from:
+        #  https://hynek.me/articles/hardening-your-web-servers-ssl-ciphers/
+        ssl-default-bind-ciphers ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:                            !DSS
+        ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+        mode tcp
+        log     global
+        option  tcplog
+        option  redispatch
+        option  tcpka
+        option  dontlognull
+        retries 2
+        timeout connect 5s
+        timeout client  5s
+        timeout server  5s
+        timeout tunnel  86400s
+        maxconn 400000
+
+listen stats
+        bind *:9000
+        mode http
+        stats hide-version
+        stats uri /stats
+
+listen rancher_apiserver
+        bind my_lb_address:6443
+        option httpchk GET /healthz
+        http-check expect status 401
+        server mynode1 mynode1.domain.local:6443 check check-ssl verify none
+        server mynode2 mynode2.domain.local:6443 check check-ssl verify none
+        server mynode3 mynode3.domain.local:6443 check check-ssl verify none
+listen rancher_register
+        bind my_lb_address:9345
+        option httpchk GET /ping
+        http-check expect status 200
+        server mynode1 mynode1.domain.local:9345 check check-ssl verify none
+        server mynode2 mynode2.domain.local:9345 check check-ssl verify none
+        server mynode3 mynode3.domain.local:9345 check check-ssl verify none
+
+listen rancher_ingress80
+        bind my_lb_address:80
+        option httpchk GET /
+        http-check expect status 404
+        server mynode1 mynode1.domain.local:80 check
+        server mynode2 mynode2.domain.local:80 check
+        server mynode3 mynode3.domain.local:80 check
+
+listen rancher_ingress443
+        bind my_lb_address:443
+        option httpchk GET /
+        http-check expect status 404
+        server mynode1 mynode1.domain.local:443 check check-ssl verify none
+        server mynode2 mynode2.domain.local:443 check check-ssl verify none
+        server mynode3 mynode3.domain.local:443 check check-ssl verify none
+EOF 
+----
+endif::[]
+
+ifndef::eic[]
+[source, bash]
+----
+# cat <<EOF > /etc/haproxy/haproxy.cfg 
+global
+  log /dev/log daemon
+  maxconn 32768
+  chroot /var/lib/haproxy
+  user haproxy
+  group haproxy
+  daemon
+  tune.bufsize 32768
+  tune.ssl.default-dh-param 2048
+  ssl-default-bind-ciphers ALL:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK:!RC4:!ADH:!LOW@STRENGTH
+
+defaults
+  log     global
+  mode    tcp
+  option  log-health-checks
+  option  log-separate-errors
+  option  dontlog-normal
+  option  dontlognull
+  option  tcplog
+  retries 3
+  option  redispatch
+  maxconn 10000
+  timeout connect     5s
+  timeout client     50s
+  timeout server    450s
+
+listen stats
+  bind 0.0.0.0:80
+  bind :::80 v6only
+  stats enable
+  stats uri     /
+  stats refresh 5s
+
+# access the kubernetes api
+frontend kubeapi
+  bind *:6443
+  mode tcp
+  default_backend kubeapibackend
+
+# address to register new nodes
+frontend rke2server
+  bind *:9345
+  mode tcp
+  default_backend rke2serverbackend
+
+backend kubeapibackend
+  balance roundrobin
+  server mynode1 192.168.122.20:6443 check
+  server mynode2 192.168.122.30:6443 check
+  server mynode3 192.168.122.40:6443 check
+
+
+backend rke2serverbackend
+  balance roundrobin
+  server mynode1 192.168.122.20:9345 check
+EOF 
+----
+endif::[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Check the configuration file:
+[source, bash]
+----
+$ haproxy -f /path/to/your/haproxy.conf -c
+----
+
+Enable and start the `haproxy` load balancer:
+----
+$ systemctl enable haproxy
+$ systemctl start haproxy
+----
+
+Do not forget to restart or reload `haproxy` if any changes are made to the haproxy configuration file.
+
+# end::rancher-haproxy-install[]

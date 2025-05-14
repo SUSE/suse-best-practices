@@ -19,9 +19,10 @@ The following steps need to be executed before the deployment of {di} {di_versio
 
 Log in to your management workstation and create the namespace in the Kubernetes cluster where DI {di_version} will be deployed.
 
+[source, bash]
 ----
-$ kubectl create ns <NAMESPACE for DI 31>
-$ kubectl get ns
+kubectl create ns <NAMESPACE for DI 31>
+kubectl get ns
 ----
 
 ==== Creating _cert_ file to access the secure private registry
@@ -29,10 +30,12 @@ $ kubectl get ns
 Create a file named _cert_ that contains the SSL certificate chain for the secure private registry.
 This imports the certificates into {di} {di_version}. Make sure that the file does not contain DOS-type line endings. The commands listed below will remove the DOS-type line endings and create the necessary secret.
 //TODO Uli check completeness of commands below
+
+[source, bash]
 ----
-$ cat CA.pem > cert_with_cr
-$ tr -d '\r' < cert_with_cr > cert
-$ kubectl -n <NAMESPACE for DI 3> create secret generic cmcertificates --from-file=cert
+cat CA.pem > cert_with_cr
+tr -d '\r' < cert_with_cr > cert
+kubectl -n <NAMESPACE for DI 3> create secret generic cmcertificates --from-file=cert
 ----
 
 
@@ -54,11 +57,12 @@ Download the SLC Bridge software to the management workstation.
 
 Rename the SLC Bridge binary to `slcb` and make it executable. Deploy the SLC Bridge to the Kubernetes cluster.
 
+[source, bash]
 ----
-$ mv SLCB01_XX-70003322.EXE slcb
-$ chmod 0700 slcb
-$ export KUBECONFIG=<KUBE_CONFIG>
-$ ./slcb init
+mv SLCB01_XX-70003322.EXE slcb
+chmod 0700 slcb
+export KUBECONFIG=<KUBE_CONFIG>
+./slcb init
 ----
 
 During the interactive installation, the following information is needed:
@@ -70,8 +74,9 @@ During the interactive installation, the following information is needed:
 Take a note of the service port of the SLC Bridge. It is needed for the installation of {di} {di_version} or for the reconfiguration of DI {di_version}, 
 for example to enable backup. If you forgot to note it down, the following command will list the service port:
 // FIXME add screenshot / command line showing result service port > 30000
+[source, bash]
 ----
-$ kubectl -n sap-slcbridge get svc
+kubectl -n sap-slcbridge get svc
 ----
 
 === Creating and downloading Stack XML for the {di} installation
@@ -92,9 +97,10 @@ Download the Stack XML file to a local directory. Copy _stack.xml_ to the manage
 
 The installation of {di} {di_version} is invoked by:
 
+[source, bash]
 ----
-$ export KUBECONFIG=<path to kubeconfig>
-$ ./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
+export KUBECONFIG=<path to kubeconfig>
+./slcb execute --useStackXML MP_Stack_XXXXXXXXXX_XXXXXXXX_.xml --url https://<node>:<service port>/docs/index.html
 ----
 
 This starts an interactive process for configuring and deploying {di} {di_version}.
@@ -134,14 +140,16 @@ After the installation workflow is successfully finished, you need to carry out 
 
 ** Create a certificate request using `openssl`, for example:
 +
+[source, bash]
 ----
-$ openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
+openssl req -newkey rsa:2048 -keyout <hostname>.key -out <hostname>.csr
 ----
 
 ** Decrypt the key: 
 +
+[source, bash]
 ----
-$ openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
+openssl rsa -in <hostname>.key -out decrypted-<hostname>.key
 ----
 
 ** Let a CA sign the <hostname>.csr
@@ -149,9 +157,10 @@ You will receive  a <hostname>.crt.
 
 ** Create a secret from the certificate and the key in the {di} 3 namespace:
 +
+[source, bash]
 ----
-$ export NAMESPACE=<{di} 3 namespace>
-$ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
+export NAMESPACE=<{di} 3 namespace>
+kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<hostname>.key--cert <hostname>.crt
 ----
 
 * Deploy an `nginx-ingress` controller:
@@ -160,20 +169,26 @@ $ kubectl -n $NAMESPACE create secret tls vsystem-tls-certs --key  decrypted-<ho
 
 ** Create the `nginx-ingress` controller as a *nodePort* service according to the Ingress `nginx` documentation:
 +
+[source, bash]
 ----
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/baremetal/deploy.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.46.0/deploy/static/provider/baremetal/deploy.yaml
 ----
 
 ** Determine the port the `nginx` controller is redirecting HTTPS to:
 +
+[source, bash]
 ----
-$ kubectl -n ingress-nginx get svc ingress-nginx-controller
+kubectl -n ingress-nginx get svc ingress-nginx-controller
 ----
 +
 The output should be similar to the below:
 +
+[source, bash]
 ----
 kubectl -n ingress-nginx get svc ingress-nginx-controller
+----
+
+----
 NAME                       TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)                      AGE
 ingress-nginx-controller   NodePort   10.43.86.90   <none>        80:31963/TCP,443:{di_version}06/TCP   53d
 ----
@@ -182,8 +197,9 @@ In our example here, the TLS port is be {di_version}06. Note the port IP down as
 
 * Create an Ingress to access the {di} installation:
 +
+[source, bash]
 ----
-$ cat <<EOF > ingress.yaml
+cat <<EOF > ingress.yaml
 apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
@@ -212,7 +228,7 @@ spec:
     - "<hostname FQDN must match SSL certificate>"
     secretName: vsystem-tls-certs
 EOF
-$ kubectl apply -f ingress.yaml
+kubectl apply -f ingress.yaml
 ----
 
 * Connecting to \https://hostname:<ingress service port> brings up the {di} login dialog. 
@@ -263,10 +279,11 @@ the installation must be registered either to SUSE Customer Center, an SMT or RM
 
 * {sles} {sles_version} can be updated on the command line using `zypper`:
 +
+[source, bash]
 ----
-$ sudo zypper ref -s
-$ sudo zypper lu
-$ sudo zypper patch
+sudo zypper ref -s
+sudo zypper lu
+sudo zypper patch
 ----
 
 * Other methods for updating {sles} {sles_version} are described in the https://documentation.suse.com/sles[product documentation].
@@ -275,55 +292,63 @@ If an update requires a reboot of the server, make sure that this can be done sa
 
 * For example, block access to {di}, and drain and cordon the Kubernetes node before rebooting:
 +
+[source, bash]
 ----
-$ kubectl edit ingress <put in some dummy port>
-$ kubectl drain <node>
+kubectl edit ingress <put in some dummy port>
+kubectl drain <node>
 ----
 
 * Check the status of the node:
 +
+[source, bash]
 ----
-$kubectl get node <node>
+kubectl get node <node>
 ----
 +
 The node should be marked as *not schedulable*.
 
 * On RKE 2 master nodes, run the command:
 +
+[source, bash]
 ----
-$ sudo systemctl stop rke2-server
+sudo systemctl stop rke2-server
 ----
 
 * On RKE 2 worker nodes, run the command:
 +
+[source, bash]
 ----
-$ sudo systemctl stop rke2-agent
+sudo systemctl stop rke2-agent
 ----
 
 * Update {sles} {sles_version}:
 +
+[source, bash]
 ----
-$ ssh node
-$ sudo zypper patch
+ssh node
+sudo zypper patch
 ----
 
 * Reboot the nodes if necessary or start the appropriate RKE 2 service.
 
 ** On master nodes, run the command:
 +
+[source, bash]
 ----
-$ sudo systemctl start rke2-server
+sudo systemctl start rke2-server
 ----
 
 ** On worker nodes, run the command:
 +
+[source, bash]
 ----
-$ sudo systemctl start rke2-agent
+sudo systemctl start rke2-agent
 ----
  
 * Check if the respective nodes are back and uncordon them.
 +
+[source, bash]
 ----
-$ kubectl get nodes
-$ kubectl uncordon <node>
+kubectl get nodes
+kubectl uncordon <node>
 ----

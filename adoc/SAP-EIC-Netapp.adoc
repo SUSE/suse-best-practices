@@ -1,0 +1,145 @@
+# tag::intro[]
+
+== Installing {trid}
+
+This chapter describes how to install {trid} in a RKE2 cluster using Helm.
+For more details how to install {trid} with Helm, visit https://docs.netapp.com/us-en/trident/trident-get-started/kubernetes-deploy-helm.html#critical-information-about-trident-25-02
+
+# end::intro[]
+
+
+# tag::os[]
+=== Preparing the OS 
+
+The Kubernetes worker nodes must be prepared so PVCs can later be provisioned properly.
+Thus you need to install the following packages:
+
+[source, bash, subs="attributes"]
+----
+sudo zypper in -y lsscsi multipath-tools open-iscsi
+----
+
+As multipathd is known to have problems on OS using the kernel-default-base packages, replace them with kernel-default:
+
+[source, bash, subs="attributes"]
+----
+sudo zypper remove -y kernel-default-base
+sudo zypper in -y kernel-default
+----
+
+Afterwards you can enable iscsi and multipath:
+[source, bash, subs="attributes"]
+----
+sudo systemctl enable --now iscsi
+sudo systemctl enable --now multipathd
+----
+
+# end::os[]
+
+
+# tag::deploy[]
+
+=== Deploying the {trid} operator
+
+The {trid} operator is responsible to establish the connection between your {netapp} storage system and the Kubernetes cluster.
+An example of how to deploy it looks like follows:
+
+[source, bash, subs="attributes"]
+----
+helm repo add netapp-trident https://netapp.github.io/trident-helm-chart
+helm install my-trident-operator netapp-trident/trident-operator --version 100.2502.1 --create-namespace --namespace trident
+----
+
+# end::deploy[]
+
+# tag::backend-config[]
+
+=== Establish the connection between Kubernetes and the {netapp} storage
+
+Before creating the link to the backend, it's recommended to store the user and password information in a Secret.
+To create such a secret you can use:
+
+[source, yaml]
+----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-tbc-ontap-secret
+  namespace: trident
+type: Opaque
+stringData:
+  username: <cluster-admin>
+  password: <password>
+----
+
+To establish the connection between the target Kubernetes cluster and the {netapp} storage system, a so called *TridentBackendConfig* is required.
+To get more information how to set up the backend configuration, refer to https://docs.netapp.com/us-en/trident/trident-use/backend-kubectl.html#tridentbackendconfig
+
+The following two examples are showing what the configuration for a SAN/iscsi backend and a NAS backend looks like:
+
+[source, yaml]
+----
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: backend-tbc-ontap-san
+  namespace: trident
+spec:
+  version: 1
+  backendName: ontap-san-backend
+  storageDriverName: ontap-san
+  managementLIF: <Cluster IP>
+  dataLIF: <Storage-VM-IP>
+  svm: <Storage-VM-FQDN>
+  credentials:
+    name: backend-tbc-ontap-secret
+----
+
+[source, yaml]
+----
+apiVersion: trident.netapp.io/v1
+kind: TridentBackendConfig
+metadata:
+  name: backend-tbc-ontap-nas
+  namespace: trident
+spec:
+  version: 1
+  backendName: ontap-nas-backend
+  storageDriverName: ontap-nas
+  managementLIF: <Cluster-IP>
+  dataLIF: <Storage-VM-IP>
+  svm: <Storage-VM-FQDN>
+  credentials:
+    name: backend-tbc-ontap-secret
+----
+
+To verify the backend was configured successfully, check the output of:
+
+[source, bash, subs="attributes"]
+----
+kubectl -n trident get tbc backend-tbc-ontap-san
+----
+
+If the connection was established, the *State* should be active and you should see a *Backend UUID*
+
+# end::backend-config[]
+
+//TODO example picture
+
+# tag::storageClass[]
+
+Once the backend is configured, you can create a *StorageClass* to provision Volumes to be consumed by a Persistent Volume Claim.
+Here's an example that will create a storageClass that will use an SAN/iscsi backend:
+
+[source, yaml]
+----
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs
+provisioner: csi.trident.netapp.io
+parameters:
+  backendType: ontap-san
+----
+
+#end::storageClass[]

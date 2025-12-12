@@ -1,0 +1,280 @@
+
+# tag::intro[]
+== Upgrade guidance
+
+When upgrading your SAP edge application related clusters, SUSE advices to follow the order of upgrading Rancher first, then Kubernetes and afterwards the OS.
+At https://www.suse.com/support/kb/doc/?id=000020061 you can find some information that will help you to prepare the upgrade.
+# end::intro[]
+
+# tag::eic[]
+=== Upgrading {eic}
+
+Before upgrading your {eic} instance, please make sure that the target version was release for your {rke} cluster version:
+https://me.sap.com/notes/3247839
+
+
+Detailed instructions on how to upgrade {eic} can be found at:
+https://help.sap.com/docs/integration-suite/sap-integration-suite/upgrade-edge-integration-cell-solution
+
+
+To upgrade your {eic} instance, navigate to the Edge Nodes of your {break elm} UI.
+Select the edge node you want to upgrade. In the Deployments view, you should see your deployed solutions and their version.
+
+To upgrade, click on the ... and select *Upgrade* as show in the picture below:
+
+image::SAP-EIC-Upgrade-EIC.png[title=EIC Upgrade example,scaledwidth=99%,opts=inline,Embedded]
+
+In the next couple of steps, you will be guided through the upgrade process, including the selection of the version you want to upgrade to.
+If there are dependencies between your deployments, {elm} will show you those and upgrade the dependencies as well.
+
+image::SAP-EIC-Upgrade-Dependencies.png[title=EIC Upgrade example,scaledwidth=99%,opts=inline,Embedded]
+
+If you skipped some versions of {eic}, it might be the case that you will need to take intermidiate steps before you can upgrade to the desired version. 
+In this case, you will need to repeat the steps to upgrade {eic} until you have reached your desired version.
+
+# end::eic[]
+
+
+# tag::rke[]
+++++
+<?pdfpagebreak?>
+++++
+=== Upgrading {rke}
+
+In this chapter we will describe how to upgrade {rke}.
+
+IMPORTANT: It is highly recommended to upgrade one minor version after another. Furthermore you should always upgrade to the highest patch level before upgrading the minor version.
+
+
+==== Upgrading {rke} using {rancher}
+
+IMPORTANT: This is the prefered way to upgrade all {rke} clusters managed by {rancher}. 
+
+When you deployed your {rke} cluster using {rancher}, you can also upgrade the cluster using {rancher}.
+Therefore enter your *Cluster Management* view in {rancher}.
+
+image::SAP-Edge-Cluster-Management.png[title=Cluster Management Overview,scaledwidth=99%,opts=inline,Embedded]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Click on the burger menu of the cluster you want to upgrade and click *Edit Config*.
+
+image::SAP-Edge-Cluster-Management-Edit.png[title=Cluster Management Edit Config,scaledwidth=99%,opts=inline,Embedded]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Scroll down to the *Cluster Configuration* section, wher you can find the field *Kubernetes Version*.
+
+image::SAP-Edge-Cluster-Management-Edit-K8s.png[title=Upgrade Kubernetes,scaledwidth=99%,opts=inline,Embedded]
+
+Select the Kubernetes Version you want to upgrade to and click on *Save* in the bottom right corner of your window.
+
+++++
+<?pdfpagebreak?>
+++++
+
+==== Upgrading {rke} without {rancher}
+
+When upgrading {rke} wihtout {rancher} there are two strategies to be considered:
+
+1. Upgrading the existing nodes one by one
+2. Adding an additional (temporary) node that already holds the upgrade
+
+WARNING: Whatever strategy you choose, it is highly recommended to upgrade the control plane nodes before upgrading the worker nodes.
+Furthermore you should upgrade one node at a time.
+
+
+===== Upgrading with temporary nodes
+
+When upgrading the cluster with temporary nodes, you'll add a new node to the cluster that already holds the upgrades.
+
+So initially you will have a landscape like this:
+
+image::SAP-Edge-Upgrade-init.svg[title=Upgrade RKE2 init,scaledwidth=99%,opts=inline,Embedded]
+
+And after adding the new node, the landscape will look like this:
+
+image::SAP-Edge-Upgrade-add-CP.svg[title=Upgrade RKE2 add,scaledwidth=99%,opts=inline,Embedded]
+
+Once the node was added and all mandatory components have been deployed on it, another non-upgraded node can be removed from the cluster:
+
+image::SAP-Edge-Upgrade-rm-CP.svg[title=Upgrade RKE2 rm,scaledwidth=99%,opts=inline,Embedded]
+
+IMPORTANT: Before you remove the node from the cluster, you should cordon and drain it.
+Cordoning a node will prevent new workloads to be scheduled on the node, while draining will reschedule the already running workloads.
+
+The same procedure can be done for the upgrades of the worker nodes:
+
+image::SAP-Edge-Upgrade-worker.svg[title=Upgrade RKE2 worker,scaledwidth=99%,opts=inline,Embedded]
+
+===== Upgrading without temporary nodes
+
+Before upgrading an existing node, we recommend to cordon and drain it.
+To do so, run the following commands:
+
+[source, bash]
+----
+kubectl cordon <node-name>
+kubectl drain <node-name> --grace-period=600
+----
+
+Depending on the way you installed {rke}, the upgrade is performed differently.
+For more information about the manual upgrade please refer to https://docs.rke2.io/upgrades/manual_upgrade.
+
+IMPORTANT: Don't use another method for upgrading than you used to install.
+If you installed {rke} using the RPM, you should not try to upgrade using the installation script.
+
+In this guide we'll give you an example how to upgrade using the installation script.
+
+To upgrade {rke} using the installation script, connect to your {rke} node and run the command below. Make sure to replace the version 
+with your desired target version.
+
+[source, bash]
+----
+curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION=vX.Y.Z+rke2rN sh -
+----
+
+You can find a list of {rke} versions at https://github.com/rancher/rke2/releases .
+
+After running the script, you should wait for a minute before you restart the {rke} service.
+To restart the service on a control plane node, run:
+
+[source, bash]
+----
+sudo systemctl restart rke2-server
+----
+
+To restart the service on a worker node, run:
+
+[source, bash]
+----
+sudo systemctl restart rke2-agent
+----
+
+After the service was restarted, you can uncordon your node, so it can be used for scheduling again:
+
+[source, bash]
+----
+kubectl uncordon <node-name>
+----
+
+These steps need to be repeated for every machine of the cluster.
+
+++++
+<?pdfpagebreak?>
+++++
+
+# end::rke[]
+
+
+# tag::rancher[]
+++++
+<?pdfpagebreak?>
+++++
+=== Upgrading {rancher}
+
+IMPORTANT: We strongly recommend taking a backup before upgrading your {rancher} instance. Please refer to https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/backup-restore-and-disaster-recovery/back-up-rancher for further information.
+
+A detailed overview of the upgrade process can be found at:
+https://ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/install-upgrade-on-a-kubernetes-cluster/upgrades 
+
+In this chapter we'll describe the most common upgrade path.
+
+The first step is to update the helm repository:
+
+[source, bash]
+----
+helm repo update
+----
+
+Afterwards it's recommended to take a backup of the configuration parameters of the currently Helm deployment:
+
+[source, bash]
+----
+helm get values rancher -n cattle-system -o yaml > values.yaml
+----
+
+The upgrade of {rancher} is then triggered by running the command below, where you'll specify the version to upgrade to:
+
+[source, bash]
+----
+helm upgrade rancher rancher-prime/rancher \
+  --namespace cattle-system \
+  -f values.yaml \
+  --version=<desired-version>
+----
+
+# end::rancher[]
+
+
+# tag::harvester[]
+++++
+<?pdfpagebreak?>
+++++
+=== Upgrading {harvester}
+
+WARNING: Make sure to verify your {harvester} version is supported with your coupled {rancher} instance. You can check this at https://www.suse.com/suse-harvester/support-matrix/all-supported-versions/harvester-v1-5-x/ under *Harvester & Rancher Support Matrix*.
+
+Before upgrading {harvester}, it is highly recommended to use the pre-check script available at https://github.com/harvester/upgrade-helpers/tree/main/pre-check/v1.x.
+This will make sure that your cluster is in a healthy state and ready to be upgrade. If the check finds any issues, please make sure to fix the issue before running an upgrade.
+It is not necessary to run the script on all nodes - just one is enough.
+
+Besides running the check script, we highly recommend to check the official upgrade documentation at https://docs.harvesterhci.io/v1.5/upgrade/index and in particular the sections that refer the upgrade from your current version to the target version.
+
+The upgrade itself can be easily triggered from the {harvester} UI, once an upgrade is available.
+If there is an upgrade availabe, the UI will show an *Upgrade* button in the upper right corner of the Dashboard, as shown below:
+
+image::SAP-Edge-Upgrade-Harvester-Upgrade-Button.png[title=Harvester upgrade vailable,scaledwidth=99%,opts=inline,Embedded]
+
+If you click on the *Upgrade* button, a window will open, showing all possible target versions.
+
+image::SAP-Edge-Upgrade-Harvester-Version.png[title=Harvester upgrade vailable,scaledwidth=99%,opts=inline,Embedded]
+
+After selecting the target version, click on *Upgrade* again, to start the upgrade process.
+
+
+# end::harvester[]
+
+# tag::os[]
+++++
+<?pdfpagebreak?>
+++++
+=== Upgrading the OS
+
+Depending on the operating system used, the commands and procedures for the upgrade differs.
+In this guide we'll describe how to upgrade {slem}, as it's the operating system that we already used to explain how to set up your landscapes.
+
+NOTE: If you want to familiarize with {slem} and the concept of transactional updates, we recommend to read https://documentation.suse.com/sle-micro/{slem_version}/html/Micro-transactional-updates/transactional-updates.html .
+
+
+Before upgrading your {slem} instance, read https://documentation.suse.com/en-us/sle-micro/{slem_version}/html/Micro-upgrade/index.html .
+
+As a {slem} upgrade is only supported from the most recent patch levels, make sure your system is up to date.
+Updating {slem} can be done by running:
+
+[source, bash]
+----
+sudo transactional-update patch
+----
+
+WARNING: Keep in mind that transactional-updates requires a reboot to take effect!
+
+
+Upgrading {slem} can be done in a similar manner:
+
+[source, bash]
+----
+sudo transactional-update migration
+----
+
+# end::os[]
+
+// TODO
+// Instructions how to upgrade
+// - Longhorn (optional)
+// - Harvester (optional)
+

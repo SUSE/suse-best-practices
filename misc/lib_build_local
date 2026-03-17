@@ -1,23 +1,72 @@
-function init()
+set -u
+
+# doc_get_main DC-file
+function doc_get_main()
 {
-    pdf="${stdDc#DC-}_color_en.pdf"
-    dir=$PWD
-    dc="${1:-$stdDc}" 
-    fmt="pdf"
-    timeStamp="$(date +'%Y%m%d-%H%M')"
+    local dc_file="$1"
+    (awk -F= '/^ *MAIN=/ {print $2}' |  tr -d '"') < "$dc_file"
 }
 
-function build()
+# doc_init doc_name
+function doc_init()
 {
-    touch build/"$pdf"
-    daps2docker.sh "$dir/$dc" "$fmt"
+    local doc_name="$1"
+    Gdir="$PWD"
+    Gfmt="pdf"
+    Gpdf="${doc_name}_${Gflavour}en.$Gfmt"
+    GtimeStamp="$(date +'%Y%m%d-%H%M')"
+    Goutdir="$(mktemp -d -p /tmp daps2docker-fh-XXXXXXXX)" 
 }
 
-function fetch()
+# doc_build dc-file # - takes global vars: Gpdf, Gdir, Gfmt, GtimeStamp
+function doc_build()
+{
+    local dc="$1"
+    touch build/"$Gpdf"
+    daps2docker.sh --outputdir="$Goutdir" "$Gdir/$dc" "$Gfmt" ; rc=$?
+    return "$rc"
+}
+
+function doc_fetch()
 {
     mkdir -p build
-    find /tmp/daps2docker* \
-              -name $pdf \
-              -newer build/"$pdf" \
-              -exec mv {} build \;
+    echo "---------------- $Goutdir --------------"
+    if [[ -e "$Goutdir" && -e ""$Goutdir"/filelist" ]]; then
+        ls -l "$Goutdir"
+        files=$(cat "$Goutdir"/filelist)
+        mv -v $files build
+        #find /tmp/daps2docker* \
+        #          -name "$Gpdf" \
+        #          -newer build/"$Gpdf" \
+        #          -exec mv {} build \; -print
+        return 0
+    else
+        return 2
+    fi
+}
+
+# doc_make list-of-DCs
+function doc_make()
+{
+    local dcNr i main
+    dcNr=$(echo "$dcs" | wc -l)
+    i=0
+    for dc in $@; do
+        main=$(doc_get_main "$dc")    
+        doc_name="${main%.adoc}"
+        # echo "main=$main dc_name=$dc_name"
+        if grep -q '^DRAFT=yes' "$dc"; then
+            Gflavour="draft_"
+        else
+            Gflavour=""
+        fi
+        (( i++ ))
+        GstdDc="$dc"
+        echo "building $GstdDc ($i / $dcNr)"
+        doc_init "$doc_name"
+        doc_build "$dc" || exit 2
+        doc_fetch
+        Gpdfs="$pdfs build/${Gpdf}"
+        echo "pdf: build/${Gpdf}"
+    done
 }

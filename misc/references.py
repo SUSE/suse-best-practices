@@ -41,7 +41,7 @@ class DocFile:
                 # process include:: statements
                 #
                 # TODO: Migth need to process a reference as part of the path xxx{ref]xxx
-                match_obj = re.search("include::(.*)\[\]", line)
+                match_obj = re.search(r"include::(.*)\[\]", line)
                 if match_obj:
                     # TODO: Check also for already included files to avoid loops and double includes
                     self.process_include(match_obj)

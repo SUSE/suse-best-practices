@@ -54,9 +54,16 @@ class DocFile:
                     self.process_variable_definition(match_obj)
                 #
                 # process references ( {ref} )
-                # TODO: also process multiple references:
-                #       texttext{ref1}texttexttext{ref2}texttexttext
-                #
+                rest = line
+                while rest:
+                    match_obj = re.search("{([^}]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
+                    if match_obj:
+                        print(f"Reference {match_obj.group(1)}")
+                        rest = match_obj.group(2)
+                        self.process_reference(match_obj.group(1))
+                    else:
+                        rest = None
+                    #
 
     def process_include(self, match_obj):
         """ process a include operator """
@@ -79,6 +86,14 @@ class DocFile:
             self.merge({new_var: new_val}, type='var')
             # print(f"VAR {new_var} == {new_val}")
 
+    def process_reference(self, reference):
+        """ process_reference((self, reference) """
+        if self.vars.get(reference) is None:
+            print(f"WARNING: reference {reference} is used but not defined")
+        else:
+            val = self.vars.get(reference)
+            print(f"INFO: reference {reference} is defined as {val}")
+
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
         merge_type = kargs.get('type', 'var')
@@ -94,7 +109,7 @@ class DocFile:
                 print(f"INFO: {self.path} var {mt} inserted (value {mv})")
                 merge_to.update({mt: merge_dict.get(mt)})
 
-MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
-
+# MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
+MY_PATH = "test_reference.adoc"
 my_doc = Document(MY_PATH)
 my_doc.dscan()

@@ -40,17 +40,22 @@ class DocFile:
                 #
                 # process include:: statements
                 #
-                match_obj = re.search("include::(.*)\[\]", line) # TODO: Migth need to process a reference as part of the path xxx{ref]xxx
+                # TODO: Migth need to process a reference as part of the path xxx{ref]xxx
+                match_obj = re.search("include::(.*)\[\]", line) 
                 if match_obj:
-                    self.process_include(match_obj)              # TODO: Check also for already included files to avoid loops and double includes
+                    # TODO: Check also for already included files to avoid loops and double includes
+                    self.process_include(match_obj)              
                 #
                 # process variable definitions (:VAR: VALUE)
                 #
-                match_obj = re.search("^:([^ ]*):(.*)", line)    # TODO: Is :VAR:VAL always at the begin (^) of the line?? 
+                # TODO: Is :VAR:VAL always at the begin (^) of the line?? 
+                match_obj = re.search("^:([^ ]*):(.*)", line)
                 if match_obj:
                     self.process_variable_definition(match_obj)
                 #
-                # process references ( {ref} ) # TODO: also process multiple references: texttext{ref1}texttexttext{ref2}texttexttext
+                # process references ( {ref} ) 
+                # TODO: also process multiple references: 
+                #       texttext{ref1}texttexttext{ref2}texttexttext
                 #
 
     def process_include(self, match_obj):
@@ -69,8 +74,10 @@ class DocFile:
             # TODO: check, if var has already been defined (double or overwrite)
             new_var = match_obj.group(1)
             new_val = match_obj.group(2)
+            # TODO: Migth need to proccess reference on the right (value) side 
+            #       :var: VALVAL {ref} VALVAL
             self.merge({new_var: new_val}, type='var')
-            # print(f"VAR {new_var} == {new_val}")   # TODO: Migth need to proccess reference on the right (value) side :var: VALVAL {ref} VALVAL
+            # print(f"VAR {new_var} == {new_val}")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """

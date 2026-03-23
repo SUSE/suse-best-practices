@@ -30,7 +30,7 @@ class DocFile:
         self.path = path
         self.refs = {}     # {reference}
         self.vars = {}           # :variable: value
-        self.lalala = kargs.get('lalala', None)
+        self.lalala = kargs.get('lalala', None) # TODO: remove that dummy code^:
 
     def fscan(self):
         """ scan a single file """
@@ -73,19 +73,19 @@ class DocFile:
             # print(f"VAR {new_var} == {new_val}")   # TODO: Migth need to proccess reference on the right (value) side :var: VALVAL {ref} VALVAL
 
     def merge(self, merge_dict, **kargs):
-         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
-         merge_type = kargs.get('type', 'var')
-         if merge_type == 'var':
+        """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
+        merge_type = kargs.get('type', 'var')
+        if merge_type == 'var':
             merge_to = self.vars
-         else:
+        else:
             merge_to = self.refs
-         for mt in merge_dict:
-             mv = merge_dict.get(mt)
-             if merge_to.get(mt):
-                 print(f"WARNING: var {mt} has already been defined")
-             else:
-                 print(f"INFO: {self.path} var {mt} inserted (value {mv})")
-                 merge_to.update({mt: merge_dict.get(mt)})
+        for mt in merge_dict:
+            mv = merge_dict.get(mt)
+            if merge_to.get(mt):
+                print(f"WARNING: var {mt} has already been defined")
+            else:
+                print(f"INFO: {self.path} var {mt} inserted (value {mv})")
+                merge_to.update({mt: merge_dict.get(mt)})
 
 MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
 

@@ -41,20 +41,20 @@ class DocFile:
                 # process include:: statements
                 #
                 # TODO: Migth need to process a reference as part of the path xxx{ref]xxx
-                match_obj = re.search("include::(.*)\[\]", line) 
+                match_obj = re.search("include::(.*)\[\]", line)
                 if match_obj:
                     # TODO: Check also for already included files to avoid loops and double includes
-                    self.process_include(match_obj)              
+                    self.process_include(match_obj)
                 #
                 # process variable definitions (:VAR: VALUE)
                 #
-                # TODO: Is :VAR:VAL always at the begin (^) of the line?? 
+                # TODO: Is :VAR:VAL always at the begin (^) of the line??
                 match_obj = re.search("^:([^ ]*):(.*)", line)
                 if match_obj:
                     self.process_variable_definition(match_obj)
                 #
-                # process references ( {ref} ) 
-                # TODO: also process multiple references: 
+                # process references ( {ref} )
+                # TODO: also process multiple references:
                 #       texttext{ref1}texttexttext{ref2}texttexttext
                 #
 
@@ -74,7 +74,7 @@ class DocFile:
             # TODO: check, if var has already been defined (double or overwrite)
             new_var = match_obj.group(1)
             new_val = match_obj.group(2)
-            # TODO: Migth need to proccess reference on the right (value) side 
+            # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL
             self.merge({new_var: new_val}, type='var')
             # print(f"VAR {new_var} == {new_val}")

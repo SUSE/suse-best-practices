@@ -15,7 +15,10 @@ class Document:
         """ __init__(self,path, **kargs) """
         self.path = path
         self.refs = {}     # {reference}
-        self.vars = {}     # :variable: value
+        self.vars = {
+            'ldquo': 'build-in',
+            'rdquo': 'build-in'
+        }     # :variable: value
         self.files = {}    # file included by
         self.exit = kargs.get('exit', False)
         # print(f"DBG self.exit = {self.exit}")

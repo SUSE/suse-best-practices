@@ -22,7 +22,7 @@ class Document:
 
     def dscan(self):
         """ scan entire document """
-        file = DocFile(self.path, files=self.files, exit=self.exit)
+        file = DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit)
         file.fscan()
 
     def merge_references(self):
@@ -35,7 +35,7 @@ class DocFile:
         """ __init(self, path, **kargs) """
         self.path = path
         self.refs = {}     # {reference}
-        self.vars = {}           # :variable: value
+        self.vars = kargs.get('vars', {})
         self.files = kargs.get('files', {})
         self.exit = kargs.get('exit', False)
         # print(f"DBG self.exit = {self.exit}")
@@ -86,10 +86,10 @@ class DocFile:
         if match_obj:
             new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
-            new_file = DocFile(new_path, files=self.files, exit=self.exit)
+            new_file = DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit)
             new_file.fscan()
-            self.merge(new_file.vars, type='var', mode='overwrite')
-            self.merge(new_file.refs, type='ref')
+            #self.merge(new_file.vars, type='var', mode='overwrite')
+            #self.merge(new_file.refs, type='ref')
 
     def process_variable_definition(self, match_obj):
         """ process_variable_definition(self, match_obj) """
@@ -99,7 +99,7 @@ class DocFile:
             new_val = match_obj.group(2)
             # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL
-            self.merge({new_var: new_val}, type='var', mode='overwrite')
+            self.vars.update( {new_var: new_val} )
             # print(f"VAR {new_var} == {new_val}")
 
     def process_reference(self, reference):

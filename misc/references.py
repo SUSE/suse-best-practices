@@ -12,11 +12,12 @@ class Document:
         """ __init__(self,path) """
         self.path = path
         self.refs = {}     # {reference}
-        self.vars = {}           # :variable: value
+        self.vars = {}     # :variable: value
+        self.files = {}    # file included by
 
     def dscan(self):
         """ scan entire document """
-        file = DocFile(self.path)
+        file = DocFile(self.path, files=self.files)
         file.fscan()
 
     def merge_references(self):
@@ -30,7 +31,7 @@ class DocFile:
         self.path = path
         self.refs = {}     # {reference}
         self.vars = {}           # :variable: value
-        self.lalala = kargs.get('lalala', None) # TODO: remove that dummy code^:
+        self.files = kargs.get('files', {})
 
     def fscan(self):
         """ scan a single file """
@@ -44,12 +45,17 @@ class DocFile:
                 match_obj = re.search(r"include::(.*)\[\]", line)
                 if match_obj:
                     # TODO: Check also for already included files to avoid loops and double includes
-                    self.process_include(match_obj)
+                    parent_file = self.files.get(match_obj.group(1))
+                    if parent_file: 
+                        print(f"ERROR: file {self.path} already included by {parent_file}")
+                    else:
+                        self.files.update({match_obj.group(1): self.path})
+                        self.process_include(match_obj, files=self.files)
                 #
                 # process variable definitions (:VAR: VALUE)
                 #
                 # TODO: Is :VAR:VAL always at the begin (^) of the line??
-                match_obj = re.search("^:([^ ]*):(.*)", line)
+                match_obj = re.search("^:([^ ]*): (.*)", line)
                 if match_obj:
                     self.process_variable_definition(match_obj)
                 #
@@ -65,14 +71,15 @@ class DocFile:
                         rest = None
                     #
 
-    def process_include(self, match_obj):
+    def process_include(self, match_obj, **kargs):
         """ process a include operator """
+        self.files = kargs.get('files', {})
         if match_obj:
             new_path = match_obj.group(1)
             print(f"INCLUDE: {self.path} -> {new_path}")
-            new_file = DocFile(new_path)
+            new_file = DocFile(new_path, files=self.files)
             new_file.fscan()
-            self.merge(new_file.vars, type='var')
+            self.merge(new_file.vars, type='var', mode='overwrite')
             self.merge(new_file.refs, type='ref')
 
     def process_variable_definition(self, match_obj):
@@ -83,7 +90,7 @@ class DocFile:
             new_val = match_obj.group(2)
             # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL
-            self.merge({new_var: new_val}, type='var')
+            self.merge({new_var: new_val}, type='var', mode='overwrite')
             # print(f"VAR {new_var} == {new_val}")
 
     def process_reference(self, reference):
@@ -92,11 +99,13 @@ class DocFile:
             print(f"WARNING: reference {reference} is used but not defined")
         else:
             val = self.vars.get(reference)
-            print(f"INFO: reference {reference} is defined as {val}")
+            resolved_val = self.resolve(val)
+            print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
         merge_type = kargs.get('type', 'var')
+        merge_mode = kargs.get('mode', 'ignore')
         if merge_type == 'var':
             merge_to = self.vars
         else:
@@ -105,9 +114,33 @@ class DocFile:
             mv = merge_dict.get(mt)
             if merge_to.get(mt):
                 print(f"WARNING: var {mt} has already been defined")
+                if merge_mode == "overwrite":
+                    merge_to.update({mt: merge_dict.get(mt)})
             else:
                 print(f"INFO: {self.path} var {mt} inserted (value {mv})")
                 merge_to.update({mt: merge_dict.get(mt)})
+
+    def resolve(self, text, **kargs):
+        """ reslve(self, text, kargs) """
+        iteration = kargs.get('iteration', 0)
+        iteration = iteration + 1
+        #
+        # replace all references e.g. ({node1})  by their value e.g.(suse01)
+        rest = text
+        while rest:
+            match_obj = re.search("{([^}]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
+            if match_obj:
+                ref_var = match_obj.group(1)
+                ref_val = self.vars.get(ref_var, "n/a") # TODO: report missing vars
+                ref_ref = "{" + ref_var + "}"
+                rest = match_obj.group(2)
+                text = re.sub(ref_ref, ref_val, text, count=0, flags=0)
+            else:
+                rest = None
+        return text
+        
+
+        
 
 # MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
 MY_PATH = "test_reference.adoc"

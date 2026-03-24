@@ -122,8 +122,10 @@ class DocFile:
 
     def resolve(self, text, **kargs):
         """ reslve(self, text, kargs) """
+        max_iteration = 20
         iteration = kargs.get('iteration', 0)
         iteration = iteration + 1
+        print(f"DEBUG: iteration {iteration}")
         #
         # replace all references e.g. ({node1})  by their value e.g.(suse01)
         rest = text
@@ -137,6 +139,13 @@ class DocFile:
                 text = re.sub(ref_ref, ref_val, text, count=0, flags=0)
             else:
                 rest = None
+        #
+        # check if by resolving new references have been added
+        #
+        match_obj = re.search("{([^}]*)}(.*$)", text) # group1 should be the first reference, group2 is the rest of the line
+        if match_obj:
+            if max_iteration >= iteration:
+                text = self.resolve(text, iteration=iteration)
         return text
         
 

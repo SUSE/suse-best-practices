@@ -95,7 +95,7 @@ class DocFile:
         """ process_variable_definition(self, match_obj) """
         if match_obj:
             # TODO: check, if var has already been defined (double or overwrite)
-            new_var = match_obj.group(1)
+            new_var = match_obj.group(1).rstrip()
             new_val = match_obj.group(2)
             # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL

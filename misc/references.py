@@ -3,7 +3,9 @@
 references.py
 """
 
+import argparse
 import re
+import time
 
 class Document:
     """ class document - scan a complete adoc document and all files included """
@@ -148,10 +150,14 @@ class DocFile:
                 text = self.resolve(text, iteration=iteration)
         return text
         
-
-        
-
 # MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
-MY_PATH = "test_reference.adoc"
-my_doc = Document(MY_PATH)
-my_doc.dscan()
+cmdline_parser = argparse.ArgumentParser()
+cmdline_parser.add_argument("file", nargs="+", help="file(s) to be checked")
+
+args = cmdline_parser.parse_args()
+if args.file:
+    a_files = args.file
+
+for my_path in a_files:
+    my_doc = Document(my_path)
+    my_doc.dscan()

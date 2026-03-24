@@ -71,7 +71,7 @@ class DocFile:
                 # process references ( {ref} )
                 rest = line
                 while rest:
-                    match_obj = re.search("{([^}]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
+                    match_obj = re.search("{([a-zA-Z0-9_]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
                     if match_obj:
                         #print(f"Reference {match_obj.group(1)}")
                         rest = match_obj.group(2)

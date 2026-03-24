@@ -18,7 +18,7 @@ class Document:
         self.vars = {}     # :variable: value
         self.files = {}    # file included by
         self.exit = kargs.get('exit', False)
-        print(f"DBG self.exit = {self.exit}")
+        # print(f"DBG self.exit = {self.exit}")
 
     def dscan(self):
         """ scan entire document """
@@ -38,7 +38,7 @@ class DocFile:
         self.vars = {}           # :variable: value
         self.files = kargs.get('files', {})
         self.exit = kargs.get('exit', False)
-        print(f"DBG self.exit = {self.exit}")
+        # print(f"DBG self.exit = {self.exit}")
 
     def fscan(self):
         """ scan a single file """
@@ -138,7 +138,7 @@ class DocFile:
         max_iteration = 20
         iteration = kargs.get('iteration', 0)
         iteration = iteration + 1
-        print(f"DEBUG: iteration {iteration}")
+        # print(f"DEBUG: iteration {iteration}")
         #
         # replace all references e.g. ({node1})  by their value e.g.(suse01)
         rest = text

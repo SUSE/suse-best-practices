@@ -5,21 +5,24 @@ references.py
 
 import argparse
 import re
+import sys
 import time
 
 class Document:
     """ class document - scan a complete adoc document and all files included """
 
-    def __init__(self, path):
-        """ __init__(self,path) """
+    def __init__(self, path, **kargs):
+        """ __init__(self,path, **kargs) """
         self.path = path
         self.refs = {}     # {reference}
         self.vars = {}     # :variable: value
         self.files = {}    # file included by
+        self.exit = kargs.get('exit', False)
+        print(f"DBG self.exit = {self.exit}")
 
     def dscan(self):
         """ scan entire document """
-        file = DocFile(self.path, files=self.files)
+        file = DocFile(self.path, files=self.files, exit=self.exit)
         file.fscan()
 
     def merge_references(self):
@@ -34,6 +37,8 @@ class DocFile:
         self.refs = {}     # {reference}
         self.vars = {}           # :variable: value
         self.files = kargs.get('files', {})
+        self.exit = kargs.get('exit', False)
+        print(f"DBG self.exit = {self.exit}")
 
     def fscan(self):
         """ scan a single file """
@@ -50,6 +55,8 @@ class DocFile:
                     parent_file = self.files.get(match_obj.group(1))
                     if parent_file: 
                         print(f"ERROR: file {self.path} already included by {parent_file}")
+                        if self.exit:
+                            sys.exit(2)
                     else:
                         self.files.update({match_obj.group(1): self.path})
                         self.process_include(match_obj, files=self.files)
@@ -66,7 +73,7 @@ class DocFile:
                 while rest:
                     match_obj = re.search("{([^}]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
                     if match_obj:
-                        print(f"Reference {match_obj.group(1)}")
+                        #print(f"Reference {match_obj.group(1)}")
                         rest = match_obj.group(2)
                         self.process_reference(match_obj.group(1))
                     else:
@@ -79,7 +86,7 @@ class DocFile:
         if match_obj:
             new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
-            new_file = DocFile(new_path, files=self.files)
+            new_file = DocFile(new_path, files=self.files, exit=self.exit)
             new_file.fscan()
             self.merge(new_file.vars, type='var', mode='overwrite')
             self.merge(new_file.refs, type='ref')
@@ -99,10 +106,12 @@ class DocFile:
         """ process_reference((self, reference) """
         if self.vars.get(reference) is None:
             print(f"WARNING: reference {reference} is used but not defined")
+            if self.exit:
+                sys.exit(2)
         else:
             val = self.vars.get(reference)
             resolved_val = self.resolve(val)
-            print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
+            # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
@@ -116,10 +125,12 @@ class DocFile:
             mv = merge_dict.get(mt)
             if merge_to.get(mt):
                 print(f"WARNING: var {mt} has already been defined")
+                if self.exit:
+                    sys.exit(2)
                 if merge_mode == "overwrite":
                     merge_to.update({mt: merge_dict.get(mt)})
             else:
-                print(f"INFO: {self.path} var {mt} inserted (value {mv})")
+                # print(f"INFO: {self.path} var {mt} inserted (value {mv})")
                 merge_to.update({mt: merge_dict.get(mt)})
 
     def resolve(self, text, **kargs):
@@ -151,13 +162,19 @@ class DocFile:
         return text
         
 # MY_PATH = "SLES4SAP-hana-sr-guide-PerfOpt-15.adoc"
+
+opt_exit=False
+
 cmdline_parser = argparse.ArgumentParser()
 cmdline_parser.add_argument("file", nargs="+", help="file(s) to be checked")
+cmdline_parser.add_argument("--exit", help="stop on first warning or error", action="store_true")
 
 args = cmdline_parser.parse_args()
 if args.file:
     a_files = args.file
+if args.exit:
+    opt_exit = True
 
 for my_path in a_files:
-    my_doc = Document(my_path)
+    my_doc = Document(my_path, exit=opt_exit)
     my_doc.dscan()

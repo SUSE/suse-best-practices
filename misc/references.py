@@ -99,17 +99,17 @@ class DocFile:
             new_val = match_obj.group(2)
             # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL
-            self.vars.update( {new_var: new_val} )
+            self.vars.update( {new_var.lower(): new_val} )
             # print(f"VAR {new_var} == {new_val}")
 
     def process_reference(self, reference):
         """ process_reference((self, reference) """
-        if self.vars.get(reference) is None:
+        if self.vars.get(reference.lower()) is None:
             print(f"WARNING: reference {reference} is used but not defined")
             if self.exit:
                 sys.exit(2)
         else:
-            val = self.vars.get(reference)
+            val = self.vars.get(reference.lower())
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
 
@@ -146,7 +146,7 @@ class DocFile:
             match_obj = re.search("{([^}]*)}(.*$)", rest) # group1 should be the first reference, group2 is the rest of the line
             if match_obj:
                 ref_var = match_obj.group(1)
-                ref_val = self.vars.get(ref_var, "n/a") # TODO: report missing vars
+                ref_val = self.vars.get(ref_var.lower(), "n/a") # TODO: report missing vars
                 ref_ref = "{" + ref_var + "}"
                 rest = match_obj.group(2)
                 text = re.sub(ref_ref, ref_val, text, count=0, flags=0)

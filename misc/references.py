@@ -64,7 +64,7 @@ class DocFile:
                 # process variable definitions (:VAR: VALUE)
                 #
                 # TODO: Is :VAR:VAL always at the begin (^) of the line??
-                match_obj = re.search("^:([^ ]*): (.*)", line)
+                match_obj = re.search("^:([^ ]*) *: (.*)", line)
                 if match_obj:
                     self.process_variable_definition(match_obj)
                 #
@@ -100,7 +100,7 @@ class DocFile:
             # TODO: Migth need to proccess reference on the right (value) side
             #       :var: VALVAL {ref} VALVAL
             self.vars.update( {new_var.lower(): new_val} )
-            # print(f"VAR {new_var} == {new_val}")
+            # print(f"VAR <{new_var}> == <{new_val}>")
 
     def process_reference(self, reference):
         """ process_reference((self, reference) """

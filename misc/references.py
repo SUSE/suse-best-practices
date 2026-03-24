@@ -77,7 +77,7 @@ class DocFile:
         """ process a include operator """
         self.files = kargs.get('files', {})
         if match_obj:
-            new_path = match_obj.group(1)
+            new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
             new_file = DocFile(new_path, files=self.files)
             new_file.fscan()

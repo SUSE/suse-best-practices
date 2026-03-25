@@ -3,6 +3,9 @@
 references.py
 """
 
+# TODO: filter/ignore one-line comments (^// )
+# TODO: filter/ignore multi-line comments (^//// .... ^////)
+
 import argparse
 import re
 import sys

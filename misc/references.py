@@ -8,6 +8,38 @@ import re
 import sys
 import time
 
+class DocSet:
+    """ DocSet """
+
+    def __init__(self, **kargs):
+        with Document("") as docset_doc:
+            self.refs = docset_doc.refs
+            self.vars = docset_doc.vars
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    def get_unused_vars(self):
+        result = []
+        #print(f"MAIN: 02 docset.refs={docset.refs}")
+        for var in docset.vars:
+            ref_mark = docset.refs.get(var, None)
+            if ref_mark is None:
+                result.append(var)
+        return result
+
+    def get_undefined_refs(self):
+        result = []
+        #print(f"MAIN: 02 docset.refs={docset.refs}")
+        for ref in docset.refs:
+            var_val = docset.vars.get(ref, None)
+            if var_val is None:
+                result.append(ref)
+        return result
+
 class Document:
     """ class document - scan a complete adoc document and all files included """
 
@@ -38,10 +70,10 @@ class Document:
 
     def dscan(self):
         """ scan entire document """
-        print(f"Document.dscan(): before fscan() refs={self.refs}")
+        #print(f"Document.dscan(): before fscan() refs={self.refs}")
         with DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit, refs=self.refs) as file:
             file.fscan()
-        print(f"Document.dscan(): after fscan() refs={self.refs}")
+        #print(f"Document.dscan(): after fscan() refs={self.refs}")
 
     def get_unused_vars(self):
         """ get_unused_vars(self) """
@@ -73,7 +105,6 @@ class DocFile:
 
     def fscan(self):
         """ scan a single file """
-        self.refs.update({self.path: 'PATH'})  # TODO: muss wieder weg
         with open(self.path, "r", encoding="utf-8") as dfile:
             while line := dfile.readline():
                 #print(line.rstrip())
@@ -145,7 +176,7 @@ class DocFile:
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
         self.refs.update({reference: "1"})
-        print(f"DocFile.process_reference(): self.refs={self.refs}")
+        #print(f"DocFile.process_reference(): self.refs={self.refs}")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
@@ -210,28 +241,24 @@ if args.file:
 if args.exit:
     opt_exit = True
 
-docset_doc = Document("")
-docset_vars = docset_doc.vars
-docset_refs = docset_doc.refs
-print(f"MAIN: docset_vars={docset_vars}")
-print(f"MAIN: docset_refs={docset_refs}")
+with DocSet() as docset:
 
-for my_path in a_files:
-    with Document(my_path, exit=opt_exit, vars=docset_vars, refs=docset_refs) as my_doc:
-        my_doc.dscan()
-        docset_vars = my_doc.vars
-        docset_refs = my_doc.refs
-        print(f"docset_vars={docset_vars}; docset_refs={docset_refs}")
-        # print(my_doc.get_unused_vars()) # for a single doc
+    #print(f"MAIN: docset.vars={docset.vars}")
+    #print(f"MAIN: docset.refs={docset.refs}")
 
-#
-# for all scanned docs
-#
+    for my_path in a_files:
+        with Document(my_path, exit=opt_exit, vars=docset.vars, refs=docset.refs) as my_doc:
+            my_doc.dscan()
+            #docset_vars = my_doc.vars
+            #docset_refs = my_doc.refs
+            #print(f"docset.vars={docset.vars}; docset.refs={docset.refs}")
 
-res = []
-print(f"MAIN: 02 docset_refs={docset_refs}")
-for var in docset_vars:
-    ref_mark = docset_refs.get(var, None)
-    if ref_mark is None:
-        res.append(var)
-print(f"MAIN: res={res}")
+    #
+    # for all scanned docs search for unused vars
+    #
+    print(f"unused vars: {docset.get_unused_vars()}")
+    #
+    # for all scanned docs search for undefined refs
+    #
+    print(f"undefined refs: {docset.get_undefined_refs()}")
+

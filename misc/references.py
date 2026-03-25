@@ -14,13 +14,15 @@ class Document:
     def __init__(self, path, **kargs):
         """ __init__(self,path, **kargs) """
         self.path = path
-        self.refs = {}     # {reference}
-        self.vars = {
+        base_vars = {
             'ldquo': 'build-in',
-            'rdquo': 'build-in'
+            'rdquo': 'build-in',
+            'uarr': 'build-in',
         }     # :variable: value
         self.files = {}    # file included by
         self.exit = kargs.get('exit', False)
+        self.vars = kargs.get('vars', base_vars)
+        self.refs = kargs.get('refs', {})
         # print(f"DBG self.exit = {self.exit}")
 
     def dscan(self):
@@ -28,8 +30,15 @@ class Document:
         file = DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit)
         file.fscan()
 
-    def merge_references(self):
-        """ merge references """
+    def get_unused_vars(self):
+        """ get_unused_vars(self) """
+        res = []
+        for var in self.vars:
+            ref_mark = self.refs.get(var, None)
+            if ref_mark is None:
+                res.append(var)
+        return res
+        
 
 class DocFile:
     """ class doc_file - scan a single file and all includes """
@@ -115,6 +124,7 @@ class DocFile:
             val = self.vars.get(reference.lower())
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
+        self.refs.update({reference: "1"})
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
@@ -172,12 +182,30 @@ cmdline_parser = argparse.ArgumentParser()
 cmdline_parser.add_argument("file", nargs="+", help="file(s) to be checked")
 cmdline_parser.add_argument("--exit", help="stop on first warning or error", action="store_true")
 
+a_files = []
 args = cmdline_parser.parse_args()
 if args.file:
     a_files = args.file
 if args.exit:
     opt_exit = True
 
+docset_doc = Document("")
+docset_vars = docset_doc.vars
+print(docset_vars)
+docset_refs = {}
+
 for my_path in a_files:
-    my_doc = Document(my_path, exit=opt_exit)
+    my_doc = Document(my_path, exit=opt_exit, vars=docset_vars, refs=docset_refs)
     my_doc.dscan()
+    # print(my_doc.get_unused_vars()) # for a single doc
+
+#
+# for all scanned docs
+#
+
+res = []
+for var in docset_vars:
+    ref_mark = docset_refs.get(var, None)
+    if ref_mark is None:
+        res.append(var)
+print(res)

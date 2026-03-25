@@ -110,6 +110,13 @@ class DocFile:
             while line := dfile.readline():
                 #print(line.rstrip())
                 #
+                # process single line coments (^ *// )
+                #
+                match_obj = re.search(r"^ *\/\/ ",line)
+                if match_obj:
+                    print(f"DBG: ignore comment in line {line}")
+                    continue
+                #
                 # process include:: statements
                 #
                 # TODO: Migth need to process a reference as part of the path xxx{ref]xxx

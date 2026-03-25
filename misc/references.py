@@ -147,7 +147,7 @@ class DocFile:
         if match_obj:
             new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
-            with DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit) as new_file:
+            with DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit, refs=self.refs) as new_file:
                 new_file.fscan()
             #self.merge(new_file.vars, type='var', mode='overwrite')
             #self.merge(new_file.refs, type='ref')

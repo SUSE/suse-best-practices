@@ -24,7 +24,6 @@ class DocSet:
 
     def get_unused_vars(self):
         result = []
-        #print(f"MAIN: 02 docset.refs={docset.refs}")
         for var in docset.vars:
             ref_mark = docset.refs.get(var, None)
             if ref_mark is None:
@@ -33,7 +32,6 @@ class DocSet:
 
     def get_undefined_refs(self):
         result = []
-        #print(f"MAIN: 02 docset.refs={docset.refs}")
         for ref in docset.refs:
             var_val = docset.vars.get(ref, None)
             if var_val is None:
@@ -175,7 +173,7 @@ class DocFile:
             val = self.vars.get(reference.lower())
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
-        self.refs.update({reference: "1"})
+        self.refs.update({reference.lower(): "1"})
         #print(f"DocFile.process_reference(): self.refs={self.refs}")
 
     def merge(self, merge_dict, **kargs):
@@ -193,10 +191,10 @@ class DocFile:
                 if self.exit:
                     sys.exit(2)
                 if merge_mode == "overwrite":
-                    merge_to.update({mt: merge_dict.get(mt)})
+                    merge_to.update({mt.lower(): merge_dict.get(mt)})
             else:
                 # print(f"INFO: {self.path} var {mt} inserted (value {mv})")
-                merge_to.update({mt: merge_dict.get(mt)})
+                merge_to.update({mt.lower(): merge_dict.get(mt)})
 
     def resolve(self, text, **kargs):
         """ reslve(self, text, kargs) """

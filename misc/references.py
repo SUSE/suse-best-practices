@@ -19,16 +19,29 @@ class Document:
             'rdquo': 'build-in',
             'uarr': 'build-in',
         }     # :variable: value
+        base_refs = {
+            'ldquo': 1,
+            'rdquo': 1,
+            'uarr':  1,
+        }     # :variable: value
         self.files = {}    # file included by
         self.exit = kargs.get('exit', False)
         self.vars = kargs.get('vars', base_vars)
-        self.refs = kargs.get('refs', {})
+        self.refs = kargs.get('refs', base_refs)
         # print(f"DBG self.exit = {self.exit}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
 
     def dscan(self):
         """ scan entire document """
-        file = DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit)
-        file.fscan()
+        print(f"Document.dscan(): before fscan() refs={self.refs}")
+        with DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit, refs=self.refs) as file:
+            file.fscan()
+        print(f"Document.dscan(): after fscan() refs={self.refs}")
 
     def get_unused_vars(self):
         """ get_unused_vars(self) """
@@ -46,14 +59,21 @@ class DocFile:
     def __init__(self, path, **kargs):
         """ __init(self, path, **kargs) """
         self.path = path
-        self.refs = {}     # {reference}
         self.vars = kargs.get('vars', {})
+        self.refs = kargs.get('refs', {})
         self.files = kargs.get('files', {})
         self.exit = kargs.get('exit', False)
         # print(f"DBG self.exit = {self.exit}")
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
     def fscan(self):
         """ scan a single file """
+        self.refs.update({self.path: 'PATH'})  # TODO: muss wieder weg
         with open(self.path, "r", encoding="utf-8") as dfile:
             while line := dfile.readline():
                 #print(line.rstrip())
@@ -98,8 +118,8 @@ class DocFile:
         if match_obj:
             new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
-            new_file = DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit)
-            new_file.fscan()
+            with DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit) as new_file:
+                new_file.fscan()
             #self.merge(new_file.vars, type='var', mode='overwrite')
             #self.merge(new_file.refs, type='ref')
 
@@ -125,6 +145,7 @@ class DocFile:
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
         self.refs.update({reference: "1"})
+        print(f"DocFile.process_reference(): self.refs={self.refs}")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
@@ -191,21 +212,26 @@ if args.exit:
 
 docset_doc = Document("")
 docset_vars = docset_doc.vars
-print(docset_vars)
-docset_refs = {}
+docset_refs = docset_doc.refs
+print(f"MAIN: docset_vars={docset_vars}")
+print(f"MAIN: docset_refs={docset_refs}")
 
 for my_path in a_files:
-    my_doc = Document(my_path, exit=opt_exit, vars=docset_vars, refs=docset_refs)
-    my_doc.dscan()
-    # print(my_doc.get_unused_vars()) # for a single doc
+    with Document(my_path, exit=opt_exit, vars=docset_vars, refs=docset_refs) as my_doc:
+        my_doc.dscan()
+        docset_vars = my_doc.vars
+        docset_refs = my_doc.refs
+        print(f"docset_vars={docset_vars}; docset_refs={docset_refs}")
+        # print(my_doc.get_unused_vars()) # for a single doc
 
 #
 # for all scanned docs
 #
 
 res = []
+print(f"MAIN: 02 docset_refs={docset_refs}")
 for var in docset_vars:
     ref_mark = docset_refs.get(var, None)
     if ref_mark is None:
         res.append(var)
-print(res)
+print(f"MAIN: res={res}")

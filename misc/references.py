@@ -96,6 +96,7 @@ class DocFile:
         self.refs = kargs.get('refs', {})
         self.files = kargs.get('files', {})
         self.exit = kargs.get('exit', False)
+        self.comment = False
         # print(f"DBG self.exit = {self.exit}")
 
     def __enter__(self):
@@ -112,9 +113,25 @@ class DocFile:
                 #
                 # process single line coments (^ *// )
                 #
-                match_obj = re.search(r"^ *\/\/ ",line)
+                match_obj = re.search(r"^ *\/\/ ",line)          # single line comment
                 if match_obj:
                     print(f"DBG: ignore comment in line {line}")
+                    continue
+                #
+                # process multi line coments (^ *//// ... ^ * //// )
+                #
+                match_obj = re.search(r"^ *\/\/\/\/",line)      # multi line comment (toggle)
+                if match_obj:
+                    if self.comment:   # active multi line comment -> toggle to False
+                        print(f"DBG: END ignore comment in line {line}")
+                        self.comment = False
+                        continue
+                    else:              # begin multi line comment -> toggle to True
+                        print(f"DBG: BEGIN ignore comment in line {line}")
+                        self.comment = True
+                        continue
+                if self.comment:   # within between start and stop of a multi-line comment
+                    print(f"DBG: ML ignore comment in line {line}")
                     continue
                 #
                 # process include:: statements

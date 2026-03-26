@@ -3,10 +3,43 @@
 references.py
 """
 
+# TODO: filter/ignore one-line comments (^// )
+# TODO: filter/ignore multi-line comments (^//// .... ^////)
+
 import argparse
 import re
 import sys
 import time
+
+class DocSet:
+    """ DocSet """
+
+    def __init__(self, **kargs):
+        with Document("") as docset_doc:
+            self.refs = docset_doc.refs
+            self.vars = docset_doc.vars
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    def get_unused_vars(self):
+        result = []
+        for var in docset.vars:
+            ref_mark = docset.refs.get(var, None)
+            if ref_mark is None:
+                result.append(var)
+        return result
+
+    def get_undefined_refs(self):
+        result = []
+        for ref in docset.refs:
+            var_val = docset.vars.get(ref, None)
+            if var_val is None:
+                result.append(ref)
+        return result
 
 class Document:
     """ class document - scan a complete adoc document and all files included """
@@ -19,16 +52,29 @@ class Document:
             'rdquo': 'build-in',
             'uarr': 'build-in',
         }     # :variable: value
+        base_refs = {
+            'ldquo': 1,
+            'rdquo': 1,
+            'uarr':  1,
+        }     # :variable: value
         self.files = {}    # file included by
         self.exit = kargs.get('exit', False)
         self.vars = kargs.get('vars', base_vars)
-        self.refs = kargs.get('refs', {})
+        self.refs = kargs.get('refs', base_refs)
         # print(f"DBG self.exit = {self.exit}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
 
     def dscan(self):
         """ scan entire document """
-        file = DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit)
-        file.fscan()
+        #print(f"Document.dscan(): before fscan() refs={self.refs}")
+        with DocFile(self.path, files=self.files, vars=self.vars, exit=self.exit, refs=self.refs) as file:
+            file.fscan()
+        #print(f"Document.dscan(): after fscan() refs={self.refs}")
 
     def get_unused_vars(self):
         """ get_unused_vars(self) """
@@ -46,17 +92,47 @@ class DocFile:
     def __init__(self, path, **kargs):
         """ __init(self, path, **kargs) """
         self.path = path
-        self.refs = {}     # {reference}
         self.vars = kargs.get('vars', {})
+        self.refs = kargs.get('refs', {})
         self.files = kargs.get('files', {})
         self.exit = kargs.get('exit', False)
+        self.comment = False
         # print(f"DBG self.exit = {self.exit}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
 
     def fscan(self):
         """ scan a single file """
         with open(self.path, "r", encoding="utf-8") as dfile:
             while line := dfile.readline():
                 #print(line.rstrip())
+                #
+                # process single line coments (^ *// )
+                #
+                match_obj = re.search(r"^ *\/\/[^/]",line)          # single line comment
+                if match_obj:
+                    # print(f"DBG: ignore comment in line {line}")
+                    continue
+                #
+                # process multi line coments (^ *//// ... ^ * //// )
+                #
+                match_obj = re.search(r"^ *\/\/\/\/",line)      # multi line comment (toggle)
+                if match_obj:
+                    if self.comment:   # active multi line comment -> toggle to False
+                        # print(f"DBG: END ignore comment in line {line}")
+                        self.comment = False
+                        continue
+                    else:              # begin multi line comment -> toggle to True
+                        # print(f"DBG: BEGIN ignore comment in line {line}")
+                        self.comment = True
+                        continue
+                if self.comment:   # within between start and stop of a multi-line comment
+                    # print(f"DBG: ML ignore comment in line {line}")
+                    continue
                 #
                 # process include:: statements
                 #
@@ -98,8 +174,8 @@ class DocFile:
         if match_obj:
             new_path = self.resolve(match_obj.group(1))
             print(f"INCLUDE: {self.path} -> {new_path}")
-            new_file = DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit)
-            new_file.fscan()
+            with DocFile(new_path, files=self.files, vars=self.vars, exit=self.exit, refs=self.refs) as new_file:
+                new_file.fscan()
             #self.merge(new_file.vars, type='var', mode='overwrite')
             #self.merge(new_file.refs, type='ref')
 
@@ -124,7 +200,8 @@ class DocFile:
             val = self.vars.get(reference.lower())
             resolved_val = self.resolve(val)
             # print(f"INFO: reference {reference} is defined as '{val}' and resolves to '{resolved_val}'")
-        self.refs.update({reference: "1"})
+        self.refs.update({reference.lower(): "1"})
+        #print(f"DocFile.process_reference(): self.refs={self.refs}")
 
     def merge(self, merge_dict, **kargs):
         """ merge(self,merge_dict) - merges the given dictionary into self.refs or self.var """
@@ -141,10 +218,10 @@ class DocFile:
                 if self.exit:
                     sys.exit(2)
                 if merge_mode == "overwrite":
-                    merge_to.update({mt: merge_dict.get(mt)})
+                    merge_to.update({mt.lower(): merge_dict.get(mt)})
             else:
                 # print(f"INFO: {self.path} var {mt} inserted (value {mv})")
-                merge_to.update({mt: merge_dict.get(mt)})
+                merge_to.update({mt.lower(): merge_dict.get(mt)})
 
     def resolve(self, text, **kargs):
         """ reslve(self, text, kargs) """
@@ -189,23 +266,24 @@ if args.file:
 if args.exit:
     opt_exit = True
 
-docset_doc = Document("")
-docset_vars = docset_doc.vars
-print(docset_vars)
-docset_refs = {}
+with DocSet() as docset:
 
-for my_path in a_files:
-    my_doc = Document(my_path, exit=opt_exit, vars=docset_vars, refs=docset_refs)
-    my_doc.dscan()
-    # print(my_doc.get_unused_vars()) # for a single doc
+    #print(f"MAIN: docset.vars={docset.vars}")
+    #print(f"MAIN: docset.refs={docset.refs}")
 
-#
-# for all scanned docs
-#
+    for my_path in a_files:
+        with Document(my_path, exit=opt_exit, vars=docset.vars, refs=docset.refs) as my_doc:
+            my_doc.dscan()
+            #docset_vars = my_doc.vars
+            #docset_refs = my_doc.refs
+            #print(f"docset.vars={docset.vars}; docset.refs={docset.refs}")
 
-res = []
-for var in docset_vars:
-    ref_mark = docset_refs.get(var, None)
-    if ref_mark is None:
-        res.append(var)
-print(res)
+    #
+    # for all scanned docs search for unused vars
+    #
+    print(f"unused vars: {docset.get_unused_vars()}")
+    #
+    # for all scanned docs search for undefined refs
+    #
+    print(f"undefined refs: {docset.get_undefined_refs()}")
+

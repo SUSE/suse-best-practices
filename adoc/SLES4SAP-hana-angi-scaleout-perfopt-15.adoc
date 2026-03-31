@@ -2192,7 +2192,6 @@ stop) are typical values to be adjusted for your environment.
 Additional information about all parameters can be found in manual page
 ocf_suse_SAPHanaTopology(7).
 
-
 ==== SAPHanaFilesystem
 
 This step is to define the resources to monitor the file system used by HANA, for example
@@ -2257,11 +2256,10 @@ should react on monitor failures. See also manual page SAPHanaSR-alert-fencing(8
 Beside these parameters, the timeout values or the operations (start, monitor,
 stop) are typical values to be adjusted for your environment.
 
-
 ==== SAPHanaController
 
 SAPHanaController is the resource agent (RA) that controls the HANA database. 
-Prepare the RA configuration in a text file, for example _crm-saphanatop.txt_,
+Prepare the RA configuration in a text file, for example _crm-saphanacon.txt_,
 and load these with the `crm` command.
 
 .Configure SAPHanaController
@@ -2279,7 +2277,7 @@ Enter the following to _crm-saphanacon.txt_:
 ----
 primitive rsc_SAPHanaCon_{refSID}_HDB{refInst} ocf:suse:SAPHanaController \
     op start interval="0" timeout="3600" \
-    op stop interval="0" timeout="3600" \
+    op stop interval="0" timeout="900" \
     op promote interval="0" timeout="900" \
     op demote interval="0" timeout="320" \
     op monitor interval="60" role="Promoted" timeout="700" \
@@ -2287,7 +2285,7 @@ primitive rsc_SAPHanaCon_{refSID}_HDB{refInst} ocf:suse:SAPHanaController \
     params SID="{refSID}" InstanceNumber="{refInst}" \
         PREFER_SITE_TAKEOVER="true" \
         DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false" \
-        HANA_CALL_TIMEOUT="120"
+        HANA_CALL_TIMEOUT="120" ON_FAIL_ACTION="fence"
 
 clone mst_SAPHanaCon_{refSID}_HDB{refInst} \
     rsc_SAPHanaCon_{refSID}_HDB{refInst} \
@@ -2308,14 +2306,14 @@ Find more details in manual page ocf_suse_SAPHanaController(7).
 ----
 primitive rsc_SAPHanaCon_**{SID}**_HDB**{Inst}** ocf:suse:SAPHanaController \
     op start interval="0" timeout="3600" \
-    op stop interval="0" timeout="3600" \
+    op stop interval="0" timeout="900" \
     op promote interval="0" timeout="900" \
     op demote interval="0" timeout="320" \
     op monitor interval="60" role="Promoted" timeout="700" \
     op monitor interval="61" role="Unpromoted" timeout="700" \
     params SID="**{SID}**" InstanceNumber="**{Inst}**" PREFER_SITE_TAKEOVER="true" \
         DUPLICATE_PRIMARY_TIMEOUT="7200" AUTOMATED_REGISTER="false" \
-        HANA_CALL_TIMEOUT="120"
+        HANA_CALL_TIMEOUT="120" ON_FAIL_ACTION="fence"
 
 clone msl_SAPHanaCon_{SID}_HDB{Inst} rsc_SAPHanaCon_{SID}_HDB{Inst} \
     meta clone-node-max="1" promotable="true" interleave="true" \
@@ -2360,28 +2358,16 @@ time difference is passed. If "only" the {saphana} RDBMS has crashed, then the
 former primary will be registered immediately. After this registration to the
 new primary, all data will be overwritten by the system replication.
 
-|===
-// TODO PRIO1: include below, once it is supported
-////
-// begin on_fail_action
-
 |ON_FAIL_ACTION
-| Defines how the  RA escalates monitor failures on an HANA primary node.
+|Defines how the  RA escalates monitor failures on an HANA primary node.
 If srHook=SOK, in case of monitor failure an node fencing could be triggered.
 For srHook=SFAIL, the restart will be proceeded as usual. ON_FAIL_ACTION=*fence*
 may speed up takeover, depending on how long HANA needs for stopping.
-See also SAPHanaSR-alert-fencing(8). This option currently is *unsupported*.
+See also SAPHanaSR-alert-fencing(8).
 |===
-
-// end on_fail_action
-////
 
 Additional information about all parameters can be found in manual page
 ocf_suse_SAPHana_Controller(7).
-
-// TODO PRIO1: uncomment SAPHanaSR-alert-fencing, once it is supported
-////
-// begin SAPHanaSR-alert-fencing
 
 ==== SAPHanaSR-alert-fencing alert agent
 
@@ -2396,7 +2382,7 @@ node as well.
 
 [subs="specialchars,attributes"]
 ----
-# vi crm-alert-fencing.txt
+# vi crm-alert.txt
 ----
 
 Enter the following to _crm-alert.txt_:
@@ -2422,9 +2408,6 @@ restart of just fenced nodes, it might be necessary to adapt SBD_START_DELAY to
 avoid fencing loops.
 See manual pages SAPHanaSR-alert-fencing(8), SAPHanaSR-ScaleOut_basic_cluster(7)
 and sbd(8) for details.
-
-// end SAPHanaSR-alert-fencing
-////
 
 ==== Virtual IP address of the HANA primary
 
@@ -2635,8 +2618,9 @@ correctly:
 
 ==== Ending the cluster maintenance mode
 
-After all changes are applied, as final steps, end the cluster maintenance mode, let the cluster
-detect the {HANA} status and set the SAPHanaController resource out of maintenance.
+After all changes are applied, as final steps, end the cluster maintenance mode,
+let the cluster detect the {HANA} status and set the SAPHanaController resource
+out of maintenance.
 
 .Ending the cluster maintenance
 ==========
@@ -3158,8 +3142,8 @@ overall host status: ok
 ----
 ==========
 
-Following the SAP HA guideline, the _SAPHana_ resource agent interprets the
-return codes in the following way:
+Following the SAP HA guideline, the _SAPHanaController_ resource agent interprets
+the return codes in the following way:
 
 [cols="1,3", options="header"]
 .Table Interpretation of Return Codes
@@ -3168,24 +3152,24 @@ return codes in the following way:
 |Description
 
 |4
-|{saphana} database is up and OK. The cluster does interpret this as correctly
+|{saphana} database is up and OK. The cluster interprets this as correctly
 running database.
 
 |3
-|{saphana} database is up and in status INFO. The cluster does interpret this as
-a correctly running database.
+|{saphana} database is up and in status INFO. The cluster interprets this as a
+correctly running database.
 
 |2
-|{saphana} database is up and in status warning. The cluster does interpret this
-as a correctly running database.
+|{saphana} database is up and in status warning. The cluster interprets this as
+a correctly running database.
 
 |1
-|{saphana} database is down. If the database should be up and is not own by
+|{saphana} database is down. If the database should be up and is not down by
 intention, this could trigger a takeover.
 
 |0
-|Internal Script Error – to be ignored.
-
+|Internal Script Error – Database status unknown. Cluster action depends on RA
+parameter ON_FAIL_ACTION.
 |===
 
 

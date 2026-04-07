@@ -1442,7 +1442,7 @@ Check if the watchdog module is loaded correctly.
 ----
 
 Testing the watchdog can be done with a simple action. Make sure to stop your {HANA}
-first because the watchdog will force an unclean reset or shutdown of your system.
+first, because the watchdog will force an unclean reset or shutdown of your system.
 
 In case a hardware watchdog is used, a desired action is predefined after the timeout
 of the watchdog has reached. If your watchdog module is loaded and not controlled by
@@ -1621,7 +1621,8 @@ SBD_OPTS=""
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
 ----
 
-IMPORTANT: Also read the SUSE product documentation about calculation of timeouts for more details:
+IMPORTANT: Also read the SUSE product documentation about calculation of timeouts
+for more details:
 https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-storage-protect-watchdog-timings
 
 
@@ -1949,13 +1950,15 @@ with the following command:
 .Description of important Resource Agent parameters
 [width="100%",cols="42%,58%",options="header",]
 |=======================================================================
-|Parameter |Description
-|PREFER_SITE_TAKEOVER |
-Defines whether RA should prefer to take over to
+|Parameter
+|Description
+
+|PREFER_SITE_TAKEOVER
+| Defines whether RA should prefer to take over to
 the secondary instance instead of restarting the failed primary locally.
 
-|AUTOMATED_REGISTER |
-Defines whether a former primary should be automatically registered to
+|AUTOMATED_REGISTER
+| Defines whether a former primary should be automatically registered to
 be secondary of the new primary. With this parameter you can adapt the
 level of system replication automation.
 
@@ -1963,8 +1966,8 @@ If set to *false*, the former primary must be manually registered. The
 cluster will not start this SAP HANA RDBMS until it is registered, to avoid
 double primary up situations.
 
-|DUPLICATE_PRIMARY_TIMEOUT |
-Time difference needed between two primary
+|DUPLICATE_PRIMARY_TIMEOUT
+| Time difference needed between two primary
 time stamps if a dual-primary situation occurs. If the time difference
 is less than the time gap, the cluster holds one or both instances
 in a "WAITING" status. This is to give an administrator the chance to react
@@ -1974,8 +1977,8 @@ primary will be registered after the time difference is passed. If
 registered immediately. After this registration to the new primary, all
 data will be overwritten by the system replication.
 
-|ON_FAIL_ACTION |
-Defines how the  RA escalates monitor failures on an HANA primary node.
+|ON_FAIL_ACTION
+| Defines how the  RA escalates monitor failures on an HANA primary node.
 If srHook=SOK, in case of monitor failure an node fencing could be triggered.
 For srHook=SFAIL, the restart will be proceeded as usual. ON_FAIL_ACTION=*fence*
 may speed up takeover, depending on how long HANA needs for stopping.
@@ -3347,13 +3350,13 @@ Do you wish to configure a virtual IP address (y/n)? n
 // Refer to Trento check
 === Example cluster configuration
 
-The following complete crm configuration is for a two-node cluster
+The following complete progressive crm configuration is for a two-node cluster
 ({sapnode1}, {sapnode2}) and an {HANA} database with SID {sapsid}
-and instance number {sapino}.
+and instance number {sapino}. A failed primary will be automatically registered
+as secondary after reboot.
 Priority fencing prefers the {HANA} primary in case of split-brain.
 The virtual IP address in the example is {sapip1srv1}.
 
-// TODO PRIO1: shorter stop timeout
 [subs="attributes,quotes"]
 ----
 node {sapnode1}
@@ -3368,8 +3371,9 @@ primitive rsc_SAPHanaTop_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
 primitive rsc_SAPHanaFil_{sapsid}_HDB{sapino} ocf:suse:SAPHanaFilesystem \
     op start interval=0 timeout=10 \
     op stop interval=0 timeout=20 \
-    op monitor interval=120 timeout=120 ON_FAIL_ACTION=fence \
-    params SID={sapsid} InstanceNumber={sapino}
+    op monitor interval=120 timeout=120 \
+    params SID={sapsid} InstanceNumber={sapino} \
+        ON_FAIL_ACTION=fence
 
 primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHanaController \
     op start interval=0 timeout=3600 \
@@ -3378,9 +3382,9 @@ primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHanaController \
     op demote interval=0 timeout=320 \
     op monitor interval=60 role=Promoted timeout=700 \
     op monitor interval=61 role=Unpromoted timeout=700 \
-    params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=true \
-        DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
-        ON_FAIL_ACTION=fence \    
+    params SID={sapsid} InstanceNumber={sapino} \
+        PREFER_SITE_TAKEOVER=true DUPLICATE_PRIMARY_TIMEOUT=7200 \
+        AUTOMATED_REGISTER=true ON_FAIL_ACTION=fence \    
     meta priority=100
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
@@ -3401,6 +3405,7 @@ clone cln_SAPHanaFil_{sapsid}_HDB{sapino} rsc_SAPHanaFil_{sapsid}_HDB{sapino} \
 
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: \
     rsc_ip_{sapsid}_HDB{sapino}:Started mst_SAPHanaCon_{sapsid}_HDB{sapino}:Promoted
+
 order ord_saphana_{sapsid}_HDB{sapino} Optional: \
     cln_SAPHanaTop_{sapsid}_HDB{sapino} mst_SAPHanaCon_{sapsid}_HDB{sapino}
 

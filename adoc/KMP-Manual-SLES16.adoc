@@ -1,0 +1,1024 @@
+
+:docinfo:
+
+// Defining article ID 
+// Article ID is needed for revhistory in docinfo.xml file
+// As ID, use the SBP filename, or if too long, shorten filename wisely
+[#art-sbp-kmp-manual-sles16]
+
+
+// If you use variables, define them here. Examples below
+:sles: SUSE Linux Enterprise Server
+:sl16: SUSE Linux 16
+:sles4sap: {sles} for SAP applications
+:slm: SUSE Linux Micro
+
+
+= Kernel Module Package Manual
+{sles} 16.0
+
+
+SUSE-based distributions use the RPM Package Manager for software management.
+As such, any external kernel modules (these are kernel modules not included in
+SUSE kernel packages) should be packaged in RPM packages. These RPMs should be
+built in accordance with specific guidelines to ensure that the resulting
+kernel module packages (KMPs) can be installed and updated appropriately, in
+synchronization with kernel updates.
+
+This document specifies the requirements
+for RPM packages that contain kernel modules, and describes the processes
+surrounding those packages including building, signing, installing and
+upgrading. A complete example is given and explained.
+
+This version of the Kernel Module Packages Manual applies to {sles} 16.0
+
+Disclaimer: Documents published as part of the SUSE Best Practices series have
+been contributed voluntarily by SUSE employees and third parties. They are
+meant to serve as examples of how particular actions can be performed. They
+have been compiled with utmost attention to detail. However, this does not
+guarantee complete accuracy.  SUSE cannot verify that actions described in
+these documents do what is claimed or whether actions described have unintended
+consequences. SUSE LLC, its affiliates, the authors, and the translators may
+not be held liable for possible errors or the consequences thereof.
+
+== Scope
+
+This version of the kernel module packages Manual applies to:
+
+* {sles} 16.0
+* {slm} 6.2
+
+Developers who want to build for earlier versions of {sles} should use the
+previous document kernel Module Package Manual.
+
+Appendix B provides a list of changes that have been made to this document
+to accommodate new features.
+
+== Background
+
+The {sles} kernel supports adding functionality at runtime through
+kernel-loadable modules. It includes more than 2000 modules, about 60 percent
+of which are hardware drivers. These modules are shipped as part of the kernel
+packages. In some cases it is desirable to add additional modules or replace
+existing ones. For example, a driver for a particular storage controller that
+was not available at the time of product release might be added later to
+support new hardware.
+
+Kernel modules interact with the kernel by the means of exported symbols, in a
+way similar to how user space binaries use shared libraries. The ``/proc/kallsyms``
+file lists all symbols currently known to the kernel. To ensure that the kernel
+and modules refer to the same symbols, a version checksum (modversion) is added
+to each symbol. The checksum is computed from the symbol's type: in the case of
+function symbols, the checksum is determined by the function's parameters and
+return type.
+
+When any of a function's parameters or the return type changes, the checksum
+changes as well. This includes all the data types involved recursively:
+
+If a function takes a *struct task_struct* as parameter and *struct task_struct*
+includes a field of type *struct dentry*, then a change to *struct dentry* will
+cause the symbol's version checksum to change as well. Symbol version checksums
+for different kernel flavors (for example *kernel-default* versus *kernel-rt*)
+will not match, and symbol versions of the same kernel package on different
+architectures will not match either. This mechanism ensures that the kernel
+and kernel modules agree on the types of data structures that they use to
+communicate.
+
+Unless symbol version checking is disabled, modules will load only if the
+checksums of the symbols they use match the checksums of the symbols that the
+kernel exports. The exported symbols and their version checksums comprise the
+kernel Application Binary Interface (kABI). When an updated kernel includes
+kABI changes, kernel modules that use any modified symbols must be updated as
+well.
+
+During their multi-year lifecycle, products like {sles}
+undergo continuous changes. Different kinds of updates like major and minor
+version releases, maintenance/security updates, and customer-specific updates
+(Program Temporary Fixes) are released. The Application Binary Interface (ABI)
+between the kernel and kernel modules is volatile. Some kernel updates will
+change the kernel ABI (kABI) by adding or removing exported symbols, or
+existing symbol checksums can change in a kernel update because of changes in
+data structures they reference. SUSE strives to keep the kernel ABI stable in
+maintenance and security and customer-specific updates, but sometimes changes
+cannot be avoided. In service packs, SUSE reserves the right to introduce more
+intrusive changes, which increases the likelihood of ABI changes. SUSE believes
+that the added flexibility outweighs the disadvantages of breaking older
+modules. For full discussion of this topic, see the documentation SUSE
+SolidDriver Documentation: SUSE Kernel ABI Stabilityfootnote:[https://drivers.suse.com/doc/SolidDriver/SUSE_Kernel_ABI_Stability.html]
+and The Linux Kernel Driver Interface from Greg Kroah-Hartman (also provided as
+stable_api_nonsense.txt in the upstream kernel source tree).
+
+SUSE Linux-based operating systems include technology to ensure that
+kernel modules can be reused or updated in synchronization with kernel updates.
+To use this technology, kernel modules must be packaged into kernel module
+packages (KMPs) as defined in this document.
+
+== Kernel Packages
+Each product based on {sl16} contains a set of kernel
+packages that share the same version and release number; they are built from
+the same kernel sources. These packages are:
+
+=== kernel-FLAVOR, kernel-FLAVOR-base
+
+The binary kernel packages. Each architecture has its own set of kernel flavors
+(for example `kernel-default`, `kernel-debug`, etc.). These are the packages that
+the kernel modules will be used with.
+
+The `kernel-FLAVOR-base` packages are subsets of the `kernel-FLAVOR` packages,
+intended for use with minimal installs. They are not installed by default.
+
+=== kernel-source
+The kernel source tree, generated by unpacking the vanilla kernel sources and
+applying all necessary patches. Although the `kernel-FLAVOR` packages technically
+are not built from the kernel-source package, they are built from the same
+source tree. This tree should be used for module building.
+
+=== kernel-devel, kernel-macros
+Kernel-level headers, makefiles, and RPM macros and templates required for
+development of external kernel modules.
+
+=== kernel-syms, kernel-FLAVOR-devel
+Kernel symbol version information for compiling external modules. The
+`kernel-FLAVOR-devel` package is required for building external modules. If this
+package is not used, the resulting modules will be missing symbol version
+information, which will cause them to break during kernel updates. The
+`kernel-syms` package is a placeholder package which depends on the
+`kernel-FLAVOR-devel` packages for all kernel flavors.
+
+For more information, refer to the document “Working With The SUSE 2.6.x and
+3.x Kernel Sources” from Andreas Gruenbacher and Michal Marek. This document is
+provided as `README.SUSE` in the SUSE `kernel-source` package.
+
+== Kernel Modules
+
+Documentation on general kernel module building can be found in abundance on
+the Internet. Two good lectures are:
+
+* Peter Jay Salzman, Michael Burian, Ori Pomerantz: The Linux Kernel Module
+  Programming Guide, http://www.tldp.org/LDP/lkmpg/2.6/html/index.html
+* Jonathan Corbet, Alessandro Rubini, Greg Kroah-Hartman: Linux Device Drivers,
+  Third Edition, February 2005, http://www.oreilly.com/catalog/linuxdrive3/
+  (also available online at http://lwn.net/Kernel/LDD3/)
+
+SUSE-specific information is found in the above-mentioned README.SUSE in the
+`kernel-source` package.
+
+When built, kernel module binaries are installed below
+`/usr/lib/modules/VERSION-RELEASE-FLAVOR` on the file system (example:
+`/usr/lib/modules/6.12.0-160000.5-default` for the {sles}
+16.0 `kernel-default-6.12.0-160000.5` package). Different kernels have
+different module directories, and will usually not see each other's modules.
+
+Update modules are modules intended to replace or augment the modules that are
+provided in the kernel packages. Update modules must be stored below the
+`/usr/lib/modules/VERSION-RELEASE-FLAVOR/updates/` directory. Modules in the
+updates/ directory have precedence over other modules with the same name. Never
+replace modules from the kernel package by overwriting files: this would lead
+to inconsistencies between the file system and the RPM database.
+
+[NOTE]
+.Where to Store Modules
+====
+Modules intended to take precedence over in-kernel modules of the same name
+should be stored below `/usr/lib/modules/VERSION-RELEASE-FLAVOR/updates/`. Other
+add-on modules can be stored below `/usr/lib/modules/VERSION-RELEASE-FLAVOR/extra/`.
+====
+
+Modules usually remain compatible with a range of kernel-FLAVOR packages. To
+make such modules visible to other kernel-FLAVOR packages, symbolic links to
+compatible modules are put in `/usr/lib/modules/VERSION-RELEASE-FLAVOR/weak-updates/`
+directories. Modules in the `weak-updates/` directory have lower priority than
+modules in the `updates/` directory, but higher priority than all other modules
+in `/usr/lib/modules/VERSION-RELEASE-FLAVOR`. If more than one compatible module is
+available for a kernel, the module with the highest kernel release is chosen.
+Kernel module packages must never directly install modules into `weak-updates/`
+directories.
+
+Module loading order is controlled by the `/usr/lib/depmod.d/00-system.conf` file
+which is part of the suse-module-tools package.
+
+Kernel modules must never be installed as individual files on a production
+system, but always as part of a kernel module package.
+
+== Kernel Module Packages
+
+SUSE has worked closely with the Linux Foundation Driver Backport Workgroup
+to establish a standard structure for building kernel module packages for all
+RPM-based distributions. The information in this document includes the
+standards as appropriate.
+
+Kernel module package spec files define a main package, and a sub-package for
+each kernel flavor supported. The kernel-flavor-specific sub-packages are
+defined with the *%kernel_module_package* RPM macro. The macro automatically
+determines for which kernel flavors to generate sub-packages. Several options
+are available to modify the macro's behavior, which are described below:
+
+*%kernel_module_package [-f filelist] [-p preamble] [-n name] [-v version]
+                       [-r release] [-t template] [-x flavor] [-b]*
+
+The main package of a kernel module package can either contain no *%files*
+section, in which case rpm will not create a binary package with the main
+package's name, or the files section can also be used for the user space part
+associated with the kernel modules that end up in the kernel specific
+sub-packages. The example kernel module package in Appendix A has a main
+package without a %files section.
+
+Kernel module packages must adhere to the following rules:
+
+* The package name should consist of two components: a unique provider prefix,
+  and a driver name. Hyphens are disallowed in the provider prefix, and allowed
+  in the driver name. The provider prefix serves to create a non-overlapping
+  name space for all providers.  The sub-package names are composed of the main
+  package name, followed by a dash, the string “kmp”, followed by another dash
+  and the flavor of the supported kernel. The first component (main package
+  name) can be overridden with a different value by using the -n option of the
+  %kernel_module_package macro.
+* The kernel module package version can have an arbitrary value.
+  The sub-package versions are composed of the main package version, followed
+  by an underscore, and the version of the kernel source used during the build.
+  Since sub-packages already include the supported kernel's flavor in their
+  name, the flavor is not again included in the sub-package's version. Dashes
+  in the kernel release are replaced by underscores. The first component (main
+  package version) can be overridden with the -v option of the
+  `%kernel_module_package` macro.
+* The kernel module package `Release` tag can be assigned freely as required. It must
+  be incremented at least once for each package release.
+* The sub-package release numbers equal the main package's release number. It
+  can be overridden with the -r option of the %kernel_module_package macro.
+* The appropriate `Requires` and `Provides` tags are computed automatically by the
+  rpm build as described in the RPM Provides and Requires section below. Requires and
+  provides tags in the spec file will only be effective for the main package.
+* Kernel modules must be installed below either
+  `/usr/lib/modules/VERSION-RELEASE-FLAVOR/extra/`.
+  for additional modules not part of the default kernel installation or
+  `/usr/lib/modules/VERSION-RELEASE-FLAVOR/updates/`
+  for updates to existing kernel modules.
+* Packages must be signed with a public/private key pair, and the public key of
+  the private/public key-pair used for signing must be made known to RPM. See
+  <<Signing Packages>> for details.
+
+Kernel module package sub-package tags can be specified under a
+`%package KMP` sub-package section.  The `Summary KMP` and `%description KMP`
+tags can be used to give summary and descriptions that differ from the main
+package If the `%package KMP` section is not defined, the summary and description
+of the main packages will be applied to the sub-packages.
+
+The `%kernel_module_package` macro uses a default sub-package template that
+should work for most KMPs. This template can be overridden using the macro's `-t`
+option. The default template takes care of the following:
+
+* When a KMP is installed, `depmod` is called to update module
+  dependency information and various maps. Symbolic links pointing at the new
+  modules are created in other kernels' `weak-modules/` directories for all
+  compatible modules.  Initial RAM disks used during booting are re-created
+  automatically if they contain some of the added modules. Using the macro's -b
+  option will force the recreation of the initial RAM disk regardless of
+  whether the existing RAM disk contains modules with the same names as the
+  modules being installed.
+
+[NOTE]
+.RAM Disk Rebuild
+====
+The `-b` option simply forces a RAM disk rebuild using the existing RAM disk
+configuration. If the existing RAM disk configuration does not include previous
+versions of the new modules being installed, using the `-b` option will not
+include the new modules in the new RAM disk. In such cases, the Kernel Module
+Package spec file also needs to make appropriate RAM disk configuration changes
+to include the new modules. This can for example be done by creating or
+updating files in `/etc/dracut.conf.d`.
+====
+
+* When a KMP is removed, depmod is called to update module dependency
+  information and various maps. The symbolic links pointing to the modules
+  being removed are removed as well. Initial RAM disks are re-created in case
+  they did contain some of the removed modules.
+
+By default, each kernel-specific sub-package will have the following list of
+files, which can separately be overridden with the `-f` option:
+
+[source, spec]
+----
+%defattr (-,root,root)
+/usr/lib/modules/%2-%1
+----
+
+Additional sub-package preamble lines such as `Requires`, `Provides`, and `Obsoletes`
+tags can be specified with the `-p` option. File name arguments specified in `-f`,
+`-p` and `-t` should be given as absolute path names (for example `%_sourcedir/file`)
+and should be listed as sources. The following substitutions are defined in
+those files:
+
+* %1 Flavor of the sub-package (for example: default)
+* %2 Kernel release string without flavor (for example: 6.12.0-160000.5)
+* %{-v*} The sub-package version
+* %{-r*} The sub-package release
+
+Some kernel module packages may make sense only for some of the kernel flavors
+a given architecture supports. A list of flavors to exclude from the build
+should be passed with the -x option to the `%kernel_module_package` macro.
+
+Appendix A contains an example kernel module package spec file and the source
+code referenced by it. When this spec file and its accompanying source is built
+into an RPM as described in section Section 7, “Building Kernel Module
+Packages”, the %kernel_module_package_buildreqs macro in the BuildRequires tag
+of the spec file will pull the module-init-tools, kernel-source, kernel-syms and
+kernel-devel packages into the build root.
+
+Now assume that the required packages are available in {sles} 16.0
+(kernel 6.12.0-160000.5), and that the default kernel flavor is
+available on that platform. Assuming a release number of “0”, rpm would then
+create the following packages:
+
+`suse-hello-kmp-default-1.0_k6.12.0_160000.5-160000.7.1.x86_64.rpm`
+
+The generated packages would contain the following module, and require and
+provide the following symbols:
+
+[cols='1,4']
+|===
+^|*Package*
+|`suse-hello-kmp-default`
+
+^|*Requires*
+|`ksym(default:\__fentry__) = bdfb6dbb` +
+ `ksym(default:__x86_return_thunk) = 5b8239ca` +
+ `ksym(default:_printk) = 92997ed8` +
+ `ksym(default:module_layout) = fa596f96` +
+ `ksym(default:param_ops_int) = df399adb`
+
+^|*Provides*
+|`ksym(default:exported_function) = e52d5bcf`
+
+^|*Modules*
+|`/usr/lib/modules/6.12.0-160000.5-default/updates/hello.ko`
+|===
+
+== RPM Provides and Requires
+
+Kernels export symbols that kernel modules use. Symbols have version checksums
+attached, and the checksums of the exported kernel symbols must match the
+checksums of the kernel symbols that the kernel module package uses.
+
+Similarly, at an RPM level, each kernel-FLAVOR package (for example
+kernel-default) provides the symbols and checksums that are exported by that
+flavor of the kernel, and each kernel module package requires the specific
+kernel symbols and checksums needed by the module(s) that it contains.
+Installation of a KMP will succeed as long as an installed kernel package
+provides the symbols and checksums that are required by the KMP.
+
+When modules in kernel module packages export additional symbols, such symbols
+are mapped to the _provides_ of those packages. Modules in other kernel module packages
+may require those symbols. As an example, assume that a kernel module package
+provides an exported function as \_ksym(default:exported_function) =
+e52d5bcf_. Any kernel module package that uses this function would require this
+same symbol and checksum.
+
+=== %kernel_module_package_buildreqs Macro
+
+For building external modules, you need to have the `kernel-FLAVOR-devel` (and
+`kernel-devel`) packages installed in the build environment.
+Using the `%kernel_module_package_buildreqs` macro in a  *BuildRequires*
+line in spec files takes care of this. The `%kernel_module_package_buildreqs`
+macro specifies, among other requirements,  the `kernel-syms` package. 
+The `kernel-syms` package pulls in the `kernel-FLAVOR-devel`
+package (and the `kernel-devel` package via a dependency.
+
+SUSE updates the `%kernel_module_package_buildreqs` macro whenever there is a
+change in build requirements from one {sles} release to another. By using the
+macro in your spec files, you ensure compatibility across different releases
+of {sles}
+
+
+[NOTE]
+.Building KMPs with Proper Symbol Version Dependencies
+====
+Without the `kernel-syms`
+package the module build can still succeed depending on how you do the build,
+but the resulting modules will have module symbol versions disabled. Kernel
+module packages without module symbol versions will appear to match any kernel
+although in fact they do not. This can easily lead to very hard-to-diagnose
+system malfunctions.
+====
+
+
+== Building Kernel Module Packages
+
+In addition to the C and kernel programming skills required for writing the
+kernel module source code, creating proper kernel module packages requires some
+familiarity with the rpm command and with build environments. For more
+information on kernel module building refer to the above-mentioned
+http://www.oreilly.com/catalog/linuxdrive3/[Linux Kernel Module Programming Guide]
+and the book
+http://www.oreilly.com/catalog/linuxdrive3/[Linux Device Drivers]. Additional
+SUSE-specific kernel and kernel module information can be found in the
+README.SUSE in the kernel-source package. SUSE recommends using the example
+package found in Appendix A as a template to reduce the complexities related to
+RPM. A lot of additional information on RPM can be found at
+http://www.rpm.org/, including a reference to the excellent Maximum RPM.
+
+SUSE strongly recommends using the kernel build infrastructure (kbuild) for
+building and installing the kernel modules, as done in the example package.
+kbuild is documented in the file `/usr/src/linux/Documentation/kbuild/` from the
+kernel-source package. Trying to emulate kbuild will lead to various problems
+including miscompilations and missing or wrong symbol versions, and increased
+support load because of subtle breakages.
+
+To achieve consistent and reproducible builds in a defined environment
+independent of the software installed on the system used for building, use the
+build script from the build.rpm package found in the SLES Package Hub extension.
+This script sets up a build environment from the available packages 
+provided to the script. The package build process enters that environment using
+`chroot` (see the chroot(1) manual page at https://linux.die.net/man/1/chroot).
+When building kernel module packages with build.rpm, the following options of
+the build script are particularly relevant:
+
+[discrete]
+=== --root directory
+
+Define the directory in which to set up the build environment. Defaults to the
+`BUILD_ROOT` environment variable, and to `/var/tmp/build-root` if unset.
+
+[discrete]
+=== --RPMs path1[:path2:...]
+
+Define where build will look for packages for constructing the build
+environment. The directories are searched recursively. Packages found earlier
+in the path have precedence over packages found later, similar to how the PATH
+environment variable works. Defaults to the `BUILD_RPMS` environment variable,
+and to `/media/dvd/suse` if unset. The `--rpms` option must only be specified once.
+
+[discrete]
+=== --clean, --no-init
+
+Reconstruct the build environment entirely from scratch (`--clean`), or start the
+build without initializing the build environment (`--no-init`), which skips
+checking whether all packages in the build environment are up-to-date.
+
+Build stores the created packages below `home/abuild/rpmbuild/` in the build
+environment.
+
+On dual-architecture machines, packages for the other supported architecture
+can be built by running the build script inside an architecture selector. On
+Intel 64/AMD64, the selector is called _linux32_, on IBM POWER this is _ppc32_, and
+on IBM Z the selector is called _s390x_. The same build environment cannot be
+reused for different architectures unless it is reinitialized with build's
+`--clean` option.
+
+See the build(1) manual page for further information.
+
+== Signing
+
+Signing (as applied to a piece of software) is the process of digitally tagging
+the software to verify the author and guarantee that the software has not been
+altered after it has been signed. {sles} includes utilities to
+sign and validate signatures on packages and repositories. In addition, SUSE
+Linux Enterprise Server includes technology to sign and validate signatures on
+kernel modules.
+
+The following sections describe how to sign packages and kernel modules. The
+topic of repository signing is beyond the scope of this document.
+
+=== Signing Packages
+
+All packages that are provided in {sles} are digitally
+signed with the SUSE Build key. SolidDriver packages that are built on the
+SolidDriver build server by the SUSE SolidDriver team are automatically signed
+with the SUSE SolidDriver key. For more information, visit
+https://drivers.suse.com/doc/Usage/Package_Signing_Key.html#package-signing-key.
+Partners who build and/or provide their own packages are encouraged to sign
+them with official company keys to allow customers to validate the integrity
+of the package.
+
+For testing purposes, developers can sign packages using their own personal
+and/or test keys. RPM uses GnuPG (gpg) for signing. To sign packages, a
+private/public key pair must be installed on the GNU Privacy Guard (GPG)
+keyring of the signing user (see the --gen-key option in the gpg(1) manual page
+at https://linux.die.net/man/1/gpg). Then the following command can be used to
+sign a package:
+
+[source, bash]
+----
+$ rpm --eval “%define _signature gpg” \
+      --eval “%define _gpg_name build@suse.com” \
+      --addsign package.rpm
+----
+
+(Replace build@suse.com with the identity that identifies your signing key).
+
+A package can only be signed once. Another `--addsign` operation will replace an
+existing old signature, and will add the new one.
+
+The public key used for signing must then be exported into a file with the command:
+
+[source, bash]
+----
+$ gpg --armor --export build >build-pubkey.txt
+----
+
+Next, import the key into the RPM database with the command:
+
+[source, bash]
+----
+$ rpm --import build-pubkey.txt
+----
+
+You can verify that both package signing and key import have succeeded with
+RPM's `--checksig` option (note the “gpg” in the output):
+
+[source, bash]
+----
+$ rpm --checksig package.rpm
+package.rpm: (sha1) dsa sha1 md5 gpg OK
+----
+
+The public key exported to `build-pubkey.txt` must be delivered to customers in a
+way that they will trust. It must be imported into the RPM database on systems
+on which the signed packages are to be installed.
+
+=== Signing Module Object Files
+
+Although using signed packages and other OS security features can secure an
+installed and running system, they cannot prevent system subversion before the
+OS has booted. To address pre-OS security concerns, the UEFI Secure Boot
+specification (see http://www.uefi.org) details a protocol to prevent the
+loading of boot loaders or kernels (including modules) that are not signed with
+an approved digital key stored in the system firmware.
+
+The UEFI Secure Boot specification allows for variation in implementation. A
+simple way to implement secure boot is to ensure that the base system (as
+provided by the system vendor) contains all the keys that will be used by the
+boot loader, the OS, and any drivers. But having the system vendor simply place
+all needed keys into the firmware is not a full solution, as it does not give
+appropriate control to the system user/owner. SUSE's secure boot implementation
+addresses this control issue by extending the secure-boot-enabled EFI shim
+loader to accept keys that have been approved by the system owner. Thus, if
+there is a need to load a module with an unrecognized key, the key can be added
+to the “approved key” database (reboot and system-owner approval required).
+
+==== Creating a Key and Certificate
+
+Module signing requires having access to a digital key and certificate.
+Official keys and certificates are generally maintained by an organization's
+security team or by build services (such as the Open Build Service or the
+SolidDriver build service). Developers and packagers can also generate
+their own keys and certificates for example for testing purposes.
+
+To create a key and certificate using the openssl req command, type the following:
+
+[source, bash]
+----
+export USER="your company name"
+openssl req -new -x509 -newkey rsa:2048 -sha256 -keyout key.asc -out cert.der \
+            -outform der -nodes -days 4745 -addext "extendedKeyUsage=codeSigning" \
+            -subj "/CN=$USER/"
+----
+
+The above sequence of commands will create a key.asc key file and a cert.der
+x509 certificate in the current working directory. The 4745 option generates a
+certificate which will be valid for 13 years.
+
+[NOTE]
+.Extended Key Usage (EKU) Setting
+====
+The `-addext "extendedKeyUsage=codeSigning"` openssl option is required to accept
+the certificate for signature verification of kernel modules.
+
+*The `-addext` option requires OpenSSL version 1.1.1* or later. For earlier
+versions of OpenSSL, consult the documentation for setting the EKU.
+====
+
+==== Signing Modules During Packaging
+
+Signing modules as part of the packaging process requires making several
+changes to the KMP spec file. The spec file template in Appendix A.1 includes
+these changes, which are:
+
+. List the certificate file as a *%Source* file. The top-level directory of the
+  build structure (where the spec file is located) should include both a private
+  key file and a certificate file. The spec file should list the certificate as a
+  *%Source* file. The spec file should not list the key file (since the private key
+  should not be included in the source KMP).
+
+[NOTE]
+.Naming
+====
+To be recognized by the kernel Makefile, the key file must be named
+“signing_key.priv” and the certificate file must be named “signing_key.x509”.
+The example above describes how to use the openssl req command to create a
+key.asc key file and a cert.der certificate file; to use these files at
+packaging-time, they should be renamed to “signing_key.priv” and
+“signing_key.x509”.
+====
+[start=2]
+. Invoke the %kernel_module_package macro with the -c
+  %_sourcedir/signing_key.x509 option to generate a <name>-ueficert package
+  which installs the certificate and calls the mokutil utility to enroll the
+  public key. The actual module signing is handled in the %install section of
+  the spec file.
+. Add %install section code to invoke the kernel-sign-file file to sign the
+  modules.
+
+
+[NOTE]
+.Own Keys and Certificates
+====
+The Appendix A.1 sample spec file is designed to be used by developers and
+packagers who provide their own keys and certificates and their own build
+environments. Developers/packagers who use the Open Build Service should modify
+their spec file as described in the pesign-obs-integration package
+https://github.com/openSUSE/pesign-obs-integration/blob/master/README[README].
+====
+
+=== Signing Modules in an Existing KMP
+
+Often the developer/packager does not have access to corporate signing keys
+and signing infrastructure. Those exist behind highly secure environemts and
+processes. Therefore the keys are not available at package build time and signing
+takes place as a secondary operation.
+
+The pesign-obs-integration package in {sles} provides a
+modsign-repackage utility that can be used to sign kernel modules in an
+existing KMP. `modsign-repackage` unpacks the original RPM, signs any included
+modules and re-creates the RPM. It also creates a second `<NAME>-ueficert RPM`
+that installs the certificate and calls the `mokutil` utility to enroll the
+public key. The re-packaged RPM will have a dependency on the `<NAME>-ueficert`
+RPM, ensuring that the certificates will be installed at the same time as the
+module(s).
+
+To repackage the
+suse-hello-kmp-default-1.0_k6.12.0_160000.5-160000.7.1.x86_64.rpm package with
+the key and the certificate created above, do the following:
+
+[source, bash]
+----
+$ modsign-repackage -c ./cert.der -k ./key.asc ./suse-hello-kmp-default-1.0_k6.12.0_160000.5-160000.7.11.0_k4.4.73_5-0.x86_64.rpm
+----
+
+The above command creates the following directories and files in the current
+working directory:
+
+----
+./RPMS/
+   x86_64/
+     suse-hello-kmp-default-1.0_k6.12.0_160000.5-160000.7.11.0_k4.4.73_5-0.x86_64.rpm
+     suse-hello-ueficert-1.0-0.x86_64.rpm
+----
+
+To see the module signature, unpack the repackaged KMP and use the modinfo
+command to view the module signature info:
+----
+rpm2cpio suse-hello-kmp-default-1.0_k6.12.0_160000.5-160000.7.11.0_k4.4.73_5-0.x86_64.rpm | cpio -idv
+modinfo ./usr/lib/modules/6.12.0-160000.5-default/updates/hello.ko | grep signature
+----
+
+[NOTE]
+.rpmbuild must be installed
+====
+modsign-repackage requires the /usr/bin/rpmbuild utility which is provided by the
+rpmbuild package.
+====
+
+After the process is complete, you can use `modsign-verify` to confirm that the
+modules inside the new package are correctly signed with the new key.
+
+[discrete]
+==== Module Signatures vs. Package Signatures
+
+It's crucial to distinguish between two different types of signatures:
+
+* Module signature: The signature on the kernel module files (.ko) inside the
+  package. This is what modsign-repackage and modsign-verify manage.
+* Package signature: The signature on the KMP file itself (e.g., an rpm or deb
+  package signature) that verifies the package's integrity.
+
+The modsign-repackage tool only signs the modules. During this process, any
+existing package-level signature is removed. This means you will almost always
+need to re-sign the entire package file after running the tool.
+
+[discrete]
+==== Resigning Workflow
+
+Follow these steps to properly resign the kernel modules within a KMP:
+
+. Prepare the KMP files that contain the kernel modules you need to resign.
+. Resign Modules: Run the `modsign-repackage` command on the KMP using the
+  desired signing keys. This creates a new, repackaged KMP file where all kernel
+  modules inside are signed with the new key.
+. Verify Modules: Run `modsign-verify` on the newly created KMP file. This
+  utility checks the signatures of the .ko modules inside the package to
+  confirm they are valid.
+. Resign the Package: Since `modsign-repackage` removed the
+  original package-level signature (from step 3), the new KMP file itself is
+  now unsigned. You should re-sign the entire package file (e.g., using rpmsign
+  for an RPM) to ensure package integrity and allow package managers to verify
+  it.
+
+=== Installation of Secure-Boot-Enabled KMPs
+
+As discussed above, secure-boot-enabled KMPs include an additional
+<NAME>-ueficert package to install the certificate and enroll the public key.
+The <NAME>-kmp-<flavor> packages require the <NAME>-ueficert package.
+
+After the <NAME>-ueficert package is installed, the system must be rebooted and
+the newly-enrolled key approved by the system owner before the key (and thus
+the signed modules) can be used.
+
+The `mokutil` utility can also be used on its own to view and manage keys in the
+key database.
+
+== Installing a Driver Update Disk (DUD) in Agama
+A Driver Update (DUD) is a mechanism used to patch or extend the Agama
+installer itself. The DUD is applied to the installation environment during
+boot time.
+
+DUDs should be used if modules are needed during installation. Otherwise
+providing RPMs for post installation installing/updating is fine.
+
+Supported Formats: A DUD can be provided in two supported formats:
+
+* Special DUD archives that can be created with mkdud utility.
+* RPM packages - Note that when using this format, the kernel modules will
+  only be installed and loaded in the installer. The rpm and kernel modules
+  will not be installed and loaded on the target system.
+
+DUD, RPM(s), installation process:
+
+. Host the DUD, RPM(s) on a URI the target system can reach.
+. Start the installation using the standard SUSE Linux media.
+. Highlight the "Install SLE 16" menu option and press 'e' to edit the boot
+  loader options.
+. On the line starting with "linux" add `inst.dud=URI_OF_FILE` to the end of the
+  line with `URI_OF_FILE` pointing to the DUD, or RPMs. Examples: 
+  * instdud=https://myserver.mydoman/path_to_dud/dud.iso
+  * instdud=usb:///dud.img
+  * instdud=http://download.packages.com/some-project/some.rpm
+. Boot the installer and continue installation as usual.
+
+[NOTE]
+.Agama URL Formats
+====
+Note: Besides http/https URL, Agama also supports other URL formats. See 
+the URLs section in the Agama documentation:
+https://agama-project.github.io/docs/user/reference/urls
+
+Also note that unlike linuxrc of {sles} 15, Agama does not traverse file
+systems or devices to detect and load DUD's. With Agama the URI must point
+to a single file (rpm, or DUD image) that will be loaded and processed by
+Agama.
+====
+
+If you want to create a DUD by yourself, please refer to the document here:
+https://github.com/openSUSE/mkdud
+
+Regarding more agama DUD boot options, please refer to:
+https://agama-project.github.io/docs/user/reference/boot_options
+
+
+== System Installation and Kernel Module Packages
+
+Initial system installation is carried out by Agama from some installation
+media (CDs or DVDs, network locations, etc.). As noted above, support for
+additional hardware that the installation media do not provide can be added
+with Driver Update Disks. This is most important to enable hardware needed for
+booting, such as storage controllers.
+
+Driver Update Disks provide two kinds of modules: those which the kernel that
+runs the installation uses, and those which are installed onto the target
+system. Both types of modules are provided by including kernel module packages
+on the update media. After the initial installation, additional driver packages
+can be installed/updated using zypper.
+
+[NOTE]
+.initrd
+====
+Any drivers required for getting to and accessing the root file system must be
+part of the initial RAM disk. The {sles} installer will
+automatically include necessary kernel modules in the initrd created during
+installation. But when kernel module packages are installed by hand or are
+updated, it can be necessary to explicitly rebuild the initrd to include the
+new modules. As noted in <<Kernel Module Packages>>, a Kernel Module
+Package will automatically rebuild the initrd in its `%postinstall` script if
+the module being installed is already part of the existing initrd or if the
+`-b` option to the `%kernel_module_package` macro is used.
+
+The `-b` option simply forces a RAM disk rebuild using the existing RAM disk
+configuration: If the existing RAM disk configuration does not include the
+module being installed, then simply using the -b option will not include the
+new module in the new RAM disk. In such cases, the kernel module package also
+needs to make appropriate RAM disk configuration changes (for example by
+creating or updating files in `/etc/dracut.conf.d`) to include the new module.
+====
+
+=== Kernel Updates and Kernel Module Packages
+
+After all software repositories that should be checked for updates have been
+added, the package manager will automatically detect when new kernel packages
+and new kernel module packages become available. The dependencies between those
+packages will ensure that the installed kernel packages match the installed
+kernel module packages.
+
+[discrete]
+== Appendix A: Sample Source for the "SUSE Hello" Kernel Module Package
+
+The following sample is described in
+<<Kernel Module Packages>>. For a sample spec file that signs
+modules during packaging, see Appendix A.1.
+
+suse-hello.spec
+[source, spec]
+----
+# norootforbuild
+
+Name:           suse-hello
+Version:        1.0
+Release:        0
+Summary:        Sample Kernel Module Package
+License:        GPL-2.0
+Group:          System/Kernel
+Source0:        %{name}-%{version}.tar.bz2
+BuildRequires:  %kernel_module_package_buildreqs
+BuildRoot:      %{_tmppath}/%{name}-%{version}-build
+
+%kernel_module_package
+
+%description
+This package contains the hello.ko module.
+
+%prep
+%setup
+set -- *
+mkdir source
+mv "$@" source/
+mkdir obj
+
+%build
+for flavor in %flavors_to_build; do
+       rm -rf obj/$flavor
+       cp -r source obj/$flavor
+       make -C %{kernel_source $flavor} modules M=$PWD/obj/$flavor
+done
+
+%install
+export INSTALL_MOD_PATH=$RPM_BUILD_ROOT
+export INSTALL_MOD_DIR=updates
+for flavor in %flavors_to_build; do
+       make -C %{kernel_source $flavor} modules_install M=$PWD/obj/$flavor
+done
+----
+
+The following two files should be compressed to form the suse-hello-1.0.tar.bz2
+TAR archive referenced as Source0 in the suse-hello.spec file above.
+
+suse-hello-1.0/Kbuild
+
+[source]
+----
+obj-m       := hello.o
+hello-y     += main.o
+----
+
+suse-hello-1.0/main.c
+
+[source, c]
+----
+/*
+ * main.c - A demo kernel module.
+ *
+ * Copyright (C) 2003, 2004, 2005, 2006
+ * Andreas Gruenbacher <agruen@suse.de>, SUSE Labs
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation.
+ *
+ * A copy of the GNU General Public License can be obtained from
+ * http://www.gnu.org/.
+ */
+
+#include <linux/module.h>
+#include <linux/init.h>
+
+MODULE_AUTHOR("Andreas Gruenbacher <agruen@suse.de>");
+MODULE_DESCRIPTION("Hello world module");
+MODULE_LICENSE("GPL");
+
+int param;
+
+module_param(param, int, 0);
+MODULE_PARM_DESC(param, "Example parameter");
+
+void exported_function(void)
+{
+        printk(KERN_INFO "Exported function called.\n");
+}
+EXPORT_SYMBOL_GPL(exported_function);
+
+int __init init_hello(void)
+{
+        printk(KERN_INFO "Hello world.\n");
+        return 0;
+}
+
+void __exit exit_hello(void)
+{
+        printk(KERN_INFO "Goodbye world.\n");
+}
+
+module_init(init_hello);
+module_exit(exit_hello);
+----
+
+[discrete]
+== Appendix A1: Sample Spec File for Signing Modules During Packaging
+
+The following spec file can be used to sign modules during packaging as
+described in <<Signing Modules During Packaging>>.
+
+suse-hello.spec
+[source, spec]
+----
+# norootforbuild
+
+Name:           suse-hello
+Version:        1.0
+Release:        0
+Summary:        Sample Kernel Module Package
+License:        GPL-2.0
+Group:          System/Kernel
+Source0:        %{name}-%{version}.tar.bz2
+# Required to sign modules:  Include certificate named “signing_key.x509”
+# Build structure should also include a private key named “signing_key.priv”
+# Private key should not be listed as a source file
+Source1:        signing_key.x509
+BuildRequires:  %kernel_module_package_buildreqs
+BuildRoot:      %{_tmppath}/%{name}-%{version}-build
+
+# Required to sign modules:  The -c option tells the macro to generate a
+# suse-hello-ueficert subpackage that enrolls the certificate
+%kernel_module_package -c %_sourcedir/signing_key.x509
+
+%description
+This package contains the hello.ko module.
+
+%prep
+%setup
+# Required to sign modules:  Copy the signing key to the build area
+cp %_sourcedir/signing_key.* .
+set -- *
+mkdir source
+mv "$@" source/
+mkdir obj
+
+%build
+for flavor in %flavors_to_build; do
+       rm -rf obj/$flavor
+       cp -r source obj/$flavor
+       make -C %{kernel_source $flavor} modules M=$PWD/obj/$flavor
+done
+
+%install
+export INSTALL_MOD_PATH=$RPM_BUILD_ROOT
+export INSTALL_MOD_DIR=updates
+for flavor in %flavors_to_build; do
+       make -C %{kernel_source $flavor} modules_install M=$PWD/obj/$flavor
+       # Required to sign modules:  Invoke kernel-sign-file to sign each module
+       for x in $(find $INSTALL_MOD_PATH/usr/lib/modules/*-$flavor/ -name '*.ko'); do
+               /usr/lib/rpm/pesign/kernel-sign-file -i pkcs7 sha256 $PWD/obj/$flavor/signing_key.priv $PWD/obj/$flavor/signing_key.x509 $x
+       done
+done
+----
+
+[discrete]
+== Appendix B: Changes and References
+
+[discrete]
+=== Documentation Updates
+
+[discrete]
+=== References
+
+* SUSE SolidDriver Documentation: Kernel Module Packages Manual for Code 11, kernel module packages Manual
+* SUSE SolidDriver Documentation: SUSE Kernel ABI Stability, https://drivers.suse.com/doc/SolidDriver/SUSE_Kernel_ABI_Stability.html
+* Greg Kroah-Hartman: The Linux Kernel Driver Interface, http://www.kroah.com/log/linux/stable_api_nonsense.html (also provided as stable_api_nonsense.txt in the upstream kernel source tree)
+* Andreas Gruenbacher, Michal Marek: Working With The SUSE 2.6.x and 3.x Kernel Sources (provided as README.SUSE in SUSE kernel-source packages)
+* Peter Jay Salzman, Michael Burian, Ori Pomerantz: The Linux Kernel Module Programming Guide, http://www.tldp.org/LDP/lkmpg/2.6/html/index.html
+* Jonathan Corbet, Alessandro Rubini, Greg Kroah-Hartman: Linux Device Drivers, Third Edition, February 2005, http://lwn.net/Kernel/LDD3/
+* UEFI Specification, http://www.uefi.org/specifications
+* Creating Add-Ons, https://www.novell.com/developer/creating_add-ons.html
+
+
+// At the very end of the document, you need to add GPDL and Legal Notice
+
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

@@ -1,0 +1,1071 @@
+// enable docinfo
+:docinfo:
+
+// defining article ID
+[#art-sap-infra-monitoring-sles15sp7-and-later]
+
+:reg: &#174;
+:tm: &#8482;
+
+:sles: SUSE Linux Enterprise Server
+:sles4sap: {sles} for SAP applications
+:slesProdVersion: 15 SP7 and later
+
+= Infrastructure Monitoring for SAP Systems 
+
+
+[[sec-introduction]]
+== Introduction
+
+Many customers deploy SAP systems, such as SAP S/4HANA, to support mission-critical business functions for their global operations. 
+Consequently, maximizing system availability becomes crucial. IT departments face very demanding SLAs, with many companies now requiring 24x7 reliability for their SAP environments.
+
+The foundation of every SAP system is a solid infrastructure supporting it.
+
+Operating System:: {sles4sap} is the leading Linux platform for SAP HANA, SAP NetWeaver and SAP S/4HANA solutions.
+It helps reduce downtime by providing the flexibility to configure and deploy various HA/DR scenarios for SAP HANA 
+and NetWeaver-based applications. Additionally, system data monitoring enables proactive problem avoidance.
+
+Hardware:: Most modern hardware platforms running SAP systems rely on Intel's system architecture. 
+The combination of SUSE Linux Enterprise Server, the latest generation of Intel Xeon Scalable processors,
+and Intel Optane DC persistent memory helps deliver fast, innovative, and secure IT services while providing 
+resilient enterprise S/4HANA platforms. The Intel platform allows for deep hardware monitoring,
+gaining insights into system performance at the physical level. This level of monitoring helps reduce 
+SAP systems downtime in several ways:
+
+Failure prediction:: Identifying hardware failures in advance allows customers to react early and in a scheduled manner. 
+This reduces the risk of errors that often occur during emergency operations under the pressure of an unplanned outage.
+
+Failure remediation:: Having hardware metrics readily available when diagnosing a root cause of an issue speeds up 
+analysis and reduces the time required to restore operations on that system. It also improves reaction time by 
+providing more precise data about an issue. This is especially valuable for enterprise customers who usually outsource 
+operations to multiple service providers and do not control the environment directly.
+
+This paper describes a monitoring solution for SAP systems that enables metrics to be analyzed within a specific SAP context.
+
+
+[[sec-overview]]
+== Monitoring for SAP systems overview
+The solution presented in this document consists mainly of the open source tool Grafana Alloy. 
+
+The tool acts as a single, local agent that replaces most single exporters by gathering metrics and logs directly via 
+built-in collector functions (Data Collection). It transforms metrics and logs via relabeling and filtering (Data Processing), 
+and forwards the unified telemetry to central backends via a push-based model (Data Push). 
+
+
+.Monitoring Components
+image::sap-infra-monitoring-alloy01.png[Hardware Monitoring Components,scaledwidth=75%]
+
+
+=== Data Source
+As illustrated in the diagram, **Data Sources** can be categorized by the operating system (Internal Sources) and the underlying hardware (External Sources):
+
+* **Internal Sources:** Information from the operating system itself, such as log files, the systemd journal, and system APIs.
+
+* **External Sources:** Information from outside the main OS, such as hardware data via SNMP and Redfish, or network checks via Blackbox.
+
+NOTE: In the previous SUSE Best Practices document, the **Data Source** was defined by the exporters 
+      and collectors themselves. We now define the **Data Source** strictly as the origin of the information, 
+      independent of the collection tool.
+
+
+=== Data Collection
+**Data Collection** can be performed in two ways: Grafana Alloy either gathers information directly using its built-in 
+exporter function, or it acts as a local receiver for external exporters.
+
+* **Built-in function:** Grafana Alloy features many native exporter functions (such as the legacy Node Exporter and Promtail).
+
+* **Local aggregator:** For specialized datasets, Grafana Alloy acts as a local aggregator for third-party collectors and exporters 
+(for example: PCM, Collectd), 
+
+NOTE: In the previous SUSE Best Practices document, the **Data Collection** was defined by the storage component 
+(Prometheus and Loki), which had to actively "pull" data from every individual exporter across the network. 
+We have now shifted this function to a dedicated layer on the host, centralizing the gathering process locally.
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== Data Processing
+**Data Processing** can clean and organize metrics and logs, before the data leaves the system.
+
+* **Relabeling:** Labels can be added or changed on individual data points. This ensures data is easy to find, group and query across all subsequent stages.
+
+* **Filtering:** Unnecessary data can be dropped or reduced to only the essential parts. 
+
+
+=== Data Push
+Finally, the data is sent to the central databases (for example, Prometheus and Loki). The key benefits of the Alloy-driven approach are:
+
+* **Enhanced Security (Push Approach):** Using a push-based model eliminates the need to open multiple incoming ports 
+(for example, port 9100 for Prometheus Node Exporter) on every host. Grafana Alloy pushes data out, allowing your systems 
+to remain closed and secure.
+
+* **Unified Stream:** Metrics, logs, and traces are pushed together, making network traffic much more efficient.
+
+
+== Implementing the monitoring solution
+
+The following sections show how to set up a monitoring solution based on Grafana Alloy that was introduced in the solution overview.
+
+=== Installing Grafana Alloy
+Grafana Alloy can be installed directly from the SUSE repository. With SUSE Linux Enterprise Server 15 SP7 and SUSE Linux Enterprise Server 16.0., it is part of {sles}.
+
+----
+# zypper in alloy
+---- 
+
+=== Base Configuration
+
+This section describes the base configuration of Grafana Alloy. It covers the Alloy service configuration, data collection, data processing, and data push.
+
+==== Environment File
+The service settings are defined in a central environment file. The `/etc/sysconfig/alloy` file controls how 
+the service is launched. The main configuration options are explained below:
+
+
+/etc/sysconfig/alloy
+----
+## Path:
+## Description: Grafana Alloy settings
+## Type:        string
+## Default:     ""
+## ServiceRestart: alloy
+#
+# Command line options for Alloy.
+#
+# The configuration file holding the Alloy config.
+CONFIG_FILE="/etc/alloy/config.alloy"
+
+# User-defined arguments to pass to the run command.
+CUSTOM_ARGS="--server.http.listen-addr=0.0.0.0:12345"
+
+# Restart on system upgrade. Defaults to true.
+RESTART_ON_UPGRADE=true
+
+# Monitoring Group
+monitoring_group=infra
+----
+
+
+CONFIG_FILE::
+Defines the path to the main Alloy configuration. By default, it points to a single file, but is also supports directory-based loading
+where all files within that folder ending in `.alloy` are used at once. 
+
+CUSTOM_ARGS::
+Allows you to pass additional command-line flags to the service during startup.
+It is used to enable extra features, adjust performance limits, or fine-tune global settings. 
+
+
+monitoring_group::
+The `monitoring_group` key-value pair is an example of creating an environment variable. 
+This example sets a custom environment label, similar to the traditional Prometheus `job_name`. 
+It can be used later on in the Alloy configuration via `sys.env("monitoring_group")`. 
+
+
+=== Metric configuration
+Alloy operates as a programmable pipeline where modular components are linked to manage the metric flow. 
+This architecture allows you to connect specialized exporters, relabeling rules, and scraping engines to 
+transform raw system data into structured time-series metrics. The default config file is stored under:
+
+----
+/etc/alloy/config.alloy
+----
+
+The following sections describe the individual components used in the configuration. 
+A complete, functional example combining all these elements is provided at the end of this chapter.
+
+==== Data Collection 
+The Exporter is the data entry point for the pipeline.
+Exporters do not send data themselves; instead, they "expose" a list of values that are collected by a scraper later in the process.
+The following sections discuss the most essential exporters for a standard infrastructure deployment.
+
+[discrete]
+==== prometheus.exporter.unix
+The `prometheus.exporter.unix` component is the integrated version of the classic Prometheus Node Exporter. 
+Its primary role is to retrieve hardware and operating system metrics directly from the Linux kernel.
+
+----
+prometheus.exporter.unix "unix" {
+}
+----
+
+[discrete]
+==== prometheus.exporter.process
+The `prometheus.exporter.process` component provides granular visibility into individual processes running on the host.
+While the Unix exporter (`prometheus.exporter.unix`) looks at the "big picture" of the entire server, the Process exporter 
+allows you to zoom in on specific applications.
+
+As shown in the example, this component is configured to monitor `nginx` as the specific process.
+
+++++
+<?pdfpagebreak?>
+++++
+
+----
+prometheus.exporter.process "process" {
+  track_children = false
+
+  matcher {
+    comm = ["nginx"]
+  }
+}
+----
+
+[discrete]
+==== prometheus.exporter.blackbox
+The `prometheus.exporter.blackbox` component monitors the availability of services by sending network probes to specific endpoints. 
+It tests the availability and the response quality of network services, such as Websites, APIs, or DNS servers, to ensure they are 
+responding within acceptable limits.
+
+----
+prometheus.exporter.blackbox "blackbox" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+  target {
+      name    = "Webserver"
+      address = "https://webserver01.domain"
+      module  = "http_2xx"
+    }
+}
+----
+
+[discrete]
+==== prometheus.exporter.snmp
+The `prometheus.exporter.snmp` component enables Grafana Alloy to collect telemetry from network hardware by using the 
+Simple Network Management Protocol (SNMP) to query devices like routers, switches, and similar. 
+The example below collects SNMP data from a Cisco switch. (Note that this component requires an accompanying configuration file.)
+
+----
+prometheus.exporter.snmp "cisco_switches" {
+  config_file = "/etc/alloy/snmp.yml"
+
+  target "cbs250_main" {
+    address = "192.168.178.2"
+    module  = "if_mib"           
+    auth    = "alloy_v2c"
+  }
+}
+----
+
+[discrete]
+==== prometheus.exporter.self
+The `prometheus.exporter.self` component is a specialized internal monitor designed for the health of Alloy itself. 
+It allows the Alloy agent to collect and expose its own operational metrics.
+
+----
+prometheus.exporter.self "self" {
+}
+----
+
+==== Data Collection - Scraper
+The scrape component is the active "worker" of the metrics pipeline. While exporters are responsible for making data available, 
+the scraper is responsible for collecting that data. It functions by "pulling" metrics from one or more exporters 
+at a defined time interval.
+
+
+[discrete]
+==== prometheus.scrape
+In the example below, the scraper pulls the data from the `prometheus.exporter.unix` and forwards it to the 
+Data Push component `prometheus.remote_write`:
+----
+prometheus.scrape "os" {
+    scrape_interval = "15s"
+    targets    = prometheus.exporter.unix.os.targets
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver]
+}
+----
+
+
+==== Data Processing
+When telemetry has been identified and collected, it often requires modification before being sent to the backend. 
+Alloy uses relabeling components to standardize data, remove sensitive information, or add organizational context.
+
+[discrete]
+==== prometheus.relabel
+The `prometheus.relabel` component is the standard component for modifying metrics after they have been scraped. 
+It acts as a filter and transformation engine that typically sits between the scraper and the Data Push components.
+The example below creates or modifies the following labels:
+
+++++
+<?pdfpagebreak?>
+++++
+
+----
+prometheus.relabel "to_be_compatible" {
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver, ]
+
+    // rule01
+    rule {
+        source_labels  = ["exporter"]
+        target_label   = "exporter"
+        replacement    = "alloy"
+    }
+
+
+    // rule02
+    rule {
+        source_labels  = ["instance"]
+        target_label   = "instance"
+        replacement    = constants.hostname
+    }
+
+    // rule03
+    rule {
+        source_labels  = ["job"]
+        target_label   = "job"
+        replacement    = sys.env("monitoring_group")
+    }
+}
+----
+
+* **Identifying the Agent (rule01):**  This rule ensures the data is tagged with the name `alloy` so you can easily identify which software collected the metrics.
+
+* **Standardizing the Hostname (rule02):** This rule replaces the technical address (such as an IP) with the actual system host name, making it easier to find the server.
+
+* **Using Environment Variables (rule03):** This rule grabs the `monitoring_group` variable from your system settings (see: `/etc/sysconfig/alloy`) and works like the 
+legacy Prometheus `job_name`. By setting this to values like `infra`, `test`, or `services`, you can easily categorize and filter your targets in Grafana.
+
+
+==== Data Push
+
+[discrete]
+==== prometheus.remote_write
+The `prometheus.remote_write` component is the final destination handler for metrics within the Alloy pipeline.
+When data has been collected by a scraper and processed by any relabeling stages, this component handles the secure transmission 
+of that data to a backend, such as Prometheus.
+
+----
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+
+==== Putting it all together
+To provide a clear picture of the entire configuration, the following example shows a complete Alloy setup. 
+The `prometheus.exporter.unix` component is the best example of a native replacement for the traditional 
+Prometheus Node Exporter. In this scenario, Alloy scrapes the internal exporter data, applies custom 
+labels to identify the source, and forwards the processed data to a central Prometheus backend.
+
+
+----
+prometheus.exporter.unix "localhost" {
+}
+
+prometheus.scrape "unix" {
+    scrape_interval = "10s"
+    targets    = prometheus.exporter.unix.localhost.targets
+    forward_to = [ prometheus.relabel.to_be_compatible.receiver, ]
+}
+
+prometheus.relabel "to_be_compatible" {
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver, ]
+
+    rule {
+        source_labels  = ["exporter"]
+        target_label   = "exporter"
+        replacement    = "alloy"
+    }
+    rule {
+        source_labels  = ["instance"]
+        target_label   = "instance"
+        replacement    = constants.hostname
+    }
+    rule {
+        source_labels  = ["job"]
+        target_label   = "job"
+        replacement    = sys.env("monitoring_group")
+    }
+}
+
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+
+=== Log configuration
+Following the same logic as metrics, the log components allow you to collect, parse 
+and filter system events before they reach the backend.
+
+
+==== Data Collection 
+Unlike metric exporters, which take a snapshot at specific time intervals, log components stay "attached" to the files. 
+As soon as a new line is written to a log file, the collector detects it and sends it immediately (similar to the `tail -f` command). 
+
+The following sections outline the essential log components.
+
+[discrete]
+==== loki.source.journal
+The `loki.source.journal` component reads logs directly from the systemd journal. It retreives not only the log message 
+itself but also a complete set of metadata, such as the unit name, PID, and priority.
+
+----
+loki.source.journal "journal" {
+  max_age       = "24h0m0s"
+  relabel_rules = discovery.relabel.journal.rules
+  forward_to    = [loki.relabel.journald.receiver]
+}
+----
+
+[discrete]
+==== loki.source.file
+The `loki.source.file` component is the standard tool for collecting logs from traditional text files stored on the local file system.
+
+----
+loki.source.file "logfile" {
+  targets    = [
+    {__path__ = "/var/log/logfile.log"},
+  ]
+  forward_to    = [loki.relabel.logfiles.receiver]
+}
+----
+
+==== Data Processing
+Similar to metric data, logs often require modifications before being sent to the backend.
+
+
+[discrete]
+==== loki.relabel
+Like `prometheus.relabel`, the `loki.relabel` component is the standard component for modifying logs after they have been captured. 
+
+----
+loki.relabel "logfiles" {
+  forward_to    = [loki.write.to_loki.receiver]
+
+  rule { 
+    source_labels  = ["job"]
+    target_label   = "job"
+    replacement    = sys.env("monitoring_group")
+   }
+
+  rule {
+    source_labels  = ["log_type"]
+    target_label   = "log_type"
+    replacement    = "journald02"
+   }
+}
+----
+
+==== Data Push 
+
+
+[discrete]
+==== loki.write 
+The `loki.write` cocmponent serves as the final destination handler for logs within the Grafana Alloy pipeline. 
+When log entries have been collected and processed through various stages, this component handles the 
+transmission of the resulting streams to a log backend, such as Grafana Loki.
+
+----
+loki.write "to_loki" {
+    endpoint { url = "http://loki-server:3100/loki/api/v1/push" }
+}
+----
+
+
+==== Putting it all together
+To provide a clear picture of how Grafana Alloy handles logging, the example below shows a complete configuration for `journald`. 
+In this setup, Alloy replaces the traditional Promtail agent by reading system logs directly, adding custom labels for 
+better searchability, and forwarding them to a central Loki backend.
+
+----
+loki.source.journal "journal" {
+  max_age       = "24h0m0s"
+  forward_to    = [loki.relabel.journald.receiver]
+  labels        = {log_type = "journald"}
+}
+
+
+loki.relabel "journald" {
+  forward_to    = [loki.write.to_loki.receiver]
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal__hostname"]
+    target_label  = "hostname"
+  }
+  rule {
+    source_labels = ["__journal__kernel_device"]
+    target_label  = "kernel_device"
+  }
+  rule {
+    source_labels = ["__journal__priority"]
+    target_label  = "prio"
+  }
+  rule {
+    source_labels  = ["instance"]
+    target_label   = "instance"
+    replacement    = constants.hostname
+  }
+  rule {
+    source_labels  = ["job"]
+    target_label   = "job"
+    replacement    = sys.env("monitoring_group")
+   }
+  rule {
+    source_labels  = ["log_type"]
+    target_label   = "log_type"
+    replacement    = "journald"
+   }
+}
+
+loki.write "to_loki" {
+    endpoint { url = "http://loki-server:3100/loki/api/v1/push" }
+}
+----
+
+
+== Migrating to Grafana Alloy
+Migrating to Grafana Alloy is straightforward and does not require starting from scratch. It also supports a mixed environment, 
+providing the flexibility to integrate existing exporters alongside the new system. This ensures a safe transition with no data loss.
+
+=== Migrating from metrics exporter
+The metrics migration process is straightforward because Grafana Alloy is natively compatible with the Prometheus ecosystem. 
+Most standard collectors are now built-in, allowing you to replace external binaries with the internal components described above. 
+No formal migration tool is required for this process; instead, you can simply follow the configuration steps outlined above.
+
+==== Keeping existing exporters
+For cases where a specialized exporter is not yet built into, you can use Grafana Alloy as a local scraper to collect that data
+from that existing (external) exporter. This still gives you the power to filter and relabel your metrics before they are sent 
+to the backend.
+
+
+[discrete]
+==== Integrating Intel Processor Counter Monitor (PCM)
+One example of integrating special exporter is the Intel Processor Counter Monitor (PCM). 
+
+Intel Processor Counter Monitor (PCM) is a specialized tool used to monitor 
+real-time performance and energy metrics of Intel processors, such as memory bandwidth and CPU resource utilization.
+
+Unlike the previous SUSE Best Practices guide, this integration runs the PCM sensor within a Docker container, 
+ensuring access to the latest version in an isolated environment. 
+----
+# modprobe msr
+
+# docker run -d --name pcm --privileged -p 9738:9738 ghcr.io/intel/pcm
+----
+
+
+Grafana Alloy can then scrape these hardware metrics locally, apply custom labels, and forward the data to a central Prometheus backend.
+----
+prometheus.scrape "intel_pcm" {
+  targets = [
+    {"__address__" = "localhost:9738"},
+  ]
+  forward_to = [ prometheus.relabel.to_be_compatible.receiver, ]
+}
+
+
+prometheus.relabel "to_be_compatible" {
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver, ]
+
+    rule {
+        source_labels  = ["exporter"]
+        target_label   = "exporter"
+        replacement    = "alloy"
+    }
+    rule {
+        source_labels  = ["instance"]
+        target_label   = "instance"
+        replacement    = constants.hostname
+    }
+    rule {
+        source_labels  = ["job"]
+        target_label   = "job"
+        replacement    = sys.env("monitoring_group")
+    }
+}
+
+
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+=== Migrating from Promtail log exporter
+As Promtail has officially reached EOL on March 2, 2026, Grafana Alloy has taken over its role as 
+the primary logging agent. To simplify the transition, the `alloy convert` utility automatically translates 
+your existing Promtail configurations into the new Alloy syntax.
+
+
+The command is straightforward and requires two components: the source Promtail configuration file and a target output path.
+
+----
+# alloy convert --source-format=promtail --output=<OUTPUT_CONFIG_PATH> /etc/loki/promtail.yaml
+----  
+
+For demonstration, the following `promtail.yaml` file is used:
+
+----
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki-host:3100/loki/api/v1/push
+
+scrape_configs:
+- job_name: journal
+  journal:
+    max_age: 24h
+    labels:
+      job: loki_messages
+
+  relabel_configs:
+    - source_labels: ['__journal__systemd_unit']
+      target_label: 'unit'
+
+    - source_labels: ['__journal__hostname']
+      target_label: 'host'
+----
+
+The conversion tool reads the Promtail file and automatically changes the settings into the correct Alloy format. 
+Execute the following command to start the process:
+
+----
+alloy convert --source-format=promtail --output=/tmp/config.alloy /etc/loki/promtail.yml
+----
+
+This generates the following Grafana Alloy configuration:
+
+----
+discovery.relabel "journal" {
+  targets = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal__hostname"]
+    target_label  = "host"
+  }
+}
+
+loki.source.journal "journal" {
+  max_age       = "24h0m0s"
+  relabel_rules = discovery.relabel.journal.rules
+  forward_to    = [loki.write.default.receiver]
+  labels        = {
+    job = "loki_messages",
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki-host:3100/loki/api/v1/push"
+  }
+  external_labels = {}
+}
+----
+
+
+== Troubleshooting
+
+=== Alloy Web UI 
+The Grafana Alloy Web GUI provides a wealth of information. By default, it can usually only be accessed locally via:
+
+----
+http://localhost:12345
+----
+
+
+[discrete]
+==== External Access
+By setting the option `--server.http.listen-addr=0.0.0.0:12345`, the Grafana Alloy UI can also be accessed externally.  
+When enabling external access, ensure the port is protected by a firewall or a reverse proxy, 
+as Grafana Alloy does not provide native authentication for its Web interface.
+
+This option can be configured in `/etc/sysconfig/alloy` under `CUSTOM_ARGS` (see section 3.1.1 Environment File).
+
+
+----
+[...]
+
+# User-defined arguments to pass to the run command.
+CUSTOM_ARGS="--server.http.listen-addr=0.0.0.0:12345"
+
+[...]
+----
+
+
+==== Component health
+The first step is to verify the health of each individual component. This status overview is available directly on the main page 
+of the Alloy Web UI. The dashboard provides a real-time status overview of every active component in the pipeline.
+
+.Component Health Status
+image::sap-infra-monitoring-alloy02.png[Healthy of components,scaledwidth=100%]
+
+
+==== Verifying Data Flow
+The Graph tab shows a visual map of all active pipelines. 
+It displays how components connect and how data flows between them.
+
+.Visualizing Data Flow
+image::sap-infra-monitoring-alloy03.png[Healthy of components,scaledwidth=100%]
+
+
+==== Checking the scrape debug information
+Because Grafana Alloy is scraping the data from build-in and external exporters, it is important to check the 
+scrape data. The following illustration highlights essential debug information.
+
+
+.Visualizing the scrape component
+image::sap-infra-monitoring-alloy04.png[Visualize the scrape component,scaledwidth=100%]
+
+
+job::
+The *Job* field simply identifies the component type. 
+
+url::
+By accessing this URL endpoint in a browser, you can verify the raw metric data. If the output 
+contains only a few lines of metrics and these lines point only to the scrape values themselves (for example to `scrape_errors`), 
+Grafana Alloy is failing to retrieve data from the exporter.
+
+health::
+It is important to note that a status of "Up" only indicates that the component itself is running and functional.
+This status does not guarantee that data is being successfully scraped or delivered.
+
+labels::
+Displays the labels and their current values at this stage of the pipeline. Keep in mind that a subsequent relabeling
+component could change or even remove these labels.
+
+last_scrape::
+This field indicates the exact timestamp of the last successful scrape performed by the component.
+
+last_scrape_duration::
+This value represents the total time required to scrape all data from the target. An unexpectedly short duration 
+may indicate that the component is failing to retrieve the full dataset. Conversely, an excessively long scrape duration could 
+suggest network latency, resource bottlenecks, or a target that is struggling to respond.
+
+
+=== Live Debugging
+This feature allows you to inspect live data as it moves through the pipeline in real time. 
+It is used for verifying the output of specific components, ensuring that labels and values are correctly assigned 
+after the data has been processed. 
+
+To uilize this functionality, specific debugging options must be enabled within the Alloy configuration file. 
+
+----
+
+livedebugging {
+  enabled = true
+}
+
+----
+
+Keep in mind that this feature is not available on all components. 
+Live debugging is currently available only for a specific subset of components:
+
+* loki.relabel
+* prometheus.relabel
+* prometheus.scrape
+* prometheus.remote_write
+
+To view live data, select one of the supported components mentioned above and click the blue *Live Debugging* button 
+at the top.
+
+.Visualizing the scrape component step 1
+image::sap-infra-monitoring-alloy06.png[Live Debugging Button,scaledwidth=100%]
+
+The *Live Debugging* view opens, displaying a real-time stream of data.
+
+.Visualizing the scrape component step 2
+image::sap-infra-monitoring-alloy05.png[Live Debugging,scaledwidth=100%]
+
+
+NOTE: While live debugging is highly effective for resolving configuration issues, 
+it should not be left enabled in high-traffic production environments. This feature consumes additional 
+CPU and memory to buffer data for real-time visualization, which can impact overall system performance.
+
+
+=== Support Bundle
+The support bundle provides a collection of diagnostic data from the running Grafana Alloy instance. 
+It creates a compressed file containing the current configuration and logs.
+
+The bundle can be generated locally by running the following command:
+
+----
+# curl -o support-bundle.zip  http://localhost:12345/-/support
+----
+
+=== Verifying permissions
+Alloy runs under the `alloy` user account. By default, this user has the following permissions:
+
+----
+# id alloy
+uid=461(alloy) gid=471(alloy) Gruppen=476(systemd-journal),471(alloy)
+----
+
+The `alloy` user may encounter issues reading log files if the correct permissions are not configured. 
+You can verify whether the user has the necessary access to a specific file by executing 
+the following command:
+
+----
+# sudo -u alloy head -n 3 /var/log/zypper.log
+head: cannot open '/var/log/zypper.log' for reading: Permission denied
+----
+
+== Examples
+
+This section provides configuration examples for different use cases. 
+
+=== Blackbox
+
+The configuration example below shows how to use the blackbox exporter to monitor the availability of API-endpoints or Websites.
+
+----
+prometheus.exporter.blackbox "blackbox" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+  target {
+      name    = "SUSE"
+      address = "https://suse.com"
+      module  = "http_2xx"
+    }
+  target {
+      name    = ""
+      address = "https://rancher.com"
+      module  = "http_2xx"
+    }
+}
+
+prometheus.scrape "scrape_blackbox" {
+    scrape_interval = "15s"
+    targets    = prometheus.exporter.blackbox.blackbox.targets
+    forward_to = [ prometheus.relabel.blackbox_label.receiver]
+}
+
+prometheus.relabel "blackbox_label" {
+    rule {
+        source_labels = ["job"]
+        regex         = ".*/(.+)"
+        target_label  = "instance"
+        replacement   = "$1"
+    }
+
+    rule {
+        target_label = "job"
+        replacement  = "blackbox"
+    }
+
+    forward_to = [prometheus.remote_write.to_prometheus.receiver]
+}
+
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+=== SNMP
+
+The configuration example below shows how to use the SNMP exporter to collect SNMP traps.
+
+----
+// wget https://raw.githubusercontent.com/prometheus/snmp_exporter/main/snmp.yml -O /etc/alloy/snmp.yml
+
+prometheus.exporter.snmp "cisco_switches" {
+  config_file = "/etc/alloy/snmp.yml"
+  target "cbs250_main" {
+    address = "192.168.178.2"
+    module  = "if_mib"
+    auth    = "alloy_v2c"
+  }
+}
+
+prometheus.scrape "scrape_snmp" {
+  targets         = prometheus.exporter.snmp.cisco_switches.targets
+  scrape_interval = "60s"
+  scrape_timeout  = "55s"
+  forward_to      = [prometheus.relabel.snmp.receiver]
+}
+
+prometheus.relabel "snmp" {
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver, ]
+    rule {
+        target_label   = "instance"
+        replacement    = "cisco"
+    }
+    rule {
+        target_label   = "job"
+        replacement    = "snmp"
+    }
+}
+
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+==== Process
+
+The configuration example below shows how to use the process exporter to monitor the status of a process in the operating system.
+
+----
+prometheus.exporter.process "process" {
+  track_children = false
+  matcher {
+    comm = ["nginx"]
+  }
+}
+
+prometheus.scrape "process" {
+  targets    = prometheus.exporter.process.process.targets
+  forward_to = [prometheus.relabel.process.receiver]
+}
+
+prometheus.relabel "process" {
+    forward_to = [ prometheus.remote_write.to_prometheus.receiver, ]
+    rule {
+        target_label   = "exporter"
+        replacement    = "alloy"
+    }
+    rule {
+        target_label   = "job"
+        replacement    = "process"
+    }
+}
+
+prometheus.remote_write "to_prometheus" {
+    endpoint { url = "http://prometheus-server:9090/api/v1/write" }
+}
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+==== Logfiles
+
+The configuration example below shows how to use the `file_match` functionality to collect log files.
+
+----
+local.file_match "logfiles" {
+    path_targets = [
+        { "__path__" = "/var/log/messages" },
+        { "__path__" = "/var/log/warn" },
+        { "__path__" = "/var/log/*.log" },
+    ]
+}
+
+loki.source.file "all_files" {
+    targets    = local.file_match.logfiles.targets
+    forward_to    = [loki.relabel.logfile.receiver]
+}
+
+loki.relabel "logfile" {
+  forward_to = [loki.write.to_loki.receiver]
+  rule {
+    source_labels  = ["instance"]
+    target_label   = "instance"
+    replacement    = constants.hostname
+  }
+  rule {
+    source_labels  = ["job"]
+    target_label   = "job"
+    replacement    = sys.env("monitoring_group")
+   }
+  rule {
+    target_label = "log_type"
+    replacement  = "files"
+  }
+}
+
+loki.write "to_loki" {
+    endpoint { url = "http://loki-server:3100/loki/api/v1/push" }
+}
+----
+
+== Miscellaneous
+
+[discrete]
+=== Reloading the configuration
+After modifying the configuration file, use the following command to apply the changes without restarting the service:
+
+----
+curl -X POST 127.0.0.1:12345/-/reload
+----
+
+
+[discrete]
+=== Splitting configuration files
+In complex environments, splitting the `config.alloy` file into separate files can improve organization and simplify management. 
+For example, individual pipelines can be stored in dedicated files such as `unix.alloy` or `journald.alloy`.
+
+Common components, such as `prometheus.remote_write` or `loki.write`, can also be placed in a single shared file. 
+This allows multiple pipelines to push data to the same destination without duplicating the configuration.
+
+To enable this, modify the `CONFIG_FILE` variable in `/etc/sysconfig/alloy` as follows:
+
+----
+# The configuration file or directory holding the Alloy config.
+CONFIG_FILE="/etc/alloy/"
+----
+
+Alloy automatically loads and merges all files within that folder ending in `.alloy`, 
+allowing them to function as a single configuration.
+
+Directory Structure Example::
+When `CONFIG_FILE` is set to `/etc/alloy/`, the directory can be organized as follows:
+
+* **unix.alloy:** Contains components for collecting Linux system metrics (for example, `prometheus.exporter.unix`, `prometheus.relabels`).
+
+* **journald.alloy:** Contains components for collecting system logs (for example, `loki.source.journal`, `loki.relabel`).
+
+* **outputs.alloy:** Contains the central `prometheus.remote_write` and `loki.write` components used by all pipelines.
+
+
+
+== Summary
+
+Maintaining the availability of SAP S/4HANA is critical for ensuring uninterrupted business operations. 
+This document has demonstrated how Grafana Alloy provides a modern, unified approach to monitor these systems, 
+enabling administrators to identify and resolve issues before they cause costly downtime.
+
+The primary benefits include:
+
+* **All-in-One Tool:** One single agent handles metrics, logs, and traces, significantly simplifying the overall monitoring infrastructure.
+
+* **Streamlined Troubleshooting:** Tools like the Graph view and Live Debugging allow  you to quickly isolate and fix pipeline or configuration errors.
+
+* **Backend Flexibility:** The data destination (backend) is easily interchangeable without requiring changes to the core collection logic.
+
+By switching to Grafana Alloy, you gain a more efficient, scalable, and flexible foundation for enterprise-grade observability.
+
+
+////
+[[sec-appendix]]
+== Appendix
+
+=== Useful metrics
+////
+
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

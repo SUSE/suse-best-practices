@@ -8,7 +8,7 @@ https://help.sap.com/docs/integration-suite?locale=en-US and search for the "Edg
 
 
 # tag::disclaimer-production-versions[]
-If you want to use different versions of {slem} or {slm}, {rancher}, {rke}, or {lh}, make sure to check the support matrix for the related solutions you want to use:
+To use different versions of {slem} or {slm}, {rancher}, {rke}, or {lh}, make sure to check the support matrix for the related solutions you want to use:
 https://www.suse.com/suse-rancher/support-matrix/all-supported-versions/ +
 For {redis} and {pg}, make sure to pick versions compatible to {eic}, which can be found at https://me.sap.com/notes/3247839 . +
 
@@ -21,7 +21,7 @@ For {redis} and {pg}, make sure to pick versions compatible to {eic}, which can 
 
 WARNING: We strongly advise against using self-signed certificates in production environments.
 
-The first step is to create a certificate authority (hereinafter referred to as CA) with a key and certificate.
+The first step is to create a certificate authority (hereinafter called CA) with a key and certificate.
 The following excerpt provides an example of how to create a CA with a passphrase of your choice:
 
 [source, bash]
@@ -30,7 +30,7 @@ openssl req -x509 -sha256 -days 1825 -newkey rsa:2048 -keyout rootCA.key -out ro
 ----
 
 This will generate the files _rootCA.key_ and _rootCA.crt_.
-The server certificate requires a certificate-signing request (hereinafter referred to as CSR).
+The server certificate requires a certificate-signing request (hereinafter called CSR).
 The following excerpt shows how to create such a CSR:
 
 [source, bash]
@@ -110,7 +110,7 @@ spec:
   selfSigned: {}
 ----
 
-Then create a Certificate Ressource for the CA called _my-ca-cert.yaml_:
+Then create a Certificate Resource for the CA called _my-ca-cert.yaml_:
 [source,yaml]
 ----
 apiVersion: cert-manager.io/v1
@@ -195,7 +195,7 @@ To keep track of the deletion process, you can run:
 kubectl  -n kube-system logs -l job-name=cleanup-job  -f
 ----
 
-To verify the deletion was sucessfull, run the following commands. You should receive an empty output:
+To verify the deletion was successful, run the following commands. You should receive an empty output:
 
 [source, bash]
 ----
@@ -204,3 +204,123 @@ kubectl  -n kube-system logs -l job-name=verify-job  -f | grep -v "is deprecated
 ----
 
 # end::rancher-cleanup[]
+
+# tag::rancher-registries[]
+
+[#rancherRegistries]
+
+To avoid creating identical imagePullSecrets in multiple namespaces, you can also introduce a registry in your cluster configuration.
+This can be configured in the Cluster Configuration at the tab _Registries_ as shown below:
+
+image::SAP-Edge-Registry-Config.png[title=Cluster Config Registry,scaledwidth=99%]
+
+When opened, click _Show Advanced_ as displayed in the picture below:
+
+image::SAP-Edge-Registry-Registries.png[title=Cluster Config Registry Advanced,scaledwidth=99%]
+
+++++
+<?pdfpagebreak?>
+++++
+
+Scroll to the very bottom and enter your registry FQDN, as shown below:
+
+image::SAP-Edge-Registry-Add.png[title=Configure Registry at cluster config,scaledwidth=99%]
+
+There's no need to start with http:// or https:// prefix, neither with the /project as a suffix.
+If you are using certificates from an unknown CA, make sure to enable *Skip TLS Verifications*.
+
+# end::rancher-registries[]
+
+# tag::legacyRestrictedAccess[]
+
+[#legacyRestrictedAccess]
+
+For Edge Integration Cell versions older than 8.41, you must manually prepare the cluster using the resources attached to **SAP Note 3618713**: https://me.sap.com/notes/3618713.
+
+==== Applying the resources from SAP Note
+
+1. Access **SAP Note 3618713** and download the `resources.zip` file.
+2. Follow the instructions in the **"Manual Setup Using Attached Resources"** section of the SAP Note to create the namespaces, Custom Resource Definitions (CRDs), and RBAC policies (Roles and RoleBindings) in your cluster.
+3. When the resources are successfully applied, return to this guide to complete the following steps.
+
+==== Configuring ImagePullSecrets
+
+Create the *imagePullSecret* in all newly created namespaces (except `edge-icell-secrets`). Refer to <<imagePullSecret>> for credential details and apply them to `edgelm`, `istio-gateways`, `edge-icell`, `edge-icell-services`, and `edge-icell-ela`.
+
+Alternatively, run the following script to create the *imagePullSecret* in all required namespaces:
+
+[source, bash]
+----
+NAMESPACES_INJECTION=("edgelm" "edge-icell" "edge-icell-services" "edge-icell-ela" "istio-gateways")
+for ns in "${NAMESPACES_INJECTION[@]}"; do
+  echo "Creating imagePullSecret for namespace: $ns"
+  kubectl create secret docker-registry application-collection -n $ns \
+    --docker-server=dp.apps.rancher.io \
+    --docker-username=<yourUser> \
+    --docker-password=<yourPassword>
+  sleep 1
+  echo "---"
+done
+echo "Done"
+----
+
+==== Granting user permissions
+
+The manifests provided by SAP contain the necessary security policies, but they must be explicitly assigned to your restricted user. By associating these policies with your Rancher User ID, {elm} can securely manage the cluster using Rancher's centralized authentication.
+
+Ensure you have created the restricted user in Rancher as described in <<createRestrictedUser>>. Then, create a file named `configuring_permissions.sh` and add the following validated script to grant the required permissions to your user:
+
+[source, bash]
+----
+#!/bin/bash
+# configuring_permissions.sh
+USER_ID="$1"
+
+# rolebindings for edgelm namespace
+kubectl patch rolebindings rb-edgelm-manage -n edgelm --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-edgelm-admin -n edgelm --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# clusterrolebinding for edgelm
+kubectl patch clusterrolebindings crb-edgelm-cluster-admin --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# rolebindings for istio-gateways namespace
+kubectl patch rolebindings rb-edgelm-manage -n istio-gateways --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-istio-gateways-admin -n istio-gateways --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# rolebindings for edge-icell namespace
+kubectl patch rolebindings rb-edgelm-manage -n edge-icell --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-admin -n edge-icell --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-app-admin -n edge-icell --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# rolebindings for edge-icell-ela namespace
+kubectl patch rolebindings rb-edgelm-manage -n edge-icell-ela --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-admin -n edge-icell-ela --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# rolebindings for edge-icell-secrets namespace
+kubectl patch rolebindings rb-edgelm-manage -n edge-icell-secrets --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-admin -n edge-icell-secrets --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+# rolebindings for edge-icell-services namespace
+kubectl patch rolebindings rb-edgelm-manage -n edge-icell-services --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-admin -n edge-icell-services --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+kubectl patch rolebindings rb-app-admin -n edge-icell-services --type=json -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "'$USER_ID'"}}]'
+
+echo "Done"
+----
+
+Make the script executable and run it, replacing `<USER_ID>` with your actual restricted user ID:
+
+[source, bash]
+----
+chmod +x configuring_permissions.sh
+./configuring_permissions.sh <USER_ID>
+----
+
+[#raLegacyKubeconfig]
+==== Generating and downloading the kubeconfig file
+
+The process for downloading the restricted kubeconfig file from the Rancher UI is identical for all {eic} versions. 
+
+Refer to <<raDownloadKubeconfig>> for the detailed steps and visual guides. When downloaded, you can provide this file to the {elm} UI to finish initializing your Edge Node.
+
+# end::legacyRestrictedAccess[]

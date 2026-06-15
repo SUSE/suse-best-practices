@@ -1,0 +1,115 @@
+
+This chapter describes a basic example of how to use {hana} with {eic}.
+It will *NOT* instruct how to set up {hana} or high availability for {hana}.
+
+TIP: For more information around high availability, refer to 
+link:https://documentation.suse.com/sbp/high-availability/[SUSE's best practices guides]
+
+TIP: If you are looking for automated deployments of {hana}, there are Ansible scripts available at https://github.com/sap-linuxlab/ansible.playbooks_for_sap 
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Architecture overview
+
+IMPORTANT: HANA is supposed to run in a side-by-side approach with the {eic} Kubernetes cluster. {hana} is not part of that Kubernetes cluster. The picture below shows the side-by-side installation from an architectural point of view.
+
+image::SAP-EIC-HANA.svg[title=HANA architecture overview,scaledwidth=99%,opts=inline,Embedded]
+
+
+== Prepare {hana}
+
+If you are planning to use a shared {hana} instance for {eic} with other workloads, itis recommended to create a dedicated tenant database, user and schema for {eic}.
+
+To create a new tenant database log in to your installed {hana}.
+An example login command looks like:
+
+[source, bash]
+----
+ hdbsql -i 00 -d SYSTEMDB -u SYSTEM -p <password>
+----
+
+When logged in, run the following command to create a new tenant database:
+
+[source, sql]
+----
+CREATE DATABASE EICDB SYSTEM USER PASSWORD "SuperSecret123";
+----
+
+This will create a new tenant database _EICDB_ and sets the database password to _"SuperSecret123"_
+After creation, you will need to login to the newly created database to create a new user and schema.
+
+Similar to the previous log in, the our example uses now the newly created _EICDB_ and the password from the command above:
+
+[source, bash]
+----
+hdbsql -i 00 -d EICDB -u SYSTEM -p "SuperSecret123"
+----
+
+After now being logged into the dedicated tenant database, you can now create the new user and the schema.
+In the following example we'll create a user named _EICUSER_ with the password _YourPassword123_ and the related schema _EIC_:
+
+[source, sql]
+----
+CREATE USER EICUSER PASSWORD "YourPassword123" NO FORCE_FIRST_PASSWORD_CHANGE;
+GRANT DATA ADMIN TO EICUSER;
+CREATE SCHEMA EIC;
+----
+
+// GRANT SELECT,INSERT,UPDATE,DELETE ON SCHEMA "EIC" TO "EICUSER";
+
+[#gatherHANAdbPort]
+Get the sql port for the newly created tenant database:
+
+[source, sql]
+----
+SELECT SQL_PORT FROM SYS.M_SERVICES WHERE SERVICE_NAME='indexserver';
+----
+
+[#gatherHANArootCert]
+== Gather the HANA DB root cert
+
+The HANA DB root cert is required to deploy {eic} with {hana} as the datastore or database.
+The certificate is stored locally on your HANA node and can be found in the $SECUDIR.
+Typically the name of the certificate is like:
+
+[source, text]
+----
+clientpki_<SID>.cer
+----
+
+The file is located on the {hana} node and you can access is in the given directory.
+The hdbadm user usually has the SECUDIR variable set so you can easily change into that directory like:
+
+[source, bash]
+----
+cd $SECUDIR
+----
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Enter input
+
+When deploying {eic} with HANA, you will be prompted to enter the relevant data.
+
+The _HANA DB Node_ requires the URL and port of your {hana} tenant database.
+You can get the port as described in the chapter above <<gatherHANAdbPort>>.
+
+The _HANA DB Name_ is the name of the tenant database to use. +
+For the _HANA DB Schema_ you can enter the name of the schema to be used. +
+The _HANA DB Username_ is the name of the user, used to connect to {hana}. +
+The _HANA DB Password_ is the password for the given user. 
+
+If you followed our example above, the values are:
+
+[source, text]
+----
+HANA DB Node:       <hanaURL>:<portNumber> 
+HANA DB Name:       EICDB
+HANA DB Schema:     EIC
+HANA DB Username:   EICUSER
+HANA DB Password:   YourPassword123
+----

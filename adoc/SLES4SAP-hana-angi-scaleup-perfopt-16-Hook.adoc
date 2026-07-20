@@ -1,0 +1,337 @@
+// Load document variables
+:prodNr: 16
+:pMinor16: 0
+include::Var_SLES4SAP-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
+// DO NOT CHANGE SECTION ID:  refer to Trento check
+[[cha.s4s.hana-hook]]
+== {stepHook}
+
+image::SAPHanaSR-ScaleOut-Plan-Phase5.svg[scaledwidth="100%"]
+
+This step is mandatory to inform the cluster immediately if the secondary gets
+out of sync. The hook is called by {HANA} using the HA/DR provider interface
+in point-of-time when the secondary gets out of sync. This is typically the case
+when the first commit pending is released. The hook is called by {HANA} again
+when the system replication is back. This HA/DR provider method is
+*srConnectionChanged()*, the related {SUSE} hook script is _susHanaSR.py_.
+The hook script _susHanaSR.py_ is defacto mandatory.
+
+Another hook is called by {HANA} before an SR takeover is processed. This
+method can be used to block a manual takeover during normal cluster operation.
+This HA/DR provider method is *preTakeover()*, the related {SUSE} hook script is
+_susTkOver.py_.
+
+A third hook is called by {HANA} when a service status changes. This method
+can be used to speed up the takeover in case the indexserver process fails.
+This HA/DR provider method is *srServiceStateChanged()*, the related {SUSE} hook
+script is _susChkSrv.py_.
+
+**Procedure**
+
+. Implement the python hook script _susHanaSR.py_ on both sites.
+. Implement the python hook script _susTkOver.py_ on both sites.
+. Implement the python hook script _susChkSrv.py_ on both sites.
+. Configure the system replication operation mode.
+. Allow _{refsidadm}_ to access the cluster.
+. Start {HANA}.
+. Test the hook integration.
+
+// TODO PRIO2: Steps "Start" and "Test" are incomplete
+
+This will implement three {HANA} HA/DR provider hook scripts.
+The hook script _susHanaSR.py_ does not need any configuration parameters.
+The configuration for _susTkOver.py_ normally does not need to be adapted.
+The default for parameter *sustkover_timeout* is set to 30 seconds, which is good
+for most environments.
+The configuration shown for _susChkSrv.py_ is a good starting point. Any tuning
+should be aligned with the SAP experts.
+
+NOTE: All hook scripts should be used directly from the `SAPHanaSR` package.
+If the scripts are moved or copied, regular {SUSE} package updates will not work.
+
+{HANA} must be stopped to change the _global.ini_ and allow {HANA} to integrate
+the HA/DR hook scripts during start. Alternatively, `SAPHanaSR-manageProvider`
+might be used for adapting the _global.ini_. See manual page SAPHanaSR-manageProvider(8)
+for details.
+
+
+=== Implementing susHanaSR hook for srConnectionChanged
+
+Use the hook from the {saphanasr} package _/usr/share/SAPHanaSR-angi/susHanaSR.py_.
+The hook must be configured on all {HANA} cluster nodes.
+In _global.ini_, the section _[ha_dr_provider_sushanasr]_ needs to be created.
+The section _[trace]_ might be adapted.
+Refer to the manual page susHanaSR.py(7) for details on this HA/DR provider hook
+script, see also SAPHanaSR-manageProvider(8).
+
+.Stop {HANA}
+==========
+Stop {HANA} either with _HDB_ or using _sapcontrol_.
+
+[subs="specialchars,attributes"]
+----
+~> sapcontrol -nr {refInst} -function StopSystem
+----
+==========
+
+.Adding SAPHanaSR via _global.ini_
+==========
+Best is to use the {HANA} tools for changing _global.ini_. Alternatively you may use
+`SAPHanaSR-manageProvider`, see manual page SAPHanaSR-manageProvider(8).
+
+----
+[ha_dr_provider_sushanasr]
+provider = susHanaSR
+path = /usr/share/SAPHanaSR-angi/
+execution_order = 1
+
+[trace]
+ha_dr_sushanasr = info
+----
+==========
+
+
+=== Implementing susTkOver hook for preTakeover
+
+Use the hook from the {saphanasr} package _/usr/share/SAPHanaSR-angi/susTkOver.py_.
+The hook must be configured on all {HANA} cluster nodes.
+In _global.ini_, the section _[ha_dr_provider_sustkover]_ needs to be created.
+The section _[trace]_ might be adapted.
+Refer to the manual page susTkOver.py(7) for details on this HA/DR provider hook
+script, see also SAPHanaSR-manageProvider(8).
+
+.Stop {HANA}
+==========
+Stop {HANA} either with _HDB_ or using _sapcontrol_.
+
+[subs="specialchars,attributes"]
+----
+~> sapcontrol -nr {refInst} -function StopSystem
+----
+==========
+
+.Adding _susTkOver_ via _global.ini_
+==========
+Best is to use the {HANA} tools for changing _global.ini_. Alternatively you may use
+`SAPHanaSR-manageProvider`, see manual page SAPHanaSR-manageProvider(8).
+
+----
+[ha_dr_provider_sustkover]
+provider = susTkOver
+path = /usr/share/SAPHanaSR-angi/
+execution_order = 2
+
+[trace]
+ha_dr_sustkover = info
+...
+----
+==========
+
+=== Implementing susChkSrv hook for srServiceStateChanged
+
+Use the hook from the {saphanasr} package _/usr/share/SAPHanaSR-angi/susChkSrv.py_.
+The hook must be configured on all {HANA} cluster nodes.
+In _global.ini_, the section _[ha_dr_provider_suschksrv]_ needs to be created.
+For the progressive configuration, parameter action_on_lost=*fence* is used.
+The section _[trace]_ might be adapted.
+Refer to the manual page susChkSrv.py(7) for details on this HA/DR provider hook
+script, see also SAPHanaSR-manageProvider(8).
+
+.Stop {HANA}
+==========
+Stop {HANA} either with _HDB_ or using _sapcontrol_.
+
+[subs="specialchars,attributes"]
+----
+~> sapcontrol -nr {refInst} -function StopSystem
+----
+==========
+
+.Adding _susChkSrv_ via _global.ini_
+==========
+Best is to use the {HANA} tools for changing _global.ini_. Alternatively you may use
+`SAPHanaSR-manageProvider`, see manual page SAPHanaSR-manageProvider(8).
+
+----
+[ha_dr_provider_suschksrv]
+provider = susChkSrv
+path = /usr/share/SAPHanaSR-angi/
+execution_order = 3
+action_on_lost=fence
+
+[trace]
+ha_dr_suschksrv = info
+...
+----
+==========
+
+
+=== Configuring system replication operation mode
+
+When your system is connected as {HANA} system replication target, you can find an
+entry in the _global.ini_
+which defines the operation mode. Up to now there are the following modes available:
+
+* _delta_datashipping_
+* _logreplay_
+* _logreplay_readaccess_
+
+Until a takeover and re-registration in the opposite direction, the entry for the
+operation mode is missing on your primary site. The first operation mode which was
+available was _delta_datashipping_. Today the preferred modes for HA are _logreplay_
+or _logreplay_readaccess_. Using the operation mode _logreplay_ makes your secondary
+site in the {HANA} system replication a hot standby system.
+For more details regarding all operation modes, check the available SAP documentation
+such as the guide https://www.sap.com/documents/2017/07/606a676e-c97c-0010-82c7-eda71af511fa.html["How To Perform System Replication for SAP HANA "].
+
+.Checking the Operation Mode
+==========
+Check both _global.ini_ files and add the operation mode if needed. Check the section
+_system_replication_ for entry ´operation_mode = logreplay´.
+
+Path for the _global.ini_: /hana/shared/<SID>/global/hdb/custom/config/
+----
+[system_replication]
+operation_mode = logreplay
+----
+==========
+
+=== Allowing {refsidadm} to access the cluster
+
+The current version of the susHanaSR python hook uses the command `sudo` to allow
+the _{refsidadm}_ user to access the cluster attributes.
+
+The user _{refsidadm}_ must be able to set the cluster attributes
+*hana_{refsidLC}_site_srHook_**. The {HANA} system replication hook needs
+password free access. The following example limits the sudo access to exactly
+setting the needed attribute.
+The entries can be added to a new file _/etc/sudoers.d/SAPHanaSR_ so that the
+original _/etc/sudoers_ file does not need to be edited.
+See manual page sudoers(5) for details.
+
+Replace the {refsidLC} by the *lowercase* SAP system ID (like `{sapssid}`).
+
+
+- Entry in sudo permissions /etc/sudoers.d/SAPHanaSR file
+
+Basic sudoers entry to allow {refsidadm} to use the hooks SAPHanaSR and susTkOver.
+
+// command to be allowed used in the hook:
+// "sudo /usr/sbin/crm_attribute -n hana_%s_site_srHook_%s -v %s -t crm_config -s SAPHanaSR"
+// "sudo /usr/bin/SAPHanaSR-hookHelper *"
+
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleUp entries for writing srHook cluster attribute and SAPHanaSR-hookHelper
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_{refsidLC}_*
+{refsidadm} ALL=(ALL) NOPASSWD: /usr/bin/SAPHanaSR-hookHelper --sid={refSID} *
+----
+
+- More specific sudoers entries to meet a high security level
+
+All Cmnd_Alias entries must be each defined as a single line entry.
+In our example, we have five separate lines with Cmnd_Alias entries and one line
+for the _{refsidadm}_ user permitting the Cmnd_Aliases. In the document at
+hand, however, the separate lines of the example might include a line-break
+forced by document formatting.
+The alias identifier (for example SOK_SITEA) needs to be in capitals.
+
+Replace the {refsidLC} by the *lowercase* SAP system ID (like `{sapssid}`).
+Replace the {refsid} by the *uppercase* SAP system ID.
+
+[subs="specialchars,attributes"]
+----
+# SAPHanaSR-ScaleUp entries for writing srHook cluster attribute
+Cmnd_Alias SOK_SITEA    = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEA  = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteA} -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias SOK_SITEB    = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SOK   -t crm_config -s SAPHanaSR
+Cmnd_Alias SFAIL_SITEB  = /usr/sbin/crm_attribute -n hana_{refsidLC}_site_srHook_{refSiteB} -v SFAIL -t crm_config -s SAPHanaSR
+Cmnd_Alias HOOK_HELPER  = /usr/bin/SAPHanaSR-hookHelper --sid={refsid} --case=checkTakeover
+
+{refsidadm} ALL=(ALL) NOPASSWD: SOK_SITEA, SFAIL_SITEA, SOK_SITEB, SFAIL_SITEB, HOOK_HELPER
+----
+
+
+=== Starting {HANA}
+
+Start {HANA} as user {refsidadm}.
+
+[subs="specialchars,attributes,quotes"]
+----
+~> HDB start
+----
+
+=== Testing the hook integration
+
+==== Check the load of the hook scripts
+
+As user {refsidadm} check the {HANA} tracefiles, if the HA/DR provider scripts are
+loaded and called successfully during an {HANA} event.
+
+Check if script _susHanaSR.py_ is loaded and initialized correctly:
+
+----
+~> cdtrace
+~> grep HADR.*load.*susHanaSR nameserver_*.trc
+~> grep susHanaSR.init nameserver_*.trc
+----
+
+Check if script _susTkOver.py_ is loaded and initialized correctly:
+
+----
+~> cdtrace
+~> grep HADR.*load.*susTkOver nameserver_*.trc
+~> grep susTkOver.init nameserver_*.trc
+----
+
+Check if script _susChkSrv.py_ is loaded and initialized correctly:
+
+----
+~> cdtrace
+~> grep HADR.*load.*susChkSrv nameserver_*.trc
+~> grep susChkSrv.init nameserver_*.trc
+~> egrep '(LOST:|STOP:|START:|DOWN:|init|load|fail)' nameserver_suschksrv.trc
+----
+
+
+==== Check an *srConnectionChanged* event
+
+After an event has been processed by the HA/DR provider script, check for the correct behavior.
+// TODO PRIO2: point to test procedure
+
+As user {refsidadm} check the {HANA} tracefiles and verify if _susHanaSR.py_ did successfully
+interact with the cluster or created a fallback file.
+
+----
+~> cdtrace
+~> grep susHanaSR.srConnection.*CRM nameserver_*.trc
+~> grep susHanaSR.srConnection.*fallback nameserver_*.trc
+----
+
+==== Check a *preTakeover* event
+
+After an event has been processed by the HA/DR provider script, check for the correct behavior.
+
+To test script _susTkOver.py_ with stopped cluster, procedure <<cha.s4s.testtakeover>>
+can be used here again. While the cluster is not set up at this moment the takeover
+will not be blocked.
+
+As user root check the system messages and verify if the sudo permissions for _susTkOver.py_
+calling SAPHanaSR-hookHelper are set successfully.
+
+[subs="specialchars,attributes,quotes"]
+----
+# grep "sudo.*SAPHanaSR-hookHelper"  /var/log/messages
+----
+
+As user {refsidadm} check the {HANA} tracefiles, to verify if _susTkOver.py_ did successfully
+block or permit the takeover request.
+First check for permitted takeover requests, then check for blocked takeover requests.
+
+----
+~> cdtrace
+~> grep susTkOver.preTakeover.*permit nameserver_*.trc
+~> grep susTkOver.preTakeover.*failed.*50277 nameserver_*.trc
+----

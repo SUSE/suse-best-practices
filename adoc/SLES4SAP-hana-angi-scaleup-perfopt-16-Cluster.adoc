@@ -23,9 +23,11 @@ is part of {sles4sap}, and the {saphana} database integration.
 
 === Configuring the basic cluster
 
-The first step is to set up the basic cluster framework. For convenience, use YaST
-or the {slehainit} script. It is strongly recommended to add a second corosync ring,
-change it to UCAST communication and adjust the timeout values to fit your environment.
+The first step is to set up the basic cluster framework. For convenience, use 
+the crmsh command `{slehainit}` . 
+
+// TODO PRIO1: Actions needed after crm init? It is strongly recommended to add a second corosync ring,
+// change it to UCAST communication and adjust the timeout values to fit your environment.
 
 ==== Setting up watchdog for "storage-based fencing"
 
@@ -116,25 +118,19 @@ For more detailed information about setting up a cluster, refer to the sections
 _Setting Up the First Node_ and _Adding the Second Node_ of the {dochaquickstart}
 for {sleha} {pn16} {pm16} at {haquickstart16}.
 
-This setup uses unicast (UCAST) for corosync communication (_-u_ option). Refer
-to the {haAdminGuide16} on detailed explanations of the terms unicast/multicast.
+This setup uses knet for corosync communication. Refer
+to the {haAdminGuide16} on detailed explanations of the term knet.
 
 Create an initial setup, using the `{slehainit}` command, and follow the
 dialogs. Do this only on the first cluster node. Answer "no" to "Do you wish to
 configure a virtual IP address" and to "Do you want to configure QDevice".
 
+// TODO PRIO1: Check, if two corosync rings are still valid
 To use two corosync rings make sure you have two interfaces configured and run:
 
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~ # {slehainit} -u -M -s {sapsbd1} -s {sapsbd2}
-----
-
-To use only one corosync ring leave out the _-M_ option (not recommended):
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode1}:~ # {slehainit} -u -s {sapsbd1} -s {sapsbd2}
+{sapnode1}:~ # {slehainit} -s {sapsbd1} -s {sapsbd2}
 ----
 
 // TODO PRIO2: for disk less SBD: {slehainit} -u -S
@@ -161,48 +157,34 @@ IMPORTANT: As requested by `{slehainit}`, change the password of the user haclus
 ===== Checking the corosync configuration
 
 Check the following blocks in the file _/etc/corosync/corosync.conf_.
-The important parts are _udpu_ and the correct ring/IP configuration.
+The important parts are _knet and the correct ring/IP configuration.
 
 See also the example at the end of this document and refer to the manual pages
 corosync.conf(5), votequorum(5) and corosync_overview(8) for details on parameters
 and features.
 
+// TODO PRIO1: Check, if two corosync rings are still valid
+
 [subs="attributes,quotes"]
 ----
 totem {
     ...
-
-    interface {
-        ringnumber: 0
-        mcastport: 5405
-        ttl: 1
-    }
- 
-    interface {
-        ringnumber: 1
-        mcastport: 5407
-        ttl: 1
-    }
- 
-    rrp_mode: passive
-    transport: udpu
- 
+    transport: knet
     ...
- 
 }
-
-    ...
 
 nodelist {
     node {
             ring0_addr: {sapIp1Node1}
             ring1_addr: {sapIp2Node1}
+            name: {sapnode1}
             nodeid: 1
     }
- 
+  
     node {
             ring0_addr: {sapIp1Node2}
             ring1_addr: {sapIp2Node2}
+            name: {sapnode2}
             nodeid: 2
     }
 }
@@ -372,10 +354,10 @@ and a running SBD resource.
 [subs="attributes,quotes"]
 ----
 Cluster Summary:
-  * Stack: corosync
-  * Current DC: {sapnode1} (version 3.0.0+20241202.ba59be712-160000.4.16.1-2.0.5) - partition with quorum
-  * Last updated: Thu Jun 10 08:32:58 2025
-  * Last change:  Thu Jun 10 08:29:41 2025 by hacluster via crmd on {sapnode1}
+  * Stack: corosync (Pacemaker is running)
+  * Current DC: {sapnode1} (version 3.0.2+20260429.40d19b75-160099.1.8-3.0.2+20260429.40d19b75) - partition with quorum
+  * Last updated: Fri Jul 24 15:05:26 2026 on {sapnode1}
+  * Last change:  Tue Jul 14 13:36:53 2026 by hacluster via crmd on {sapnode1}
   * 2 nodes configured
   * 1 resource instance configured
 
@@ -383,7 +365,7 @@ Node List:
   * Online: [ {sapnode1} {sapnode2}  ]
 
 Full List of Resources:
-  * stonith-sbd	(stonith:fence_sbd):	 Started {sapnode1}
+  * fencing-sbd	(stonith:fence_sbd):	 Started {sapnode1}
 ----
 
 === Configuring cluster properties and resources
@@ -416,9 +398,9 @@ at least 2 times the SBD CIB pcmk_delay_max.
 {sapnode1}:~ # vi crm-bs.txt
 # enter the following to crm-bs.txt
 property cib-bootstrap-options: \
-    stonith-enabled="true" \
-    stonith-action="reboot" \
-    stonith-timeout="150" \
+    fencing-enabled="true" \
+    fencing-action="reboot" \
+    fencing-timeout="150" \
     priority-fencing-delay="30"
 rsc_defaults rsc-options: \
     resource-stickiness="1000" \

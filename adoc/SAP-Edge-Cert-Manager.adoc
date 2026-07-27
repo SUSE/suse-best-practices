@@ -1,0 +1,131 @@
+:app_name: {cm}
+
+
+# tag::intro[]
+
+== Installing {app_name}
+
+This chapter describes how to install {cm} in an RKE2 cluster using Helm.
+
+# end::intro[]
+
+# tag::prerequisites[]
+
+=== Prerequisites
+
+To deploy the chart, create the related namespace and *imagePullSecret* first.
+To create the namespace, run:
+
+[source, bash, subs="attributes"]
+----
+kubectl create namespace {app_name}
+----
+
+[#cmIPS]
+Instructions how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
+
+
+[#cmLIR]
+Before you can install the application, you need to log in to the registry.
+You can find the instructions in <<LoginApplicationCollection>>.
+# end::prerequisites[]
+
+# tag::deployment[]
+=== Deploying the chart
+
+Create a file _values.yaml_ to store some configurations for the {cm} Helm chart.
+The configuration might look like the following:
+
+[source, yaml]
+----
+global:
+    imagePullSecrets: ['application-collection']
+installCRDs: true
+----
+
+To install the application, run:
+[source, bash, subs="attributes"]
+----
+helm install ingressgateway oci://dp.apps.rancher.io/charts/cert-manager \
+-f values.yaml \
+--namespace={app_name} \
+--version {cm_version}
+----
+
+# end::deployment[]
+
+
+# tag::self-cert[]
+
+== Define self-signed Issuer
+
+First, you'll need a self-signed Issuer.
+This component bootstraps your certificate chain by generating a temporary local signing authority.
+Save the content below into a file _selfsigned-issuer.yaml_:
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-bootstrap-issuer
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+----
+
+== Define root CA 
+
+In the next step, create the actual root certificate that your final ClusterIssuer will use to sign other certificates.
+Therefore store the content below into a file _my-ca-cert.yaml_:
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: "self-signed-root-ca"
+  secretName: ca-key-pair
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  issuerRef:
+    name: selfsigned-bootstrap-issuer
+    kind: Issuer
+----
+
+After applying, this will create a secret in the cert-manager namespace called *root-ca*.
+
+== Define the global ClusterIssuer
+
+Now create a ClusterIssuer so every certificate issued by this issuer will be signed by your CA.
+A ClusterIssuer is used in our examples, so certificates in different namespaces can be created.
+Save the content below into _my-ca-issuer.yaml_ and make sure that the secretName matches the secretName of your root CA.
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: my-cluster-ca-issuer
+spec:
+  ca:
+    secretName: ca-key-pair
+----
+
+== Apply the issuers
+
+To apply the configurations you previously created, you can run:
+
+[source, bash]
+----
+kubectl apply -f selfsigned-issuer.yaml
+kubectl apply -f my-ca-cert.yaml
+kubectl apply -f my-ca-issuer.yaml
+----
+
+# end::self-cert[]

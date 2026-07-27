@@ -1,0 +1,173 @@
+:app-name: {istio}
+
+
+# tag::intro[]
+
+== Installing {istio}
+
+This chapter describes how to install {istio} in an RKE2 cluster using Helm.
+
+# end::intro[]
+
+# tag::prerequisites[]
+
+=== Prerequisites
+
+To deploy the chart, create the related namespace and *imagePullSecret* first.
+To create the namespace, run:
+
+[source, bash, subs="attributes"]
+----
+kubectl create namespace {app_name}
+----
+
+[#istioIPS]
+Instructions how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
+
+
+[#istioLIR]
+Before you can install the application, you need to log in to the registry.
+You can find the instructions in <<LoginApplicationCollection>>.
+# end::prerequisites[]
+
+# tag::deployment[]
+=== Deploying the chart
+
+Create a file _values.yaml_ to store some configurations for the {istio} Helm chart.
+The configuration might look like the following:
+
+[source, yaml]
+----
+base:
+  '*': null
+  enabled: true
+  profile: ''
+cni:
+  '*': null
+  enabled: false
+  profile: ''
+gateway:
+  '*': null
+  enabled: true
+  profile: ''
+global:
+  '*': null
+  imagePullSecrets: ['application-collection']
+  imageRegistry: ''
+  platform: ''
+istiod:
+  '*': null
+  enabled: true
+  profile: ''
+ztunnel:
+  '*': null
+  enabled: false
+  profile: ''
+----
+
+IMPORTANT: Due to a known bug in the chart, it is necessary to name the helm installation *ingressgateway*
+
+To install the application, run:
+[source, bash, subs="attributes"]
+----
+helm install ingressgateway oci://dp.apps.rancher.io/charts/istio \
+-f values.yaml \
+--namespace={istio_namespace} \
+--version {istio_chart_version}
+----
+
+For more information on installing and configuring {istio}, check the reference guide at https://docs.apps.rancher.io/reference-guides/istio/.
+
+# end::deployment[]
+
+# tag::certificate[]
+
+== Istio Gateway server certificate
+
+Terminates HTTPS traffic at the Istio Gateway. It presents the server identity for your *.192.168.17.232.sslip.io domains to inbound connections.
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-server-cert
+  namespace: istio-system
+spec:
+  secretName: tls-secret
+  duration: 8760h
+  renewBefore: 720h
+  commonName: "192.168.17.232.sslip.io"
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  usages:
+    - server auth
+  dnsNames:
+    - "server.local"
+    - "localhost"
+    - "192.168.17.232"
+    - "192.168.17.232.sslip.io"
+    - "*.192.168.17.232.sslip.io"
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+This creates a secret in the istio-system namespace called *tls-secret*.
+
+== Client Certificate
+
+Generates the client-side identity (client.crt and client.key) that you extracted to authenticate your curl requests against the cluster.
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-client-cert
+  namespace: istio-system
+spec:
+  secretName: client-tls-secret
+  duration: 8760h
+  renewBefore: 720h
+  commonName: "dm-edge-services"
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  usages:
+    - client auth
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+This creates a secret in the istio-system namespace called *client-tls-secret*.
+
+== Istio CA Bundle
+
+The "dummy" certificate used to automate copying the Root ca.crt into istio-system. This specifically satisfied SAP DM Edge's hardcoded <ingressServerCertificate>-cacert naming rule.
+
+[source, yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-ingress-ca-bundle
+  namespace: istio-system
+spec:
+  secretName: tls-secret-cacert
+  commonName: "dummy-istio-ca"
+  duration: 8760h
+  isCA: false
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+This creates a secret in the istio-system namespace called *tls-secret-cacert*.
+
+# end::certificate[]
+

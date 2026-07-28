@@ -7,12 +7,14 @@ function doc_get_main()
     (awk -F= '/^ *MAIN=/ {print $2}' |  tr -d '"') < "$dc_file"
 }
 
-# doc_init doc_name
+# doc_init doc_name - takes (or sets) Gfmt; sets Gdir, Gpdf, GtimeStamp, Goutdir
 function doc_init()
 {
     local doc_name="$1"
     Gdir="$PWD"
-    Gfmt="pdf"
+    if [[ -z "$Gfmt" ]]; then
+        Gfmt="pdf"
+    fi
     Gpdf="${doc_name}_${Gflavour}en.$Gfmt"
     GtimeStamp="$(date +'%Y%m%d-%H%M')"
     Goutdir="$(mktemp -d -p /tmp daps2docker-fh-XXXXXXXX)" 
@@ -34,7 +36,12 @@ function doc_fetch()
     if [[ -e "$Goutdir" && -e ""$Goutdir"/filelist" ]]; then
         ls -l "$Goutdir"
         files=$(cat "$Goutdir"/filelist)
-        mv -v $files build
+        #mv -v $files build
+        ls -l $files
+        echo "files: $files"
+        echo "PWD: $PWD"
+        cp $files build
+        (cd build; echo "BUILD: $PWD" ; ls -l *)
         #find /tmp/daps2docker* \
         #          -name "$Gpdf" \
         #          -newer build/"$Gpdf" \
@@ -57,14 +64,16 @@ function doc_make()
     local dcNr i main
     dcNr=$(echo "$dcs" | wc -l)
     i=0
+    Gflavour=""
     for dc in $@; do
         main=$(doc_get_main "$dc")    
         doc_name="${main%.adoc}"
         # echo "main=$main dc_name=$dc_name"
-        if grep -q '^DRAFT=yes' "$dc"; then
-            Gflavour="draft_"
-        else
-            Gflavour=""
+        # draft only for pdf format
+        if [[ "$Gfmt" == "pdf" ]]; then
+            if grep -q '^DRAFT=yes' "$dc"; then
+                Gflavour="draft_"
+            fi
         fi
         (( i++ ))
         GstdDc="$dc"
@@ -73,6 +82,6 @@ function doc_make()
         doc_build "$dc" || doc_error_exit "FAILED BUILD: ($i / $dcNr) - $GstdDc"
         doc_fetch
         Gpdfs="$pdfs build/${Gpdf}"
-        echo "pdf: build/${Gpdf}"
+        echo "$Gfmt: build/${Gpdf}"
     done
 }

@@ -1,5 +1,5 @@
 :app_name: {istio}
-
+:lb_addr: <LB-address>
 
 # tag::intro[]
 
@@ -76,28 +76,37 @@ helm install ingressgateway oci://dp.apps.rancher.io/charts/istio \
 --version {istio_chart_version}
 ----
 
+This will deploy the {istio} application including a Service of type LoadBalancer which will consume the IP address you configured in <<metalConfig>>
+
 For more information on installing and configuring {istio}, check the reference guide at https://docs.apps.rancher.io/reference-guides/istio/.
 
 # end::deployment[]
 
 # tag::certificate[]
 
-== Istio Gateway server certificate
+== Certificates
 
-Terminates HTTPS traffic at the Istio Gateway. It presents the server identity for your *.192.168.17.232.sslip.io domains to inbound connections.
+To allow TLS encrypted traffic through your {istio} gateway, you'll need to configure the certificates.
 
-[source, yaml]
+=== Istio Gateway server certificate
+
+The first certificate needed is the Istio server certificate.
+Its purpose is to terminate HTTPS traffic at the Istio Gateway and presents the server identity for your _*.<LB-address>_ domains to inbound connections.
+
+Store the excerpt below in a file _istio-server-cert.yaml_ and fill out the relevant fields:
+
+[source, yaml, subs="attributes"]
 ----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: istio-server-cert
-  namespace: istio-system
+  namespace: {istio_namespace}
 spec:
   secretName: tls-secret
   duration: 8760h
   renewBefore: 720h
-  commonName: "192.168.17.232.sslip.io"
+  commonName: "{lb_addr}"
   isCA: false
   privateKey:
     algorithm: RSA
@@ -107,27 +116,35 @@ spec:
   dnsNames:
     - "server.local"
     - "localhost"
-    - "192.168.17.232"
-    - "192.168.17.232.sslip.io"
-    - "*.192.168.17.232.sslip.io"
+    - "{lb_addr}"
+    - "*.{lb_addr}"
   issuerRef:
     name: my-cluster-ca-issuer
     kind: ClusterIssuer
 ----
 
-This creates a secret in the istio-system namespace called *tls-secret*.
+To apply, run:
+[source, bash]
+----
+kubectl apply -f istio-server-cert.yaml
+----
 
-== Client Certificate
+When applied, this creates a secret in the {istio_namespace} namespace called *tls-secret*.
 
-Generates the client-side identity (client.crt and client.key) that you extracted to authenticate your curl requests against the cluster.
+=== Client Certificate
 
-[source, yaml]
+The next certificate needed is the client certificate.
+It is used as a client-side identity (client.crt and client.key) that requests will use against the cluster.
+
+Store the excerpt below in a file _my-client-cert.yaml_:
+
+[source, yaml, subs="attributes"]
 ----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: my-client-cert
-  namespace: istio-system
+  namespace: {istio_namespace}
 spec:
   secretName: client-tls-secret
   duration: 8760h
@@ -144,19 +161,27 @@ spec:
     kind: ClusterIssuer
 ----
 
-This creates a secret in the istio-system namespace called *client-tls-secret*.
+To apply, run:
+[source, bash]
+----
+kubectl apply -f my-client-cert.yaml
+----
 
-== Istio CA Bundle
+When applied, this creates a secret in the {istio_namespace} namespace called *client-tls-secret*.
 
-The "dummy" certificate used to automate copying the Root ca.crt into istio-system. This specifically satisfied SAP DM Edge's hardcoded <ingressServerCertificate>-cacert naming rule.
+=== Istio CA Bundle
 
-[source, yaml]
+At last, a "dummy" certificate used to automate copying the Root ca.crt into {istio_namespace} is needed. This specifically satisfied SAP DM Edge's hardcoded <ingressServerCertificate>-cacert naming rule.
+
+Store the excerpt below in a file _my-client-cert.yaml_:
+
+[source, yaml, subs="attributes"]
 ----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: istio-ingress-ca-bundle
-  namespace: istio-system
+  namespace: {istio_namespace}
 spec:
   secretName: tls-secret-cacert
   commonName: "dummy-istio-ca"
@@ -167,7 +192,13 @@ spec:
     kind: ClusterIssuer
 ----
 
-This creates a secret in the istio-system namespace called *tls-secret-cacert*.
+To apply, run:
+[source, bash]
+----
+kubectl apply -f my-client-cert.yaml
+----
+
+When applied, this creates a secret in the {istio_namespace} namespace called *tls-secret-cacert*.
 
 # end::certificate[]
 

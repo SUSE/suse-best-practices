@@ -1,0 +1,86 @@
+node 1: besler3 \
+        attributes hana_ha1_vhost=besler3 hana_ha1_site=S1
+node 2: besler4 \
+        attributes hana_ha1_vhost=besler4 hana_ha1_site=S2
+#
+primitive fencing-sbd stonith:fence_sbd \
+        params pcmk_delay_max=15
+#
+primitive rsc_SAPHanaCon_HA1_HDB00 ocf:suse:SAPHanaController \
+        op start interval=0 timeout=3600 \
+        op stop interval=0 timeout=600 \
+        op promote interval=0 timeout=900 \
+        op demote interval=0 timeout=320 \
+        op monitor interval=60 role=Promoted timeout=700 \
+        op monitor interval=61 role=Unpromoted timeout=700 \
+        params SID=HA1 InstanceNumber=00 PREFER_SITE_TAKEOVER=true DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false ON_FAIL_ACTION=fence \
+        meta priority=100
+#
+primitive rsc_SAPHanaFil_HA1_HDB00 ocf:suse:SAPHanaFilesystem \
+        op start interval=0 timeout=10 \
+        op stop interval=0 timeout=20 \
+        op monitor interval=120 timeout=120 \
+        params SID=HA1 InstanceNumber=00 ON_FAIL_ACTION=fence
+#
+primitive rsc_SAPHanaTop_HA1_HDB00 ocf:suse:SAPHanaTopology \
+        op start interval=0 timeout=600 \
+        op stop interval=0 timeout=300 \
+        op monitor interval=50 timeout=600 \
+        params SID=HA1 InstanceNumber=00
+#
+primitive rsc_ip_HA1_HDB00 IPaddr2 \
+        op monitor interval=10 timeout=20 \
+        params ip=192.168.2.66
+#
+clone cln_SAPHanaFil_HA1_HDB00 rsc_SAPHanaFil_HA1_HDB00 \
+        meta clone-node-max=1 interleave=true
+#
+clone cln_SAPHanaTop_HA1_HDB00 rsc_SAPHanaTop_HA1_HDB00 \
+        meta clone-node-max=1 interleave=true
+#
+clone mst_SAPHanaCon_HA1_HDB00 rsc_SAPHanaCon_HA1_HDB00 \
+        meta clone-node-max=1 promotable=true interleave=true maintenance=false
+#
+location loc_ip_with_HA1_HDB00 rsc_ip_HA1_HDB00 \
+        rule 2000: master-rsc_SAPHanaCon_HA1_HDB00 eq 150
+#
+order ord_saphana_HA1_HDB00 Optional: cln_SAPHanaTop_HA1_HDB00 mst_SAPHanaCon_HA1_HDB00
+#
+property SAPHanaSR: \
+        hana_ha1_site_srHook_S2=SOK \
+        hana_ha1_glob_topology=ScaleUp \
+        hana_ha1_site_lss_S2=4 \
+        hana_ha1_site_lss_S1=4 \
+        hana_ha1_site_srr_S2=S \
+        hana_ha1_site_srr_S1=P \
+        hana_ha1_site_srMode_S2=syncmem \
+        hana_ha1_site_srMode_S1=syncmem \
+        hana_ha1_site_mns_S1=besler3 \
+        hana_ha1_site_mns_S2=besler4 \
+        hana_ha1_site_lpt_S2=30 \
+        hana_ha1_glob_sec=S2 \
+        hana_ha1_site_srHook_S1=PRIM \
+        hana_ha1_site_lpt_S1=1785762330 \
+        hana_ha1_site_opMode_S2=logreplay \
+        hana_ha1_site_opMode_S1=logreplay \
+        hana_ha1_glob_prim=S1 \
+        hana_ha1_site_srPoll_S1=PRIM \
+        hana_ha1_site_srPoll_S2=SOK
+property cib-bootstrap-options: \
+        dc-version="3.0.2+20260601.c75e25851c-160099.1.5-3.0.2+20260601.c75e25851c" \
+        cluster-infrastructure=corosync \
+        have-watchdog=true \
+        cluster-name=hacluster \
+        priority-fencing-delay=30 \
+        fencing-enabled=true \
+        fencing-action=reboot \
+        fencing-timeout=150 \
+        last-lrm-refresh=1785761575
+rsc_defaults build-resource-defaults: \
+        resource-stickiness=1000 \
+        migration-threshold=5000 \
+        priority=1
+op_defaults op-options: \
+        timeout=600 \
+        record-pending=true
+

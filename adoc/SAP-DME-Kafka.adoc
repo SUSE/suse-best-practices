@@ -11,9 +11,9 @@ https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-f
 Before deploying the Strimzi Operator, you need to create the related namespace and *imagePullSecret*.
 To create the namespace, run:
 
-[source, bash]
+[source, bash, subs="attributes"]
 ----
-kubectl create namespace kafka
+kubectl create namespace {strimzi_namespace}
 ----
 
 Instructions on how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
@@ -66,7 +66,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: broker
-  namespace: kafka
+  namespace: {strimzi_namespace}
   labels:
     strimzi.io/cluster: kafka-cluster
 spec:
@@ -86,7 +86,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: kafka-cluster
-  namespace: kafka
+  namespace: {strimzi_namespace}
 spec:
   kafka:
     version: "{strimzi_kafka_version}"
@@ -161,7 +161,6 @@ spec:
           - Create
           - Describe
           - Delete
-      # Group permissions
       - resource:
           type: group
           name: "*"
@@ -181,9 +180,9 @@ kubectl apply -f strimzi-kafka-user.yaml
 The Strimzi operator will automatically generate a Kubernetes Secret containing the user's credentials.
 Retrieve and decode the password, as you will need it for the {dme} installation (<<configureKafkaDME>>):
 
-[source, bash]
+[source, bash, subs="attributes"]
 ----
-kubectl get secret kafka-user -n kafka -o jsonpath='{.data.password}' | base64 -d
+kubectl get secret kafka-user -n {strimzi_namespace} -o jsonpath='{.data.password}' | base64 -d
 ----
 // end::create-user[]
 
@@ -193,16 +192,21 @@ kubectl get secret kafka-user -n kafka -o jsonpath='{.data.password}' | base64 -
 
 Once the Kafka cluster and user are ready, you must configure the SAP {dme} Helm `values.yaml` to disable the embedded Kafka and point to the external Strimzi deployment.
 
+[NOTE]
+====
+The configuration example below uses the standard in-cluster Kubernetes DNS address (`kafka-cluster-kafka-bootstrap.{strimzi_namespace}.svc.cluster.local:9092`). If your Kafka cluster uses a different namespace, custom domain name, or DNS endpoint, make sure to update the `brokers` field with your actual server address and port.
+====
+
 Update your `values.yaml` file with the connection details and the decoded password retrieved in the previous step (<<createKafkaUser>>):
 
-[source, yaml]
+[source, yaml, subs="attributes+"]
 ----
 global:
   kafka:
     useEmbedded: false
     auth:
-      brokers: 'kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092'
+      brokers: 'kafka-cluster-kafka-bootstrap.{strimzi_namespace}.svc.cluster.local:9092'
       username: 'kafka-user'
-      password: '<YOUR_DECODED_KAFKA_PASSWORD>'
+      password: '<your-kafka-password>'
 ----
 // end::configure-dme[]

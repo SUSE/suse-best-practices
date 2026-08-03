@@ -91,18 +91,18 @@ kubectl get secret <client-name> -n cattle-oidc-client-secrets -o jsonpath="{.da
 
 If you are using Nginx, you'll need a certificate for the incoming Ingress traffic.
 
-[source, yaml]
+[source, yaml, subs="attributes"]
 ----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dex-server-cert
-  namespace: auth
+  namespace: {dex_namespace}
 spec:
-  secretName: dex-server-tls-secret # <--- Put this name into your Helm values under `secretName`
+  secretName: dex-server-tls-secret # Put this name into your Helm values under `secretName`
   duration: 8760h
   renewBefore: 720h
-  commonName: "dex-dex-idp.auth.svc.cluster.local"  # <--- Match your Dex service name in Kubernetes
+  commonName: "dex-dex-idp.{dex_namespace}.svc.cluster.local"  # Match your Dex service name in Kubernetes
   isCA: false
   privateKey:
     algorithm: RSA
@@ -110,8 +110,8 @@ spec:
   usages:
     - server auth
   dnsNames:
-    - "dex-dex-idp.auth.svc.cluster.local"   # <--- Match your Dex service name in Kubernetes
-    - "<your-Dex-URL>"
+    - "dex-dex-idp.{dex_namespace}.svc.cluster.local"   # Match your Dex service name in Kubernetes
+    - "{dex-server-url}"
   issuerRef:
     name: my-cluster-ca-issuer
     kind: ClusterIssuer
@@ -129,7 +129,7 @@ To create the namespace, run:
 
 [source, bash, subs="attributes"]
 ----
-kubectl create namespace {app_name}
+kubectl create namespace {dex_namespace}
 ----
 
 [#dexIPS]
@@ -246,13 +246,13 @@ helm install dex oci://dp.apps.rancher.io/charts/dex-idp \
 
 Next, we'll create a "dummy" certificate used to deliver the Root ca.crt into the dme namespace. SAP DM Edge mounts this secret so it can mathematically verify that the OIDC tokens handed out by DEX are legitimate and signed by a trusted source.
 
-[source, yaml]
+[source, yaml, subs="attributes"]
 ----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dex-ca-bundle
-  namespace: dme
+  namespace: {dme_namespace}
 spec:
   secretName: dex-ca-secret
   commonName: "dummy-dex-ca"
@@ -334,11 +334,11 @@ kubectl apply -f dex_istio.yaml
 
 If you want to verify if your deployed {dex} is working as expected, you can use the following commands:
 
-[source, bash]
+[source, bash, subs="attributes"]
 ----
-kubectl get secret dex-ca-secret -n dme -o jsonpath='{.data.tls\.crt}' | base64 -d > client.crt
-kubectl get secret dex-ca-secret -n dme -o jsonpath='{.data.tls\.key}' | base64 -d > client.key
-kubectl get secret dex-ca-secret -n dme -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.tls\.crt}' | base64 -d > client.crt
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.tls\.key}' | base64 -d > client.key
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
 
 curl -v -i \
   --cacert ca.crt \

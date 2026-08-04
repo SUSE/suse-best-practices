@@ -15,7 +15,8 @@ In your project, you should:
 * Define fencing before adding other resources to the cluster.
 * Do intensive testing.
 * Tune the timeouts of operations of SAPHanaController and SAPHanaTopology.
-* Start with the parameter values PREFER_SITE_TAKEOVER=”true”, AUTOMATED_REGISTER=”false” and
+* Use SUSE Trento to check your cluster
+// * Start with the parameter values PREFER_SITE_TAKEOVER=”true”, AUTOMATED_REGISTER=”false” and
 DUPLICATE_PRIMARY_TIMEOUT=”7200”.
 * Always wait for pending cluster actions to finish before doing something.
 * Set up a test cluster for testing configuration changes and administrative
@@ -81,28 +82,7 @@ tells `crm_mon` to output the status once instead of periodically.
 
 [subs="attributes,quotes"]
 ----
-# crm_mon -1r
-Stack: corosync
-Current DC: {sapnode1} (version 2.0.1+20190417.13d370ca9-3.6.1-2.0.1+20190417.13d370ca9) - partition with quorum
-Last updated: Thu Feb  6 12:20:03 2024
-Last change: Thu Feb  6 12:19:43 2024 by root via crm_attribute on {sapnode1}
-
-2 nodes configured
-6 resources configured
-
-Online: [ {sapnode1} {sapnode2} ]
-
-Full list of resources:
-
- stonith-sbd    (stonith:external/sbd): Started {sapnode1}
- Clone Set: cln_SAPHanaTop_{sapsid}_HDB{sapino} [rsc_SAPHanaTop_{sapsid}_HDB{sapino}]
-     Started: [ {sapnode1} {sapnode2} ]
- Clone Set: cln_SAPHanaFil_{sapsid}_HDB{sapino} [rsc_SAPHanaFil_{sapsid}_HDB{sapino}]
-     Started: [ {sapnode1} {sapnode2} ]
- Clone Set: mst_SAPHanaCon_{sapsid}_HDB{sapino} [rsc_SAPHanaCon_{sapsid}_HDB{sapino}] (promotable)
-     Masters: [ {sapnode1} ]
-     Slaves: [ {sapnode2} ]
- rsc_ip_{sapsid}_HDB{sapino}       (ocf::heartbeat:IPaddr2):       Started {sapnode1}
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-administration-crmmon.txt[]
 ----
 
 See the manual page crm_mon(8) for details.
@@ -119,24 +99,7 @@ system monitoring.
 
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr
-Global cib-time                 prim sec sid topology
-------------------------------------------------------
-global Thu Mar 19 08:38:42 2026 {sapsite1}  {sapsite2} {sapsid} ScaleUp
-
-Resource	             maintenance
-----------------------------------
-mst_SAPHana_{sapsid}_HDB{sapino} false
-
-Sites lpt        lss mns    opMode    srHook srMode srPoll srr
----------------------------------------------------------------
-{sapsite1}   1683529811 4   {sapnode1} logreplay PRIM   sync   PRIM   P
-{sapsite2}   30         4   {sapnode2} logreplay SOK    sync   SOK    S
-
-Hosts  clone_state roles                        score site srah
-----------------------------------------------------------------
-{sapnode1} PROMOTED    master1:master:worker:master 150   {sapsite1}  -
-{sapnode2} DEMOTED     master1:master:worker:master 100   {sapsite2}  -
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-administration-showattr.txt[]
 ----
 
 `SAPHanaSR-showAttr` also supports other output formats such as *script*. The script
@@ -146,9 +109,9 @@ format script you can define effective queries:
 // TODO PRIO1: adapt sample output
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/remoteHost="
-Thu Feb  6 12:28:10 2020; Hosts/{sapnode1}/remoteHost={sapnode2}
-Thu Feb  6 12:28:10 2020; Hosts/{sapnode2}/remoteHost={sapnode1}
+# SAPHanaSR-showAttr --format=script --experimental_attributes host:vhost
+0 Host/besler3/vhost="besler3"
+0 Host/besler4/vhost="besler4"
 ----
 
 `SAPHanaSR-replay-archive` can help to analyze the SAPHanaSR attribute values from
@@ -161,25 +124,47 @@ In our example, the administrator killed the primary {HANA} instance using the c
 // TODO PRIO1: adapt sample output
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~ # hb_report -f 19:00
-INFO: {sapnode1}# The report is saved in ./hb_report-1-11-11-2019.tar.bz2
-INFO: {sapnode1}# Report timespan: 11/11/19 19:00:00 - 11/11/19 21:05:33
-INFO: {sapnode1}# Thank you for taking time to create this report.
-{sapnode1}:~ # SAPHanaSR-replay-archive --format=script \
-    ./hb_report-1-11-11-2019.tar.bz2 | grep "/roles="
-Mon Nov 11 20:38:01 2019; Hosts/{sapnode1}/roles=master1:master:worker:master
-Mon Nov 11 20:38:01 2019; Hosts/{sapnode2}/roles=master1:master:worker:master
-Mon Nov 11 21:11:37 2019; Hosts/{sapnode1}/roles=master1::worker:
-Mon Nov 11 21:12:43 2019; Hosts/{sapnode2}/roles=master1:master:worker:master
+besler3:~ # crm_report -f 17:00
+besler3: INFO: The report is saved in ./crm_report-Mon-03-Aug-2026.tar.gz
+besler3: INFO: Report timespan: 2026-08-03 17:00:00 - 2026-08-03 17:03:29
+besler3: INFO: Including nodes: besler3 besler4
+besler3: INFO: Thank you for taking time to create this report
+#
+besler3:~ # SAPHanaSR-replay-archive --format=script --experimental_attributes host:score site:lss  --dir=crm_report-Mon-03-Aug-2026 --sid=HA1
+
+2026-08-03T15:01:20 Site/S2/srHook="SOK"
+2026-08-03T15:01:20 Site/S2/lss="4"
+2026-08-03T15:01:20 Host/besler4/score="100"
+2026-08-03T15:02:04 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:04 Site/S2/lss="4"
+2026-08-03T15:02:04 Host/besler4/score="100"
+2026-08-03T15:02:11 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:11 Site/S2/lss="4"
+2026-08-03T15:02:11 Host/besler4/score="-INFINITY"
+...
+2026-08-03T15:02:14 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:14 Site/S2/lss="1"
+2026-08-03T15:02:14 Host/besler4/score="-1"
+2026-08-03T15:03:09 Site/S2/srHook="SOK"
+2026-08-03T15:03:09 Site/S2/lss="4"
+2026-08-03T15:03:09 Host/besler4/score="0"
+2026-08-03T15:03:11 Site/S2/srHook="SOK"
+2026-08-03T15:03:11 Site/S2/lss="4"
+2026-08-03T15:03:11 Host/besler4/score="100"
 ----
 
-In the above example the attributes indicate that at the beginning {sapnode1}
-was running primary (4:P) and {sapnode2} was running secondary (4:S).
+In the above example the attributes indicate that at the beginning besler4
+was running secondary (lss 4, score 100).
 
-At 21:11 (CET) suddenly the primary on {sapnode1} died - it was falling down to 1:P.
+At 15:02:04 (UTC) suddenly the system replication is maked as srHook="SFAIL".
 
-The cluster did jump-in and initiated a takeover. At 21:12 (CET) the former secondary
-was detected as new running master (changing from 4:S to 4:P).
+At 15:02:11 (UTC) The secondary score is decreded: score="-INFINITY".
+
+At 15:02:14 (UTC) The secondary is also marked as in error (lss="1"). The cluster jumped-in and initiated a restart for the failed secondary.
+
+At 15:03:09 (UTC) The seconary is marked as back (lss="4") and the system replication is up again (srHook="SOK").
+
+At 15:03:10 (UTC) The seconary score is set back again to 100.
 
 
 ==== {HANA} LandscapeHostConfiguration

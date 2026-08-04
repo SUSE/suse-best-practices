@@ -43,17 +43,24 @@ nodes are booted, normal members of the cluster and the HANA RDBMS is
 running. The system replication is in sync (SOK).
 
 
-=== Test cases for semi-automation
+=== Test cases for progressive variant
 
 In the following test descriptions we assume
-`PREFER_SITE_TAKEOVER="true"` and `AUTOMATED_REGISTER="false".`
+*PREFER_SITE_TAKEOVER="true"* and *AUTOMATED_REGISTER="true".*
+
+The resource agents and HA/DR hooks are configured for the progressive variant.
+See manual page SAPHanaSR-angi-scenarios(7) for details.
 
 NOTE: The following tests are designed to be run in sequence and depend
 on the exit state of the preceding tests.
 
-==== Test: Stop primary database on site A (node 1)
+:nodefail: node 1
+:noderemain: node 2
+:sitefail: site A
+==== Test: Stop primary database on {sitefail} ({nodefail})
+// TODO PRIO1: Describe in progressive variant
 
-.Test STOP_PRIMARY_SITE_A
+.Test STOP PRIMARY {sitefail}
 ==========
 .{testComp}
  - Primary Database
@@ -66,43 +73,84 @@ on the exit state of the preceding tests.
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~> HDB stop
+{nodefail}:~> HDB stop
 ----
 
 .{testRecover}
-. Manually register the old primary (on node 1) with the new primary after takeover (on node 2) as _{refsidadm}_.
+. Cleanup the sbd device (or devices) - to be called on any cluster node
 +
 [subs="attributes,quotes"]
 ----
-{sapnode1}:~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance=10 \
-          --replicationMode=sync --operationMode=logreplay \
-          --name={sapsite1}
+# cs_clear_sbd_devices --all
 ----
 +
-. Restart the {HANA} database (now secondary) on node 1 as root.
+. Start the cluster on failed node - to be called on any cluster node
 +
 [subs="attributes,quotes"]
 ----
-# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
+# crm cluster start --all
 ----
 
 .{testExpect}
-.  The cluster detects the stopped primary {HANA} database (on node 1)
+.  The cluster detects the stopped primary {HANA} database (on {nodefail})
 and marks the resource failed.
-.  The cluster promotes the secondary {HANA} database (on node 2) to
+.  The {nodefail} gets fenced.
+.  The cluster promotes the secondary {HANA} database (on {noderemain}) to
 take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped
+.  The cluster migrates the IP address to the new primary (on {noderemain}).
 primary (on node 1) as SFAIL.
-.  Because AUTOMATED_REGISTER="false" the cluster does not restart
-the failed {HANA} database or register it against the new primary.
-.  After the manual register and resource refresh the system
-replication pair is marked as in sync (SOK).
+.  The failed {nodefail} does not join the cluster - *admin to process the recovery procedure*
+.  Once {nodefail} joins back to the cluster, {HANA} is registered as new secondary and started by the cluster.
+.  After the some time the new secondary is marked as in sync (SOK).
 .  The cluster "failed actions" are cleaned up after following the
 recovery procedure.
 ==========
 
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+==== Test: Stop primary database on {sitefail} ({nodefail})
+// TODO PRIO1: Describe in progressive variant
+
+.Test STOP PRIMARY {sitefail}
+==========
+.{testComp}
+ - Primary Database
+
+.{testDescr}
+- The primary {HANA} database is stopped during normal cluster operation.
+
+.{testProc}
+. Stop the primary {HANA} database gracefully as _{refsidadm}_.
++
+[subs="attributes,quotes"]
+----
+{nodefail}:~> HDB stop
+----
+
+.{testRecover}
+. Cleanup the sbd device (or devices) - to be called on any cluster node
++
+[subs="attributes,quotes"]
+----
+# cs_clear_sbd_devices --all
+----
++
+. Start the cluster on failed node - to be called on any cluster node
++
+[subs="attributes,quotes"]
+----
+# crm cluster start --all
+----
+
+Try with include 
+
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim01.adoc[]
+==========
+
+////
 ==== Test: Stop primary database on site B (node 2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test STOP_PRIMARY_DB_SITE_B
 ==========
@@ -157,6 +205,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash primary database on site A (node 1)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_PRIMARY_DB_SITE_A
 ==========
@@ -211,6 +260,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash primary database on site B (node 2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_PRIMARY_DB_SITE_B
 ==========
@@ -264,6 +314,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash primary node on site A (node 1)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_PRIMARY_NODE_SITE_A
 ==========
@@ -336,6 +387,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash primary node on site B (node 2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_PRIMARY_NODE_SITE_B
 ==========
@@ -411,6 +463,7 @@ recovery procedure.
 ==========
 
 ==== Test: Stop the secondary database on site B (node 2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test STOP_SECONDARY_DB_SITE_B
 ==========
@@ -452,6 +505,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash the secondary database on site B (node 2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_SECONDARY_DB_SITE_B
 ==========
@@ -490,6 +544,7 @@ recovery procedure.
 ==========
 
 ==== Test: Crash the secondary node on site B (node2)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_SECONDARY_NODE_SITE_B
 ==========
@@ -541,11 +596,8 @@ secondary {HANA} database is started automatically.
 and marks it as ok (SOK).
 ==========
 
-////
-// TODO PRIO2: complete this test for node1
-// TODO PRIO2: describe same test for node2
-
 ==== Test: Crash the primary database indexserver on site A (node1)
+// TODO PRIO1: Describe in progressive variant
 
 .Test CRASH_PRIMARY_INDEXSRV_SITE_A
 ==========
@@ -579,6 +631,7 @@ takeover.
 ////
 
 ==== Test: Failure of replication LAN
+// TODO PRIO1: Describe in progressive variant
 
 .Test FAIL_NETWORK_SR
 ==========
@@ -613,132 +666,3 @@ system replication process
 and marks it as ok (SOK).
 ==========
 
-=== Test cases for full automation - conservative variant
-
-In the following test descriptions we assume
-*PREFER_SITE_TAKEOVER="true"* and *AUTOMATED_REGISTER="true".*
-
-The resource agents and HA/DR hooks are configured for the conservative variant.
-See manual page SAPHanaSR-angi-scenarios(7) for details.
-
-NOTE: The following tests are designed to be run in sequence and depend
-on the exit state of the preceding tests.
-
-==== Test: Stop the primary database on site A
-
-.Test STOP_PRIMARY_DB_SITE_A
-==========
-.{testComp}
-- Primary Database
-
-.{testDescr}
-- The primary {HANA} database is stopped during normal cluster operation.
-
-.{testProc}
-- Stop the primary {HANA} database gracefully as _{refsidadm}_.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode1}:~> HDB stop
-----
-
-.{testRecover}
-. Not needed, everything is automated
-. Refresh the cluster resources on node 1 as root.
-
-[subs="specialchars,attributes,quotes"]
-----
-# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode1}
-----
-
-.{testExpect}
-.  The cluster detects the stopped primary {HANA} database (on node 1)
-and marks the resource failed.
-.  The cluster promotes the secondary {HANA} database (on node 2) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped
-primary (on node 1) as SFAIL.
-.  Because AUTOMATED_REGISTER="true" the cluster does restart
-the failed {HANA} database and register it against the new primary.
-.  After the automated register and resource refresh the system
-replication pair is marked as in sync (SOK).
-.  The cluster "failed actions" are cleaned up after following the
-recovery procedure.
-
-==========
-
-==== Test: Crash the primary node on site B (node 2)
-
-.Test CRASH_PRIMARY_NODE_SITE_B
-==========
-.{testComp}
-- Cluster node of site B
-
-.{testDescr}
-- Simulate a crash of the site B node running the primary {HANA} database.
-
-.{testProc}
-- Crash the secondary node by sending a 'fast-reboot' system request.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}:~ # sync; echo b > /proc/sysrq-trigger
-----
-
-.{testRecover}
-* If SBD fencing is used, pacemaker will not automatically restart
-after being fenced. In this case clear the fencing flag on *all* SBD
-devices and subsequently start pacemaker.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}:~ # sbd -d {sapsbd1} message {sapnode2} clear
-...
-----
-
-* Start the cluster framework.
-
-[subs="specialchars,attributes,quotes"]
-----
-{sapnode2}:~ # {clusterstart}
-----
-
-* Refresh the cluster resources on node 2 as root.
-
-[subs="specialchars,attributes,quotes"]
-----
-# crm resource refresh rsc_SAPHanaCon_{sapsid}_HDB{sapino} {sapnode2}
-----
-
-.{testExpect}
-.  The cluster detects the failed primary node (node 2) and
-declares it UNCLEAN and sets the primary node (node 2) to status
-"partition with quorum".
-.  The cluster fences the failed primary node (node 2).
-.  The cluster declares the failed primary node (node 2) OFFLINE.
-.  The cluster promotes the secondary {HANA} database (on node 1) to
-take over as primary.
-.  The cluster migrates the IP address to the new primary (on node 1).
-.  After some time the cluster shows the sync_state of the stopped
-secondary (on node 2) as SFAIL.
-.  If SBD fencing is used, then the manual recovery procedure will be
-used to clear the fencing flag and restart pacemaker on the node.
-.  When the fenced node (node 2) rejoins the cluster the former primary became a secondary.
-. Because AUTOMATED_REGISTER="true" the cluster does restart
-the failed {HANA} database and register it against the new primary.
-.  The cluster detects that the system replication is in sync again
-and marks it as ok (SOK).
-
-==========
-
-=== Test cases for full automation - progressive variant
-
-In the following test descriptions we assume
-*PREFER_SITE_TAKEOVER="true"* and *AUTOMATED_REGISTER="true".*
-
-The resource agents and HA/DR hooks are configured for the progressive variant.
-See manual page SAPHanaSR-angi-scenarios(7) for details.
-
-NOTE: The following tests are designed to be run in sequence and depend
-on the exit state of the preceding tests.

@@ -5,6 +5,13 @@ include::Var_SLES4SAP-{prodNr}.txt[]
 include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
 include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
 [[cha.hana-sr.administrate]]
+:sapnode1: besler3
+:sapnode2: besler4
+:sapsite1: S1
+:sapsite2: S2
+:sapsid: HA1
+:sapssid: ha1
+:sapino: 00
 == Administration
 // TODO PRIO2: remove HAWK
 
@@ -311,9 +318,88 @@ There are different methods to get the exchange of the roles done. The
 following procedure shows how to tell the cluster to "accept" a role change via
 native {HANA} commands.
 
-// TODO PRIO2: Check for takeover with handshake
 
-.Migrating an {HANA} primary using {SAP} toolset
+.Migrating an {HANA} primary using {SAP} toolset - handshake takeover
+// TODO PRIO2: Check for takeover with handshake
+Pre-Migration Tasks:: Set the multi-state resource to `maintenance`. This can be done on any
+cluster node.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource>
+----
+
+// TODO PRIO2: Check -sr_takeover with 'handshake'
+
+Manual Takeover Process::
+* On the secondary {HANA} database system trigger the takeover with suspend of the primary
++
+[subs="specialchars,attributes,quotes"]
+----
+# su - {sapssid}adm -c "hdbnsutil -sr_takeover --suspendPrimary"
+----
++ The former primary keeps started, but suspended. The secondary will get the new primary role.
+* Wait until the secondary has completely taken over to be the new primary role. You
+  see this using the command line tool `SAPHanaSR-showAttr`. Check for the site
+  attributes "srr" ("P") and "lss" ("4") for the new primary site.
++
+[subs="specialchars,attributes,quotes"]
+----
+besler3:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="besler4"
+0 Site/S1/lss="4"
+0 Site/S1/srr="P"
+0 Site/S1/mns="besler3"
+----
+* On the former primary run the online register command
++
+[subs="specialchars,attributes,quotes"]
+----
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+ --replicationMode=sync --name={sapsite1} \
+ --operationMode=logreplay --online
+----
++
+* Wait until the new secondary has been registered and started. You
+  see this using the command line tool `SAPHanaSR-showAttr` and check for the
+  site attributes "lss" ("4") and "srr" ("S") for the new secondary.
++
+[subs="specialchars,attributes,quotes"]
+----
+besler3:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="besler4"
+0 Site/S1/lss="4"
+0 Site/S1/srr="S"
+0 Site/S1/mns="besler3"
+----
+
+Post-Migration Tasks::
+* Tell the cluster to forget about the former multi-state roles and to
+re-monitor the failed master. The command can be submitted on any
+cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource refresh <multi-state-resource>
+----
++
+* Set the multi-state resource to the status managed again. The command
+can be submitted on any cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource> off
+----
+==============================
+
+
+#################################
+
+.Migrating an {HANA} primary using {SAP} toolset (standard takeover)
 ==============================
 Pre-Migration Tasks:: Set the multi-state resource to `maintenance`. This can be done on any
 cluster node.
@@ -409,14 +495,17 @@ former primary to be stopped. This would result in a dual active primary.
   see this using the command line tool `SAPHanaSR-showAttr`. Check for the site
   attributes "srr" ("P") and "lss" ("4") for the new primary site.
 +
-// TODO PRIO1: adapt sample output
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/roles="
-Mon Jun 21 19:38:50 2021; Hosts/{sapnode1}/roles=*1:P*:master1::worker:
-Mon Jun 21 19:38:50 2021; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:master
+besler3:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="besler4"
+0 Site/S1/lss="1"
+0 Site/S1/srr="P"
+0 Site/S1/mns="besler3"
 ----
-
++
 * If you have set up the parameter value `AUTOMATED_REGISTER="true"`, you can skip this step. In
 other cases you now need to register the old primary. Enter the command
 in our example on node1 as user _{refsidadm}_.
@@ -427,7 +516,7 @@ in our example on node1 as user _{refsidadm}_.
     --replicationMode=sync --operationMode=logreplay \
     --name={sapsite1}
 ----
-
++
 * Clear the ban rules of the resource to allow the cluster to start the new secondary.
 +
 [subs="specialchars,attributes,quotes"]
@@ -435,19 +524,20 @@ in our example on node1 as user _{refsidadm}_.
 # crm resource clear <multi-state-resource>
 ----
 +
-
 * Wait until the new secondary has started. You
   see this using the command line tool `SAPHanaSR-showAttr` and check for the
-  attributes "roles" for the new primary. It must start with "*4:S*".
+  site attributes "lss" ("4") and "srr" ("S") for the new secondary.
 +
-// TODO PRIO1: adapt sample output
 [subs="specialchars,attributes,quotes"]
 ----
-{sapnode1}:~ # SAPHanaSR-showAttr --format=script | grep "/roles="
-Mon Jun 21 19:38:50 2021; Hosts/{sapnode1}/roles=*4:S*:master1::worker:
-Mon Jun 21 19:38:50 2021; Hosts/{sapnode2}/roles=*4:P*:master1:master:worker:master
+besler3:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="besler4"
+0 Site/S1/lss="4"
+0 Site/S1/srr="S"
+0 Site/S1/mns="besler3"
 ----
-
 ==============================
 
 ////

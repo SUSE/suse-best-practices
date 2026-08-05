@@ -25,7 +25,6 @@ The chapter "Tests" refers to our two-node lab cluster _{clustername}_.
 The two nodes are named _{sapnode1}_ and _{sapnode2}_.
 {HANA} has SID _{sapsid}_ and instance number _{sapino}_.
 
-// TODO PRIO2: Adding second IP Address to the cluster tests
 // TODO PRIO1: Check, if we need to mention the srHook-Attribute in the cluster tests
 // TODO PRIO2: Check, if it makes sense to provide query for cluster attributes to
 //             make it more easy to review srHook and RA attributes (like SOK or SFAIL)
@@ -45,11 +44,13 @@ running. The system replication is in sync (SOK).
 
 === Test cases for progressive variant
 
-In the following test descriptions we assume
-*PREFER_SITE_TAKEOVER="true"* and *AUTOMATED_REGISTER="true".*
-
-The resource agents and HA/DR hooks are configured for the progressive variant.
-See manual page SAPHanaSR-angi-scenarios(7) for details.
+In the following test descriptions we assume resource agents and HA/DR hooks are
+configured for the progressive variant. See manual page SAPHanaSR-angi-scenarios(7)
+for details.
+The {SAPHanaRA} uses PREFER_SITE_TAKEOVER=true, AUTOMATED_REGISTER=true and ON_FAIL_ACTION=fence.
+The susChkSrv uses action_on_lost=fence.
+The SBD uses SBD_STARTMODE=clean and SBD_DELAY_START=0.
+The pacemaker service is disabled.
 
 NOTE: The following tests are designed to be run in sequence and depend
 on the exit state of the preceding tests.
@@ -142,8 +143,6 @@ include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim03.adoc[]
 ==== Test: Crash the primary database indexserver on {sitefail} ({nodefail})
 include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim03.adoc[]
 
-
-
 :nodefail: node 2
 :noderemain: node 1
 :sitefail: site B
@@ -155,14 +154,12 @@ include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim03.adoc[]
 ==== Test: Stop the secondary database on {sitefail} ({nodefail})
 include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn01.adoc[]
 
-
-
 :nodefail: node 2
 :noderemain: node 1
 :sitefail: site B
 :testname: STOP SECONDARY DATABASE {sitefail}
 :testcomponent: Secondary database
-:testdescription: Simulate a complete break-down of the secondary database system.
+:testdescription: Simulate a complete breakdown of the secondary database system.
 :testprocedure: Kill the secondary database system using signals as _{refsidadm}_.
 :testcommand: {nodefail}:~> HDB kill-9
 ==== Test: Crash the secondary database on {sitefail} ({nodefail})
@@ -180,14 +177,12 @@ include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn01.adoc[]
 include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn02.adoc[]
 
 ////
-
 // TODO PRIO1: Describe in progressive variant
 
 ==== Test: Crash the secondary node on site B (node2)
 // TODO PRIO1: Describe in progressive variant
-
-
 ////
+
 
 ==== Test: Failure of replication LAN
 // TODO PRIO1: Describe in ANGI variant
@@ -202,14 +197,43 @@ include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn02.adoc[]
   node.
 
 .{testProc}
-.  Break the connection between the cluster nodes on the replication LAN.
+.  Block HANA system replication on the secondary node and wait for srHook going
+to SFAIL.
+The below examples assumes HANA instance number 00 for the ports to be blocked.
++
+[subs="attributes,quotes"]
+----
+# ss -tulpan | grep hdb.\*server | grep -v 127.0.0.1 |\
+  grep -v "\*" | awk '{print $6}' | awk -F: '{print $2}'
+...
+# nft add table inet t_test 
+# nft add chain inet t_test c_test "{ type filter hook input priority filter; }"
+# nft add rule inet t_test c_test tcp sport { 40001, 4002, 4003, 4007 } drop
+# nft list ruleset
+table inet t_test {
+        type filter hook input priority filter; policy accept;
+        chain c_test {
+                tcp sport { 4002, 4003, 4007, 40001 } drop
+        }
+}
+# SAPHanaSR-showStatus -w
+...
+----
++
 
 .{testRecover}
 . Re-establish the connection between the cluster nodes on the
   replication LAN.
+The below examples assumes HANA instance number 00 for the ports to be unblocked.
++
+[subs="attributes,quotes"]
+----
+# nft delete table inet t_test
+----
++
 
 .{testExpect}
-.  After some time the cluster shows the sync_state of the secondary
+.  After some time the cluster shows the srHook of the secondary
 (on node 2) as SFAIL.
 .  The primary {HANA} database (node 1) "cdpy; python3
 systemReplicationStatus.py" shows "CONNECTION TIMEOUT" and the
@@ -222,6 +246,5 @@ over destination.
 detects connectivity between the {HANA} databases and restarts the
 system replication process
 .  The cluster detects that the system replication is in sync again
-and marks it as ok (SOK).
+and sets srHook of the secondary to SOK.
 ==========
-

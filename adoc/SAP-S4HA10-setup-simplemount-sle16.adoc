@@ -2077,8 +2077,9 @@ mechanism check and verify them too for the new cluster node.
 # crm cluster join -c {my2nd1}
 ----
 
-After the new node has joined the cluster, the configuration must be adapted to the new situation.
-Double-check if joining the cluster was successful and verify the file _/etc/corosync/corosync.conf_.
+After the new node has joined the cluster, the configuration must be adapted to
+the new situation. Double-check if joining the cluster was successful and verify
+the file _/etc/corosync/corosync.conf_.
 // TODO PRIO1: check below example
 [subs="specialchars,attributes,quotes"]
 ----
@@ -2104,13 +2105,14 @@ Modify the cluster configuration and set a new colocation rule with _crm_:
 
 ==== Testing the new cluster configuration
 
-It is highly recommended to run certain test to verify that the new configuration is working as expected.
-A list of test can be found in the basic setup for the two node cluster above.
+It is highly recommended to run certain test to verify that the new configuration
+is working as expected. A list of test can be found in the basic setup for the two
+node cluster above.
 
 === Pros and Cons for odd and even numbers of cluster nodes
 
-There are certain use cases and infrastructure requirements which end up in different installation setups.
-We will cover some advantages and disadvantages of special configuration below:
+There are certain use cases and infrastructure requirements which end up in different
+setups. We will cover some advantages and disadvantages of special configuration below:
 
 * The two node cluster and two locations
     - Advantage: symmetric spread of all nodes over all locations
@@ -2128,6 +2130,7 @@ We will cover some advantages and disadvantages of special configuration below:
     - Advantage: diskless SBD feature is allowed
     - Disadvantage: higher planning effort and complexity for infrastructure planning
 
+
 == References
 
 For more information, see the documents listed below.
@@ -2136,14 +2139,15 @@ For more information, see the documents listed below.
 
 // TODO PRIO3: unify with HANA setup guide
 
-- {SUSE} product manuals and documentation can be downloaded at
+- {SUSE} product documentation can be found at
 https://documentation.suse.com/
 
-- {SUSE} release notes can be found at https://www.suse.com/releasenotes/
+- {SUSE} release notes can be found at
+https://www.suse.com/releasenotes/
 
-- {sles} technical information can be found at
-https://www.suse.com/products/server/technical-information/
-
+// TODO PRIO2: fix product docu links
+// - {sles} technical information can be found at
+// https://www.suse.com/products/server/technical-information/
 
 
 === Pacemaker
@@ -2214,7 +2218,7 @@ order ord_sap_{mySid}_ascs_first Optional: rsc_sap_{mySID}_{myInstAscs}:start \
 property cib-bootstrap-options: \
     have-watchdog=true \
     cluster-infrastructure=corosync \
-    cluster-name=hacluster \
+    cluster-name=2nodes \
     fencing-enabled=true \
     fencing-timeout=150 \
     placement-strategy=balanced
@@ -2232,7 +2236,7 @@ op_defaults op-options: \
 Find below crm configuration fragments for {sap} system {mySid}. This example
 shows the specific items for the two node cluster with priority fencing.
 This configuration is basically the same as above, except the items shown below.
-// TODO PRIO1: adapt the below example
+// TODO PRIO1: check the below example
 [subs="attributes"]
 ----
 ...
@@ -2243,13 +2247,13 @@ primitive rsc_sap_{mySID}_{myInstAscs} SAPInstance \
         AUTOMATIC_RECOVER=false MINIMAL_PROBE=true \
         meta resource-stickiness=5000 priority=100
 ...
-primitive -sbd stonith:fence_sbd \
+primitive fencing-sbd stonith:fence_sbd \
     params pcmk_delay_max=15
 ...
 property cib-bootstrap-options: \
     have-watchdog=true \
     cluster-infrastructure=corosync \
-    cluster-name=hacluster \
+    cluster-name=2nodes \
     fencing-enabled=true \
     fencing-timeout=150 \
     placement-strategy=balanced \
@@ -2260,139 +2264,100 @@ property cib-bootstrap-options: \
 === Corosync configuration of the two-node cluster
 
 Find below the Corosync configuration for one corosync ring. Ideally two rings would be used.
-// TODO PRIO1: adapt the below example
+// TODO PRIO1: check the below example
 [subs="specialchars,attributes"]
 ----
 {my2nd1}:~ # cat /etc/corosync/corosync.conf
-# Please read the corosync.conf.5 manual page
 totem {
-    version: 2
-    secauth: on
-    crypto_hash: sha1
-    crypto_cipher: aes256
-    cluster_name: hacluster
-    clear_node_high_bit: yes
-    token: 5000
-    token_retransmits_before_loss_const: 10
-    join: 60
-    consensus: 6000
-    max_messages: 20
-    interface {
-        ringnumber: 0
-        mcastport: 5405
-        ttl: 1
-    }
-
-    transport: udpu
-}
-
-logging {
-    fileline: off
-    to_stderr: no
-    to_logfile: no
-    logfile: /var/log/cluster/corosync.log
-    to_syslog: yes
-    debug: off
-    timestamp: on
-    logger_subsys {
-        subsys: QUORUM
-        debug: off
-    }
-
-}
-
-nodelist {
-    node {
-        ring0_addr: {myIP2nd1}
-        nodeid: 1
-    }
-
-    node {
-        ring0_addr: {myIP2nd2}
-        nodeid: 2
-    }
-
+        version: 2
+        cluster_name: 2nodes
+        transport: knet
+        token: 5000
+        join: 60
+        max_messages: 20
+        token_retransmits_before_loss_const: 10
+        crypto_hash: sha256
+        crypto_cipher: aes256
 }
 
 quorum {
+        provider: corosync_votequorum
+        two_node: 1
+}
 
-    # Enable and configure quorum subsystem (default: off)
-    # see also corosync.conf.5 and votequorum.5
-    provider: corosync_votequorum
-    expected_votes: 2
-    two_node: 1
+logging {
+        to_logfile: yes
+        logfile: /var/log/cluster/corosync.log
+        to_syslog: yes
+        timestamp: hires
+}
+
+nodelist {
+        node {
+                ring0_addr: {myIP2nd1}
+                name: {my2nd1
+                nodeid: 1
+        }
+
+        node {
+                ring0_addr: {myIP2nd2}
+                name: {my2nd2}
+                nodeid: 2
+        }
+
 }
 ----
 
 === Corosync configuration of the multi-node cluster
 
 Find below the Corosync configuration for one corosync ring. Ideally two rings would be used.
-// TODO PRIO1: adapt the below example
+// TODO PRIO1: check the below example
 [subs="specialchars,attributes,quotes"]
 ----
-	# Please read the corosync.conf.5 manual page
-	totem {
-		version: 2
-		secauth: on
-		crypto_hash: sha1
-		crypto_cipher: aes256
-		cluster_name: hacluster
-		clear_node_high_bit: yes
-		token: 5000
-		token_retransmits_before_loss_const: 10
-		join: 60
-		consensus: 6000
-		max_messages: 20
-		interface {
-			ringnumber: 0
-			mcastport: 5405
-			ttl: 1
-		}
+{my3nd1}:~ # cat /etc/corosync/corosync.conf
+totem {
+        version: 2
+        cluster_name: 3nodes
+        transport: knet
+        token: 5000
+        join: 60
+        max_messages: 20
+        token_retransmits_before_loss_const: 10
+        crypto_hash: sha256
+        crypto_cipher: aes256
+}
 
-		transport: udpu
-	}
+quorum {
+        provider: corosync_votequorum
+        two_node: 0
+}
 
-	logging {
-		fileline: off
-		to_stderr: no
-		to_logfile: no
-		logfile: /var/log/cluster/corosync.log
-		to_syslog: yes
-		debug: off
-		timestamp: on
-		logger_subsys {
-			subsys: QUORUM
-			debug: off
-		}
+logging {
+        to_logfile: yes
+        logfile: /var/log/cluster/corosync.log
+        to_syslog: yes
+        timestamp: hires
+}
 
-	}
-
-	nodelist {
+nodelist {
 		node {
 			ring0_addr: {myIP3nd1}
+            name: {my3nd1}
 			nodeid: 1
 		}
 
 		node {
 			ring0_addr: {myIP3nd2}
+            name: {my3nd2}
 			nodeid: 2
 		}
 
 		node {
 			ring0_addr: {myIP3nd3}
+            name: {my3nd3}
 			nodeid: 3
 		}
-
-	}
-
-	quorum {
-
-		# Enable and configure quorum subsystem (default: off)
-		# see also corosync.conf.5 and votequorum.5
-		provider: corosync_votequorum
-		expected_votes: 3
-		two_node: 0
-	}
+}
 ----
 
 ++++

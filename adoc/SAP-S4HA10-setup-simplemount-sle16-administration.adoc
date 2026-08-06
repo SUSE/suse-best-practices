@@ -1,0 +1,412 @@
+== Administration
+
+=== Dos and Don'ts
+
+NOTE: Before each test, verify that the cluster is in idle state, no migration
+constraints are active, and no resource failure messages are visible. Start each
+procedure with a clean setup.
+
+A minimal example sequence for checking the cluster status might look like the
+following:
+
+[subs="attributes"]
+----
+# crm_mon -1r
+# crm configure show | grep cli-
+# cs_clusterstate -i
+----
+
+See also manual pages cs_clusterstate(8), crm(8) and crm_mon(8).
+
+==== Maintenance procedure for a Linux cluster or operating system with ASCS and ERS instances remain running
+
+Check state of Linux cluster and ASCS/ERS:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+----
+
+This must return the following output:
+
+----
+Cluster state: S_IDLE
+----
+
+Obtain a cluster summary, list of nodes, and a full list of resources:
+
+[subs="attributes"]
+----
+# crm_mon -1r
+----
+
+Check for any undesired location constraints:
+
+[subs="attributes"]
+----
+# crm configure show|grep cli-
+----
+
+If the command returns no output, it means that there are no undesired constraints.
+
+Get a list of system instances:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function GetSystemInstanceList"
+----
+
+Get a list of processes running on the ASCS and ERS instances:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function GetProcessList"
+----
+
+Check whether maintenance mode is set in the cluster configuration:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function HACheckMaintenanceMode"
+----
+
+Get the information about cluster solution, available HA nodes, and the active
+node where the given instance is running:
+
+[subs="attributes"]
+----
+# su - en2adm -c "sapcontrol -nr 00 -function HAGetFailoverConfig"
+----
+
+Before you set the Linux cluster into maintenance mode, check its state by running
+the `cs_clusterstate -i` command. Then run the command below to set the cluster into
+maintenance mode:
+
+[subs="attributes"]
+----
+# crm maintenance on
+----
+
+Stop the Linux cluster on all nodes:
+
+[subs="attributes"]
+----
+# crm cluster stop
+----
+
+You can now perform maintenance on the Linux cluster or system. Before doing the
+system maintenance, you must bring down SAP instances as necessary. If the SAP
+instances were brought down, then you also need to bring up the SAP instances before
+activating the cluster.
+
+When the maintenance is complete, start the Linux cluster on all nodes:
+
+[subs="attributes"]
+----
+# crm cluster start
+----
+
+Let the Linux cluster detect the status of the ASCS and ERS resources:
+
+[subs="attributes"]
+----
+# crm resource refresh rsc_sap_EN2_ASCS00
+# crm resource refresh rsc_sap_EN2_ERS10
+----
+
+Set the cluster ready for operations:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+# crm maintenance off
+----
+
+Check the status of the Linux cluster and ASCS/ERS:
+
+[subs="attributes"]
+----
+# cs_clusterstate -i
+# crm_mon -1r
+# crm configure show|grep cli-
+# su - en2adm -c "sapcontrol -nr 00 -function GetSystemInstanceList"
+# su - en2adm -c "sapcontrol -nr 00 -function GetProcessList"
+# su - en2adm -c "sapcontrol -nr 10 -function GetProcessList"
+# su - en2adm -c "sapcontrol -nr 00 -function HACheckMaintenanceMode"
+# su - en2adm -c "sapcontrol -nr 00 -function HAGetFailoverConfig"
+# cs_clusterstate -i
+----
+
+==== Migrating the ASCS instance
+
+To *migrate* the ASCS {sap} instance, you should use {sap} tools such as
+the {sap} management console. This will trigger *{sapStartSrv}* to use the
+{s4sClConnector3} to migrate the ASCS instance. As user _{mysapadm}_ you can run
+the command below to migrate the ASCS. This will always
+migrate the ASCS to the ERS side which will keep the {sap} enqueue locks.
+
+As user _{mysapadm}_, type the command:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HAFailoverToNode ""
+----
+
+==== Using unique instance numbers
+
+All {sap} instance numbers controlled by the cluster must be unique. If you need
+multiple dialog instances with the same instance number running on different
+systems, they must not be controlled by the cluster.
+
+==== Setting the cluster to maintenance mode
+
+The procedure to set the cluster into maintenance mode can be executed as user
+_root_ or _sidadm_.
+
+As user _root_, type the following command:
+
+[subs="attributes"]
+----
+# crm configure property maintenance-mode="true"
+----
+
+As user _{mysapadm}_, type the following command (the full path is needed):
+
+[subs="attributes"]
+----
+# /usr/sbin/crm configure property maintenance-mode="true"
+----
+
+==== Stopping the cluster maintenance
+
+The procedure to end the maintenance mode for the cluster can be executed as user
+ _root_.
+
+Type the following command:
+
+[subs="attributes"]
+----
+# crm configure property maintenance-mode="false"
+----
+See also manual page crm(8).
+// TODO PRIO1: use resource maintenance instead of cluster maintenance
+
+==== Starting the Resource Maintenance Mode
+
+The procedure to start the resource maintenance mode can be executed as user _{mysapadm}_.
+This sets the ASCS and ERS cluster resource to *unmanaged*.
+
+As user _{mysapadm}_, type the command:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HASetMaintenanceMode 1
+----
+
+==== Stopping the resource maintenance mode
+
+The procedure to start the resource maintenance mode can be executed as user _{mysapadm}_.
+This sets the ASCS and ERS cluster resource to *managed*.
+
+As user _{mysapadm}_, type the command:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HASetMaintenanceMode 0
+----
+
+==== Cleaning up resources
+
+You can also *clean up resource failures*. Failures are automatically deleted to
+allow a failback after a specified period of time. You can also clean up the
+status, including the failures.
+
+Run the following command as user _root_:
+
+[subs="attributes"]
+----
+# crm resource cleanup RESOURCE-NAME
+----
+
+=== Testing the cluster
+
+It is strongly recommended to perform at least the following tests before you
+go into production with your cluster.
+
+==== Checking product names with HAGetFailoverConfig
+
+Check if the name of the SUSE cluster solution is shown in the output of
+`sapcontrol` or the {sap} management console. This test checks the status of the
+{sapS4} cluster integration.
+
+As user _{mysapadm}_, type the following command:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HAGetFailoverConfig
+----
+
+==== Running SAP checks using HACheckConfig and HACheckFailoverConfig
+
+Check if the HA configuration tests are passed successfully and do not produce
+error messages.
+
+As user _{mysapadm}_, type the following commands:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HACheckConfig
+# sapcontrol -nr {myAscsIno} -function HACheckFailoverConfig
+----
+
+==== Manually migrating ASCS
+
+Check if manually migrating the ASCS instance using HA tools works properly.
+
+As user _root_, run the following commands:
+
+[subs="attributes"]
+----
+# crm resource migrate rsc_sap_{mySid}_{myInstAscs} force
+## wait until the ASCS is been migrated to the ERS host
+# crm resource unmigrate rsc_sap_{mySid}_{myInstAscs}
+----
+
+==== Migrating ASCS using HAFailoverToNode
+
+Check if moving the ASCS instance using {sap} tools like {sapCtrl} works properly.
+
+As user _{mysapadm}_, type the following command:
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function HAFailoverToNode ""
+----
+
+==== Test ASCS migration after operating system failure
+
+Check if the ASCS instance moves correctly after a node failure.
+This test will immediately trigger a hard reboot of the node.
+
+As user _root_, type the following command:
+
+[subs="attributes"]
+----
+## on the ASCS host
+# echo b >/proc/sysrq-trigger
+----
+
+==== Restarting ASCS in-place using `Stop` and `Start`
+
+Check if the in-place restart of the {sap} resources have been processed
+correctly. The {sap} instance should not failover to an other node, it must
+start on the same node where it has been stopped.
+
+////
+TODO PRIO1: Is the statement still valid? I guess no.
+WARNING: This test will force the SAP system to *lose* the enqueue locks.
+   *This test should not be processed during production.*
+////
+As user _{mysapadm}_, do the following:
+
+[subs="attributes"]
+----
+## example for ASCS
+# sapcontrol -nr {myAscsIno} -function Stop
+# sapcontrol -nr {myAscsIno} -function WaitforStopped 60 20
+## cs_clusterstate -i
+# sapcontrol -nr {myAscsIno} -function Start
+----
+
+==== Performing an automated restart of the ASCS instance (simulating rolling kernel switch)
+
+The next test should proof that the cluster solution did nor interact neither
+try to restart the ASCS instance during a maintenance procedure. In addition,
+it should verify that no locks are lost during the restart of an ASCS instance
+during a rolling kernel switch (RKS) procedure. The cluster solution should recognize
+that the restart of the ASCS instance was expected. No failure or error should
+be reported or counted.
+
+Optionally, you can set locks and verify that they still exist after the maintenance
+procedure. There are multiple ways to do that. One example test can be performed as
+follows:
+
+. Log in to your SAP system and open the transaction SU01.
+. Create a new user. Do not finish the transaction to see the locks.
+. With the SAP MC / MMC, check if there are locks available.
+. Open the ASCS instance entry and go to _Enqueue Locks_.
+. With the transaction SM12, you can also see the locks.
+
+Do this test multiple times in a short time frame. The restart of the ASCS instance
+in the example below happens five times.
+
+As user _{mysapadm}_, create and execute the following script:
+
+[subs="attributes"]
+----
+$ cat ascs_restart.sh
+#!/bin/bash
+for lo in 1 2 3 4 5; do
+  echo LOOP "$lo - Restart ASCS{myAscsIno}"
+  sapcontrol -host sap{mySidLc}as -nr {myAscsIno} -function StopWait 120 1
+  sleep 1
+  sapcontrol -host sap{mySidLc}as -nr {myAscsIno} -function StartWait 120 1
+  sleep 1
+done
+----
+[subs="attributes"]
+----
+$ bash ascs_restart.sh
+----
+
+==== Performing an RKS
+
+The RKS is an automated procedure that enables the kernel in an ABAP system to
+be exchanged without any system downtime. During an RKS, all instances of the
+system, and generally all SAP start services (`sapstartsrv`), are restarted.
+
+. Check in SAP note 953653 whether the new kernel patch is RKS compatible to your currently running kernel.
+. Check SAP note 2077934 - Rolling kernel switch in HA environments.
+. Download the new kernel from the SAP service market place.
+. Make a backup of your current central kernel directory.
+. Extract the new kernel archive to the central kernel directory.
+. Start the RKS via SAP MMC, system overview (transaction SM51) or via command line.
+. Monitor and check the version of your SAP instances with the SAP MC / MMC or with sapcontrol.
+
+As user _{mysapadm}_, type the following commands:
+
+[subs="specialchars,attributes"]
+----
+## sapcontrol [-user <sidadm psw>] -host <host> -nr <INSTANCE_NR> -function UpdateSystem 120 300 1
+# sapcontrol -user {mySapAdm} {mySapPwd} -host {myVipNAscs} -nr {myAscsIno} -function UpdateSystem 120 300 1
+# sapcontrol -nr {myAscsIno} -function GetSystemUpdateList -host {myVipNAscs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myAscsIno} -function GetVersionInfo -host {myVipNAscs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myErsIno} -function GetVersionInfo -host {myVipNErs} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myPasIno} -function GetVersionInfo -host {myVipNPas} \
+  -user {mySapAdm} {mySapPwd}
+# sapcontrol -nr {myDSecIno} -function GetVersionInfo -host {myVipNDSec} \
+  -user {mySapAdm} {mySapPwd}
+----
+
+
+==== Additional tests
+
+In addition to the already performed tests, you should do the following:
+
+* Check the recoverable and non-recoverable outage of the message server process.
+
+* Check the non-recoverable outage of the {sap} enqueue server process.
+
+* Check the outage of the {sapERS}.
+
+* Check the outage and restart of {sapStartSrv}.
+
+* Check the simulation of an upgrade.
+
+* Check the simulation of cluster resource failures.
+
+//:leveloffset: 0
+

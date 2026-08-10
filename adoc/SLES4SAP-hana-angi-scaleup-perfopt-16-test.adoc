@@ -1,0 +1,270 @@
+// Load document variables
+:prodNr: 16
+:pMinor16: 0
+include::Var_SLES4SAP-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
+////
+  ______          __
+ /_  __/__  _____/ /______
+  / / / _ \/ ___/ __/ ___/
+ / / /  __(__  ) /_(__  )
+/_/  \___/____/\__/____/
+////
+
+[[cha.s4s.test-cluster]]
+== {stepTest}
+The chapter "Tests" refers to our two-node lab cluster _{clustername}_. 
+The two nodes are named _{sapnode1}_ and _{sapnode2}_.
+{HANA} has SID _{sapsid}_ and instance number _{sapino}_.
+
+// TODO PRIO1: Check, if we need to mention the srHook-Attribute in the cluster tests
+// TODO PRIO2: Check, if it makes sense to provide query for cluster attributes to
+//             make it more easy to review srHook and RA attributes (like SOK or SFAIL)
+
+image::SAPHanaSR-ScaleOut-Plan-Phase7.svg[scaledwidth="100%"]
+
+The lists of tests will be further enhanced in one of the next updates of this document.
+
+As with any cluster testing is crucial. Make sure that all test
+cases derived from customer expectations are implemented and passed
+fully. Otherwise the project is likely to fail in production.
+
+The test prerequisite, if not described differently, is always that both
+nodes are booted, normal members of the cluster and the HANA RDBMS is
+running. The system replication is in sync (SOK).
+
+In the following test descriptions we assume resource agents and HA/DR hooks are
+configured for the progressive variant. See manual page SAPHanaSR-angi-scenarios(7)
+for details.
+The {SAPHanaRA} uses PREFER_SITE_TAKEOVER=true, AUTOMATED_REGISTER=true and ON_FAIL_ACTION=fence.
+The susChkSrv uses action_on_lost=fence.
+The SBD uses SBD_STARTMODE=clean and SBD_DELAY_START=0.
+The pacemaker service is disabled.
+
+NOTE: The following tests are designed to be run in sequence and depend
+on the exit state of the preceding tests.
+
+:nodefail: node 1
+:noderemain: node 2
+:sitefail: site A
+:testname: STOP PRIMARY {sitefail}
+:testcomponent: Primary Database
+:testdescription: The primary {HANA} database is stopped during normal cluster operation.
+:testprocedure: Stop the primary {HANA} database gracefully as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB stop
+=== Test: Stop primary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim01.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: STOP PRIMARY {sitefail}
+:testcomponent: Primary Database
+:testdescription: The primary {HANA} database is stopped during normal cluster operation.
+:testprocedure: Stop the primary {HANA} database gracefully as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB stop
+=== Test: Stop primary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim01.adoc[]
+
+:nodefail: node 1
+:noderemain: node 2
+:sitefail: site A
+:testname: CRASH PRIMARY DATABASE {sitefail}
+:testcomponent: Primary Database
+:testdescription: Simulate a complete break-down of the primary database system.
+:testprocedure: Kill the primary database system using signals as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB kill-9
+=== Test: Crash primary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim01.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: CRASH PRIMARY DATABASE {sitefail}
+:testcomponent: Primary Database
+:testdescription: Simulate a complete break-down of the primary database system.
+:testprocedure: Kill the primary database system using signals as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB kill-9
+=== Test: Crash primary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim01.adoc[]
+
+:nodefail: node 1
+:noderemain: node 2
+:sitefail: site A
+:testname: CRASH PRIMARY NODE {sitefail}
+:testcomponent: Cluster node of primary site
+:testdescription: Simulate a crash of the primary site node running the primary {HANA} database.
+:testprocedure: Crash the primary node by sending a 'fast-reboot' system request.
+:testcommand: {nodefail}:~ # sync; echo b > /proc/sysrq-trigger
+=== Test: Crash primary node on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim02.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: CRASH PRIMARY NODE {sitefail}
+:testcomponent: Cluster node of primary site
+:testdescription: Simulate a crash of the primary site node running the primary {HANA} database.
+:testprocedure: Crash the primary node by sending a 'fast-reboot' system request.
+:testcommand: {nodefail}:~ # sync; echo b > /proc/sysrq-trigger
+=== Test: Crash primary node on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim02.adoc[]
+
+:nodefail: node 1
+:noderemain: node 2
+:sitefail: site A
+:testname: CRASH PRIMARY INDEXSERVER {sitefail}
+:testcomponent: Primary database
+:testdescription: Simulate a crash of the primary {HANA} database indexserver.
+:testprocedure: Crash the primary indexserver by killing the hdbindexserver process.
+:testcommand: {nodefail}:~ # killall -9 hdbindexserver
+=== Test: Crash the primary database indexserver on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim03.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: CRASH PRIMARY INDEXSERVER {sitefail}
+:testcomponent: Primary database
+:testdescription: Simulate a crash of the primary {HANA} database indexserver.
+:testprocedure: Crash the primary indexserver by killing the hdbindexserver process.
+:testcommand: {nodefail}:~ # killall -9 hdbindexserver
+=== Test: Crash the primary database indexserver on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-prim03.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: STOP SECONDARY DATABASE {sitefail}
+:testcomponent: Secondary database
+:testdescription: The secondary {HANA} database is stopped during normal cluster operation
+:testprocedure: Stop the secondary {HANA} database gracefully as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB stop
+=== Test: Stop the secondary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn01.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: STOP SECONDARY DATABASE {sitefail}
+:testcomponent: Secondary database
+:testdescription: Simulate a complete breakdown of the secondary database system.
+:testprocedure: Kill the secondary database system using signals as _{refsidadm}_.
+:testcommand: {nodefail}:~> HDB kill-9
+=== Test: Crash the secondary database on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn01.adoc[]
+
+:nodefail: node 2
+:noderemain: node 1
+:sitefail: site B
+:testname: CRASH SECONDARY NODE {sitefail}
+:testcomponent: Cluster node of secondary site
+:testdescription: Simulate a crash of the secondary site node running the secondary {HANA} database.
+:testprocedure: Crash the primary node by sending a 'fast-reboot' system request.
+:testcommand: {nodefail}:~ # sync; echo b > /proc/sysrq-trigger
+=== Test: Crash secondary node on {sitefail} ({nodefail})
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-test-secn02.adoc[]
+
+=== Test: Failure of replication LAN
+.Test FAIL_NETWORK_SR
+==========
+.{testComp}
+- Replication LAN
+
+.{testDescr}
+- Loss of replication LAN connectivity between the primary and secondary node.
+
+.{testProc}
+. Block HANA system replication on the secondary node (node 2).
+The below examples assumes HANA instance number 00 for the ports to be blocked.
++
+[subs="attributes,quotes"]
+----
+# ss -tulpan | grep hdb.\*server | grep -v 127.0.0.1 |\
+  grep -v "\*" | awk '{print $6}' | awk -F: '{print $2}'
+...
+# nft add table inet t_test 
+# nft add chain inet t_test c_test \
+    "{ type filter hook input priority filter; }"
+# nft add rule inet t_test c_test tcp sport \
+    { 40001, 40002, 40003, 40007 } drop
+# nft list ruleset
+table inet t_test {
+    type filter hook input priority filter; policy accept;
+    chain c_test {
+        tcp sport { 40001, 40002, 40003, 40007 } drop
+    }
+}
+# SAPHanaSR-showStatus -w
+...
+----
+. Wait for srHook going to SFAIL for the secondary node.
+
+.{testRecover}
+. Re-establish the connection between the cluster nodes on the replication LAN.
++
+[subs="attributes,quotes"]
+----
+# nft delete table inet t_test
+----
+
+.{testExpect}
+. After some time the cluster shows the srHook of the secondary
+(on node 2) as SFAIL.
+. The primary {HANA} database (node 1) "cdpy; python3
+systemReplicationStatus.py" shows "CONNECTION TIMEOUT" and the
+secondary {HANA} database (node 2) is not able to reach the primary
+database (node 1).
+. The primary {HANA} database continues to operate, but no
+system replication takes place and there is no takeover destination.
+. When the LAN connection is re-established, {HANA} automatically
+detects connectivity between the databases and restarts the
+system replication.
+. After the some time the secondary is marked as in sync (SOK).
+==========
+
+=== Test: Failure of cluster communication LAN
+.Test FAIL_NETWORK_CL
+==========
+.{testComp}
+- Cluster communication LAN
+
+.{testDescr}
+- Loss of cluster connectivity between the primary and secondary node.
+
+.{testProc}
+. Block cluster communication on the secondary node.
++
+[subs="attributes,quotes"]
+----
+# nft add table inet t_test 
+# nft add chain inet t_test c_test \
+    "{ type filter hook input priority filter; }"
+# nft add rule inet t_test c_test udp dport \
+    { 5404, 5405, 5406, 5407, 5408, 5409, 5410, 5411, 5412 } drop
+# exit
+----
+. Wait for secondary node to get fenced.
+
+.{testRecover}
+. Cleanup the sbd device (or devices) - to be called on any cluster node
++
+[subs="attributes,quotes"]
+----
+# cs_clear_sbd_devices --all
+----
+. Start the cluster on failed node - to be called on any cluster node
++
+[subs="attributes,quotes"]
+----
+# crm cluster start --all
+----
+
+.{testExpect}
+. The secondary node (node 2) gets fenced.
+. The fenced node 2 does not join the cluster - *admin to process the recovery procedure*
+. Once node 2 joins back to the cluster, {HANA} is started by the cluster.
+. After the some time the secondary is marked as in sync (SOK).
+==========
+

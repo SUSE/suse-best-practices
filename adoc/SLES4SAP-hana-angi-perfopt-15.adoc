@@ -4,13 +4,16 @@
 [#art-sles4sap-hana-angi-perfopt-15]
 
 // Load document variables
-include::Var_SLES4SAP-hana-angi-perfopt-15.txt[]
-include::Var_SLES4SAP-hana-angi-perfopt-15-param.txt[]
+:prodNr: 15
+:psp15: 6
+include::Var_SLES4SAP-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
 //
 // Start of the document
 //
 
-= {SAPHANA} System Replication Scale-Up - Performance Optimized Scenario: with SAPHanaSR-angi
+= {saphana} System Replication Scale-Up - Performance Optimized Scenario: with SAPHanaSR-angi
 
 [[pre.hana-sr]]
 == About this guide
@@ -134,7 +137,8 @@ scenarios or use cases:
 in this document.*
 +
 .{HANA} System Replication Scale-Up in the Cluster - performance optimized
-image::SAPHanaSR-ScaleUP-perfOpt.svg[scaledwidth=100.0%]
+// image::SAPHanaSR-ScaleUP-perfOpt.svg[scaledwidth=100.0%]
+image::SAPHanaSR-angi-ScaleUp-perfOpt-pdf.svg[scaledwidth=100.0%]
 +
 In the performance optimized scenario an {HANA} RDBMS site A is synchronizing
 with an {HANA} RDBMS site B on a second node. As the {HANA} RDBMS on the second node
@@ -379,16 +383,16 @@ mandatory.
 * RA and HA/DR provider hook script´s runtime almost completely depends on call-outs
 to controlled resources, OS and Linux cluster. The infrastructure needs to allow
 these call-outs to return in time.
-* Colocation constraints between the SAPHanaController RA and other resources are
+* Colocation constraints between the {SAPHanaRA} RA and other resources are
 allowed only if they do not affect the RA's scoring. The location scoring finally
 depends on system replication status and must not be overruled by additional
-constraints. Thus it is not allowed to define rules forcing an SAPHanaController
+constraints. Thus it is not allowed to define rules forcing an {SAPHanaRA}
 promoted clone to follow another resource.
 * Reliable access to the /hana/shared/ file system is crucial for {HANA} and the
 Linux cluster.
 // TODO PRIO2: point to SAPHanaFilesystem RA
 * {HANA} feature Secondary Time Travel is not supported.
-* The {HANA} Fast Restart feature on RAM-tmfps and {HANA} on persistent
+* The {HANA} Fast Restart feature on RAM-tmpfs and {HANA} on persistent
 memory can be used, as long as they are transparent to Linux HA.
 * No manual actions must be performed on the {HANA} database while it is controlled
 by the Linux cluster. All administrative actions need to be aligned with the cluster.
@@ -424,7 +428,7 @@ SAPHanaSR-hookHelper.
 memory and on disk (in persistence).
 * The hook script runs in the {HANA} name server. It runs on the node where the
 event *srServiceStateChanged()* occurs.
-* If _susChkSrv.py_ parameter action_on_lost=stop is set and the RA SAPHanaController
+* If _susChkSrv.py_ parameter action_on_lost=stop is set and the RA {SAPHanaRA}
 parameter AUTOMATED_REGISTER=true is set, it depends on HANA to release all OS
 resources prior to the registering attempt.
 * If the hook provider should be pre-compiled, the particular Python version that
@@ -456,7 +460,8 @@ The described example setup builds an {HANA} HA cluster in two data centers in
 {sles4sapa} {prodnr} {prodsp} systems.
 
 .Cluster with {HANA} SR - performance optimized
-image::hana_sr_scaleup_perfopt.svg[scaledwidth=100.0%]
+// image::hana_sr_scaleup_perfopt.svg[scaledwidth=100.0%]
+image::SAPHanaSR-angi-ScaleUp-perfOpt-pdf.svg[scaledwidth=100.0%]
 
 You can either set up the cluster using the YaST wizard, doing it manually or
 using your own automation.
@@ -1126,7 +1131,7 @@ Stop {HANA} either with _HDB_ or using _sapcontrol_.
 
 [subs="specialchars,attributes"]
 ----
-{sapssid}adm@{sapnode2}:/usr/sap/{sapsid}/HDB{sapino}> sapcontrol -nr {refInst} -function StopSystem
+~> sapcontrol -nr {refInst} -function StopSystem
 ----
 ==========
 
@@ -1152,6 +1157,7 @@ ha_dr_sustkover = info
 Use the hook from the {saphanasr} package _/usr/share/SAPHanaSR-angi/susChkSrv.py_.
 The hook must be configured on all {HANA} cluster nodes.
 In _global.ini_, the section _[ha_dr_provider_suschksrv]_ needs to be created.
+For the progressive configuration, parameter action_on_lost=*fence* is used.
 The section _[trace]_ might be adapted.
 Refer to the manual page susChkSrv.py(7) for details on this HA/DR provider hook
 script, see also SAPHanaSR-manageProvider(8).
@@ -1162,7 +1168,7 @@ Stop {HANA} either with _HDB_ or using _sapcontrol_.
 
 [subs="specialchars,attributes"]
 ----
-{sapssid}adm@{sapnode2}:/usr/sap/{sapsid}/HDB{sapino}> sapcontrol -nr {refInst} -function StopSystem
+~> sapcontrol -nr {refInst} -function StopSystem
 ----
 ==========
 
@@ -1176,7 +1182,7 @@ Best is to use the {HANA} tools for changing _global.ini_. Alternatively you may
 provider = susChkSrv
 path = /usr/share/SAPHanaSR-angi/
 execution_order = 3
-action_on_lost=stop
+action_on_lost=fence
 
 [trace]
 ha_dr_suschksrv = info
@@ -1436,21 +1442,18 @@ Check if the watchdog module is loaded correctly.
 ----
 # lsmod | grep dog
 # ls -l /dev/watchdog
+# systool -vc watchdog
 ----
 
-Testing the watchdog can be done with a simple action. Ensure to switch of your {HANA}
-first because the watchdog will force an unclean reset or shutdown of your system.
-
-In case a hardware watchdog is used, a desired action is predefined after the timeout of the watchdog has
-reached. If your watchdog module is loaded and not controlled by any other application, do the following:
-
-// TODO PRIO2: It seems a command is missing here??
+Testing the watchdog can be done with a simple action. Make sure to stop your {HANA}
+first, because the watchdog will force an unclean reset or shutdown of your system.
 
 IMPORTANT: Triggering the watchdog without continuously updating the watchdog
 resets/switches off the system. This is the intended mechanism. The following
 commands will force your system to be reset/switched off.
 
-In case the softdog module is used, the following action can be performed:
+The following action will activate the watchdog without feeding it and should cause
+a reset/switch off:
 
 ----
 # sync; cat /dev/watchdog & while date; do sleep 10; done
@@ -1595,14 +1598,17 @@ be more than twice the value of SBD_WATCHDOG_TIMEOUT.
 Start mode. If set to `clean`, sbd will only start if the node was
 previously shut down cleanly or if the slot is empty.
 
+|SBD_DELAY_START|
+Whether to delay after starting sbd on boot. Should be `no` for SBD_STSRTMODE
+`clean`.
+
 |SBD_PACEMAKER|
 Check Pacemaker quorum and node health.
 
 |=======================================================================
 
 In the following, replace {sapsbd1} and {sapsbd2} by your real sbd
-device names. As an example, the `SBD_WATCHDOG_TIMEOUT` is set to 20s to be less
-aggressive than the formerly used 5s.
+device names. As an example, the SBD_WATCHDOG_TIMEOUT is set to 20s.
 
 [subs="attributes,quotes"]
 ----
@@ -1617,7 +1623,8 @@ SBD_OPTS=""
 SBD_DEVICE="{sapsbd1};{sapsbd2}"
 ----
 
-IMPORTANT: Also read the SUSE product documentation about calculation of timeouts for more details:
+IMPORTANT: Also read the SUSE product documentation about calculation of timeouts
+for more details:
 https://documentation.suse.com/sle-ha/15-SP1/single-html/SLE-HA-guide/#sec-ha-storage-protect-watchdog-timings
 
 
@@ -1848,7 +1855,7 @@ also supports additional fencing mechanism not covered here.
 For further information about fencing, read the Administration Guide for SUSE Linux Enterprise High
 Availability at {haAdminGuide15}. For public cloud environments, refer to your cloud provider's documentation on supported fencing mechanisms.
 
-==== SAPHanaTopology
+==== {SAPHanaTopRA}
 
 This step is to define the resources needed, to analyze the {HANA} topology for the replicated pair.
 Prepare the changes in a text file, for example _crm-saphanatop.txt_, and load it with the command:
@@ -1869,7 +1876,7 @@ clone cln_SAPHanaTop_{sapsid}_HDB{sapino} rsc_SAPHanaTop_{sapsid}_HDB{sapino} \
 ----
 
 Additional information about all parameters can be found in manual page
-ocf_suse_SAPHanaTopology(7).
+ocf_suse_{SAPHanaTopRA}(7).
 
 Again, add the configuration to the cluster.
 
@@ -1880,7 +1887,7 @@ Again, add the configuration to the cluster.
 
 The most important parameters here are SID and InstanceNumber, which are
 quite self explaining in the SAP context. Beside these parameters, typical
-tunables are the timeout values or the operations (start, monitor, stop).
+tunables are the timeout values for the operations (start, monitor, stop).
 
 
 ==== SAPHanaFilesystem
@@ -1901,7 +1908,7 @@ primitive rsc_SAPHanaFil_{sapsid}_HDB{sapino} ocf:suse:SAPHanaFilesystem \
     op start interval=0 timeout=10 \
     op stop interval=0 timeout=20 \
     op monitor interval=120 timeout=120 \
-    params SID={sapsid} InstanceNumber={sapino} ON_FAIL_ACTION="fence"
+    params SID={sapsid} InstanceNumber={sapino} ON_FAIL_ACTION=fence
 clone cln_SAPHanaFil_{sapsid}_HDB{sapino} rsc_SAPHanaFil_{sapsid}_HDB{sapino} \
     meta clone-node-max=1 interleave=true
 ----
@@ -1919,10 +1926,10 @@ Again, add the configuration to the cluster.
 The most important parameters here are SID and InstanceNumber, which are
 quite self explaining in the SAP context. ON_FAIL_ACTION defines how the RA
 should react on monitor failures. Beside these parameters, typical
-tunables are the timeout values or the operations (start, monitor, stop).
+tunables are the timeout values for the operations (start, monitor, stop).
 
 
-==== SAPHanaController
+==== {SAPHanaRA}
 
 This step is to define the resource needed, to control the replicated {HANA} pair.
 Edit the changes in a text file, for example _crm-saphanacon.txt_, and load it
@@ -1945,58 +1952,57 @@ with the following command:
 .Description of important Resource Agent parameters
 [width="100%",cols="42%,58%",options="header",]
 |=======================================================================
-|Parameter |Description
-|PREFER_SITE_TAKEOVER |Defines whether RA should prefer to take over to
+|Parameter
+|Description
+
+|PREFER_SITE_TAKEOVER
+| Defines whether RA should prefer to take over to
 the secondary instance instead of restarting the failed primary locally.
 
-|AUTOMATED_REGISTER a|
-Defines whether a former primary should be automatically registered to
+|AUTOMATED_REGISTER
+| Defines whether a former primary should be automatically registered to
 be secondary of the new primary. With this parameter you can adapt the
 level of system replication automation.
 
-If set to `false`, the former primary must be manually registered. The
+If set to *false*, the former primary must be manually registered. The
 cluster will not start this SAP HANA RDBMS until it is registered, to avoid
 double primary up situations.
 
-|DUPLICATE_PRIMARY_TIMEOUT |Time difference needed between two primary
+|DUPLICATE_PRIMARY_TIMEOUT
+| Time difference needed between two primary
 time stamps if a dual-primary situation occurs. If the time difference
 is less than the time gap, the cluster holds one or both instances
-in a "WAITING" status. This is to give an administrator the chance to react on a
-failover. If the complete node of the former primary crashed, the former
+in a "WAITING" status. This is to give an administrator the chance to react
+on a failover. If the complete node of the former primary crashed, the former
 primary will be registered after the time difference is passed. If
 "only" the SAP HANA RDBMS has crashed, the former primary will be
 registered immediately. After this registration to the new primary, all
 data will be overwritten by the system replication.
-|=======================================================================
-// TODO PRIO1: include below, once it is supported
-////
-// begin on_fail_action
+
 |ON_FAIL_ACTION
 | Defines how the  RA escalates monitor failures on an HANA primary node.
 If srHook=SOK, in case of monitor failure an node fencing could be triggered.
 For srHook=SFAIL, the restart will be proceeded as usual. ON_FAIL_ACTION=*fence*
 may speed up takeover, depending on how long HANA needs for stopping.
-See also SAPHanaSR-alert-fencing(8). This option currently is *unsupported*.
 |=======================================================================
-// end on_fail_action
-////
 
-Additional information about all parameters of the SAPHanaController RA can be
-found in manual page ocf_suse_SAPHanaController(7).
+Additional information about all parameters of the {SAPHanaRA} RA can be
+found in manual page ocf_suse_{SAPHanaRA}(7).
 
 [subs="attributes,quotes"]
 ----
 # vi crm-saphanacon.txt
 # enter the following to crm-saphanacon.txt
-primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHanaController \
+primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:{SAPHanaRA} \
     op start interval=0 timeout=3600 \
-    op stop interval=0 timeout=3600 \
+    op stop interval=0 timeout=600 \
     op promote interval=0 timeout=900 \
     op demote interval=0 timeout=320 \
     op monitor interval=60 role=Promoted timeout=700 \
     op monitor interval=61 role=Unpromoted timeout=700 \
     params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=true \
         DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
+        ON_FAIL_ACTION=fence \
     meta priority=100
 clone mst_SAPHanaCon_{sapsid}_HDB{sapino} rsc_SAPHanaCon_{sapsid}_HDB{sapino} \
     meta clone-node-max=1 promotable=true interleave=true maintenance=true
@@ -2043,7 +2049,7 @@ Public cloud environments often need specific settings.
 
 Two constraints are organizing the correct placement of the virtual IP
 address for the client database access and the start order between the
-resource agents SAPHanaController and SAPHanaTopology.
+resource agents {SAPHanaRA} and {SAPHanaTopRA} .
 
 [subs="attributes,quotes"]
 ----
@@ -2177,7 +2183,7 @@ and marks the resource failed.
 .  The cluster promotes the secondary {HANA} database (on node 2) to
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed {HANA} database or register it against the new primary.
@@ -2231,7 +2237,7 @@ and marks the resource failed.
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node
 1).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 2) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed {HANA} database or register it against the new primary.
@@ -2285,7 +2291,7 @@ and marks the resource failed.
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node
 2).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed {HANA} database or register it against the new primary.
@@ -2338,7 +2344,7 @@ and marks the resource failed.
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node
 1).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 2) as SFAIL.
 .  Because AUTOMATED_REGISTER="false" the cluster does not restart
 the failed {HANA} database or register it against the new primary.
@@ -2409,7 +2415,7 @@ with quorum".
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node
 2).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 2) as SFAIL.
 .  If SBD fencing is used, then the manual recovery procedure will be
 used to clear the fencing flag and restart pacemaker on the node.
@@ -2485,7 +2491,7 @@ declares it UNCLEAN and sets the primary node (node 1) to status
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node
 1).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 secondary (on node 2) as SFAIL.
 .  If SBD fencing is used, then the manual recovery procedure will be
 used to clear the fencing flag and restart pacemaker on the node.
@@ -2619,7 +2625,7 @@ declares it UNCLEAN and sets the primary node (node 1) to status
 "partition with quorum".
 .  The cluster fences the failed secondary node (node 2).
 .  The cluster declares the failed secondary node (node 2) OFFLINE.
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 secondary (on node 2) as SFAIL.
 .  If SBD fencing is used, then the manual recovery procedure will be
 used to clear the fencing flag and restart pacemaker on the node.
@@ -2685,7 +2691,7 @@ takeover.
   replication LAN.
 
 .{testExpect}
-.  After some time the cluster shows the sync_state of the secondary
+.  After some time the cluster shows the srHook of the secondary
 (on node 2) as SFAIL.
 .  The primary {HANA} database (node 1) "HDBSettings.sh
 systemReplicationStatus.py" shows "CONNECTION TIMEOUT" and the
@@ -2742,7 +2748,7 @@ and marks the resource failed.
 .  The cluster promotes the secondary {HANA} database (on node 2) to
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node 2).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 primary (on node 1) as SFAIL.
 .  Because AUTOMATED_REGISTER="true" the cluster does restart
 the failed {HANA} database and register it against the new primary.
@@ -2806,7 +2812,7 @@ declares it UNCLEAN and sets the primary node (node 2) to status
 .  The cluster promotes the secondary {HANA} database (on node 1) to
 take over as primary.
 .  The cluster migrates the IP address to the new primary (on node 1).
-.  After some time the cluster shows the sync_state of the stopped
+.  After some time the cluster shows the srHook of the stopped
 secondary (on node 2) as SFAIL.
 .  If SBD fencing is used, then the manual recovery procedure will be
 used to clear the fencing flag and restart pacemaker on the node.
@@ -2827,7 +2833,7 @@ In your project, you should:
 
 * Define STONITH before adding other resources to the cluster.
 * Do intensive testing.
-* Tune the timeouts of operations of SAPHanaController and SAPHanaTopology.
+* Tune the timeouts of operations of {SAPHanaRA} and {SAPHanaTopRA}.
 * Start with the parameter values PREFER_SITE_TAKEOVER=”true”, AUTOMATED_REGISTER=”false” and
 DUPLICATE_PRIMARY_TIMEOUT=”7200”.
 * Always wait for pending cluster actions to finish before doing something.
@@ -2922,7 +2928,7 @@ See the manual page crm_mon(8) for details.
 
 ==== SAPHanaSR command line tools
 
-To show SAPHanaController and SAPHanaTopology resource agent internal values,
+To show {SAPHanaRA} and {SAPHanaTopRA} resource agent internal values,
 you can call the program `SAPHanaSR-showAttr`. The internal values, the attribute
 location and their parameter names may change. The command `SAPHanaSR-showAttr`
 will always fetch the values from the correct attribute location.
@@ -2935,7 +2941,7 @@ system monitoring.
 {sapnode1}:~ # SAPHanaSR-showAttr
 Global cib-time                 prim sec sid topology
 ------------------------------------------------------
-global Mon May 08 09:10:11 2023 WDF  JWD HA1 ScaleUp
+global Mon May 08 09:10:11 2023 {sapsite1}  {sapsite2} {sapsid} ScaleUp
 
 Resource	             maintenance
 ----------------------------------
@@ -3011,28 +3017,37 @@ to be called as Linux user _{refsidadm}_.
 overall host status: ok
 ----
 
+// TODO PRIO2: replace {SAPHana} by correct RA variable
 Following the {SAP} HA guideline, the {SAPHana} resource agent interprets the return
 codes in the following way:
 
 .Interpretation of Return Codes
 [width="100%",cols="15%,85%",options="header",]
 |=======================================================================
-|Return Code |Interpretation
-|4 |{HANA} database is up and OK. The cluster does interpret this as a
+|Return Code
+|Description
+
+|4
+|{HANA} database is up and OK. The cluster interprets this as a correctly
+running database.
+
+|3
+|{HANA} database is up and in status info. The cluster interprets this as a
 correctly running database.
 
-|3 |{HANA} database is up and in status info. The cluster does
-interpret this as a correctly running database.
+|2
+|{HANA} database is up and in status warning. The cluster interprets this as a
+correctly running database.
 
-|2 |{HANA} database is up and in status warning. The cluster does
-interpret this as a correctly running database.
+|1
+|{HANA} database is down. If the database should be up and is not down by
+intention, this could trigger a takeover.
 
-|1 |{HANA} database is down. If the database should be up and is not
-down by intention, this could trigger a takeover.
-
-|0 |Internal Script Error – to be ignored.
+|0
+|Internal Script Error - Database status unknown. Cluster action depends on RA
+parameter ON_FAIL_ACTION.
 |=======================================================================
-// TODO PRIO2: replace "to be ignored"
+
 
 === Maintenance
 
@@ -3062,7 +3077,7 @@ after the update procedure to get the system replication automated again.
 
 {SUSE} has optimized the {HANA} maintenance process in the cluster.
 The improved procedure only sets the multi-state resource to maintenance and
-keeps the rest of the cluster (SAPHanaTopology clones and IPaddr2 vIP resource)
+keeps the rest of the cluster ({SAPHanaTopRA} clones and IPaddr2 vIP resource)
 still active. Using the updated procedure allows a seamless {HANA} maintenance
 in the cluster, as the virtual IP address can automatically follow the running
 primary.
@@ -3337,13 +3352,13 @@ Do you wish to configure a virtual IP address (y/n)? n
 // Refer to Trento check
 === Example cluster configuration
 
-The following complete crm configuration is for a two-node cluster
+The following complete progressive crm configuration is for a two-node cluster
 ({sapnode1}, {sapnode2}) and an {HANA} database with SID {sapsid}
-and instance number {sapino}.
+and instance number {sapino}. A failed primary will be automatically registered
+as secondary after reboot.
 Priority fencing prefers the {HANA} primary in case of split-brain.
 The virtual IP address in the example is {sapip1srv1}.
 
-// TODO PRIO1: shorter stop timeout
 [subs="attributes,quotes"]
 ----
 node {sapnode1}
@@ -3358,18 +3373,20 @@ primitive rsc_SAPHanaTop_{sapsid}_HDB{sapino} ocf:suse:SAPHanaTopology \
 primitive rsc_SAPHanaFil_{sapsid}_HDB{sapino} ocf:suse:SAPHanaFilesystem \
     op start interval=0 timeout=10 \
     op stop interval=0 timeout=20 \
-    op monitor interval=120 timeout=120 ON_FAIL_ACTION="fence" \
-    params SID={sapsid} InstanceNumber={sapino}
+    op monitor interval=120 timeout=120 \
+    params SID={sapsid} InstanceNumber={sapino} \
+        ON_FAIL_ACTION=fence
 
 primitive rsc_SAPHanaCon_{sapsid}_HDB{sapino} ocf:suse:SAPHanaController \
     op start interval=0 timeout=3600 \
-    op stop interval=0 timeout=3600 \
+    op stop interval=0 timeout=600 \
     op promote interval=0 timeout=900 \
     op demote interval=0 timeout=320 \
     op monitor interval=60 role=Promoted timeout=700 \
     op monitor interval=61 role=Unpromoted timeout=700 \
-    params SID={sapsid} InstanceNumber={sapino} PREFER_SITE_TAKEOVER=true \
-           DUPLICATE_PRIMARY_TIMEOUT=7200 AUTOMATED_REGISTER=false \
+    params SID={sapsid} InstanceNumber={sapino} \
+        PREFER_SITE_TAKEOVER=true DUPLICATE_PRIMARY_TIMEOUT=7200 \
+        AUTOMATED_REGISTER=true ON_FAIL_ACTION=fence \    
     meta priority=100
 
 primitive rsc_ip_{sapsid}_HDB{sapino} ocf:heartbeat:IPaddr2 \
@@ -3390,6 +3407,7 @@ clone cln_SAPHanaFil_{sapsid}_HDB{sapino} rsc_SAPHanaFil_{sapsid}_HDB{sapino} \
 
 colocation col_saphana_ip_{sapsid}_HDB{sapino} 2000: \
     rsc_ip_{sapsid}_HDB{sapino}:Started mst_SAPHanaCon_{sapsid}_HDB{sapino}:Promoted
+
 order ord_saphana_{sapsid}_HDB{sapino} Optional: \
     cln_SAPHanaTop_{sapsid}_HDB{sapino} mst_SAPHanaCon_{sapsid}_HDB{sapino}
 
@@ -3565,4 +3583,7 @@ include::common_gfdl1.2_i.adoc[]
 //      - updated requirements, dos and don´ts
 // REVISION 0.3 2025/03
 //      - fixed RA name
+// REVISION 0.4 2026/04
+//      - SAPHanaController ON_FAIL_ACTION=fence , stop timeout=600
+//      - susChkSrv.py action_on_lost=fence
 //

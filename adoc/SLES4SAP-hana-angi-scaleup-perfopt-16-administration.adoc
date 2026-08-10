@@ -1,0 +1,565 @@
+// Load document variables
+:prodNr: 16
+:pMinor16: 0
+include::Var_SLES4SAP-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
+[[cha.hana-sr.administrate]]
+== Administration
+
+The chapter "Administration" refers to our two-node lab cluster _{clustername}_. 
+The two nodes are named _{sapnode1}_ and _{sapnode2}_.
+{HANA} has the SID _{sapsid}_ and instance number _{sapino}_.
+
+=== Dos and don'ts
+
+In your project, you should:
+
+* Define fencing before adding other resources to the cluster.
+* Tune the timeouts of operations of {SAPHanaRA}, {SAPHanaTopRA} and SAPHanaFilesystem.
+* Use SUSE Trento to check your cluster.
+* Do intensive testing.
+* Always check HANA and cluster status before doing anything and after having done
+something, see manual page SAPHanaSR-showStatus(8).
+* Always wait for pending cluster actions to finish before doing something,
+see manual page cs_wait_for_idle(8).
+* Set up a test cluster for testing configuration changes and administrative
+procedure before applying them on the production cluster.
+
+In your project, avoid:
+
+* Rapidly changing/changing back a cluster configuration, such as setting
+nodes to standby and online again or stopping/starting the multi-state
+resource.
+* Creating a cluster without proper time synchronization or unstable name
+resolutions for hosts, users and groups.
+* Using site names other than the ones already known by the cluster when
+manually re-registering a site.
+* Adding location rules for the clone, multi-state or IP resource. Only location
+rules mentioned in this setup guide are allowed. For public cloud refer to the
+cloud specific documentation.
+* Using {SAP} tools for attempting start/stop/takeover actions on a database
+while the cluster is in charge of managing that database. Same for unregistering/disabling
+system replication.
+
+IMPORTANT: As "migrating" or "moving" resources in crm-shell, HAWK or other
+tools would add client-prefer location rules, support is limited to maintenance
+procedures described in this document. See <<cha.s4s.test-cluster>> and
+<<sec-maintenance>> for proven procedures.
+
+=== Monitoring and tools
+
+// TODO PRIO2: remove HAWK
+You can use the High Availability Web Console (HAWK), {HANA} Cockpit, {HANA} Studio and different
+command line tools for cluster status requests.
+
+==== HAWK – cluster status and more
+
+You can use a Web browser to check the cluster status.
+
+.Cluster Status in HAWK
+image::SAPHanaSR-ScaleUp-HAWK-Status-SLE12.png[scaledwidth=100%]
+
+If you set up the cluster using {slehainit} and you have installed all packages
+as described above, your system will provide a very useful Web interface. You
+can use this graphical Web interface to get an overview of the complete cluster
+status, perform administrative tasks or configure resources and cluster bootstrap
+parameters. Read the product manuals for a complete documentation of this user
+interface. For the {HANA} system replication {usecase} scenario the use of HAWK
+should follow the guidance given in this guide.
+
+==== {HANA} Cockpit
+
+Database-specific administration and checks can be done with {HANA} Cockpit.
+Before trying start/stop/takeover for the database, make sure the cluster is not
+in charge of managing the respective resource. See also <<sec-maintenance>>.
+
+.{HANA} Cockpit – database directory
+image::saphana-cockpit01.png[scaledwidth=100%]
+
+==== Cluster command line tools
+
+A simple overview can be obtained by calling `crm_mon`. Using option
+`-r` shows also stopped but already configured resources. Option `-1`
+tells `crm_mon` to output the status once instead of periodically.
+
+[subs="attributes,quotes"]
+----
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-administration-crmmon.txt[]
+----
+
+See the manual page crm_mon(8) for details.
+
+==== SAPHanaSR command line tools
+
+To show {SAPHanaRA} and {SAPHanaTopRA} resource agent internal values,
+you can call the program `SAPHanaSR-showAttr`. The internal values, the attribute
+location and their parameter names may change. The command `SAPHanaSR-showAttr`
+will always fetch the values from the correct attribute location.
+Do not use cluster commands like `crm_attribute` to fetch the values
+directly from the cluster. `SAPHanaSR-showAttr` should not be used for automated
+system monitoring.
+
+[subs="attributes,quotes"]
+----
+include::SLES4SAP-hana-angi-scaleup-perfopt-16-administration-showattr.txt[]
+----
+
+`SAPHanaSR-showAttr` also supports other output formats such as *script*. The script
+format is intended to allow running filters. Based on `SAPHanaSR-showAttr` output
+format script you can define effective queries:
+
+// TODO PRIO1: adapt sample output
+[subs="attributes,quotes"]
+----
+# SAPHanaSR-showAttr --format=script --experimental_attributes host:vhost
+0 Host/{sapnode1}/vhost="{sapnode1}"
+0 Host/{sapnode2}/vhost="{sapnode2}"
+----
+
+See the manual page SAPHanaSR-showAttr(8) and SAPHanaSR-showStatus(8) for details.
+
+`SAPHanaSR-replay-archive` can help to analyze the SAPHanaSR attribute values from
+`crm_report` archives. This allows post mortem analysis.
+
+In our example, the administrator killed the primary {HANA} instance using the command
+`HDB kill-9`. This happened around 9:10 pm.
+
+// TODO PRIO1: replace "hb_report" by "crm report"
+// TODO PRIO1: adapt sample output
+[subs="attributes,quotes"]
+----
+{sapnode1}:~ # crm_report -f 17:00
+{sapnode1}: INFO: The report is saved in ./crm_report-Mon-03-Aug-2026.tar.gz
+{sapnode1}: INFO: Report timespan: 2026-08-03 17:00:00 - 2026-08-03 17:03:29
+{sapnode1}: INFO: Including nodes: {sapnode1} {sapnode2}
+{sapnode1}: INFO: Thank you for taking time to create this report
+
+{sapnode1}:~ # SAPHanaSR-replay-archive --format=script --experimental_attributes host:score site:lss --dir=crm_report-Mon-03-Aug-2026 --sid=HA1
+
+2026-08-03T15:01:20 Site/S2/srHook="SOK"
+2026-08-03T15:01:20 Site/S2/lss="4"
+2026-08-03T15:01:20 Host/{sapnode2}/score="100"
+2026-08-03T15:02:04 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:04 Site/S2/lss="4"
+2026-08-03T15:02:04 Host/{sapnode2}/score="100"
+2026-08-03T15:02:11 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:11 Site/S2/lss="4"
+2026-08-03T15:02:11 Host/{sapnode2}/score="-INFINITY"
+...
+2026-08-03T15:02:14 Site/S2/srHook="SFAIL"
+2026-08-03T15:02:14 Site/S2/lss="1"
+2026-08-03T15:02:14 Host/{sapnode2}/score="-1"
+2026-08-03T15:03:09 Site/S2/srHook="SOK"
+2026-08-03T15:03:09 Site/S2/lss="4"
+2026-08-03T15:03:09 Host/{sapnode2}/score="0"
+2026-08-03T15:03:11 Site/S2/srHook="SOK"
+2026-08-03T15:03:11 Site/S2/lss="4"
+2026-08-03T15:03:11 Host/{sapnode2}/score="100"
+----
+
+In the above example the attributes indicate that at the beginning {sapnode2}
+was running secondary (lss "4", score "100").
+
+At 15:02:04 (UTC) suddenly the system replication is maked as srHook="SFAIL".
+
+At 15:02:11 (UTC) The secondary score is degraded: score="-INFINITY".
+
+At 15:02:14 (UTC) The secondary is also marked as in error (lss="1"). The cluster initiated a restart for the failed secondary.
+
+At 15:03:09 (UTC) The seconary is marked as back (lss="4") and the system replication is up again (srHook="SOK").
+
+At 15:03:10 (UTC) The seconary score is set back to "100".
+
+
+==== {HANA} LandscapeHostConfiguration
+
+To check the status of an HANA database and to find out if the
+cluster should react, you can use the script `landscapeHostConfiguration.py`
+to be called as Linux user _{refsidadm}_.
+
+[subs="attributes,quotes"]
+----
+{sapnode1}:~> cdpy; python3 landscapeHostConfiguration.py
+| Host    | Host   | ... NameServer   | NameServer  | IndexServer | IndexServer |
+|         | Active | ... Config Role  | Actual Role | Config Role | Actual Role |
+| ------  | ------ | ... ------------ | ----------- | ----------- | ----------- |
+| {sapnode1} | yes    | ... master 1     | master      | worker      | master      |
+
+overall host status: ok
+----
+
+Following the {SAP} HA guideline, the {SAPHanaRA} resource agent interprets the return
+codes in the following way:
+
+.Interpretation of Return Codes
+[width="100%",cols="15%,85%",options="header",]
+|=======================================================================
+|Return Code
+|Description
+
+|4
+|{HANA} database is up and OK. The cluster interprets this as a correctly
+running database.
+
+|3
+|{HANA} database is up and in status info. The cluster interprets this as a
+correctly running database.
+
+|2
+|{HANA} database is up and in status warning. The cluster interprets this as a
+correctly running database.
+
+|1
+|{HANA} database is down. If the database should be up and is not down by
+intention, this could trigger a takeover.
+
+|0
+|Internal Script Error - Database status unknown. Cluster action depends on RA
+parameter ON_FAIL_ACTION.
+|=======================================================================
+
+=== Maintenance
+
+[[sec-maintenance]]
+
+To receive updates for the operating system or {sleha},
+it is recommended to register your systems to either a local {suma}, to {rmtool} ({rmt}),
+or remotely with {scc}.
+For more information, visit the respective Web pages:
+{sumalandingpage}
+{rmtGuide16}
+{sccfaq}
+Examples for maintenance tasks are also given in manual page SAPHanaSR_maintenance_examples(7).
+
+==== Updating the operating system and cluster
+
+For an update of {sles4sap} packages including cluster software, follow the
+rolling update procedure defined in the product documentation
+of the {sleha} Administration Guide.
+// , chapter _Upgrading Your Cluster and Updating Software Packages_ at
+// {haAdminGuide16}#cha-ha-migration.
+// TODO PRIO2: correct docu link
+
+==== Updating {HANA} - seamless {HANA} maintenance
+
+For updating {HANA} database systems in system replication, you need to follow
+the defined SAP processes. This section describes the steps required before and
+after the update procedure to get the system replication automated again.
+
+{SUSE} has optimized the {HANA} maintenance process in the cluster.
+The improved procedure only sets the multi-state resource to maintenance and
+keeps the rest of the cluster ({SAPHanaTopRA} clones and IPaddr2 vIP resource)
+still active. Using the updated procedure allows a seamless {HANA} maintenance
+in the cluster, as the virtual IP address can automatically follow the running
+primary.
+
+Prepare the cluster not to react on the maintenance work to be done on
+the {HANA} database systems. Set the multi-state resource to `maintenance`.
+
+.Main {HANA} Update procedure
+==============================
+Pre-Update Tasks:: For the multi-state-resource set the maintenance mode as follows:
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource>
+----
++
+The <multi-state-resource> in the guide at hand is `mst_SAPHanaCon_{sapsid}_HDB{sapino}`.
+
+Update:: Process the {SAP} Update for both {HANA} database systems. This
+procedure is described by {SAP}.
++
+During this {HANA} update, the active primary the moves from one site to an other.
+After each move of primary and register the new secondary the cluster should
+to be informed to score the new {HANA} sites.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource refresh <multi-state-resource>
+----
++
+Using this resource refresh will set the new scores and allows the seamless maintenance.
+The IP adress for the primary will follow the score 150 (running primary), while an optional IP address for
+the secondary will follow the score 100 (running and in-sync secondary).
+
+Post-Update Tasks:: Expect the primary/secondary roles to be exchanged after the
+maintenance. Therefore, tell the cluster to forget about these states and to
+reprobe the updated {HANA} database systems.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource refresh <multi-state-resource>
+----
++
+After the {HANA} update is complete on both sites, tell the cluster about the
+end of the maintenance process. This allows the cluster to actively control and
+monitor the {sap} again.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource> off
+----
+
+Optionally, you could completety remove the maintenance attribute from the resource.
+For more details see manual page SAPHanaSR_maintenance_examples(7) and crm(8). 
+
+==============================
+
+==== Migrating an {HANA} primary using handshake takeover
+
+In the following procedures, we assume the primary runs on node 1 and the secondary
+on node 2. The goal is to "exchange" the roles of the nodes: the primary should
+then run on node 2 and the secondary should run on node 1.
+
+There are different methods to get the exchange of the roles done. The
+following procedure shows how to tell the cluster to "accept" a role change via
+native {HANA} commands.
+
+
+.Migrating an {HANA} primary using {SAP} toolset - handshake takeover
+==============================
+// TODO PRIO2: Check for takeover with handshake
+Pre-Migration Tasks:: Set the multi-state resource to `maintenance`. This can be done on any
+cluster node.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource>
+----
+
+// TODO PRIO2: Check -sr_takeover with 'handshake'
+
+Manual Takeover Process::
+* On the secondary {HANA} database system trigger the takeover with suspend of the primary
++
+[subs="specialchars,attributes,quotes"]
+----
+# su - {sapssid}adm -c "hdbnsutil -sr_takeover --suspendPrimary"
+----
++ 
+The former primary keeps started, but suspended. The former secondary will get the new primary role.
++
+* Wait until the secondary has completely taken over to be the new primary role. You
+  see this using the command line tool `SAPHanaSR-showAttr`. Check for the site
+  attributes "srr" ("P") and "lss" ("4") for the new primary site.
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode1}:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="{sapnode2}"
+0 Site/S1/lss="4"
+0 Site/S1/srr="P"
+0 Site/S1/mns="{sapnode1}"
+----
+* On the former primary run the online register command
++
+[subs="specialchars,attributes,quotes"]
+----
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+ --replicationMode=sync --name={sapsite1} \
+ --operationMode=logreplay --online
+----
++
+* Wait until the new secondary has been registered and started. You
+  see this using the command line tool `SAPHanaSR-showAttr` and check for the
+  site attributes "lss" ("4") and "srr" ("S") for the new secondary.
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode1}:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="{sapnode2}"
+0 Site/S1/lss="4"
+0 Site/S1/srr="S"
+0 Site/S1/mns="{sapnode1}"
+----
+
+Post-Migration Tasks::
+* Tell the cluster to forget about the former multi-state roles and to
+re-monitor the failed master. The command can be submitted on any
+cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource refresh <multi-state-resource>
+----
++
+* Set the multi-state resource to the status managed again. The command
+can be submitted on any cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource> off
+----
+==============================
+
+// #################################
+
+==== Migrating an {HANA} primary using standard takeover
+.Migrating an {HANA} primary using {SAP} toolset (standard takeover)
+==============================
+Pre-Migration Tasks:: Set the multi-state resource to `maintenance`. This can be done on any
+cluster node.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource>
+----
+
+// TODO PRIO2: Check -sr_takeover with 'handshake'
+
+Manual Takeover Process::
+* Stop the primary {HANA} database system. Enter the command in our
+example on node1 as user _{refsidadm}_.
++
+[subs="specialchars,attributes,quotes"]
+----
+~> HDB stop
+----
++
+* Before proceeding, make sure the primary {HANA} database is stopped.
+* Start the takeover process on the secondary {HANA} database system.
+Enter the command in our example on node 2 as user _{refsidadm}_.
++
+[subs="specialchars,attributes,quotes"]
+----
+~> hdbnsutil -sr_takeover
+----
++
+* Register the former primary to become the new secondary. Enter the
+command in our example on node1 as user _{refsidadm}_.
++
+[subs="specialchars,attributes,quotes"]
+----
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+ --replicationMode=sync --name={sapsite1} \
+ --operationMode=logreplay
+----
++
+* Start the new secondary {HANA} database system. Enter the command in
+our example on node1 as user _{refsidadm}_.
++
+[subs="specialchars,attributes,quotes"]
+----
+~> HDB start
+----
+
+Post-Migration Tasks::
+* Wait some time until `SAPHanaSR-showAttr` shows both {HANA} database
+systems to be up again (field roles must start with the digit 4). The new
+secondary should have role "S" (for secondary).
++
+* Tell the cluster to forget about the former multi-state roles and to
+re-monitor the failed master. The command can be submitted on any
+cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource refresh <multi-state-resource>
+----
++
+* Set the multi-state resource to the status managed again. The command
+can be submitted on any cluster node as user root.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource maintenance <multi-state-resource> off
+----
+==============================
+
+The following paragraphs explain how to use the cluster to partially automate the
+migration.
+
+.Moving an {HANA} primary using the Cluster Toolset
+==============================
+* Create a "move away" from this node rule by using the *force* option.
++
+[subs="attributes,specialchars,quotes"]
+----
+# crm resource move <multi-state-resource> *force*
+----
++
+Because of the "move away" (*force*) rule, the cluster will *stop* the
+current primary. After that, run a *promote* on the secondary site if the system
+replication was in sync before. You should not migrate the primary if
+the status of the system replication is not in sync (SFAIL).
++
+IMPORTANT: The *force* option of the move comamnd shall be used. Only the migration with *force* option is supported.
+Migration without the *force* option will cause a takeover without the
+former primary to be stopped. This would result in a dual active primary.
++
+* Wait until the secondary has completely taken over to be the new primary role. You
+  see this using the command line tool `SAPHanaSR-showAttr`. Check for the site
+  attributes "srr" ("P") and "lss" ("4") for the new primary site.
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode1}:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="{sapnode2}"
+0 Site/S1/lss="1"
+0 Site/S1/srr="P"
+0 Site/S1/mns="{sapnode1}"
+----
++
+* If you have set up the parameter value `AUTOMATED_REGISTER="true"`, you can skip this step. In
+other cases you now need to register the old primary. Enter the command
+in our example on node1 as user _{refsidadm}_.
++
+[subs="specialchars,attributes,quotes"]
+----
+~> hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} \
+    --replicationMode=sync --operationMode=logreplay \
+    --name={sapsite1}
+----
++
+* Clear the ban rules of the resource to allow the cluster to start the new secondary.
++
+[subs="specialchars,attributes,quotes"]
+----
+# crm resource clear <multi-state-resource>
+----
++
+* Wait until the new secondary has started. You
+  see this using the command line tool `SAPHanaSR-showAttr` and check for the
+  site attributes "lss" ("4") and "srr" ("S") for the new secondary.
++
+[subs="specialchars,attributes,quotes"]
+----
+{sapnode1}:~ # SAPHanaSR-showAttr --format script --experimental_attributes site:lss,srr,mns
+0 Site/S2/lss="4"
+0 Site/S2/srr="P"
+0 Site/S2/mns="{sapnode2}"
+0 Site/S1/lss="4"
+0 Site/S1/srr="S"
+0 Site/S1/mns="{sapnode1}"
+----
+==============================
+
+////
+* Set the primary node to be standby.
+
+`crm node standby {sapnode1}`
+
+The cluster will stop the primary {HANA} database and, if the system
+replication was in sync, process the takeover on the secondary site.
+
+Wait until the former secondary has completely taken over to be the new
+primary.
+
+If you have set up `AUTOMATED_REGISTER="true"`, you can skip this step. In
+other cases you now need to register the old primary. Enter the command
+in our example on node1 as user _{refsidadm}_.
+
+`hdbnsutil -sr_register --remoteHost={sapnode2} --remoteInstance={sapino} --replicationMode=sync --name={sapsite1} --operationMode=logreplay`
+
+Set the standby node to be online again.
+
+`crm node online {sapnode1}`
+////

@@ -1,0 +1,177 @@
+// Load document variables
+:prodNr: 16
+:pMinor16: 0
+include::Var_SLES4SAP-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-{prodNr}.txt[]
+include::Var_SLES4SAP-hana-angi-param-{prodNr}.txt[]
+
+[[pre.hana-sr]]
+== About this guide
+
+////
+   ____      __                 __           __  _
+   /  _/___  / /__________  ____/ /_  _______/ /_(_)___  ____
+   / // __ \/ __/ ___/ __ \/ __  / / / / ___/ __/ / __ \/ __ \
+ _/ // / / / /_/ /  / /_/ / /_/ / /_/ / /__/ /_/ / /_/ / / / /
+/___/_/ /_/\__/_/   \____/\__,_/\__,_/\___/\__/_/\____/_/ /_/
+////
+
+=== Introduction
+
+{sles4sapreg} is optimized in various ways for {SAPreg} applications.
+This guide provides detailed information about installing and customizing
+*{sles4sap} for {HANA} system replication in the {usecase} scenario*.
+
+{SUSE} is accommodating the customers by offering {sles4sap},
+the recommended and supported operating system for {HANA}. In close
+collaboration with {SAP}, cloud service and hardware partners, {SUSE} provides
+solutions for customers to ensure the high availability of {HANA} data bases.
+
+==== Abstract
+
+This guide describes planning, setup, and basic testing of {sles4sap} based on
+the high availability solution scenario "{SAPHANA} {usecase}".
+
+From the application perspective, the following variations are covered:
+
+- Plain system replication
+
+- System replication with secondary site read-enabled
+
+- Multi-tier (chained) system replication
+
+- Multi-target system replication
+
+- Multi-tenant database containers for all above
+
+From the infrastructure perspective, the following scenario variations are covered:
+
+- 2-node cluster with  disk-based SBD
+
+- 3-node cluster with diskless SBD
+
+- On-premises deployment on physical and virtual machines
+
+- Public cloud deployment (usually needs additional documentation focusing on the cloud specific implementation details)
+
+Deployment automation simplifies roll-out. There are several options available,
+particularly on public cloud platforms.
+Ask your public cloud provider or your SUSE contact for more information.
+
+See <<cha.hana-sr.setups>> for details.
+
+NOTE: In this guide the software package {SAPHanaSR} is used. This package replaces
+the two packages SAPHanaSR and SAPHanaSR-ScaleOut. Thus new deployment should be
+done with {SAPHanaSR} only. For upgrading existing clusters to {SAPHanaSR},
+please read the blog article
+https://www.suse.com/c/how-to-upgrade-to-saphanasr-angi/ .
+
+==== The concept of the performance optimized scenario
+
+This document describes the *performance optimized* scenario [_A' => B_].
+An overview of available scenarios is decribed in our white paper. 
+// TODO PRIO1: Add URL once the white paper document is online
+
+.{HANA} System Replication Scale-Up in the Cluster - performance optimized
+image::SAPHanaSR-angi-ScaleUp-perfOpt-pdf.svg[scaledwidth=100.0%]
+// image::SAPHanaSR-ScaleUP-perfOpt.svg[scaledwidth=100.0%]
+
+In the performance optimized scenario, an {HANA} RDBMS site A is synchronizing
+with an {HANA} RDBMS site B on a second node. As the {HANA} RDBMS on the second
+node is configured to pre-load the tables, the takeover time is typically very
+short.
+
+One big advantage of the performance optimized scenario of {HANA} is the
+possibility to allow read access on the secondary database site. To support
+this *read enabled* scenario, a second virtual IP address is added to the cluster
+and bound to the secondary role of the system replication [_A' => B"_].
+
+In case of failure of the primary {HANA} on node 1 (node or database
+instance) the cluster first tries to start the takeover process. This
+allows to use the already loaded data at the secondary site. Typically,
+the takeover is much faster than the local restart.
+
+To achieve an automation of this resource handling process, you must
+use the {HANA} resource agents included in {SAPHanaSR}. System
+replication of the productive database is automated with {SAPHanaRA} and
+{SAPHanaTopRA}.
+
+The cluster only allows a takeover to the secondary site if the {HANA}
+system replication was in sync until the point when the service of the primary
+got lost. This ensures that the last commits processed on the primary site are
+already available at the secondary site.
+
+{SAP} did improve the interfaces between {HANA} and external software, such as
+cluster frameworks. These improvements also include the implementation of {HANA}
+call outs in case of special events, such as status changes for services or system replication
+channels. These call-outs are also called HA/DR providers. These interfaces can be used by
+implementing {HANA} hooks written in python. {SUSE} has enhanced the {SAPHanaSR} package
+to include such {HANA} hooks to optimize the cluster interface. Using the
+{HANA} hooks described in this document allows to inform the cluster immediately
+if the {HANA} system replication is broken. In addition to the {HANA} hook status,
+the cluster continues to poll the system replication status on a regular basis.
+
+You can adjust the level of automation by setting the parameter `AUTOMATED_REGISTER`.
+If automated registration is activated, the cluster will automatically register
+a former failed primary to become the new secondary. Refer to the manual pages 
+SAPHanaSR(7) and ocf_suse_{SAPHanaRA}(7) for details on all supported parameters
+and features.
+
+IMPORTANT: The solution is not designed to manually 'migrate' the primary or
+secondary instance using the HAWK web console or any cluster client commands. In the
+_Administration_ section of this document, we describe how to 'migrate' the primary
+to the secondary site using {sap} and cluster commands.
+
+////
+    ______                           __
+   / ____/________  _______  _______/ /____  ____ ___
+  / __/ / ___/ __ \/ ___/ / / / ___/ __/ _ \/ __ `__ \
+ / /___/ /__/ /_/ (__  ) /_/ (__  ) /_/  __/ / / / / /
+/_____/\___/\____/____/\__, /____/\__/\___/_/ /_/ /_/
+                      /____/
+////
+
+=== Ecosystem of the document
+
+==== Additional documentation and resources
+
+Chapters in this manual contain links to additional documentation
+resources that are either available on the system or on the Internet.
+
+For the latest documentation updates, see https://documentation.suse.com/.
+
+You can find numerous whitepapers, best practices, setup guides, and
+other resources on the {sles4sap} best practices Web page:
+{reslibrary}. In particular, there is an overview of all {suse} high availability solutions for
+{saphana} and {s4hana} workloads. Find the overview of high availability solutions supported by {sles4sap} here:
+
+https://documentation.suse.com/sles-sap/sap-ha-support/html/sap-ha-support/article-sap-ha-support.html
+
+SUSE also publishes blog articles about {sap} and high availability.
+Join us by using the hashtag #TowardsZeroDowntime. Use the following link:
+https://www.suse.com/c/tag/TowardsZeroDowntime/.
+
+Finally, there are manual pages shipped with the product.
+
+////
+//==== Errata
+//
+//To deliver urgent smaller fixes and important information in a timely manner,
+//the Technical Information Document (TID) for this setup guide
+//will be updated, maintained and published at a higher frequency:
+//
+//- SAP HANA SR Performance Optimized Scenario - Setup Guide - Errata
+//{tidNotes}7023882
+//
+//- Showing SOK Status in Cluster Monitoring Tools Workaround
+//{tidNotes}7023526 -
+//see also the blog article https://www.suse.com/c/lets-flip-the-flags-is-my-sap-hana-database-in-sync-or-not
+
+// TODO PRIO2: replace below with correct TID
+// In addition to this guide, check the SUSE SAP Best Practice Guide Errata for
+// other solutions {tidNotes}7023713.
+////
+
+// Standard SUSE includes
+==== Feedback
+include::common_intro_feedback.adoc[]

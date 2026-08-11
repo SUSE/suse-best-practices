@@ -6,6 +6,7 @@ link:https://documentation.suse.com/cloudnative/suse-private-registry/html/priva
 # end::intro[]
 
 # tag::prerequisites[]
+
 === Prerequisites
 
 Before getting into the deployment steps, make sure to meet the requirements for your desired setup:
@@ -17,6 +18,7 @@ As the referenced Persistent Volume (PV) provisioner, {lh} can be used.
 # end::prerequisites[]
 
 # tag::deploy[]
+
 === Deployment
 
 This chapter describes a basic example how to deploy the {reg} without high-availability.
@@ -76,8 +78,16 @@ In our example the secret is called _suse-registry_ and we'll refer to it in the
 
 ==== Deploying without high-availability
 
-The most basic approach to deploy is without high-availability, as there are no dependencies for a keystore and a database.
-The excerpt below shows example values that can be used with Helm to deploy the registry using a NodePort for exposure: 
+The most basic approach to deploy is without high-availability, as there are no dependencies for a keystore and a database. 
+
+[IMPORTANT]
+====
+The {reg} Helm chart allocates by default a low default storage capacity for the image registry volume. This value must be adjusted based on your specific application sizing requirements before deployment to prevent disk saturation.
+
+For further details and customization of storage sizes, please refer to the official link:https://documentation.suse.com/cloudnative/suse-private-registry/html/private-registry/pr-helm-chart-override.html#helm-persistence-parameters[{reg} Persistence Parameters Documentation].
+====
+
+The excerpt below shows example values that can be used with Helm to deploy the registry using a NodePort for exposure, including the persistence configuration parameter: 
 
 [source, yaml]
 ----
@@ -102,6 +112,11 @@ harborAdminPassword: "<MY_PASSWORD>"
 imagePullPolicy: IfNotPresent
 imagePullSecrets:
 - name: suse-registry
+
+persistence:
+  persistentVolumeClaim:
+    registry:
+      size: "5Gi" # Adjust this size based on your requirements
 ----
 
 WARNING: The shown excerpt will create a self signed certificate for TLS. It is highly recommended to use a trusted CA for signing certificates for production landscapes.
@@ -180,53 +195,110 @@ helm install suse-registry oci://registry.suse.com/private-registry/private-regi
 //    password: "<MY_PASSWORD_REDIS>"
 // ----
 
-# tag::prepare-elm[]
-=== Preparing for {elm}
+# tag::prepare-registry[]
 
-==== Creating a registry user
+[#prepareRegistryProject]
+=== Configuring the Registry
 
-As a best practice we recommend to create a new user thats credentials are later shared with {elm}.
-If you already have an existing user or want to continue the deployment as admin, go the next chapter <<Creating a new project>>.
+In this section, we will cover the configuration of the registry after deployment, including the creation of a registry user and its corresponding project.
 
-To create new user, log in with an existing user that holds the permissions to create new users (for example, *admin*).
+[#createRegistryUser]
+==== Create a registry user
+
+As a best practice we recommend to create a new registry user whose credentials will be shared with the deployment tools or Kubernetes clusters.
+
+ifdef::is-sap-dme[]
+If you already have an existing user or want to continue the deployment as admin, please proceed to the project creation section below (see <<proxyRegistryProject>>).
+endif::[]
+ifdef::is-sap-eic[]
+If you already have an existing user or want to continue the deployment as admin, please proceed to the project creation section below (see <<elmRegistryProject>>).
+endif::[]
+
+To create a new user, login with an existing account that holds the permissions to create new users (e.g. admin).
 
 image::SAP-Edge-Registry-User-Creation.png[title=Create Registry User,scaledwidth=99%]
 
-==== Creating a new project
+# end::prepare-registry[]
+
+# tag::elm-registry-project[]
+[#elmRegistryProject]
+==== Create a new project
 
 To use your registry for {elm}, you'll need to create a project in which the images are getting stored.
 Therefore, log in to your registry and click _NEW PROJECT_ as shown below:
 
 image::SAP-Edge-Registry-Create-Project.png[title=Create Registry Project,scaledwidth=99%]
 
-When created, access the project and download the registry certificate.
+Once created, access the project and download the registry certificate.
 This can be done using the download button _REGISTRY CERTIFICATE_ in the project page:
 
 image::SAP-Edge-Registry-Certificate.png[title=Registry Certificate,scaledwidth=99%]
-# end::prepare-elm[]
+
+# end::elm-registry-project[]
+
+# tag::proxy-cache-project[]
+[#proxyRegistryProject]
+==== Create a Proxy Cache Project
+
+The {reg} can be configured as a transparent proxy cache, eliminating the need to manually transfer images or maintain replication rules. When the cluster requests an image, {reg} automatically fetches it from the source registry, caches it locally, and serves it seamlessly.
+
+===== Create the Registry Endpoint
+
+Before creating a Proxy Cache Project, you need to define a Registry Endpoint that points an external, upstream container registry. To do so, login to your registry and follow the steps below:
+
+1. Navigate to *Administration* -> *Registries*.
+2. Click *NEW ENDPOINT*.
++
+image::SAP-Edge-Registry-Create-Endpoint.png[title=Create Registry Endpoint,scaledwidth=99%]
+3. Configure the following parameters:
+   * *Provider*: `Docker Registry`
+   * *Name*: A generic name (e.g., `source-registry-endpoint`).
+   * *Endpoint URL*: The URL of the source registry where the images to be cached are located (e.g., `\https://<SOURCE_REGISTRY_URL>`).
+   * *Access ID* / *Access Secret*: Your user credentials for the source registry.
+4. Click *TEST CONNECTION* to validate, then click *OK*.
+
+===== Create the Proxy Cache Project
+
+Once the Registry Endpoint is set up as described above, you can proceed to create your Proxy Cache Project. To do so, follow these steps:
+
+1. Navigate to *Projects* and click *NEW PROJECT*.
++
+image::SAP-Edge-Registry-Create-Project.png[title=Create Registry Project,scaledwidth=99%]
+2. Enter a project name (e.g., `proxy-cache-project`).
+3. Enable the *Proxy Cache* toggle switch.
++
+image::SAP-Edge-Registry-Proxy-Project.png[title=Enable Proxy Cache Configuration]
+4. Select the previously created endpoint (e.g., `source-registry-endpoint`) from the *Endpoint* dropdown menu.
+5. Click *OK*.
+
+[TIP]
+====
+*Tag Retention Policy:* Once the project is created, you can navigate to *Configuration* > *Policy* to adjust the retention rules (e.g., to prevent cached images from being deleted or to apply different custom criteria).
+====
+
+# end::proxy-cache-project[]
 
 # tag::use-elm[]
+
 === Using it with {elm}
 
 To use {reg} with {elm}, you'll need to configure the {rke} cluster that will be running the {elm} workload and adjust the configuration of your Edge Node.
 
 ==== Configuring the {rke} cluster that hosts ELM
 
-In order to avoid setting up multiple imagePullSecrets for each namespace, we recommend to add the {reg} to you cluster configuration as described in <<rancherRegistries>>.
+In order to avoid setting up multiple imagePullSecrets for each namespace, we recommend to add the {reg} to your cluster configuration as described in <<rancherRegistries>>.
 If you are using self signed certificates or a certificate signed by an unknown CA, tick in the _Skip TLS Verifications_ box.
 
 ==== Adjusting ELM Edge Node
 
 Opt in for "Replicate Container Images".
 As the *Local Container Registry URL* use the URL of your registry and append the project name to it.
-For example, if you registry is hosted at `example.com` and your project is called `my-eic-project`, then enter
-`example.com/my-eic-project`
+E.g., if your registry is hosted at `example.com` and your project is called `my-eic-project`, then enter `example.com/my-eic-project`.
 
 Also make sure to toggle the *Authentication* to be enabled.
 Enter the user name and password for your registry.
 
-When using a self signed certificate, opt-in the *No-Trusted Certificate* and upload the certificate, you fetched as described
-in <<Preparing for {elm}>>.
+When using a self signed certificate, opt-in the *No-Trusted Certificate* and upload the certificate you fetched as described in <<elmRegistryProject>>.
 
 image::SAP-Edge-Registry-ELM-Config.png[title=ELM enable private registry,scaledwidth=99%]
 

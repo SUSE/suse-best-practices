@@ -1,0 +1,212 @@
+// tag::intro[]
+To configure Kafka for {dme}, we use the Strimzi Kafka Operator. This operator natively handles the lifecycle, security, and scaling of the Kafka cluster on {rke}.
+
+More details on configuring and connecting to Strimzi Kafka to {dme} can be found at the following link:
+https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/appendix-4-set-up-and-connect-to-strimzi-kafka
+// end::intro[]
+
+// tag::prerequisites[]
+==== Prerequisites
+
+Before deploying the Strimzi Operator, you need to create the related namespace and *imagePullSecret*.
+To create the namespace, run:
+
+[source, bash, subs="attributes"]
+----
+kubectl create namespace {strimzi_namespace}
+----
+
+Instructions on how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
+
+Before you can install the application, you need to log in to the registry. You can find the instructions in <<LoginApplicationCollection>>.
+
+// tag::install-operator[]
+==== Deploying the Strimzi Operator
+
+Install the Strimzi Cluster Operator using Helm from the {rac}:
+
+[source, bash, subs="attributes"]
+----
+helm install strimzi-cluster-operator oci://dp.apps.rancher.io/charts/strimzi-kafka-operator \
+  --namespace {strimzi_namespace} \
+  --set global.imagePullSecrets=\{application-collection\} \
+  --set replicas=3 \
+  --version {strimzi_chart_version}
+----
+
+// tag::deploy-cluster[]
+==== Deploying the Kafka Cluster
+
+Once the Strimzi Operator pods are running, you can deploy a Kafka cluster. To do so, create a file named `strimzi-kafka.yaml` with the following configuration:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: controller
+  namespace: {strimzi_namespace}
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  replicas: 3
+  roles:
+    - controller
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 5Gi
+        kraftMetadata: shared
+        deleteClaim: false
+        class: longhorn
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: broker
+  namespace: {strimzi_namespace}
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  replicas: 3
+  roles:
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 128Gi
+        deleteClaim: false
+        class: longhorn
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: kafka-cluster
+  namespace: {strimzi_namespace}
+spec:
+  kafka:
+    version: "{strimzi_kafka_version}"
+    metadataVersion: "{strimzi_kafka_metadata_version}"
+    authorization:
+      type: simple
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+        authentication:
+          type: scram-sha-512
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+----
+
+NOTE::
+The configuration above creates a Kafka cluster with 3 brokers and 3 controllers, each with persistent storage.
+You should adjust the sizes according to your environment.
+
+Apply the configuration to the cluster:
+
+[source, bash]
+----
+kubectl apply -f strimzi-kafka.yaml
+----
+
+// tag::create-user[]
+[#createKafkaUser]
+==== Creating the Kafka User and ACLs
+
+After the Kafka cluster is deployed, you need to create a Kafka user for {dme} and configure the necessary Access Control Lists (ACLs) to allow {dme} to read and write to its internal topics.
+
+Create a file named `strimzi-kafka-user.yaml` with the following content:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: kafka-user
+  namespace: {strimzi_namespace}
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: com.sap.dsc.dm.
+          patternType: prefix
+        operations:
+          - Read
+          - Write
+          - Create
+          - Describe
+          - Delete
+      - resource:
+          type: group
+          name: "*"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+----
+
+Apply the user configuration:
+
+[source, bash]
+----
+kubectl apply -f strimzi-kafka-user.yaml
+----
+
+The Strimzi operator will automatically generate a Kubernetes Secret containing the user's credentials.
+Retrieve and decode the password, as you will need it for the {dme} installation (<<configureKafkaDME>>):
+
+[source, bash, subs="attributes"]
+----
+kubectl get secret kafka-user -n {strimzi_namespace} -o jsonpath='{.data.password}' | base64 -d
+----
+// end::create-user[]
+
+// tag::configure-dme[]
+[#configureKafkaDME]
+==== Connecting SAP {dme} to Strimzi Kafka
+
+Once the Kafka cluster and user are ready, you must configure the SAP {dme} Helm `values.yaml` to disable the embedded Kafka and point to the external Strimzi deployment.
+
+[NOTE]
+====
+The configuration example below uses the standard in-cluster Kubernetes DNS address (`kafka-cluster-kafka-bootstrap.{strimzi_namespace}.svc.cluster.local:9092`). If your Kafka cluster uses a different namespace, custom domain name, or DNS endpoint, make sure to update the `brokers` field with your actual server address and port.
+====
+
+Update your `values.yaml` file with the connection details and the decoded password retrieved in the previous step (<<createKafkaUser>>):
+
+[source, yaml, subs="attributes+"]
+----
+global:
+  kafka:
+    useEmbedded: false
+    auth:
+      brokers: 'kafka-cluster-kafka-bootstrap.{strimzi_namespace}.svc.cluster.local:9092'
+      username: 'kafka-user'
+      password: '<your-kafka-password>'
+----
+// end::configure-dme[]

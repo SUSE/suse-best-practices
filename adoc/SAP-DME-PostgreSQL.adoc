@@ -1,0 +1,233 @@
+
+
+IMPORTANT::
+SUSE does *not* offer 3rd level database support for {pg} or {cnpg} on Kubernetes.
+Find information about support options at link:https://www.postgresql.org/support/[The PostgreSQL Global Development Group].
+
+IMPORTANT::
+The instructions below describe only one variant of installing a {pg} database with the {cnpg} operator.
+There are other possible ways to set up {pg} which are not covered in this guide.
+It is also possible to install {pg} as a single instance on the operating system.
+We will focus on installing {pg} via the {cnpg} operator in a Kubernetes cluster.
+If you want to use the {cnpg} operator you need the Rancher Prime for SAP applications subscription or Rancher Prime Suite.
+For more information please visit https://docs.apps.rancher.io/get-started/subscriptions
+
+== Deploying {pg}
+
+Even though {cnpg} is available for deployment using the {rancher} Apps, we recommend using the {rac}.
+The {cnpg} chart can be found at {cnpg_url}.
+
+=== Deploying the operator
+
+To deploy the operator chart, create the related namespace and an `imagePullSecret` first.
+To create the namespace, run:
+
+[source, bash, subs="attributes+"]
+----
+kubectl create namespace {cnpg_namespace}
+----
+
+[#pgIPS]
+Instructions how to create the `imagePullSecret` can be found in <<imagePullSecret>>.
+
+[#pgLIR]
+Before you can install the application, you need to log in to the registry.
+Find the instructions in <<LoginApplicationCollection>>.
+
+Now, install the operator using Helm by running the following command. Make sure to replace `<your_pg_version>` with the desired version of {pg}:
+
+[source, bash, subs="attributes+"]
+----
+helm install {cnpg_app_name} oci://dp.apps.rancher.io/charts/{cnpg_app_name} \
+  --namespace={cnpg_namespace} \
+  --set global.imagePullSecrets=\{application-collection\} \
+  --set images.postgresql.tag=<your_pg_version>
+----
+
+NOTE: To get a complete list of available {pg} versions, visit https://apps.rancher.io/applications/postgresql/components
+
+=== Deploying the database cluster
+
+First, create the namespace where the database will be deployed:
+
+[source, bash, subs="attributes+"]
+----
+kubectl create namespace {cnpg_pg_db_name}
+----
+
+Like the operator, the database pods will also need to pull images from the registry. Ensure you create the `imagePullSecret` in this new namespace as well, following the instructions in <<imagePullSecret>>.
+
+==== Configuring database credentials
+
+The {cnpg} operator requires two separate credentials: one for the database superuser (which manages the {pg} cluster) and one for the application user (which accesses the specific application database). 
+
+Create a file named `create_user_secret.yaml` to define these credentials:
+
+[source, yaml, subs="attributes+"]
+----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-pg-superuser
+  namespace: {cnpg_pg_db_name}
+type: kubernetes.io/basic-auth
+stringData:
+  username: postgres
+  password: "<your_password>"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cluster-pg-appuser
+  namespace: {cnpg_pg_db_name}
+  annotations:
+  labels:
+type: kubernetes.io/basic-auth
+stringData:
+  username: appuser
+  password: "<your_password>"
+----
+
+Apply the configuration to your cluster:
+
+[source, bash]
+----
+kubectl apply -f create_user_secret.yaml
+----
+
+==== Configuring TLS certificates
+
+To secure internal and external database connections, you must create Kubernetes secrets containing the TLS certificates using `cert-manager`. 
+
+In this example, we issue a server certificate (with the DNS names matching the {cnpg} services) and a client certificate required for {pg} streaming replication, both signed by the global `my-cluster-ca-issuer`.
+
+Create a file named `edgedb-certificate.yaml` with the following content:
+
+[source, yaml, subs="attributes+"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-edgedb-server-cert
+  namespace: {cnpg_pg_db_name}
+spec:
+  secretName: my-edgedb-server-cert
+  secretTemplate:
+    labels:
+      # CRITICAL: This label tells the CloudNativePG operator to 
+      # automatically reload the database when this cert renews.
+      cnpg.io/reload: "" 
+  usages:
+    - server auth
+    - digital signature
+  dnsNames:
+    - postgres-rw
+    - postgres-rw.{cnpg_pg_db_name}
+    - postgres-rw.{cnpg_pg_db_name}.svc
+    - postgres-ro
+    - postgres-ro.{cnpg_pg_db_name}
+    - postgres-ro.{cnpg_pg_db_name}.svc
+    - postgres-r
+    - postgres-r.{cnpg_pg_db_name}
+    - postgres-r.{cnpg_pg_db_name}.svc
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-edgedb-client-cert
+  namespace: {cnpg_pg_db_name}
+spec:
+  secretName: my-edgedb-client-cert
+  secretTemplate:
+    labels:
+      cnpg.io/reload: ""
+  usages:
+    - client auth
+  commonName: streaming_replica
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+NOTE: We will create the database on the same cluster where Digital Manufacturing Edge is running, so we will use the internal service names of the database. If your PostgreSQL is running outside of the cluster, you need to change the `dnsNames` values.
+
+Apply the certificate configuration to your cluster:
+
+[source, bash]
+----
+kubectl apply -f edgedb-certificate.yaml
+----
+
+==== Creating the database
+
+Create a file named `postgres-values.yaml` with the following configuration for the {pg} cluster database:
+
+[source, yaml, subs="attributes+"]
+----
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: {cnpg_pg_db_name}
+spec:
+  imageName: dp.apps.rancher.io/containers/postgresql:16.14-31.5
+  instances: 3
+
+  superuserSecret:
+    name: cluster-pg-superuser
+
+  bootstrap:
+    initdb:
+      database: {cnpg_pg_db_name}   # The name of the application database to create
+      owner: appuser                # The username (must match the 'username' key in the secret)
+      secret:
+        name: cluster-pg-appuser
+
+  # Configure CNPG to use the cert-manager secrets (from previous steps)
+  certificates:
+    serverTLSSecret: my-edgedb-server-cert
+    serverCASecret: my-edgedb-server-cert
+    replicationTLSSecret: my-edgedb-client-cert
+    clientCASecret: my-edgedb-client-cert
+
+  storage:
+    size: 50Gi
+----
+
+Apply the configuration to deploy the database cluster:
+
+[source, bash]
+----
+kubectl apply -f postgres-values.yaml
+----
+
+You can verify the status of the cluster by using `kubectl`:
+
+[source, bash]
+----
+kubectl get clusters.postgresql.cnpg.io -A
+NAMESPACE   NAME       AGE   INSTANCES   READY   STATUS                     PRIMARY
+edgedb      postgres   10m   3           3       Cluster in healthy state   postgres-1
+----
+
+=== Configuring SAP {dme} to use the database
+
+After successfully deploying the {pg} cluster, you must configure the SAP {dme} Helm chart to connect to it instead of using the embedded database. 
+Add the following database configuration to your `values.yaml` file for the SAP {dme} deployment:
+
+[source, yaml, subs="attributes+"]
+----
+global:
+  database:
+    useEmbedded: false
+    type: postgresql
+    auth:
+      host: "postgres-rw.{cnpg_pg_db_name}.svc.cluster.local"
+      port: 5432
+      database: "{cnpg_pg_db_name}"
+      username: "appuser"
+      password: "<your_password>"
+----

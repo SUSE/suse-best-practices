@@ -1,0 +1,211 @@
+:app_name: {istio}
+:lb_addr: <LB-address>
+
+# tag::intro[]
+
+== Installing {istio}
+
+This chapter describes how to install {istio} in an RKE2 cluster using Helm.
+
+# end::intro[]
+
+# tag::prerequisites[]
+
+=== Prerequisites
+
+To deploy the chart, create the related namespace and *imagePullSecret* first.
+To create the namespace, run:
+
+[source, bash, subs="attributes"]
+----
+kubectl create namespace {istio_namespace}
+----
+
+[#istioIPS]
+Instructions how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
+
+
+[#istioLIR]
+Before you can install the application, you need to log in to the registry.
+You can find the instructions in <<LoginApplicationCollection>>.
+# end::prerequisites[]
+
+# tag::deployment[]
+=== Deploying the chart
+
+Create a file _values.yaml_ to store some configurations for the {istio} Helm chart.
+The configuration might look like the following:
+
+[source, yaml]
+----
+base:
+  '*': null
+  enabled: true
+  profile: ''
+cni:
+  '*': null
+  enabled: false
+  profile: ''
+gateway:
+  '*': null
+  enabled: true
+  profile: ''
+global:
+  '*': null
+  imagePullSecrets: ['application-collection']
+  imageRegistry: ''
+  platform: ''
+istiod:
+  '*': null
+  enabled: true
+  profile: ''
+ztunnel:
+  '*': null
+  enabled: false
+  profile: ''
+----
+
+IMPORTANT: Due to a known bug in the chart, it is necessary to name the helm installation *ingressgateway*
+
+To install the application, run:
+[source, bash, subs="attributes"]
+----
+helm install ingressgateway oci://dp.apps.rancher.io/charts/istio \
+-f values.yaml \
+--namespace={istio_namespace} \
+--version {istio_chart_version}
+----
+
+This will deploy the {istio} application including a Service of type LoadBalancer which will consume the IP address you configured in <<metalConfig>>.
+
+For {dme} to properly route traffic and use the Istio Service Mesh, you must enable automatic sidecar injection on the target namespace. Run the following command to label the `dm-edge` namespace:
+
+[source, bash, subs="attributes"]
+----
+kubectl label namespace {dme_namespace} istio-injection=enabled
+----
+
+For more information on installing and configuring {istio}, check the reference guide at https://docs.apps.rancher.io/reference-guides/istio/.
+
+# end::deployment[]
+
+# tag::certificate[]
+
+== Certificates
+
+To allow TLS encrypted traffic through your {istio} gateway, you'll need to configure the certificates.
+
+=== Istio Gateway server certificate
+
+The first certificate needed is the Istio server certificate.
+Its purpose is to terminate HTTPS traffic at the Istio Gateway and presents the server identity for your _*.<LB-address>_ domains to inbound connections.
+
+Store the excerpt below in a file _istio-server-cert.yaml_ and fill out the relevant fields:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-server-cert
+  namespace: {istio_namespace}
+spec:
+  secretName: tls-secret
+  duration: 8760h
+  renewBefore: 720h
+  commonName: "{lb_addr}"
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  usages:
+    - server auth
+  dnsNames:
+    - "server.local"
+    - "localhost"
+    - "{lb_addr}"
+    - "*.{lb_addr}"
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+To apply, run:
+[source, bash]
+----
+kubectl apply -f istio-server-cert.yaml
+----
+
+When applied, this creates a secret in the {istio_namespace} namespace called *tls-secret*.
+
+=== Client Certificate
+
+The next certificate needed is the client certificate.
+It is used as a client-side identity (client.crt and client.key) that requests will use against the cluster.
+
+Store the excerpt below in a file _my-client-cert.yaml_:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-client-cert
+  namespace: {istio_namespace}
+spec:
+  secretName: client-tls-secret
+  duration: 8760h
+  renewBefore: 720h
+  commonName: "dm-edge-services"
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 4096
+  usages:
+    - client auth
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+To apply, run:
+[source, bash]
+----
+kubectl apply -f my-client-cert.yaml
+----
+
+When applied, this creates a secret in the {istio_namespace} namespace called *client-tls-secret*.
+
+=== Istio CA Bundle
+
+At last, a "dummy" certificate used to automate copying the Root ca.crt into {istio_namespace} is needed. This specifically satisfied SAP DM Edge's hardcoded <ingressServerCertificate>-cacert naming rule.
+
+Store the excerpt below in a file _my-client-cert.yaml_:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: istio-ingress-ca-bundle
+  namespace: {istio_namespace}
+spec:
+  secretName: tls-secret-cacert
+  commonName: "dummy-istio-ca"
+  duration: 8760h
+  isCA: false
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+To apply, run:
+[source, bash]
+----
+kubectl apply -f my-client-cert.yaml
+----
+
+When applied, this creates a secret in the {istio_namespace} namespace called *tls-secret-cacert*.
+
+# end::certificate[]
+

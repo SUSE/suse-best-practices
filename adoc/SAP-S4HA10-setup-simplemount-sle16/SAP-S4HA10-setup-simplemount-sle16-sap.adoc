@@ -1,0 +1,381 @@
+== Installing the {sap} system
+
+The overall procedure to install the distributed {sap} system is as follows:
+
+.Tasks
+
+. Plan Linux user and group number scheme.
+. Install the ASCS instance for the central services.
+. Install the ERS to get a replicated enqueue scenario.
+. Prepare the ASCS and ERS installations for the cluster take-over.
+. Install the database.
+. Install the primary application server instance (PAS).
+. Install additional application server instances (AAS).
+
+The result will be a distributed {sap} installation as illustrated here:
+
+.Distributed installation of the {sap} system
+image::sles4sap_s4hana_distInstall.svg[SVG]
+
+=== Linux user and group number scheme
+
+Whenever asked by the {sap} software provisioning manager (SWPM) which Linux User
+IDs or Group IDs to use, refer to the following table as an example:
+
+[subs="attributes"]
+----
+Group sapinst      1001
+Group sapsys       1002
+Group {hanaSidDBLc}shm       1003
+
+User  {mysapadm}       2001
+User  sapadm       2002
+User  {hanaDBadm}       2003
+----
+
+=== Installing ASCS on {my2nd1}
+
+Temporarily, as the local IP address, set the service IP address which you will
+later use in the cluster, because the installer needs to be able to resolve and
+use it. Make sure to use the correct virtual hostname for each installation step.
+If applicable, make sure to mount file systems like _/sapmedia/_.
+
+[subs="attributes"]
+----
+# ip a a {myVipAAscs}{myVipNM} dev {myHaNetIf}
+# # if not mounted yet, mount these now
+# mount /sapmnt/{mySid}
+# mount /usr/sap/{mySid}
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNAscs}
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP
+-> High-Availability System -> ASCS Instance
+* Use SID {mySid}.
+* Use instance number {myAscsIno}.
+* Deselect using FQDN.
+* All passwords: use {mySapPwd}.
+* Double-check during the parameter review if virtual name *{myVipNAscs}* is used.
+* If you get an error during the installation about permissions, change the
+  ownership of the ASCS directory.
+
+[subs="attributes"]
+----
+# chown -R {mysapadm}:sapsys /usr/sap/{mySid}/{myInstAscs}
+----
+
+=== Installing ERS on {my2nd2}
+
+Temporarily, as the local IP address, set the service IP address which you will
+later use in the cluster, because the installer needs to be able to resolve and
+use it. Make sure to use the correct virtual hostname for each installation step.
+
+
+[subs="attributes"]
+----
+# ip a a {myVipAErs}{myVipNM} dev {myHaNetIf}
+# # if not mounted yet, mount these now
+# mount /sapmnt/{mySid}
+# mount /usr/sap/{mySid}
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNErs}
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
+High-Availability System -> ERS Instance
+* Use instance number {myErsIno}.
+* Deselect using FQDN.
+* Double-check during the parameter review that virtual name *{myVipNErs}* is used.
+* If you get an error during the installation about permissions, change the
+  ownership of the ERS directory.
+
+[subs="attributes"]
+----
+# chown -R {mysapadm}:sapsys /usr/sap/{mySid}/{myInstErs}
+----
+
+* If you get a prompt to manually stop/start the ASCS instance, log in to
+{my2nd1} as user {mysapadm} and call 'sapcontrol'.
+
+[subs="attributes"]
+----
+# sapcontrol -nr {myAscsIno} -function Stop    # to stop the ASCS
+# sapcontrol -nr {myAscsIno} -function Start   # to start the ASCS
+----
+
+=== Performing subsequent steps for ASCS and ERS
+
+After installation, you can perform several subsequent steps on the ASCS and ERS instances.
+
+==== Stopping ASCS and ERS
+
+To stop the ASCS and ERS instances, use the commands below.
+On _{my2nd1}_, do the following:
+
+[subs="attributes"]
+----
+# su - {mySapAdm}
+# sapcontrol -nr {myAscsIno} -function Stop
+# sapcontrol -nr {myAscsIno} -function StopService
+----
+
+On _{my2nd2}_, do the following:
+
+[subs="attributes"]
+----
+# su - {mySapAdm}
+# sapcontrol -nr {myErsIno} -function Stop
+# sapcontrol -nr {myErsIno} -function StopService
+----
+
+==== Register ASCS and ERS
+
+ASCS is installed on the first cluster node, ERS is installed on the second.
+To integrate ASCS and ERS on all cluster node to systemd the SAP instances need
+to be registered on the nodes.
+
+On the first cluster node ERS needs to be registred, on the second cluster node
+ASCS needs to be registered.
+
+- Register the ERS {sap} instance on the first cluster node (_{my2nd1}_):
++
+[subs="specialchars,attributes"]
+----
+# LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ERS<instanceNumberErs>_<virtHostNameErs> -reg
+----
+
+- Register the ASCS {sap} instance on the second cluster node (_{my2nd2}_):
++
+[subs="specialchars,attributes"]
+----
+# LD_LIBRARY_PATH=/usr/sap/hostctrl/exe:$LD_LIBRARY_PATH; export LD_LIBRARY_PATH
+# /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/<SID>/SYS/profile/<SID>_ASCS<instanceNumberAscs>_<virtHostNameAscs> -reg
+----
+
+After the registration the list of systemd-services must be the same and should like:
+
+[subs="specialchars,attributes"]
+----
+# systemctl list-unit-files | grep SAP
+SAP{mySid}_{myAscsIno}.service disabled disabled
+SAP{mySid}_{myErsIno}.service disabled disabled
+SAP.slice  static -
+----
+
+After the registration it could be that the service is still enabled. The next
+section describes how to disable the SAP<sid>_<ino> services.
+
+==== Disabling systemd services of the ASCS and the ERS {sap} instance
+
+This is mandatory for giving control over the instance to the HA cluster.
+See also manual pages ocf_suse_SAPStartSrv(7) and SAPStartSrv_basic_Cluster(7).
+
+[subs="specialchars,attributes"]
+----
+# systemctl disable SAP{mySid}_{myAscsIno}.service
+# systemctl stop SAP{mySid}_{myAscsIno}.service
+# systemctl disable SAP{mySid}_{myErsIno}.service
+# systemctl stop SAP{mySid}_{myErsIno}.service
+----
+NOTE: Stopping this instance services will stop the SAP instance as well.
+Starting the instance services will not start the SAP instances.
+
+- Check the {sap} systemd integration:
+
+[subs="specialchars,attributes"]
+----
+# systemctl list-unit-files | grep SAP
+SAP{mySid}_{myAscsIno}.service disabled disabled
+SAP{mySid}_{myErsIno}.service disabled disabled
+----
+The instance services are indeed disabled, as required.
+
+[subs="specialchars,attributes"]
+----
+# systemctl list-unit-files | grep sap
+saphostagent.service enabled
+sapinit.service generated
+saprouter.service disabled
+saptune.service enabled
+----
+The mandatory `saphostagent` service is enabled. This is the installation default.
+Some more {sap} related services might be enabled, for example the recommended
+`saptune`.
+
+[subs="specialchars,attributes"]
+----
+# cat /usr/sap/sapservices
+systemctl --no-ask-password start SAP{mySid}_{myAscsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}
+systemctl --no-ask-password start SAP{mySid}_{myErsIno} # sapstartsrv pf=/usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}
+----
+The _sapservices_ file is still there for compatibility. It shows native systemd
+commands, one per line for each registered instance.
+
+==== Integrating the cluster framework using _{s4sClConnector3}_
+
+For the ERS and ASCS instances, edit the instance profiles
+{mySid}_{myInstAscs}_{myVipNAscs} and {mySid}_{myInstErs}_{myVipNErs} in the
+profile directory _/usr/sap/{mySid}/SYS/profile/_.
+
+Tell the `{sapStartSrv}` service to load the HA script connector library and to
+use the connector `{s4sClConnector3}`. On the other hand, make sure the
+feature _Autostart_ is *not* used.
+
+[subs="attributes"]
+----
+service/halib = $(DIR_EXECUTABLE)/saphascriptco.so
+service/halib_cluster_connector = /usr/bin/sap_suse_cluster_connector
+----
+
+Add the user _{mySapAdm}_ to the Unix user group _haclient_.
+
+[subs="attributes"]
+----
+# usermod -a -G haclient {mySapAdm}
+----
+See also manual pages sap_suse_cluster_connector(8), usermod(8) and groupmod(8).
+
+==== Adapting {sap} profiles
+// TODO PRIO1: to match the {sapCert} certification
+
+For the ASCS instance, change the start command from _Restart_Program_xx_ to
+_Start_Program_xx_ for the enqueue server (Enqueue Server 2). This change tells the
+{sap} start framework *not* to self-restart the enqueue process. Such a restart
+would result in a loss of the locks.
+
+File */usr/sap/{mySid}/SYS/profile/{mySid}_{myInstAscs}_{myVipNAscs}*:
+
+[subs="attributes"]
+----
+Start_Program_01 = local $(_ENQ) pf=$(_PF)
+----
+
+Optionally, you can limit the number of restarts of services (in the case of
+ASCS, this limits the restart of the message server).
+
+For the ERS instance, change the start command from _Restart_Program_xx_ to
+_Start_Program_xx_ for the enqueue replication server (Enqueue Replicator 2).
+
+File */usr/sap/{mySid}/SYS/profile/{mySid}_{myInstErs}_{myVipNErs}*:
+
+[subs="attributes"]
+----
+Start_Program_00 = local $(_ENQR) pf=$(_PF) NR=$(SCSID)
+----
+// TODO PRIO2: Check if the variable is _PF or _PFL
+
+==== Starting ASCS and ERS
+
+To start the ASCS and ERS instances, use the commands below.
+
+On _{my2nd2}_, do the following
+
+[subs="attributes"]
+----
+# su - {mySapAdm}
+# sapcontrol -nr {myErsIno} -function StartService {mySid}
+# sapcontrol -nr {myErsIno} -function Start
+----
+
+On _{my2nd1}_, do the following:
+
+[subs="attributes"]
+----
+# su - {mySapAdm}
+# sapcontrol -nr {myAscsIno} -function StartService {mySid}
+# sapcontrol -nr {myAscsIno} -function Start
+----
+
+=== Installing database on {myNode1}
+
+The HANA DB has very strict HW requirements. The storage sizing depends on many
+indicators. Check the supported configurations at
+https://support.sap.com/en/release-upgrade-maintenance.html#section_1969201630[SAP HANA Hardware Directory]
+and https://www.sap.com/documents/2016/05/e8705aae-717c-0010-82c7-eda71af511fa.html[SAP HANA TDI].
+
+[subs="attributes"]
+----
+# ip a a {myVipADb}{myVipNM} dev {myHaNetIf}
+# mount {myDevB} {hanaMPDb}
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNDb}
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
+High-Availability System -> Database Instance
+* Profile directory is _/sapmnt/{mySid}/profile_.
+* Deselect using FQDN.
+* Database parameters : Database ID (DBSID) is {hanaSidDB};
+Database Host is {myVipNDb}; Instance Number is {hanaDBIno}.
+* Database System ID enter Instance Number is {hanaDBIno}; SAP Mount Directory is
+/sapmnt/{mySID}/profile.
+* Account parameters: change them in case of custom values needed.
+* Clean-up: select *Yes*, remove operating system users from the group `sapinst`.
+* Double-check during the parameter review, if virtual name *{myVipNDb}* is
+  used.
+
+=== Installing the primary application server (PAS) on {my2nd3}
+
+
+[subs="attributes"]
+----
+# ip a a {myVipAPas}{myVipNM} dev {myHaNetIf}
+# mount {myDevPartPas} {myMPPas}
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNPas}
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
+High-Availability System -> Primary Application Server Instance
+* Use instance number {myPasIno}.
+* Deselect using FQDN.
+* For this example setup, we have used a default secure store key.
+* Do not install Diagnostic Agent.
+* No SLD is used.
+* Double-check during the parameter review, if virtual name *{myVipNPas}* is used.
+
+=== Installing an additional application server (AAS) on {my2nd4}
+
+[subs="attributes"]
+----
+# ip a a {myVipAAas}{myVipNM} dev {myHaNetIf}
+# mount {myDevPartSec} {myMPSec}
+# cd {mySAPinst}
+# ./sapinst SAPINST_USE_HOSTNAME={myVipNDSec}
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
+High-Availability System -> Additional Application Server Instance
+* Use instance number {myDSecIno}.
+* Deselect using FQDN.
+* Do not install Diagnostic Agent.
+* Double-check during the parameter review, if virtual name *{myVipNDSec}* is used.
+
+=== Optional: Preparing additional cluster nodes
+
+If you install a cluster with three or more nodes to control the ASCS and ERS, you need to
+prepare these nodes to have {sap} Linux users and system configuration in place to be ready
+to run the SAP instances. SWPM 2.0 already includes an installation option to prepare
+additional cluster nodes. In this case `sapinst` is called without SAPINST_USE_HOSTNAME.
+
+Ensure that the {sap} NFS shares are also mounted on the additional cluster node.
+
+[subs="attributes"]
+----
+# cd {mySAPinst}
+# ./sapinst
+----
+
+* SWPM product installation path:
+** Installing {sapS4insm}  -> SAP HANA DATABASE -> Installation -> Application Server ABAP ->
+High-Availability System -> Prepare Additional Cluster Node
+* Provide SAP profile path.
+* Double-check the parameter review.
+

@@ -1,0 +1,432 @@
+:dex-server-URL: <your-Dex-URL>
+:rancher-URL: <your-Rancher-URL>
+:app_name: {dex}
+
+# tag::intro[]
+
+== Installing {dex}
+
+This chapter describes how to install {dex} in an RKE2 cluster using Helm.
+
+# end::intro[]
+
+# tag::oidc[]
+
+[#oidc-setup]
+== Setup {rancher} as an OIDC provider
+
+[IMPORTANT]
+====
+{dex} supports integration with various OIDC providers. For a list of supported connectors, see the https://dexidp.io/docs/connectors/[Dex Connectors documentation].
+This guide describes how to use Dex with {rancher}.
+====
+
+You can use {rancher} as the OIDC provider for {dex}.
+For complete configuration instructions, see:
+link:https://documentation.suse.com/cloudnative/rancher-manager/v2.14/en/rancher-admin/users/authn-and-authz/configure-oidc-provider.html[Configure Rancher as an OIDC provider]
+
+
+=== Using {rancher}
+
+To set up {rancher}, open the application and select *_Users & Authentication_* in the left navigation panel, as shown below:
+
+image::SAP-Edge-Rancher-Dashboard-Users-Icon.png[title=Rancher Dashboard User Icon,scaledwidth=99%,opts=inline,Embedded]
+
+Next, In the left navigation panel, select *OIDC Apps*:
+
+image::SAP-Edge-Users-OIDC-Tab.png[title=Rancher User OIDC Tab,scaledwidth=99%,opts=inline,Embedded]
+
+Make a note of the *Issuer URL*, which is required when configuring {dex}.
+To allow the SAP {dme} application to authenticate through {dex}, create a new OIDC App.
+To do so, click *Add Application* in the upper right corner, as shown below:
+
+image::SAP-Edge-Rancher-OIDC-Menu.png[title=Rancher User Menu,scaledwidth=99%,opts=inline,Embedded]
+
+The OIDC creation page opens:
+
+image::SAP-Edge-OIDC-Create.png[title=Rancher User Menu,scaledwidth=99%,opts=inline,Embedded]
+
+Enter a name for the OIDC application and specify the callback URL which must be *{dex-server-URL}/callback*.  
+Use this callback URL as the *redirectURL* value in the {dex} Helm chart.
+
+After clicking the *Add Application* button, the overview page for the OIDC application opens, displaying the _Client ID_ and the _Client Secrets_.
+These values are used to configure {dex} and are referenced in this guide as <clientID> and <clientSecret>.
+
+
+=== Using a manifest
+
+You can also apply a manifest to the {rancher} local cluster to create a new OIDC application.
+Upload the following manifest using the {rancher} UI or save the content and apply it using `kubectl`:
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: management.cattle.io/v3
+kind: OIDCClient
+metadata:
+  name: sap-dme-dex-client
+spec:
+  description: "OIDC Client für {dme} Dex"
+  redirectURIs:
+    - "https://{dex-server-URL}/callback" # This must be used for the redirectURL later
+  tokenExpirationSeconds: 3600
+  refreshTokenExpirationSeconds: 86400
+----
+
+=== Gathering the client secret
+
+{rancher} automatically generates a Kubernetes Secret in the `cattle-oidc-client-secrets` namespace for each `OIDCClient` resource. 
+The Secret’s name matches the `OIDCClient` client ID. Initially, the Secret contains a single client secret.
+To retrieve the client secret, query it using `kubectl` as follows:
+
+[source, bash]
+----
+kubectl get secret <client-name> -n cattle-oidc-client-secrets -o jsonpath="{.data.client-secret-1}" | base64 -d
+----
+
+# end::oidc[]
+
+# tag::nginx[]
+
+[#nginx-cert]
+== Creating the {dex} server certificate for Ingress (Only for `nginx`)
+
+If you are using `nginx`, you need a certificate for incoming Ingress traffic.
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dex-server-cert
+  namespace: {dex_namespace}
+spec:
+  secretName: dex-server-tls-secret # Put this name into your Helm values under `secretName`
+  duration: 8760h
+  renewBefore: 720h
+  commonName: "dex-dex-idp.{dex_namespace}.svc.cluster.local"  # Match your Dex service name in Kubernetes
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  usages:
+    - server auth
+  dnsNames:
+    - "dex-dex-idp.{dex_namespace}.svc.cluster.local"   # Match your Dex service name in Kubernetes
+    - "{dex-server-url}"
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+# end::nginx[]
+
+
+# tag::prerequisites[]
+
+== Prerequisites
+
+To deploy the chart, create the related namespace and *imagePullSecret* first.
+To create the namespace, run:
+
+[source, bash, subs="attributes"]
+----
+kubectl create namespace {dex_namespace}
+----
+
+[#dexIPS]
+Instructions how to create the *imagePullSecret* can be found in <<imagePullSecret>>.
+
+
+[#dexLIR]
+Before you can install the application, you need to log in to the registry.
+You can find the instructions in <<LoginApplicationCollection>>.
+
+# end::prerequisites[]
+
+# tag::values[]
+== Deploying {dex}
+
+You are now set to deploy {dex}.
+Create a `values.yaml` file to store the configurations for the {dex} Helm chart.
+The file content can resemble the following example:
+
+[source, yaml, subs="attributes"]
+----
+config: 
+  issuer: https://{dex-server-URL}/ # This must match your dex server address
+  oauth2:
+    skipApprovalScreen: true
+  # Refer to https://dexidp.io/docs/configuration/storage/#kubernetes-custom-resource-definitions-crds
+  storage:
+    type: kubernetes
+    config:
+      inCluster: true
+  connectors:
+  - config:
+      clientID: &lt;clientID&gt;
+      clientSecret: &lt;clientSecret&gt;
+      issuer: https://{rancher-URL}/oidc
+      insecureSkipVerify: true
+      redirectURI: https://{dex-server-URL}/callback  # This must match your configured Callback URL for your OIDC app
+      scopes:
+      - openid
+      - profile
+      - email
+      - groups
+      userIDKey: sub
+      userNameKey: email
+      insecureEnableGroups: true  # Ensures that group information is included in the ID token for DM Edge access
+    id: rancher-oidc
+    name: Rancher Login
+    type: oidc
+    getUserInfo: true
+  expiry:
+    idTokens: 10m
+    refreshTokens:
+      validIfNotUsedFor: 15m # Define a value which is no shorter than 15 minutes (15m) and no longer than 24 hours (24h)
+      absoluteLifetime: 24h
+      disableRotation: false
+      reuseInterval: 1m    
+  # Register a UI application (DM Edge or your own custom UI application) with dex as a client
+  staticClients:
+  - id: sap-dm-edge-client # Define an ID for the UI application
+    secret: "super-secret-password-shared-with-sap-dm" # Define a secure secret for the UI application
+    name: 'SAP Digital Manufacturing for Edge Computing' # Define a meaningful name for the UI application
+    # Callback URL for Dex to redirect the user post authentication
+    redirectURIs:
+      - https://edge-ui.{dex-server-URL}/callback
+----
+
+[IMPORTANT]
+====
+Ensure the `clientID` and `clientSecret` match the configuration in <<oidc-setup>>.
+Also, ensure that the {dex-server-URL} matches the address where the {dex} server is accessible.
+====
+# end::values[]
+
+# tag::nginx_ingress[]
+
+To access {dex} through an Ingress controller, add the following snippet to the `values.yaml` file. 
+This will create and configure Ingress for {dex}:
+
+[source, yaml]
+----
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: <your-Dex-URL>
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - <your-Dex-URL>
+      # Specify the secret you created previously for the Dex server certificate
+      secretName: dex-server-tls-secret
+----
+
+IMPORTANT: Ensure the `secretName` matches the `secretName` value configured in <<nginx-cert>>.
+
+# end::nginx_ingress[]
+
+# tag::delpoy[]
+
+To install the application, run:
+[source, bash, subs="attributes"]
+----
+helm install dex oci://dp.apps.rancher.io/charts/dex-idp \
+-f values.yaml \
+--namespace={dex_namespace} \
+--version {dex_chart_version}
+----
+
+# end::delpoy[]
+
+# tag::cert[]
+== Creating a secret for {dex}
+
+To deliver the root `ca.crt` into the `dme` namespace, create a placeholder certificate. 
+SAP {dme} mounts this secret to mathematically verify that OIDC tokens issued by {dex} are valid and signed by a trusted source.
+
+[source, yaml, subs="attributes"]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dex-ca-bundle
+  namespace: {dme_namespace}
+spec:
+  secretName: dex-ca-secret
+  commonName: "dummy-dex-ca"
+  duration: 8760h
+  isCA: false
+  issuerRef:
+    name: my-cluster-ca-issuer
+    kind: ClusterIssuer
+----
+
+# end::cert[]
+
+# tag::istio[]
+
+== Using Istio
+
+To route traffic to {dex} using Istio, configure the required Istio routes.
+A dedicated `Gateway` specifies the domain name and certificate, while
+a `VirtualService` routes incoming traffic through the gateway to the {dex} service.
+
+Save the following configuration in a `dex_istio.yaml` file:
+
+[source, yaml]
+----
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: dex-gateway
+  namespace: auth # Deploy in the same namespace as DEX
+spec:
+  selector:
+    istio: ingressgateway # Must match the name of the Istio gateway pod
+  servers:
+    - hosts:
+        - <your-Dex-URL>
+      port:
+        name: https
+        number: 443
+        protocol: HTTPS
+      tls:
+        credentialName: tls-secret
+        mode: SIMPLE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: dex-route
+  namespace: auth # Deploy in the same namespace as DEX
+spec:
+  hosts:
+    - "<your-Dex-URL>"
+  gateways:
+    - dex-gateway # Must match the gateway used by the wildcard service
+  http:
+    - match:
+        - uri:
+            prefix: /dex
+      route:
+        - destination:
+            host: dex-dex-idp.auth.svc.cluster.local # Your actual internal DEX service K8s DNS
+            port:
+              number: 5556 # Your DEX service port
+----
+
+[NOTE]
+====
+If you followed the guide and configured {metallb} and {istio}, the value of <your-Dex-URL> can be a subdomain of <LB-address>.
+For example, if <LB-address> is _192.168.1.66.sslip.io_, the <your-Dex-URL> can be _dex.192.168.1.66.sslip.io_.
+====
+
+Now apply the manifests to create the resources in the Kubernetes cluster:
+
+[source, bash]
+----
+kubectl apply -f dex_istio.yaml
+----
+
+=== Verifying reachability (optional)
+
+To verify if your deployed {dex} works as expected, use the following commands:
+
+[source, bash, subs="attributes"]
+----
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.tls\.crt}' | base64 -d > client.crt
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.tls\.key}' | base64 -d > client.key
+kubectl get secret dex-ca-secret -n {dme_namespace} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+curl -v -i \
+  --cacert ca.crt \
+  --cert client.crt \
+  --key client.key \
+  https://{dex-server-URL}/.well-known/openid-configuration
+----
+
+The command produces output similar to the following example:
+
+[source, json]
+----
+{
+  "issuer": "https://{dex-server-URL}",
+  "authorization_endpoint": "https://{dex-server-URL}/auth",
+  "token_endpoint": "https://{dex-server-URL}/token",
+  "jwks_uri": "https://{dex-server-URL}/keys",
+  "userinfo_endpoint": "https://{dex-server-URL}/userinfo",
+  "device_authorization_endpoint": "https://{dex-server-URL}/device/code",
+  "introspection_endpoint": "https://{dex-server-URL}/token/introspect",
+  "grant_types_supported": [
+    "authorization_code",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:device_code",
+    "urn:ietf:params:oauth:grant-type:token-exchange"
+  ],
+  "response_types_supported": [
+    "code"
+  ],
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "RS256"
+  ],
+  "code_challenge_methods_supported": [
+    "S256",
+    "plain"
+  ],
+  "scopes_supported": [
+    "openid",
+    "email",
+    "groups",
+    "profile",
+    "offline_access"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post"
+  ],
+  "claims_supported": [
+    "iss",
+    "sub",
+    "aud",
+    "iat",
+    "exp",
+    "email",
+    "email_verified",
+    "locale",
+    "name",
+    "preferred_username",
+    "at_hash"
+  ]
+}
+----
+
+# end::istio[]
+
+
+# tag::dme_config[]
+
+When using a custom {dex} instance, adjust the Helm values for the deployment of {dme} accordingly.
+When following this guide, the values can resemble the following example:
+
+[source, yaml]
+----
+global:
+    dex:
+        useEmbedded: false
+    dexIssuer: https://{dex-server-URL}
+    dexCACertificate: dex-ca-secret
+    dexClient:
+        clientID: sap-dm-edge-client 
+        clientSecret: super-secret-password-shared-with-sap-dm
+    idpLogoutUrl: https:/{rancher-URL}/oidc/logout
+----
+
+# end::dme_config[]

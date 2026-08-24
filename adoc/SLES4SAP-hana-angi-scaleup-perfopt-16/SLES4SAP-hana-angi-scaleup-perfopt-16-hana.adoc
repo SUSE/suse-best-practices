@@ -1,0 +1,88 @@
+// DO NOT CHANGE SECTION ID: refer to Trento check
+[[cha.s4s.hana-install]]
+== {stepHANA}
+
+image::SAPHanaSR-ScaleOut-Plan-Phase3.svg[scaledwidth="100%"]
+
+Even though this document focuses on the integration of an installed {HANA} with
+system replication already set up into the Linux cluster, this chapter summarizes
+the test environment. Always use the official documentation from {SAP} to install
+{HANA} and to set up the system replication.
+
+This guide shows {HANA} and saphostagent with native systemd integration. 
+////
+// TODO remove: An example for legacy SystemV is outlined in the appendix
+// TODO remove: <<cha.hanasr-example-systemv>>.
+////
+
+.Procedure
+
+. Install the {HANA} databases.
+
+. Check if the {SAP} hostagent is installed on all cluster nodes.
+If this SAP service is not installed, install it now.
+
+. Verify that both databases are up and running.
+
+=== Installing the {HANA} databases
+
+* Read the SAP Installation and Setup Manuals available at "SAP for Me".
+
+* Download the {HANA} Software from the portal "SAP for Me".
+
+* Install the {HANA} database as described in the {HANA} Server Installation Guide.
+The {HANA} database client will be installed together with the server by default.
+
+=== Checking if the SAP hostagent is installed on all cluster nodes
+
+Check if the native `systemd`-enabled SAP hostagent and instance `sapstartsrv`
+are installed on all cluster nodes. If not, install and enable them now.
+
+As Linux user _root_, use the command `systemctl` and `systemd-cgls` to check
+the SAP hostagent and instance services:
+
+[subs="attributes,quotes"]
+----
+# systemctl list-unit-files "sap*"
+UNIT FILE                        STATE           PRESET
+saphostagent.service             enabled         disabled
+saptune.service                  enabled         enabled
+----
+The mandatory `saphostagent` service is enabled. This is the installation default.
+Some more {sap} related services might be enabled. For correct tuning the service `saptune` is required.
+
+[subs="attributes,quotes"]
+----
+# systemctl list-unit-files "SAP*"
+UNIT FILE                        STATE           PRESET
+SAP{sapsid}_{sapino}.service                enabled         disabled
+SAP.slice                        static          -
+----
+The SAP instance service SAP{sapsid}_{sapino}.service is enabled and SAP.slice is available, as required.
+
+=== Verifying both databases are up and running
+
+[subs="attributes,quotes"]
+----
+# systemd-cgls -u SAP.slice
+Unit SAP.slice (/SAP.slice):
+├─saphostagent.service
+│ ├─2630 /usr/sap/hostctrl/exe/saphostexec pf=/usr/sap/hostctrl/exe/host_profile -systemd
+│ ├─2671 /usr/sap/hostctrl/exe/sapstartsrv pf=/usr/sap/hostctrl/exe/host_profile -D
+│ └─3591 /usr/sap/hostctrl/exe/saposcol -l -w60 pf=/usr/sap/hostctrl/exe/host_profile
+└─SAP{sapsid}_{sapino}.service
+  ├─ 1257 hdbcompileserver
+  ├─ 1274 hdbpreprocessor
+  ├─ 1353 hdbindexserver -port 3{sapino}03
+  ├─ 1356 hdbxsengine -port 3{sapino}07
+  ├─ 2077 hdbwebdispatcher
+  ├─ 2300 hdbrsutil --start --port 3{sapino}03 --volume 3 --volumesuffix mnt00001/hdb00003.00003 --identifier 1644426276
+  ├─28462 /usr/sap/{sapsid}/HDB{sapino}/exe/sapstartsrv pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31314 sapstart pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31372 /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/trace/hdb.sap{sapsid}_HDB{sapino} -d -nw -f /usr/sap/{sapsid}/HDB{sapino}/{sapnode1}/daemon.ini pf=/usr/sap/{sapsid}/SYS/profile/{sapsid}_HDB{sapino}_{sapnode1}
+  ├─31479 hdbnameserver
+  └─32201 hdbrsutil --start --port 3{sapino}01 --volume 1 --volumesuffix mnt00001/hdb00001 --identifier 1644426203
+----
+The SAP hostagent `saphostagent.service` and the instance´s `sapstartsrv` `SAP{sapsid}_{sapino}.service`
+are running in the `SAP.slice`.
+See also manual pages systemctl(8) and systemd-cgls(8) for details.

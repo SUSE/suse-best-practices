@@ -1,0 +1,451 @@
+:docinfo:
+// :doctype: article
+
+// defining article ID
+[#art-sap-dme-main]
+
+// Load document variables
+include::SAP-DME-Variables.adoc[]
+
+:idprefix: sec-
+:idseparator: -
+:is-sap-dme:
+
+:eic: Edge Integration Cell
+
+:env-rancherRegistries:
+
+= SAP {dme} on SUSE
+
+== Introduction
+
+This document describes how to prepare your infrastructure to install {dme} on {rke} using {rancher}.
+It guides you through the following steps:
+
+* Installing {rancher}
+* Setting up {rke} clusters
+* Deploying required components for {dme}
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Supported and used versions
+
+The following support matrix lists the software versions used in this guide.
+
+[cols="1,1"]
+|===
+|Product | Version
+
+|{slm} | {slm_version}
+|{rke} | 1.34     
+|{rancher} | {rancher_version}
+|{lh} | {lh_version}
+|{cm} | {cm_version}
+|{metallb} | {metallb_version} 
+|{pg} | {pg_version}
+|{istio} | {istio_version}
+|{dex} | {dex_version}
+|{eso} | {eso_version}
+|{strimzi} | {strimzi_version}
+
+|===
+
+[IMPORTANT]
+====
+You can use other versions, but they are not tested.
+====
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Prerequisites
+
+* Get subscriptions for:
+** {rancher4SAP} *
+** {sle_ha} **
+
++++*+++ The {rancher4SAP} subscription contains support for all required components like {slm}, {rancher} and {lh}.
+
++++**+++ Only needed if you want to set up {rancher} in a high availability setup.
+
+Additionally,
+
+* check the storage requirements.
+
+* get an SAP S-user ID to access software and documentation from SAP.
+
+* read the relevant SAP documentation:
+
+** https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/
+
+** https://me.sap.com/notes/3513927
+
+[IMPORTANT]
+====
+SAP provides an overview of tested Kubernetes versions which need to be taken into account before deploying {dme}:
+https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/release-process-and-strategy?locale=en-US#tested-kubernetes-distributions-and-versions
+
+The same applies for the databases known to work with {dme}:
+https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/postgresql-database?locale=en-US
+
+Before installing the clusters, ensure that you meet all SAP requirements.
+====
+
+
+
+++++
+<?pdfpagebreak?>
+++++
+
+// == Landscape Overview
+
+//TODO
+
+== Installing {slm} {slm_version}
+You can install {slm} {slm_version} using several methods. This best practice guide uses the graphical installer. 
+However, for cloud-native deployments, we recommend using infrastructure-as-code technologies to automate deployment 
+and lifecycle management.
+
+include::SAP-EIC-SLEMicro.adoc[SLEMicro]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing {rancher} cluster
+
+At this point, the operating system is installed on every Kubernetes node, and you are ready to install the {rancher} cluster.
+
+// Referring to the landscape overview, we now focus on how to set up the upper section of the graphic below:
+
+// image::SAP-EIC-Architecture-Rancher.svg[title=Architecture SUSE Rancher Prime,scaledwidth=99%,opts=inline,Embedded]
+
+include::SAP-K8s-HA.adoc[tags=**]
+
+include::SAPDI3-Rancher.adoc[tags=**]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing RKE2 using {rancher}
+
+After having installed the {rancher} cluster, use it to create {rke} clusters for {dme}.
+SAP recommends setting up separate development and QA systems for {dme} in addition to a production landscape. 
+
+// Both can be configured similarly using {rancher}, as described in this chapter.
+// Referring to the landscape overview, we now focus on the lower section of the graphic below:
+
+// image::SAP-EIC-Architecture-RKE2.svg[title=Architecture Overview RKE2,scaledwidth=99%,opts=inline,Embedded]
+
+
+include::SAP-Rancher-RKE2-Installation.adoc[tags=!install-rke2-harvester]
+
+++++
+<?pdfpagebreak?>
+++++
+
+[#preparingStorage]
+== Preparing storage
+
+To make storage available for Kubernetes workloads, prepare the selected storage solution. 
+This chapter describes how to set up storage and prepare it for {dme}.
+
+include::SAP-Edge-Longhorn.adoc[leveloffset=1]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Installing mandatory infrastructure components for {dme}
+
+// TODO: add more details on what components are mandatory and which are optional, for example kafka, gateways, etc.
+This chapter presents an example setup for {metallb} and {reg}.
+
+NOTE: Keep in mind that the following instructions might differ from the deployment required for your specific infrastructure and use cases.
+
+=== Logging in to {rac}
+
+To access {rac}, log in using the console and Helm client.
+The easiest way to do so is to use the built-in shell in {rancher}. 
+To open the shell, navigate to the cluster and select *Kubectl Shell*:
+
+image::EIC-Rancher-Kubectl-Button.png[title=Rancher Shell Access,scaledwidth=99%]
+
+A shell will open:
+
+image::EIC-Rancher-Kubectl-Shell.png[title=Rancher Shell Overview,scaledwidth=99%]
+
+
+To log in to {rac}, proceed as follows:
+
+[source, bash]
+----
+helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
+----
+
+
+=== Preparing the {dme} name space
+
+Several subsequent components, such as Istio, Dex, ESO, and {dme}, require the target name space to exist first.
+
+Create the `dm-edge` name space:
+
+[source,bash]
+----
+kubectl create namespace dm-edge
+----
+
+Follow the instructions in <<imagePullSecret>> to ensure the `application-collection` secret is available in the `dm-edge` name space.
+
+=== Installing {metallb} on Kubernetes cluster
+
+The following chapter guides through the installation and configuration of {metallb} on a Kubernetes cluster used for {dme}.
+
+Before proceeding, ensure that the following networking resources are available for configuration:
+
+* A static IP address allocated for the {metallb} _IPAddressPool_. This address must be outside the DHCP pool range, but routable within the network cluster.
+* A configured DNS record (A or AAAA) matching the desired domain name that points directly to the allocated IP address.
+
+The DNS name is used later in this guide and is called *<LB-address>*.
+
+TIP: If you do not control the DNS and are running a proof-of-concept setup, append _.sslip.io_ to your IP address. 
+*Do not use this approach in production environments.*
+
+include::SAP-EIC-Metallb.adoc[Metallb, leveloffset=2]
+
+
+=== Installing {reg} (optional)
+
+include::SAP-Edge-Registry.adoc[tags=intro]
+
+NOTE: Installing {reg} is optional when deploying {dme}. To proceed without a {reg}, skip to <<Gateways>>.
+
+include::SAP-Edge-Registry.adoc[leveloffset=1, tags=prerequisites;deploy;prepare-registry;proxy-cache-project]
+
+==== Updating Helm values for the Proxy Cache
+
+To route image requests through the newly created {reg} Proxy Cache (configured in <<prepareRegistryProject>>), you must update the SAP {dme} Helm `values.yaml` file.
+
+Locate the `global.dockerRegistry` parameter in your custom `values.yaml` file and update it to point to your {reg} FQDN and the specific proxy cache project name.
+
+Modify your `values.yaml` file as follows:
+
+[source, yaml]
+----
+global:
+  dockerRegistry: "<PRIVATE_REGISTRY_FQDN>/<PROXY_PROJECT_NAME>"
+  # Example: "suse-registry.example.com/proxy-cache-project"
+  security:
+    imageCredentials:
+      username: "<SPR_USERNAME>"
+      password: "<SPR_PASSWORD>"
+----
+
+NOTE: Ensure that the user name and password provided in the `imageCredentials` block correspond to a registry account that has at least read permissions (`Pull` role) assigned within the specified proxy project.
+
+
+
+=== Installing Cert-Manager
+
+This chapter describes how to install `cert-manager` and prepare it for the usage with other mandatory components like the Gateways or {dex}.
+
+include::SAP-Edge-Cert-Manager.adoc[leveloffset=1, tags=!intro]
+
+
+=== Gateways
+
+{dme} requires a Kubernetes Ingress Controller to be installed in the cluster, which handles the traffic routing to {dme} components.
+As of today, there are two supported Gateways:
+
+* Istio
+* NGINX
+
+This chapter describes how to deploy both of them and how to prepare them for {dme}.
+
+==== Istio
+
+include::SAP-DME-Istio.adoc[leveloffset=2, tags=**]
+
+==== NGINX
+
+[WARNING]
+====
+Ingress NGINX reached end of life in March 2026. For more information, see https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/.
+Thus, we recommend using {istio} with {dme}.
+====
+
+By default, NGINX is deployed on {rke} for {rke} cluster versions earlier than 1.36. 
+This means, unless you opt out in the {rancher} UI during cluster creation or use installation script suffixes when using the installation script, 
+NGINX is deployed on those clusters.
+
+For {rke} clusters after version 1.36, you can still select NGINX in the {rancher} UI during cluster creation.
+
+
+=== Database
+
+SAP {dme} requires a database to operate. While embedded databases can be used for PoC purposes, an external database is recommended for production environments.
+
+==== Installing {pg}
+
+This chapter describes how to set up an external {pg} database for the {dme} deployment.
+
+include::SAP-DME-PostgreSQL.adoc[leveloffset=3]
+
+// ==== MSSQL
+
+//TODO
+// https://documentation.suse.com/sbp/third-party/html/SBP-SLES-SQL/index.html
+
+=== Installing {dex}
+
+This chapter covers the deployment of {dex} for the usage with {dme}.
+
+[IMPORTANT]
+====
+Refer to https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/use-external-dex[official SAP  documentation] to get latest information about the configuration of {dex}.
+====
+
+For the purpose of this guide, the installation of {dex} within a Kubernetes cluster and how to expose it through {istio} or NGINX is described.
+For the {dme} setup, this can be the same cluster used for the {dme} workload.
+
+include::SAP-DME-Dex.adoc[leveloffset=2, tags=!intro]
+
+[#kafkaLIR]
+=== Installing Kafka
+
+include::SAP-DME-Kafka.adoc[tags=**]
+
+=== External Secrets Operator (ESO)
+
+include::SAP-DME-ExternalSecretsOperator.adoc[tags=intro]
+
+NOTE: Installing {eso} is optional when deploying {dme}. 
+Without {eso}, you must manage passwords and credentials manually in the Helm values file.
+To proceed without {eso}, skip to <<Deploying {dme}>>.
+
+include::SAP-DME-ExternalSecretsOperator.adoc[tags=main, leveloffset=+1]
+
+++++
+<?pdfpagebreak?>
+++++
+
+==  Deploying {dme}
+
+At this point, all mandatory components are installed and you are ready to deploy {dme}.
+First, create an edge device as described in https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/create-edge-device.
+
+Afterward, follow the instructions at https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/install-with-helm. 
+Skip the certificate creation, as certificates were created in previous chapters.
+
+If you followed this entire guide, you can find an example of what the _values.yaml_ looks like:
+
+[IMPORTANT]
+====
+The following excerpt shows an example using {istio}, {dex}, {pg} and Kafka with values described in this guide. 
+For clarity, it displays the values without the External Secrets option.
+====
+
+[source, yaml]
+----
+deviceId: '<your-device-id>'
+connectionString: <your-connection-string>
+global:
+    tenantId: '<your-tenant>'
+    dockerRegistry: '<RSBC-Repository-URL>'
+    gateway:
+        hostname: <LB-address>
+    storageClass: longhorn
+    uaaUrl: '<your-uaaURL>'
+    uaaClientId: <your-uaaClient>
+    uaaClientSecret: <your-uaaClient-Password>
+    ingressType: istio
+    istioNamespace: istio-system
+    ingressCACertificate: tls-secret-cacert
+    ingressServerCertificate: tls-secret
+    dex:
+        useEmbedded: false
+    dexIssuer: https://<dex-server-URL>
+    dexCACertificate: dex-ca-secret
+    dexClient:
+        clientID: sap-dm-edge-client
+        clientSecret: super-secret-password-shared-with-sap-dm
+    idpLogoutUrl: https://<your-Rancher-URL>/oidc/logout
+    database:
+        useEmbedded: false
+        type: postgresql
+        auth:
+            host: "postgres-rw.edgedb.svc.cluster.local"
+            port: 5432
+            database: "edgedb"
+            username: "appuser"
+            password: "<your_password>"
+    kafka:
+        useEmbedded: false
+        auth:
+          brokers: 'kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092'
+          username: 'kafka-user'
+          password: '<YOUR_DECODED_KAFKA_PASSWORD>'
+    security:
+        imageCredentials:
+            username: <RBSC-docker-registry-username>
+            password: <RBSC-docker-registry-password>
+        externalSecrets:
+            enabled: false
+    size: production
+edge-object-store:
+    storageClass: longhorn
+    hasRWXSupport: true
+----
+
+To get a better understanding of the values, refer to https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/helm-values
+
+When the `helm install` command succeeds, {dme} is deployed and ready to use.
+For subsequent steps, follow the official SAP documentation at https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/enable-and-trigger-initial-load?locale=en-US
+
+++++
+<?pdfpagebreak?>
+++++
+
+[#Appendix]
+== Appendix
+
+//TODO add links back to all mandatory components
+
+include::SAP-EIC-ImagePullSecrets.adoc[tags=!eic-harvester-links;!eic-links,leveloffset=+2]
+
+++++
+<?pdfpagebreak?>
+++++
+
+include::SAP-EIC-LoginRegistryApplicationCollection.adoc[tags=general-login;dme-reference,leveloffset=+2]
+
+=== Fully removing {rancher}
+
+include::SAP-EIC-General.adoc[tags=rancher-cleanup]
+
+=== Adding a registry
+
+include::SAP-EIC-General.adoc[tags=rancher-registries]
+
+
+++++
+<?pdfpagebreak?>
+++++
+
+:leveloffset: 0
+
+// Standard SUSE Best Practices includes
+== Legal notice
+include::common_sbp_legal_notice.adoc[]
+
+++++
+<?pdfpagebreak?>
+++++
+
+// Standard SUSE Best Practices includes
+:leveloffset: 0
+include::common_gfdl1.2_i.adoc[]

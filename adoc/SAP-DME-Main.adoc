@@ -11,8 +11,6 @@ include::SAP-DME-Variables.adoc[]
 :idseparator: -
 :is-sap-dme:
 
-:eic: Edge Integration Cell
-
 :env-rancherRegistries:
 
 = SAP {dme} on SUSE
@@ -43,7 +41,7 @@ The following support matrix lists the software versions used in this guide.
 |{rancher} | {rancher_version}
 |{lh} | {lh_version}
 |{cm} | {cm_version}
-|{metallb} | {metallb_version} 
+|{metallb} | {metallb_version}
 |{pg} | {pg_version}
 |{istio} | {istio_version}
 |{dex} | {dex_version}
@@ -54,7 +52,8 @@ The following support matrix lists the software versions used in this guide.
 
 [IMPORTANT]
 ====
-You can use other versions, but they are not tested.
+The table above lists the component versions that were most recently tested at the time of publication of this guide.
+You can use other versions, but they might not been tested.
 ====
 
 ++++
@@ -81,7 +80,9 @@ Additionally,
 
 ** https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/
 
-** https://me.sap.com/notes/3513927
+** https://me.sap.com/notes/2852243
+
+** https://me.sap.com/notes/3785276
 
 [IMPORTANT]
 ====
@@ -109,7 +110,7 @@ You can install {slm} {slm_version} using several methods. This best practice gu
 However, for cloud-native deployments, we recommend using infrastructure-as-code technologies to automate deployment 
 and lifecycle management.
 
-include::SAP-EIC-SLEMicro.adoc[SLEMicro]
+include::SAP-Edge-SLEMicro.adoc[tags=**]
 
 ++++
 <?pdfpagebreak?>
@@ -140,6 +141,9 @@ SAP recommends setting up separate development and QA systems for {dme} in addit
 // Referring to the landscape overview, we now focus on the lower section of the graphic below:
 
 // image::SAP-EIC-Architecture-RKE2.svg[title=Architecture Overview RKE2,scaledwidth=99%,opts=inline,Embedded]
+
+Before deploying {rke}, ensure that the desired version is supported for {dme}. The supported versions can be found at: +
+https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/release-process-and-strategy?locale=en-US
 
 
 include::SAP-Rancher-RKE2-Installation.adoc[tags=!install-rke2-harvester]
@@ -184,7 +188,7 @@ To log in to {rac}, proceed as follows:
 
 [source, bash]
 ----
-helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
+helm registry login dp.apps.rancher.io/charts -u <YOUR_USER> -p <YOUR-TOKEN>
 ----
 
 
@@ -192,14 +196,14 @@ helm registry login dp.apps.rancher.io/charts -u <yourUser> -p <your-token>
 
 Several subsequent components, such as Istio, Dex, ESO, and {dme}, require the target name space to exist first.
 
-Create the `dm-edge` name space:
+Create the `{dme_namespace}` name space:
 
-[source,bash]
+[source,bash, subs="attributes"]
 ----
-kubectl create namespace dm-edge
+kubectl create namespace {dme_namespace}
 ----
 
-Follow the instructions in <<imagePullSecret>> to ensure the `application-collection` secret is available in the `dm-edge` name space.
+Follow the instructions in <<imagePullSecret>> to ensure the `application-collection` secret is available in the `{dme_namespace}` name space.
 
 === Installing {metallb} on Kubernetes cluster
 
@@ -210,19 +214,19 @@ Before proceeding, ensure that the following networking resources are available 
 * A static IP address allocated for the {metallb} _IPAddressPool_. This address must be outside the DHCP pool range, but routable within the network cluster.
 * A configured DNS record (A or AAAA) matching the desired domain name that points directly to the allocated IP address.
 
-The DNS name is used later in this guide and is called *<LB-address>*.
+The DNS name is used later in this guide and is called *<LB_ADDRESS>*.
 
 TIP: If you do not control the DNS and are running a proof-of-concept setup, append _.sslip.io_ to your IP address. 
 *Do not use this approach in production environments.*
 
-include::SAP-EIC-Metallb.adoc[Metallb, leveloffset=2]
+include::SAP-EIC-Metallb.adoc[leveloffset=2]
 
 
 === Installing {reg} (optional)
 
 include::SAP-Edge-Registry.adoc[tags=intro]
 
-NOTE: Installing {reg} is optional when deploying {dme}. To proceed without a {reg}, skip to <<Gateways>>.
+NOTE: Installing {reg} is optional when deploying {dme}. To proceed without a {reg}, skip to <<Installing Cert-Manager>>.
 
 include::SAP-Edge-Registry.adoc[leveloffset=1, tags=prerequisites;deploy;prepare-registry;proxy-cache-project]
 
@@ -268,7 +272,7 @@ This chapter describes how to deploy both of them and how to prepare them for {d
 
 ==== Istio
 
-include::SAP-DME-Istio.adoc[leveloffset=2, tags=**]
+include::SAP-DME-Istio.adoc[leveloffset=3, tags=**]
 
 ==== NGINX
 
@@ -333,7 +337,31 @@ include::SAP-DME-ExternalSecretsOperator.adoc[tags=main, leveloffset=+1]
 <?pdfpagebreak?>
 ++++
 
-==  Deploying {dme}
+== Set up {so} (optional)
+
+Setting up {so} and to gather metrics of you {dme} cluster is optional but highly recommended.
+
+HINT:: If you already have a {so}, you can use it for your {dme} workload clusters.
+
+// TODO: check if this is true:
+IMPORTANT:: {so} does not require an additional subscription at it is included in the subscription of {rancher4sap}
+
+The general recommendation for {so} is to run it on a separate cluster and to use it to monitor several workload clusters.
+The following graphic visualizes a setup, where you will use {so} to observe clusters of {dme}, Edge Integration Cell and non-SAP workload clusters.
+
+image::SAP-DME-Observability-Architecture.svg[title=SUSE Observability Architecture,scaledwidth=99%]
+
+include::SAP-Edge-Observability.adoc[tags=intro]
+
+HINT:: Setting up your {so} cluster in a manner so SAP can access it, can help debugging issues within your {dme} clusters.
+
+include::SAP-Edge-Observability.adoc[tags=!intro]
+
+++++
+<?pdfpagebreak?>
+++++
+
+== Deploying {dme}
 
 At this point, all mandatory components are installed and you are ready to deploy {dme}.
 First, create an edge device as described in https://help.sap.com/docs/sap-digital-manufacturing/setup-and-operations-guide-for-sap-digital-manufacturing-for-edge-computing/create-edge-device.
@@ -351,29 +379,29 @@ For clarity, it displays the values without the External Secrets option.
 
 [source, yaml]
 ----
-deviceId: '<your-device-id>'
-connectionString: <your-connection-string>
+deviceId: '<YOUR_DEVICE_ID>'
+connectionString: <YOUR_CONNECTION_STRING>
 global:
-    tenantId: '<your-tenant>'
-    dockerRegistry: '<RSBC-Repository-URL>'
+    tenantId: '<YOUR_TENANT>'
+    dockerRegistry: '<RSBC_REPOSITORY_URL>'
     gateway:
-        hostname: <LB-address>
+        hostname: <LB_ADDRESS>
     storageClass: longhorn
-    uaaUrl: '<your-uaaURL>'
-    uaaClientId: <your-uaaClient>
-    uaaClientSecret: <your-uaaClient-Password>
+    uaaUrl: '<YOUR_UAAURL>'
+    uaaClientId: <YOUR_UAACLIENT>
+    uaaClientSecret: <YOUR_UAACLIENT_PASSWORD>
     ingressType: istio
     istioNamespace: istio-system
     ingressCACertificate: tls-secret-cacert
     ingressServerCertificate: tls-secret
     dex:
         useEmbedded: false
-    dexIssuer: https://<dex-server-URL>
+    dexIssuer: https://<YOUR_DEX_URL>
     dexCACertificate: dex-ca-secret
     dexClient:
         clientID: sap-dm-edge-client
         clientSecret: super-secret-password-shared-with-sap-dm
-    idpLogoutUrl: https://<your-Rancher-URL>/oidc/logout
+    idpLogoutUrl: https://<YOUR_RANCHER_URL>/oidc/logout
     database:
         useEmbedded: false
         type: postgresql
@@ -382,7 +410,7 @@ global:
             port: 5432
             database: "edgedb"
             username: "appuser"
-            password: "<your_password>"
+            password: "<YOUR_PASSWORD>"
     kafka:
         useEmbedded: false
         auth:
@@ -391,8 +419,8 @@ global:
           password: '<YOUR_DECODED_KAFKA_PASSWORD>'
     security:
         imageCredentials:
-            username: <RBSC-docker-registry-username>
-            password: <RBSC-docker-registry-password>
+            username: <RBSC_DOCKER_REGISTRY_USERNAME>
+            password: <RBSC_DOCKER_REGISTRY_PASSWORD>
         externalSecrets:
             enabled: false
     size: production
@@ -412,8 +440,6 @@ For subsequent steps, follow the official SAP documentation at https://help.sap.
 
 [#Appendix]
 == Appendix
-
-//TODO add links back to all mandatory components
 
 include::SAP-EIC-ImagePullSecrets.adoc[tags=!eic-harvester-links;!eic-links,leveloffset=+2]
 
